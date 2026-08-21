@@ -12,7 +12,13 @@ import { cn } from "@/lib/utils";
  * with it installed — skip it for these small, fixed-size assets rather
  * than chase the optimizer bug.
  */
-export function BrandMark({ variant = "compact", className }: { variant?: "compact" | "full"; className?: string }) {
+export function BrandMark({
+  variant = "compact",
+  className,
+}: {
+  variant?: "compact" | "full" | "wordmark";
+  className?: string;
+}) {
   if (variant === "full") {
     return (
       <div className={cn("flex items-center", className)}>
@@ -33,6 +39,31 @@ export function BrandMark({ variant = "compact", className }: { variant?: "compa
           priority
           unoptimized
           className="hidden h-9 w-auto dark:block"
+        />
+      </div>
+    );
+  }
+
+  if (variant === "wordmark") {
+    return (
+      <div className={cn("flex items-center", className)}>
+        <Image
+          src="/logos/logo-wordmark-black.png"
+          alt="ASODITECH"
+          width={1446}
+          height={283}
+          priority
+          unoptimized
+          className="h-8 w-auto dark:hidden"
+        />
+        <Image
+          src="/logos/logo white.png"
+          alt="ASODITECH"
+          width={1204}
+          height={216}
+          priority
+          unoptimized
+          className="hidden h-8 w-auto dark:block"
         />
       </div>
     );

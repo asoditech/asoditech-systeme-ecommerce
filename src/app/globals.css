@@ -144,3 +144,25 @@
     @apply font-sans;
   }
 }
+
+/* Soft color blobs behind the /connexion glass card — breathe slowly so the
+   frosted card has something moving to refract. */
+@keyframes blob-breathe-a {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.55; }
+  50% { transform: translate(-50%, -50%) scale(1.12); opacity: 0.75; }
+}
+@keyframes blob-breathe-b {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.4; }
+  50% { transform: translate(-50%, -50%) scale(1.15); opacity: 0.6; }
+}
+@keyframes blob-breathe-c {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.35; }
+  50% { transform: translate(-50%, -50%) scale(1.1); opacity: 0.55; }
+}
+.animate-blob-breathe-a { animation: blob-breathe-a 11s ease-in-out infinite; }
+.animate-blob-breathe-b { animation: blob-breathe-b 14s ease-in-out infinite; }
+.animate-blob-breathe-c { animation: blob-breathe-c 17s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-blob-breathe-a, .animate-blob-breathe-b, .animate-blob-breathe-c { animation: none; }
+}
