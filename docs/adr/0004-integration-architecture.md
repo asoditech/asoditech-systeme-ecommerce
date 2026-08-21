@@ -1,7 +1,14 @@
 # ADR 0004 — Integration architecture
 
 ## Status
-Accepted (2026-08-21)
+Accepted (2026-08-21). **Superseded for WooCommerce and Shopify
+specifically** by `docs/adr/0010-woocommerce-integration.md` (Phase 20)
+and `docs/adr/0011-shopify-integration.md` (Phase 21), which implement
+real adapters — this document remains the source of truth for every
+other still-scaffolded provider (ad platforms, WhatsApp, email, Google
+Sheets, AI provider) and for the parts of the shared connection model
+(the `Integration`/`SyncRun` registry, credential encryption) 0010/0011
+reuse rather than replace.
 
 ## Context
 The system must eventually connect to WooCommerce, Shopify, delivery
@@ -33,40 +40,68 @@ anything password-shaped; never use `bcryptjs` for anything that needs to
 be read back.
 
 ### What's actually built vs. what's a boundary
-`connectIntegrationAction` (WooCommerce and Shopify only — the two
-"initial planned integrations" per the brief) lets an operator store a
-site URL and encrypted API key/secret. This **only stores configuration**.
-It does not call the WooCommerce/Shopify API, does not verify the
-credentials work, does not import or export anything. The Integrations
-page UI says this explicitly ("aucune synchronisation automatique n'est
-encore active"). Marking `status = CONNECTE` here means "credentials are
-configured," not "verified live connection" — this distinction matters and
-must not be blurred in future UI copy.
+**WooCommerce** and **Shopify** both now have real adapters — a real
+"Tester la connexion" that performs an authenticated request, and real
+product/order/customer/stock synchronization — see
+`docs/adr/0010-woocommerce-integration.md` and
+`docs/adr/0011-shopify-integration.md`, which supersede this section for
+those two providers specifically.
 
 The other seven providers (Meta Ads, Google Ads, TikTok Ads, WhatsApp,
-Email, Google Sheets, AI Provider) are shown on the Integrations page as
-planned/unavailable, with no configuration UI — building credential forms
-for seven providers with no adapter behind them would be pure UI surface
-with no function.
+Email, Google Sheets, AI Provider) still only get `connectIntegrationAction`
+(store a site URL and encrypted API key/secret — status lands on
+`CONFIGURE`, never implying a verified connection; no API call, no
+verification, no import/export) and are shown on the Integrations page as
+planned/unavailable beyond that, with no configuration UI — building
+credential forms for seven providers with no adapter behind them would be
+pure UI surface with no function.
 
 ### Product/order mapping readiness
 `Product.source` / `Product.externalId` and `Order.source` /
-`Order.externalId` exist so a future WooCommerce/Shopify import can write
-into a `Product`/`Order` row that's traceable back to its external origin,
-without ever needing external-platform-specific fields on the core models.
-The mapping/transform logic itself (an adapter layer translating a
-WooCommerce product payload into a `Product.create()` call) does not exist
-yet — there's no live connection to map from.
+`Order.externalId` exist so an external import can write into a
+`Product`/`Order` row that's traceable back to its external origin,
+without ever needing external-platform-specific fields on the core
+models. The WooCommerce and Shopify adapters now do exactly this — see
+`docs/adr/0010-woocommerce-integration.md` and
+`docs/adr/0011-shopify-integration.md`. The remaining providers in this
+system (ad platforms, WhatsApp, email, Google Sheets, AI) have no
+product/order concept of their own to map.
+
+## Audit addendum (2026-08-21 A–G pre-integration hardening)
+`connectIntegrationAction` previously returned the full `Integration` record
+to the client, including `credentialsEncrypted`. Even though the value is
+ciphertext (not plaintext), it must never cross the Server→Client boundary
+at all — the client has no legitimate use for it, and shipping ciphertext
+unnecessarily widens the attack surface for offline brute-force if the
+encryption key is ever compromised elsewhere. Fixed: the action now returns
+only `{ id }}`.
+
+**Open finding, not fixed this pass** (flagged for a deliberate future
+decision rather than silently resolved): this ADR's own "must not be
+blurred" warning above is only enforced in body copy today. The
+`IntegrationStatus` enum has no "configured but not verified" value distinct
+from `CONNECTE`, so the Integrations page badge renders a plain green
+"Connecté" the moment credentials are saved — before any real connectivity
+check exists. A future enum value (e.g. `CONFIGURE_NON_VERIFIE`) would let
+the badge itself carry the distinction this ADR already commits to, instead
+of relying on adjacent page text. Deferred rather than changed now because
+it touches a shared enum and every status-label call site — a schema-level
+decision, not a trivial fix.
 
 ## Explicitly deferred
-- **Any real API adapter** (WooCommerce REST client, Shopify Admin API
-  client, Meta/Google/TikTok ad reporting clients, WhatsApp Business API,
-  email sending, Google Sheets import/export, an LLM provider client).
-  Building one without a live account to test against would produce
-  untested, likely-broken code — worse than not building it.
-- **Webhook receivers** for any provider (e.g. WooCommerce order-created
-  webhooks). The brief requires webhook signature verification once these
-  exist; there's nothing to verify yet.
+- **Any real API adapter for the remaining providers** (Meta/Google/TikTok
+  ad reporting clients, WhatsApp Business API, email sending, Google
+  Sheets import/export, an LLM provider client). Building one without a
+  live account to test against would produce untested, likely-broken code
+  — worse than not building it. WooCommerce and Shopify are no longer in
+  this list — see `docs/adr/0010-woocommerce-integration.md` and
+  `docs/adr/0011-shopify-integration.md`.
+- **Webhook receivers for the remaining providers.** WooCommerce's
+  order.created/order.updated and Shopify's orders/create,
+  orders/updated, orders/cancelled, refunds/create webhooks are now
+  implemented with signature verification — see
+  `docs/adr/0010-woocommerce-integration.md` and
+  `docs/adr/0011-shopify-integration.md`.
 - **Sync scheduling/retry policy.** `SyncRun` has the fields for it
   (`itemsProcessed`, `itemsFailed`, `errorSummary`) but no scheduler calls
   it.

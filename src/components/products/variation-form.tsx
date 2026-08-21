@@ -78,6 +78,7 @@ export function VariationForm({ productId }: { productId: string }) {
                   type="button"
                   variant="ghost"
                   size="icon"
+                  aria-label="Supprimer cet attribut"
                   onClick={() => setAttrs((prev) => prev.filter((_, j) => j !== i))}
                   disabled={attrs.length === 1}
                 >

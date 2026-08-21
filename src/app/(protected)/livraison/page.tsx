@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Truck, Package2 } from "lucide-react";
+import { Truck, Package2, PackageCheck, PackageX, Percent } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
@@ -7,6 +7,8 @@ import { KpiCard } from "@/components/kpi-card";
 import { CreateShipmentDialog } from "@/components/delivery/create-shipment-dialog";
 import { ShipmentStatusSelect } from "@/components/delivery/shipment-status-select";
 import { ProviderForm } from "@/components/delivery/provider-form";
+import { ProviderConnectionStatus, ProviderConnectionControls } from "@/components/delivery/provider-connection";
+import { ShipmentProviderControls } from "@/components/delivery/shipment-provider-controls";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -17,6 +19,7 @@ import {
   listShipments,
   getDeliveryStats,
   listOrdersAwaitingShipment,
+  listAvailableDeliveryConnectors,
 } from "@/lib/queries/delivery";
 import { formatCurrency, formatDate, formatOrderNumber, formatPercent } from "@/lib/format";
 import { SHIPMENT_STATUS_LABELS, SHIPPING_PROVIDER_TYPE_LABELS } from "@/lib/status-labels";
@@ -24,15 +27,18 @@ import type { ShipmentStatusValue } from "@/lib/validation/delivery";
 
 export const metadata = { title: "Livraison — ASODITECH Gestion E-commerce" };
 
+const TERMINAL_SHIPMENT_STATUSES = ["LIVRE", "ANNULE", "RETOURNE"];
+
 export default async function LivraisonPage() {
   const user = await requirePermission("delivery.view");
   const canManage = hasPermission(user.role, "delivery.manage");
 
-  const [stats, providers, { shipments }, awaitingShipment] = await Promise.all([
+  const [stats, providers, { shipments }, awaitingShipment, connectors] = await Promise.all([
     getDeliveryStats(),
     listShippingProviders(),
     listShipments({}),
     canManage ? listOrdersAwaitingShipment() : Promise.resolve([]),
+    listAvailableDeliveryConnectors(),
   ]);
 
   return (
@@ -40,13 +46,15 @@ export default async function LivraisonPage() {
       <PageHeader title="Livraison" description="Expéditions, prestataires et taux de livraison réussie." />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Expéditions totales" value={String(stats.total)} />
-        <KpiCard label="Livrées" value={String(stats.delivered)} />
-        <KpiCard label="Échecs" value={String(stats.failed)} />
+        <KpiCard label="Expéditions totales" value={String(stats.total)} icon={Truck} tone="primary" />
+        <KpiCard label="Livrées" value={String(stats.delivered)} icon={PackageCheck} tone="success" />
+        <KpiCard label="Échecs" value={String(stats.failed)} icon={PackageX} tone="danger" />
         <KpiCard
           label="Taux de livraison réussie"
           value={stats.successRate !== null ? formatPercent(stats.successRate) : null}
           unavailableReason="Aucune expédition"
+          icon={Percent}
+          tone="info"
         />
       </div>
 
@@ -69,7 +77,9 @@ export default async function LivraisonPage() {
                     <TableHead>Client</TableHead>
                     <TableHead>Prestataire</TableHead>
                     <TableHead>Suivi</TableHead>
+                    <TableHead>Coût</TableHead>
                     <TableHead>Statut</TableHead>
+                    {canManage && <TableHead />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -82,7 +92,18 @@ export default async function LivraisonPage() {
                       </TableCell>
                       <TableCell>{s.order.customer.fullName}</TableCell>
                       <TableCell className="text-muted-foreground">{s.provider.name}</TableCell>
-                      <TableCell className="text-muted-foreground">{s.trackingNumber ?? "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {s.trackingUrl ? (
+                          <a href={s.trackingUrl} target="_blank" rel="noreferrer" className="hover:underline">
+                            {s.trackingNumber ?? "Suivre"}
+                          </a>
+                        ) : (
+                          (s.trackingNumber ?? "—")
+                        )}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {s.cost !== null ? formatCurrency(s.cost.toString(), s.order.currency) : "Non disponible"}
+                      </TableCell>
                       <TableCell>
                         {canManage ? (
                           <ShipmentStatusSelect shipmentId={s.id} currentStatus={s.status as ShipmentStatusValue} />
@@ -90,6 +111,16 @@ export default async function LivraisonPage() {
                           <StatusBadge status={s.status} labels={SHIPMENT_STATUS_LABELS} />
                         )}
                       </TableCell>
+                      {canManage && (
+                        <TableCell>
+                          {s.externalId && (
+                            <ShipmentProviderControls
+                              shipmentId={s.id}
+                              canCancel={!TERMINAL_SHIPMENT_STATUSES.includes(s.status)}
+                            />
+                          )}
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -148,7 +179,9 @@ export default async function LivraisonPage() {
                     <TableHead>Nom</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Expéditions</TableHead>
-                    <TableHead>Statut</TableHead>
+                    <TableHead>Actif</TableHead>
+                    <TableHead>Connexion</TableHead>
+                    {canManage && <TableHead />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -160,6 +193,14 @@ export default async function LivraisonPage() {
                       <TableCell>
                         <Badge variant={p.isActive ? "default" : "secondary"}>{p.isActive ? "Actif" : "Inactif"}</Badge>
                       </TableCell>
+                      <TableCell>{p.type === "API" ? <ProviderConnectionStatus status={p.connectionStatus} /> : "—"}</TableCell>
+                      {canManage && (
+                        <TableCell>
+                          {p.type === "API" && (
+                            <ProviderConnectionControls providerId={p.id} providerKey={p.providerKey} connectors={connectors} />
+                          )}
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>

@@ -48,73 +48,89 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/*
+ * ASODITECH brand palette — a deep corporate blue accent over a neutral
+ * slate scale in light mode; a genuinely dark, near-black "creative dark
+ * mode" (not just an inverted gray) in dark mode. The sidebar now follows
+ * the active theme like every other surface (light in light mode, near
+ * black — deeper than the page background, for depth — in dark mode)
+ * rather than staying permanently dark. Values are Tailwind v4's own
+ * blue/slate oklch scale in light mode; dark mode's near-black tones are
+ * deliberately near-neutral (very low chroma) rather than navy-tinted
+ * gray, for a richer, higher-contrast look against the vivid blue accent.
+ */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: oklch(0.984 0.003 247.858); /* slate-50 */
+  --foreground: oklch(0.208 0.042 265.755); /* slate-900 */
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.208 0.042 265.755);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.208 0.042 265.755);
+  --primary: oklch(0.546 0.245 262.881); /* blue-600 */
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.968 0.007 247.896); /* slate-100 */
+  --secondary-foreground: oklch(0.279 0.041 260.031); /* slate-800 */
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.551 0.027 264.364); /* slate-500 */
+  --accent: oklch(0.97 0.014 254.604); /* blue-50 */
+  --accent-foreground: oklch(0.379 0.146 265.522); /* blue-800 */
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
+  --border: oklch(0.929 0.013 255.508); /* slate-200 */
+  --input: oklch(0.929 0.013 255.508);
+  --ring: oklch(0.546 0.245 262.881);
+  --chart-1: oklch(0.546 0.245 262.881);
+  --chart-2: oklch(0.656 0.196 253.8);
+  --chart-3: oklch(0.769 0.147 251.5);
+  --chart-4: oklch(0.446 0.043 257.281);
+  --chart-5: oklch(0.279 0.041 260.031);
+  --radius: 0.5rem;
+  /* Sidebar follows the light theme: same white surface as cards, subtle
+     border, sidebar-primary matches the page's own blue accent. */
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.279 0.041 260.031); /* slate-800 */
+  --sidebar-primary: oklch(0.546 0.245 262.881); /* blue-600 */
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-accent: oklch(0.968 0.007 247.896); /* slate-100 */
+  --sidebar-accent-foreground: oklch(0.208 0.042 265.755); /* slate-900 */
+  --sidebar-border: oklch(0.929 0.013 255.508); /* slate-200 */
+  --sidebar-ring: oklch(0.546 0.245 262.881);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --background: oklch(0.1 0.006 285); /* near-true black, barely-there cool tint */
+  --foreground: oklch(0.97 0.004 260);
+  --card: oklch(0.15 0.009 275); /* elevated surface, clearly lighter than background */
+  --card-foreground: oklch(0.97 0.004 260);
+  --popover: oklch(0.16 0.01 275);
+  --popover-foreground: oklch(0.97 0.004 260);
+  --primary: oklch(0.68 0.19 258); /* vivid blue, boosted for pop against near-black */
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.2 0.012 275);
+  --secondary-foreground: oklch(0.97 0.004 260);
+  --muted: oklch(0.19 0.011 275);
+  --muted-foreground: oklch(0.64 0.02 260);
+  --accent: oklch(0.22 0.05 258); /* blue-tinted, not gray — a "creative" accent surface */
+  --accent-foreground: oklch(0.82 0.12 258);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.68 0.19 258);
+  --chart-1: oklch(0.68 0.19 258);
+  --chart-2: oklch(0.74 0.16 253);
+  --chart-3: oklch(0.82 0.12 251);
+  --chart-4: oklch(0.64 0.02 260);
+  --chart-5: oklch(0.87 0.02 253);
+  /* Sidebar follows the dark theme too, but deeper than the card surface
+     — true near-black, for the same "sidebar recedes, content lifts"
+     depth cue premium dark dashboards (Linear, Vercel) use. */
+  --sidebar: oklch(0.06 0.005 285);
+  --sidebar-foreground: oklch(0.75 0.015 260);
+  --sidebar-primary: oklch(0.68 0.19 258);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.17 0.02 270);
+  --sidebar-accent-foreground: oklch(0.99 0 0);
+  --sidebar-border: oklch(1 0 0 / 6%);
+  --sidebar-ring: oklch(0.68 0.19 258);
 }
 
 @layer base {

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { MapPin, Plus } from "lucide-react";
+import { MapPin, Plus, Wallet, ShoppingCart, Receipt, CalendarClock } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
@@ -39,17 +39,26 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Total dépensé" value={stats.totalSpent ? formatCurrency(stats.totalSpent.toString()) : "0,00 MAD"} />
-        <KpiCard label="Commandes" value={String(stats.ordersCount)} />
+        <KpiCard
+          label="Total dépensé"
+          value={stats.totalSpent ? formatCurrency(stats.totalSpent.toString()) : "0,00 MAD"}
+          icon={Wallet}
+          tone="primary"
+        />
+        <KpiCard label="Commandes" value={String(stats.ordersCount)} icon={ShoppingCart} tone="violet" />
         <KpiCard
           label="Panier moyen"
           value={stats.avgOrderValue ? formatCurrency(stats.avgOrderValue.toString()) : null}
           unavailableReason="Aucune commande"
+          icon={Receipt}
+          tone="success"
         />
         <KpiCard
           label="Dernière commande"
+          tone="info"
           value={stats.lastOrderAt ? formatDate(stats.lastOrderAt) : null}
           unavailableReason="Aucune commande"
+          icon={CalendarClock}
         />
       </div>
 

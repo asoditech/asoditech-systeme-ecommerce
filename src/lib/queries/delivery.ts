@@ -1,6 +1,8 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import "@/lib/integrations/delivery/providers"; // populates the registry — see that module's own doc comment
+import { listDeliveryProviders } from "@/lib/integrations/delivery/registry";
 import type { Prisma, ShipmentStatus } from "@prisma/client";
 
 const PAGE_SIZE = 25;
@@ -57,4 +59,19 @@ export async function listOrdersAwaitingShipment() {
     orderBy: { createdAt: "asc" },
     take: 25,
   });
+}
+
+/**
+ * Serializable summary of the delivery-provider adapters actually
+ * registered on this deployment (never the full adapter object, which
+ * carries functions and can't cross the Server -> Client boundary — see
+ * docs/adr/0012-delivery-provider-integration.md). Empty in production
+ * today; see src/lib/integrations/delivery/providers/index.ts.
+ */
+export function listAvailableDeliveryConnectors(): { key: string; displayName: string; capabilities: string[] }[] {
+  return listDeliveryProviders().map((adapter) => ({
+    key: adapter.key,
+    displayName: adapter.displayName,
+    capabilities: [...adapter.capabilities],
+  }));
 }

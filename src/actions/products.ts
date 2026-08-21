@@ -11,6 +11,7 @@ import {
   createProductVariationSchema,
 } from "@/lib/validation/product";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
+import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import type { Category } from "@prisma/client";
 
 function normalizeOptional(value: string | null | undefined): string | null {
@@ -41,34 +42,45 @@ export async function createProductAction(formData: FormData): Promise<ActionRes
     return actionError("Un produit avec ce SKU existe déjà.", { sku: ["SKU déjà utilisé."] });
   }
 
-  const product = await prisma.$transaction(async (tx) => {
-    const created = await tx.product.create({
-      data: {
-        name: parsed.data.name,
-        sku: parsed.data.sku,
-        description: normalizeOptional(parsed.data.description),
-        categoryId: normalizeOptional(parsed.data.categoryId),
-        price: parsed.data.price,
-        salePrice: parsed.data.salePrice ?? null,
-        cost: parsed.data.cost ?? null,
-        status: parsed.data.status,
-        trackInventory: parsed.data.trackInventory,
-        lowStockThreshold: parsed.data.lowStockThreshold,
-        createdById: user.id,
-      },
-    });
+  let product;
+  try {
+    product = await prisma.$transaction(async (tx) => {
+      const created = await tx.product.create({
+        data: {
+          name: parsed.data.name,
+          sku: parsed.data.sku,
+          description: normalizeOptional(parsed.data.description),
+          categoryId: normalizeOptional(parsed.data.categoryId),
+          price: parsed.data.price,
+          salePrice: parsed.data.salePrice ?? null,
+          cost: parsed.data.cost ?? null,
+          status: parsed.data.status,
+          trackInventory: parsed.data.trackInventory,
+          lowStockThreshold: parsed.data.lowStockThreshold,
+          createdById: user.id,
+        },
+      });
 
-    if (created.trackInventory) {
-      const defaultWarehouse = await tx.warehouse.findFirst({ where: { isDefault: true } });
-      if (defaultWarehouse) {
-        await tx.inventoryItem.create({
-          data: { warehouseId: defaultWarehouse.id, productId: created.id, quantityOnHand: 0 },
-        });
+      if (created.trackInventory) {
+        const defaultWarehouse = await tx.warehouse.findFirst({ where: { isDefault: true } });
+        if (defaultWarehouse) {
+          await tx.inventoryItem.create({
+            data: { warehouseId: defaultWarehouse.id, productId: created.id, quantityOnHand: 0 },
+          });
+        }
       }
-    }
 
-    return created;
-  });
+      return created;
+    });
+  } catch (error) {
+    // Backstop for the rare race where two concurrent requests both pass
+    // the findUnique pre-check above before either commits. Found during
+    // the A–G audit; see docs/adr/0002-domain-model.md's audit addendum.
+    if (isUniqueConstraintError(error)) {
+      return actionError("Un produit avec ce SKU existe déjà.", { sku: ["SKU déjà utilisé."] });
+    }
+    throw error;
+  }
 
   await recordAuditEvent({
     actorType: "USER",
@@ -115,21 +127,29 @@ export async function updateProductAction(formData: FormData): Promise<ActionRes
     }
   }
 
-  const product = await prisma.product.update({
-    where: { id: parsed.data.id },
-    data: {
-      name: parsed.data.name,
-      sku: parsed.data.sku,
-      description: normalizeOptional(parsed.data.description),
-      categoryId: normalizeOptional(parsed.data.categoryId),
-      price: parsed.data.price,
-      salePrice: parsed.data.salePrice ?? null,
-      cost: parsed.data.cost ?? null,
-      status: parsed.data.status,
-      trackInventory: parsed.data.trackInventory,
-      lowStockThreshold: parsed.data.lowStockThreshold,
-    },
-  });
+  let product;
+  try {
+    product = await prisma.product.update({
+      where: { id: parsed.data.id },
+      data: {
+        name: parsed.data.name,
+        sku: parsed.data.sku,
+        description: normalizeOptional(parsed.data.description),
+        categoryId: normalizeOptional(parsed.data.categoryId),
+        price: parsed.data.price,
+        salePrice: parsed.data.salePrice ?? null,
+        cost: parsed.data.cost ?? null,
+        status: parsed.data.status,
+        trackInventory: parsed.data.trackInventory,
+        lowStockThreshold: parsed.data.lowStockThreshold,
+      },
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return actionError("Un produit avec ce SKU existe déjà.", { sku: ["SKU déjà utilisé."] });
+    }
+    throw error;
+  }
 
   await recordAuditEvent({
     actorType: "USER",
@@ -164,14 +184,22 @@ export async function createCategoryAction(formData: FormData): Promise<ActionRe
     return actionError("Ce slug est déjà utilisé.", { slug: ["Slug déjà utilisé."] });
   }
 
-  const category = await prisma.category.create({
-    data: {
-      name: parsed.data.name,
-      slug: parsed.data.slug,
-      description: normalizeOptional(parsed.data.description),
-      parentId: normalizeOptional(parsed.data.parentId),
-    },
-  });
+  let category;
+  try {
+    category = await prisma.category.create({
+      data: {
+        name: parsed.data.name,
+        slug: parsed.data.slug,
+        description: normalizeOptional(parsed.data.description),
+        parentId: normalizeOptional(parsed.data.parentId),
+      },
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return actionError("Ce slug est déjà utilisé.", { slug: ["Slug déjà utilisé."] });
+    }
+    throw error;
+  }
 
   await recordAuditEvent({
     actorType: "USER",
@@ -215,26 +243,34 @@ export async function createProductVariationAction(
     return actionError("Un SKU de variation identique existe déjà.", { sku: ["SKU déjà utilisé."] });
   }
 
-  const variation = await prisma.$transaction(async (tx) => {
-    const created = await tx.productVariation.create({
-      data: {
-        productId: parsed.data.productId,
-        sku: parsed.data.sku,
-        attributes: parsed.data.attributes,
-        price: parsed.data.price ?? null,
-        cost: parsed.data.cost ?? null,
-      },
-    });
-
-    const defaultWarehouse = await tx.warehouse.findFirst({ where: { isDefault: true } });
-    if (defaultWarehouse) {
-      await tx.inventoryItem.create({
-        data: { warehouseId: defaultWarehouse.id, variationId: created.id, quantityOnHand: 0 },
+  let variation;
+  try {
+    variation = await prisma.$transaction(async (tx) => {
+      const created = await tx.productVariation.create({
+        data: {
+          productId: parsed.data.productId,
+          sku: parsed.data.sku,
+          attributes: parsed.data.attributes,
+          price: parsed.data.price ?? null,
+          cost: parsed.data.cost ?? null,
+        },
       });
-    }
 
-    return created;
-  });
+      const defaultWarehouse = await tx.warehouse.findFirst({ where: { isDefault: true } });
+      if (defaultWarehouse) {
+        await tx.inventoryItem.create({
+          data: { warehouseId: defaultWarehouse.id, variationId: created.id, quantityOnHand: 0 },
+        });
+      }
+
+      return created;
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return actionError("Un SKU de variation identique existe déjà.", { sku: ["SKU déjà utilisé."] });
+    }
+    throw error;
+  }
 
   await recordAuditEvent({
     actorType: "USER",

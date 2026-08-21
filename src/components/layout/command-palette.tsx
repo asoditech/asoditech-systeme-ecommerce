@@ -64,9 +64,21 @@ export function CommandPalette({ permissions }: { permissions: Set<Permission> }
 
   return (
     <>
+      {/* Icon-only on narrow screens (a full-width search bar here would
+          crowd out the theme toggle/notification bell next to it) — the
+          full search-bar-with-label form only appears from `sm:` up. */}
       <Button
         variant="outline"
-        className="h-8 w-full max-w-64 justify-start gap-2 px-2.5 text-muted-foreground sm:w-64"
+        size="icon"
+        className="shrink-0 text-muted-foreground sm:hidden"
+        onClick={() => setOpen(true)}
+        aria-label="Rechercher"
+      >
+        <Search className="size-4" />
+      </Button>
+      <Button
+        variant="outline"
+        className="hidden h-8 w-64 shrink-0 justify-start gap-2 px-2.5 text-muted-foreground sm:flex"
         onClick={() => setOpen(true)}
       >
         <Search className="size-4" />

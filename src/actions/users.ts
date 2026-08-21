@@ -8,6 +8,7 @@ import { destroyAllSessionsForUser } from "@/lib/auth/session";
 import { recordAuditEvent } from "@/lib/audit";
 import { createUserSchema, updateUserStatusSchema, updateUserRoleSchema } from "@/lib/validation/user";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
+import { isUniqueConstraintError } from "@/lib/prisma-errors";
 
 /** Only OWNER may provision accounts or change roles — see docs/adr/0003-auth-and-rbac.md. */
 export async function createUserAction(formData: FormData): Promise<ActionResult<IdResult>> {
@@ -29,9 +30,17 @@ export async function createUserAction(formData: FormData): Promise<ActionResult
   }
 
   const passwordHash = await hashPassword(parsed.data.password);
-  const user = await prisma.user.create({
-    data: { name: parsed.data.name, email: parsed.data.email, passwordHash, role: parsed.data.role },
-  });
+  let user;
+  try {
+    user = await prisma.user.create({
+      data: { name: parsed.data.name, email: parsed.data.email, passwordHash, role: parsed.data.role },
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return actionError("Un utilisateur avec cet e-mail existe déjà.", { email: ["E-mail déjà utilisé."] });
+    }
+    throw error;
+  }
 
   await recordAuditEvent({
     actorType: "USER",

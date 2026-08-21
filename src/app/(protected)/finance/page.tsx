@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Receipt } from "lucide-react";
+import { Receipt, Wallet, PackageMinus, TrendingUp, ReceiptText, Truck, TrendingDown } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { KpiCard } from "@/components/kpi-card";
@@ -85,30 +85,38 @@ export default async function FinancePage({
           label="Chiffre d'affaires"
           value={formatCurrency(summary.revenue)}
           trend={trendLabel(summary.revenue, previousSummary.revenue)}
+          icon={Wallet}
+          tone="primary"
         />
         <KpiCard
           label="Coût des marchandises vendues"
           value={summary.cogsComplete ? formatCurrency(summary.cogs!) : null}
           unavailableReason="Non calculable"
           hint={!summary.cogsComplete ? "Coût d'achat manquant sur certains articles" : undefined}
+          icon={PackageMinus}
+          tone="warning"
         />
         <KpiCard
           label="Bénéfice brut"
           value={summary.grossProfit !== null ? formatCurrency(summary.grossProfit) : null}
           unavailableReason="Non calculable"
+          icon={TrendingUp}
+          tone="success"
         />
-        <KpiCard label="Dépenses enregistrées" value={formatCurrency(summary.expensesTotal)} />
-        <KpiCard label="Coût de livraison" value={formatCurrency(summary.deliveryCostTotal)} />
+        <KpiCard label="Dépenses enregistrées" value={formatCurrency(summary.expensesTotal)} icon={ReceiptText} tone="danger" />
+        <KpiCard label="Coût de livraison" value={formatCurrency(summary.deliveryCostTotal)} icon={Truck} tone="info" />
         <KpiCard
           label="Bénéfice net"
           value={summary.netProfit !== null ? formatCurrency(summary.netProfit) : null}
           unavailableReason="Non calculable"
           hint={summary.netProfit !== null ? "Basé sur les dépenses enregistrées" : undefined}
+          tone="violet"
           trend={
             summary.netProfit !== null && previousSummary.netProfit !== null
               ? trendLabel(summary.netProfit, previousSummary.netProfit)
               : undefined
           }
+          icon={TrendingDown}
         />
       </div>
 

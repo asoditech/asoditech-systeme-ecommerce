@@ -52,6 +52,9 @@ export async function createMarketingCampaignAction(formData: FormData): Promise
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
 
+  const channel = await prisma.marketingChannel.findUnique({ where: { id: parsed.data.channelId } });
+  if (!channel) return actionError("Canal marketing introuvable.");
+
   const campaign = await prisma.marketingCampaign.create({
     data: {
       channelId: parsed.data.channelId,

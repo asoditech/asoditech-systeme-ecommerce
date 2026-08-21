@@ -64,6 +64,33 @@ in this phase — month/quarter/year cover the operationally meaningful
 comparisons; daily/weekly can be added to the same `getFinanceSummary()`
 function without a schema change when there's a concrete need.
 
+## Audit addendum (2026-08-21 A–G pre-integration hardening)
+The pre-integration audit found two finance-integrity gaps:
+
+1. **Cross-period refund leakage.** `getFinanceSummary()` previously
+   attributed a refund to the period containing the refund's own
+   `createdAt`, via an independent date-scoped `prisma.refund.aggregate()`
+   call. A refund completed this month against an order sold last month
+   would then reduce *this* month's revenue while last month's figures
+   stayed unaware anything was refunded against them — a real leak of
+   financial truth across periods. Fixed by attributing every refund to its
+   **order's** period instead: the orders query now `include`s
+   `refunds: { where: { status: "COMPLETE" } }`, and both `grossRevenue` and
+   `refundsTotal` are accumulated in the same loop that walks each order's
+   items for COGS, using the order's own membership in the query's date
+   range. Covered by a test that backdates an order into a past period,
+   completes its refund "today," and asserts the refund shows up in the
+   order's period and not in today's — `tests/actions/finance.test.ts`.
+2. **`deleteExpenseAction` removed.** It existed but was unused by any UI
+   (confirmed via grep) and directly violated this ADR's own "never
+   fabricate/never silently rewrite" spirit: hard-deleting a recorded
+   expense would silently rewrite historical Finance figures for whatever
+   period it fell in, with no trace of what changed or why — the same
+   principle `AuditEvent` and `Refund`/`Payment` records already follow.
+   Removed as dead, dangerous surface rather than kept "just in case." A
+   correction should use `updateExpenseAction` or an offsetting expense
+   with an explanatory note.
+
 ## Deferred (explicitly, not silently)
 - **Profit by product / by channel** (brief §12 mentions both). The data
   to compute these exists (`OrderItem.costSnapshot`,

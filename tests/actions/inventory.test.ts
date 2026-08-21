@@ -114,4 +114,34 @@ describe("adjustInventoryAction", () => {
       expect(result.data.quantityDamaged).toBe(2);
     }
   });
+
+  it("prevents negative stock under two genuinely concurrent adjustments (audit fix)", async () => {
+    const { warehouse, product } = await seedInventoryItem(5);
+    await loginAsTestUser({ role: "WAREHOUSE" });
+
+    // Both requests read stock=5 and each individually asks to remove 5 —
+    // a stale-read pre-check would let both pass and land on -5. Only one
+    // may succeed.
+    const [first, second] = await Promise.all([
+      adjustInventoryAction(
+        formData({ productId: product.id, warehouseId: warehouse.id, type: "AJUSTEMENT_NEGATIF", quantity: "5", reason: "Sortie A" })
+      ),
+      adjustInventoryAction(
+        formData({ productId: product.id, warehouseId: warehouse.id, type: "AJUSTEMENT_NEGATIF", quantity: "5", reason: "Sortie B" })
+      ),
+    ]);
+    const results = [first, second];
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(results.filter((r) => !r.ok)).toHaveLength(1);
+
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityOnHand).toBe(0);
+  });
+
+  it("the InventoryItem exactly-one-reference DB constraint rejects a row with neither productId nor variationId (audit fix)", async () => {
+    const warehouse = await prisma.warehouse.create({ data: { name: "Entrepôt secondaire" } });
+    await expect(
+      prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, quantityOnHand: 0 } })
+    ).rejects.toThrow();
+  });
 });

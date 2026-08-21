@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { Boxes } from "lucide-react";
+import { Boxes, Tag, ShoppingBag, Wallet } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
@@ -35,17 +35,21 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Prix de vente" value={formatCurrency(product.price.toString())} />
+        <KpiCard label="Prix de vente" value={formatCurrency(product.price.toString())} icon={Tag} tone="primary" />
         <KpiCard
           label="Stock disponible"
           value={product.trackInventory ? String(totalStock) : null}
           unavailableReason="Non suivi"
           hint={isLowStock ? "Stock faible" : undefined}
+          icon={Boxes}
+          tone={isLowStock ? "danger" : "info"}
         />
-        <KpiCard label="Unités vendues" value={String(sales.unitsSold)} />
+        <KpiCard label="Unités vendues" value={String(sales.unitsSold)} icon={ShoppingBag} tone="violet" />
         <KpiCard
           label="Chiffre d'affaires généré"
           value={sales.revenue ? formatCurrency(sales.revenue.toString()) : "0,00 MAD"}
+          icon={Wallet}
+          tone="success"
         />
       </div>
 

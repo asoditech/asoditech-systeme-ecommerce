@@ -1,0 +1,294 @@
+import "server-only";
+
+import { prisma } from "@/lib/prisma";
+import { recordAuditEvent } from "@/lib/audit";
+import { canTransitionOrderStatus } from "@/lib/validation/order";
+import { isUniqueConstraintError } from "@/lib/prisma-errors";
+import { mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
+import type { ShopifyOrder } from "../types";
+import { actorAuditFields, emptySyncSummary, recordNote, type SyncActor, type SyncSummary } from "@/lib/integrations/shared";
+import type { Prisma, OrderStatus } from "@prisma/client";
+
+/**
+ * Shopify → System, one direction, always (see docs/adr/0011-shopify-integration.md
+ * — mirrors the WooCommerce integration's own reasoning). Shared by the
+ * manual "Synchroniser les commandes" action and the orders/create and
+ * orders/updated webhook handlers.
+ *
+ * Deliberately NOT done here: reserving/fulfilling internal stock — a
+ * Shopify order's stock impact already happened on Shopify's side and is
+ * reflected via the separate stock-pull reconciliation (sync/products.ts),
+ * not by re-running the internal ledger a second time.
+ *
+ * Deliberately NOT done here: reconciling line items on a re-import — a
+ * Shopify order's line items are fixed at placement; a re-import only
+ * refreshes order-level fields (status where the transition is valid,
+ * totals, customer snapshot, refund state).
+ */
+export async function importOrder(
+  order: ShopifyOrder,
+  actor: SyncActor
+): Promise<{ outcome: "imported" | "updated" | "unchanged" | "skipped"; reason?: string }> {
+  const statusMapping = mapOrderStatus(order.displayFinancialStatus, order.displayFulfillmentStatus, order.cancelledAt);
+  if (!statusMapping.ok) {
+    return { outcome: "skipped", reason: statusMapping.reason };
+  }
+
+  const customerId = await resolveCustomerForOrder(order, actor);
+  const existing = await prisma.order.findFirst({ where: { source: "SHOPIFY", externalId: order.id } });
+
+  if (existing) {
+    return updateExistingOrder(existing.id, order, statusMapping.status, actor);
+  }
+
+  try {
+    return await createImportedOrder(order, statusMapping.status, customerId, actor);
+  } catch (error) {
+    // Backstop for a genuine race (a webhook delivery and a concurrent
+    // manual sync both importing the same new Shopify order for the first
+    // time) — the unique (source, externalId) index on Order (added
+    // during Phase 20 for WooCommerce, provider-agnostic) rejects the
+    // loser's insert with P2002; treat that as "someone else just created
+    // it" and fall through to the update path. See
+    // docs/adr/0010-woocommerce-integration.md's audit addendum.
+    if (isUniqueConstraintError(error)) {
+      const winner = await prisma.order.findFirst({ where: { source: "SHOPIFY", externalId: order.id } });
+      if (winner) return updateExistingOrder(winner.id, order, statusMapping.status, actor);
+    }
+    throw error;
+  }
+}
+
+function fullName(first?: string | null, last?: string | null): string {
+  return [first, last].filter(Boolean).join(" ").trim();
+}
+
+async function resolveCustomerForOrder(order: ShopifyOrder, actor: SyncActor): Promise<string> {
+  const email = order.customer?.email ?? order.email ?? null;
+  const address = order.shippingAddress ?? order.billingAddress;
+  const name =
+    fullName(order.customer?.firstName, order.customer?.lastName) ||
+    fullName(address?.firstName, address?.lastName) ||
+    email ||
+    `Client Shopify ${order.name}`;
+  const phone = order.customer?.phone ?? order.phone ?? address?.phone ?? null;
+
+  const existing = order.customer
+    ? await prisma.customer.findFirst({ where: { source: "SHOPIFY", externalId: order.customer.id } })
+    : email
+      ? await prisma.customer.findFirst({ where: { source: "SHOPIFY", email } })
+      : null;
+
+  const fields = {
+    fullName: name,
+    email,
+    phone,
+    city: address?.city ?? null,
+    region: address?.province ?? null,
+    country: address?.country ?? "Maroc",
+  };
+
+  if (existing) {
+    await prisma.customer.update({ where: { id: existing.id }, data: fields });
+    return existing.id;
+  }
+
+  const created = await prisma.customer.create({
+    data: { ...fields, source: "SHOPIFY", externalId: order.customer?.id ?? null },
+  });
+
+  await recordAuditEvent({
+    ...actorAuditFields(actor),
+    action: "customer.created",
+    entityType: "Customer",
+    entityId: created.id,
+    newValue: { fullName: created.fullName },
+    metadata: { source: "SHOPIFY" },
+  });
+
+  return created.id;
+}
+
+function mappedOrderFields(order: ShopifyOrder) {
+  const address = order.shippingAddress ?? order.billingAddress;
+  return {
+    subtotal: order.subtotalPriceSet.amount,
+    discountTotal: order.totalDiscountsSet?.amount ?? 0,
+    shippingCost: order.totalShippingPriceSet.amount,
+    total: order.currentTotalPriceSet.amount,
+    currency: order.currentTotalPriceSet.currency,
+    shippingAddressLine1: address?.address1 ?? null,
+    shippingAddressLine2: address?.address2 ?? null,
+    shippingCity: address?.city ?? null,
+    shippingRegion: address?.province ?? null,
+    shippingCountry: address?.country ?? null,
+    shippingPhone: address?.phone ?? null,
+    notes: order.note?.trim() || null,
+  };
+}
+
+async function createImportedOrder(
+  order: ShopifyOrder,
+  status: OrderStatus,
+  customerId: string,
+  actor: SyncActor
+): Promise<{ outcome: "imported" }> {
+  const fields = mappedOrderFields(order);
+
+  const items: Prisma.OrderItemCreateManyOrderInput[] = [];
+  for (const li of order.lineItems.nodes) {
+    const product = li.product ? await prisma.product.findFirst({ where: { source: "SHOPIFY", externalId: li.product.id } }) : null;
+    const variation = li.variant ? await prisma.productVariation.findFirst({ where: { source: "SHOPIFY", externalId: li.variant.id } }) : null;
+
+    items.push({
+      productId: product?.id ?? null,
+      variationId: variation?.id ?? null,
+      nameSnapshot: li.title,
+      skuSnapshot: li.sku?.trim() || `SHOPIFY-LINE-${li.id.split("/").pop()}`,
+      unitPrice: li.originalUnitPriceSet.amount,
+      quantity: li.quantity,
+      discount: Math.max(0, li.originalTotalSet.amount - li.discountedTotalSet.amount),
+      total: li.discountedTotalSet.amount,
+      costSnapshot: variation?.cost ?? product?.cost ?? null,
+    });
+  }
+
+  const createdOrder = await prisma.order.create({
+    data: {
+      customerId,
+      status,
+      paymentStatus: status === "REMBOURSEE" ? "REMBOURSE" : order.displayFinancialStatus === "PAID" ? "PAYE" : "EN_ATTENTE",
+      paymentMethod: mapPaymentMethod(order.paymentGatewayNames),
+      source: "SHOPIFY",
+      externalId: order.id,
+      externalNumber: order.name,
+      subtotal: fields.subtotal,
+      discountTotal: fields.discountTotal,
+      shippingCost: fields.shippingCost,
+      total: fields.total,
+      currency: fields.currency,
+      shippingAddressLine1: fields.shippingAddressLine1,
+      shippingAddressLine2: fields.shippingAddressLine2,
+      shippingCity: fields.shippingCity,
+      shippingRegion: fields.shippingRegion,
+      shippingCountry: fields.shippingCountry,
+      shippingPhone: fields.shippingPhone,
+      notes: fields.notes,
+      items: { create: items },
+    },
+  });
+
+  const refunded = totalRefundedAmount(order);
+  if (refunded > 0) {
+    await prisma.refund.create({
+      data: { orderId: createdOrder.id, amount: refunded, reason: "Importé depuis Shopify", status: "COMPLETE", source: "SHOPIFY" },
+    });
+  }
+
+  await recordAuditEvent({
+    ...actorAuditFields(actor),
+    action: "order.created",
+    entityType: "Order",
+    entityId: createdOrder.id,
+    newValue: { total: fields.total.toString(), customerId },
+    metadata: { source: "SHOPIFY", externalId: createdOrder.externalId },
+  });
+
+  return { outcome: "imported" };
+}
+
+async function updateExistingOrder(
+  orderId: string,
+  order: ShopifyOrder,
+  status: OrderStatus,
+  actor: SyncActor
+): Promise<{ outcome: "updated" | "unchanged"; reason?: string }> {
+  const existing = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+  const fields = mappedOrderFields(order);
+  let changedFields = false;
+  let statusSkippedReason: string | undefined;
+
+  await prisma.$transaction(async (tx) => {
+    if (existing.status !== status) {
+      if (canTransitionOrderStatus(existing.status, status)) {
+        const result = await tx.order.updateMany({ where: { id: orderId, status: existing.status }, data: { status } });
+        if (result.count > 0) changedFields = true;
+      } else {
+        statusSkippedReason = `Commande Shopify ${order.name} : transition ${existing.status} → ${status} ignorée (déjà en cours de traitement localement).`;
+      }
+    }
+
+    const totalsChanged =
+      Number(existing.total) !== fields.total || Number(existing.subtotal) !== fields.subtotal || Number(existing.shippingCost) !== fields.shippingCost;
+    if (totalsChanged || existing.notes !== fields.notes) {
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          subtotal: fields.subtotal,
+          discountTotal: fields.discountTotal,
+          shippingCost: fields.shippingCost,
+          total: fields.total,
+          shippingAddressLine1: fields.shippingAddressLine1,
+          shippingAddressLine2: fields.shippingAddressLine2,
+          shippingCity: fields.shippingCity,
+          shippingRegion: fields.shippingRegion,
+          shippingCountry: fields.shippingCountry,
+          notes: fields.notes,
+        },
+      });
+      changedFields = true;
+    }
+
+    const refunded = totalRefundedAmount(order);
+    if (refunded > 0) {
+      const existingRefund = await tx.refund.findFirst({ where: { orderId, source: "SHOPIFY" } });
+      if (!existingRefund) {
+        await tx.refund.create({ data: { orderId, amount: refunded, reason: "Importé depuis Shopify", status: "COMPLETE", source: "SHOPIFY" } });
+        changedFields = true;
+      } else if (Number(existingRefund.amount) !== refunded) {
+        await tx.refund.update({ where: { id: existingRefund.id }, data: { amount: refunded } });
+        changedFields = true;
+      }
+      if (status === "REMBOURSEE" && existing.paymentStatus !== "REMBOURSE") {
+        await tx.order.update({ where: { id: orderId }, data: { paymentStatus: "REMBOURSE" } });
+        changedFields = true;
+      }
+    }
+  });
+
+  if (changedFields) {
+    await recordAuditEvent({
+      ...actorAuditFields(actor),
+      action: "order.updated",
+      entityType: "Order",
+      entityId: orderId,
+      metadata: { source: "SHOPIFY", via: actor.type === "INTEGRATION" ? "webhook_or_sync" : "sync" },
+    });
+  }
+
+  return changedFields ? { outcome: "updated", reason: statusSkippedReason } : { outcome: "unchanged", reason: statusSkippedReason };
+}
+
+/** Bulk order import — used by the manual "Synchroniser les commandes" action. `since` bounds the Shopify `created_at:>=` search filter. */
+export async function syncOrders(
+  client: import("../client").ShopifyClient,
+  actor: SyncActor,
+  since?: Date
+): Promise<SyncSummary> {
+  const summary = emptySyncSummary();
+
+  for await (const page of client.listAllOrders(since)) {
+    for (const order of page) {
+      try {
+        const { outcome, reason } = await importOrder(order, actor);
+        summary[outcome]++;
+        if (reason) recordNote(summary, reason);
+      } catch {
+        recordNote(summary, `Commande Shopify ${order.name} : échec d'importation.`);
+        summary.failed++;
+      }
+    }
+  }
+
+  return summary;
+}

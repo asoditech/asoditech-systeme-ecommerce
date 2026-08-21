@@ -11,12 +11,25 @@ export interface PeriodRange {
 }
 
 /**
- * Revenue = total of orders that weren't cancelled/failed, minus completed
- * refunds, in the period. COGS is summed only from order items that have a
- * costSnapshot — if any are missing, `cogsComplete` is false and the caller
- * must show that the figure is partial rather than presenting it as exact.
- * Net profit is never computed here as a single fabricated number when the
- * inputs are incomplete — see docs/adr/0007-finance-and-profit.md.
+ * Revenue = gross total of orders that weren't cancelled/failed, minus
+ * their own completed refunds, in the period. Refunds are attributed to
+ * the period of the ORDER they belong to (via the `refunds` relation on
+ * each order fetched for the period), not the refund's own date — a
+ * refund processed in a later period for an order sold in this one must
+ * still net out of THIS period's revenue, not silently leak into
+ * whichever period the refund happened to be completed in. This was fixed
+ * during the A–G audit (previously a separate, refund-date-scoped
+ * aggregate could double-count or cross-attribute refunds across period
+ * boundaries) — see docs/adr/0007-finance-and-profit.md.
+ *
+ * COGS is summed only from order items that have a costSnapshot — if any
+ * are missing, `cogsComplete` is false and the caller must show that the
+ * figure is partial rather than presenting it as exact. COGS is NOT
+ * reduced for returned/refunded orders in this phase — a known,
+ * conservative (understates gross profit, never overstates it) limitation
+ * documented in the ADR rather than an unproven reversal heuristic. Net
+ * profit is never computed here as a single fabricated number when the
+ * inputs are incomplete.
  */
 export async function getFinanceSummary(period: PeriodRange) {
   const orders = await prisma.order.findMany({
@@ -24,15 +37,20 @@ export async function getFinanceSummary(period: PeriodRange) {
       createdAt: { gte: period.from, lte: period.to },
       status: { notIn: NON_REVENUE_STATUSES },
     },
-    include: { items: true },
+    include: { items: true, refunds: { where: { status: "COMPLETE" } } },
   });
 
-  const revenue = orders.reduce((sum, o) => sum + Number(o.total), 0);
-
+  let grossRevenue = 0;
+  let refundsTotal = 0;
   let cogs = 0;
   let cogsComplete = true;
   let itemCount = 0;
+
   for (const order of orders) {
+    grossRevenue += Number(order.total);
+    for (const refund of order.refunds) {
+      refundsTotal += Number(refund.amount);
+    }
     for (const item of order.items) {
       itemCount++;
       if (item.costSnapshot === null) {
@@ -43,12 +61,6 @@ export async function getFinanceSummary(period: PeriodRange) {
     }
   }
   if (itemCount === 0) cogsComplete = false;
-
-  const refunds = await prisma.refund.aggregate({
-    where: { createdAt: { gte: period.from, lte: period.to }, status: "COMPLETE" },
-    _sum: { amount: true },
-  });
-  const refundsTotal = Number(refunds._sum.amount ?? 0);
 
   const expenses = await prisma.expense.aggregate({
     where: { date: { gte: period.from, lte: period.to } },
@@ -62,13 +74,13 @@ export async function getFinanceSummary(period: PeriodRange) {
   });
   const deliveryCostTotal = Number(deliveryCost._sum.cost ?? 0);
 
-  const netRevenue = revenue - refundsTotal;
-  const grossProfit = cogsComplete ? netRevenue - cogs : null;
+  const revenue = grossRevenue - refundsTotal;
+  const grossProfit = cogsComplete ? revenue - cogs : null;
   const netProfit = cogsComplete ? grossProfit! - expensesTotal - deliveryCostTotal : null;
 
   return {
     ordersCount: orders.length,
-    revenue: netRevenue,
+    revenue,
     cogs: cogsComplete ? cogs : null,
     cogsComplete,
     grossProfit,

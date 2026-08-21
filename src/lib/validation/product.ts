@@ -9,7 +9,7 @@ const skuSchema = z
   .max(64)
   .regex(/^[A-Za-z0-9._-]+$/, "Le SKU ne peut contenir que lettres, chiffres, points, tirets.");
 
-export const createProductSchema = z.object({
+const baseProductSchema = z.object({
   name: z.string().trim().min(2, "Le nom du produit est requis.").max(200),
   sku: skuSchema,
   description: z.string().trim().max(10000).nullish().or(z.literal("")),
@@ -22,9 +22,23 @@ export const createProductSchema = z.object({
   lowStockThreshold: z.coerce.number().int().min(0).default(5),
 });
 
-export const updateProductSchema = createProductSchema.extend({
-  id: z.string().min(1),
-});
+// A sale price above the regular price is almost always a data-entry
+// mistake (it would display as a "promotion" that costs the customer more)
+// — reject it rather than silently storing it. Found during the A–G audit;
+// see docs/adr/0002-domain-model.md's audit addendum.
+function salePriceNotAboveRegularPrice(data: { price: number; salePrice?: number | null }) {
+  return data.salePrice == null || data.salePrice <= data.price;
+}
+const salePriceRefineOptions = {
+  message: "Le prix promotionnel ne peut pas dépasser le prix normal.",
+  path: ["salePrice"] as string[],
+};
+
+export const createProductSchema = baseProductSchema.refine(salePriceNotAboveRegularPrice, salePriceRefineOptions);
+
+export const updateProductSchema = baseProductSchema
+  .extend({ id: z.string().min(1) })
+  .refine(salePriceNotAboveRegularPrice, salePriceRefineOptions);
 
 export const createCategorySchema = z.object({
   name: z.string().trim().min(2, "Le nom de la catégorie est requis.").max(120),

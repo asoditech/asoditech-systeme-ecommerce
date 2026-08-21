@@ -61,6 +61,33 @@ describe("createProductAction", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.fieldErrors?.sku).toBeTruthy();
   });
+
+  it("rejects a duplicate SKU even when both requests race past the pre-check simultaneously (audit fix)", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    // Both requests see no existing SKU via the findUnique pre-check before
+    // either commits — only the DB's unique constraint (surfaced as P2002,
+    // converted to a friendly error via isUniqueConstraintError) can catch
+    // this. A stale-read pre-check alone would let both through.
+    const [first, second] = await Promise.all([
+      createProductAction(formData({ name: "Produit A", sku: "RACE-SKU-1", price: "10" })),
+      createProductAction(formData({ name: "Produit B", sku: "RACE-SKU-1", price: "20" })),
+    ]);
+    const results = [first, second];
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(results.filter((r) => !r.ok)).toHaveLength(1);
+
+    const products = await prisma.product.findMany({ where: { sku: "RACE-SKU-1" } });
+    expect(products).toHaveLength(1);
+  });
+
+  it("rejects a sale price above the regular price (audit fix)", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const result = await createProductAction(
+      formData({ name: "Coffret", sku: "SALE-1", price: "100", salePrice: "150" })
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.fieldErrors?.salePrice).toBeTruthy();
+  });
 });
 
 describe("updateProductAction", () => {

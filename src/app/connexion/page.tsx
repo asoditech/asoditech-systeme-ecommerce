@@ -14,16 +14,18 @@ export default async function ConnexionPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
+    <div className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-3 text-center">
           <BrandMark variant="full" />
-          <div className="space-y-1">
+        </div>
+        <div className="rounded-xl border bg-card p-6 shadow-sm">
+          <div className="mb-5 space-y-1 text-center">
             <h1 className="text-lg font-semibold tracking-tight">Connexion</h1>
             <p className="text-sm text-muted-foreground">Connectez-vous à votre espace ASODITECH.</p>
           </div>
+          <LoginForm />
         </div>
-        <LoginForm />
       </div>
     </div>
   );

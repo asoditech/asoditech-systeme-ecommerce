@@ -62,6 +62,33 @@ warehouse ("Entrepôt principal") is seeded. Choosing *which* warehouse
 fulfills a given order when more than one exists is not implemented — see
 `docs/adr/0002-domain-model.md`'s deferred section.
 
+## Audit addendum (2026-08-21 A–G pre-integration hardening)
+Two hardening fixes came out of the pre-integration audit, both closing
+races rather than changing the model above:
+
+1. **DB-level "exactly one of productId/variationId" constraint.** Nothing
+   previously stopped application code from creating an `InventoryItem`
+   with both FKs set or neither, which would corrupt `applyMovement`'s
+   `findFirst` lookup (matching the wrong row, or none). Prisma 6.19.2's
+   schema DSL can't express a multi-column CHECK, so this is enforced via a
+   raw-SQL migration
+   (`prisma/migrations/20260821020000_inventory_item_exactly_one_ref_check`)
+   as defense-in-depth beneath the two application code paths
+   (`createProductAction`, `createProductVariationAction`) that already
+   only ever set one.
+
+2. **Negative-stock race in `applyMovement`.** The stock-decrement check
+   was originally a pre-transaction read-then-compare, which two concurrent
+   requests could both pass before either committed, driving
+   `quantityOnHand` negative. Fixed by applying the `increment` first, then
+   checking the *post-update* row inside the same transaction and throwing
+   (rolling back) if it went negative — Postgres's row lock during the
+   `UPDATE` itself is what closes the race, not the application check.
+   `quantityReserved` going negative (which can only arise from prior data
+   drift, not this code path) is defensively clamped to 0 rather than
+   treated as a hard error. Verified by a genuine `Promise.all([...])`
+   concurrency test in `tests/actions/inventory.test.ts`.
+
 ## Deferred (explicitly, not silently)
 - **Two-way sync with WooCommerce/Shopify inventory.** The brief is
   explicit that this must never silently overwrite external inventory

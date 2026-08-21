@@ -94,9 +94,10 @@ export const INTEGRATION_PROVIDER_LABELS: Record<string, string> = {
 };
 
 export const INTEGRATION_STATUS_LABELS: Record<string, StatusMeta> = {
-  DECONNECTE: { label: "Déconnecté", variant: "secondary" },
+  DECONNECTE: { label: "Non configuré", variant: "secondary" },
+  CONFIGURE: { label: "Configuré (non vérifié)", variant: "outline" },
   CONNECTE: { label: "Connecté", variant: "default" },
-  ERREUR: { label: "Erreur", variant: "destructive" },
+  ERREUR: { label: "Erreur de connexion", variant: "destructive" },
 };
 
 export const SYNC_RUN_STATUS_LABELS: Record<string, StatusMeta> = {

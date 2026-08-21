@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ShoppingCart, Boxes, TriangleAlert, ArrowRight } from "lucide-react";
+import { ShoppingCart, Boxes, TriangleAlert, ArrowRight, Wallet, TrendingUp, Users, Truck } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
 import { StatusBadge } from "@/components/status-badge";
@@ -45,24 +45,32 @@ export default async function TableauDeBordPage() {
               label="Chiffre d'affaires (mois)"
               value={formatCurrency(data.finance.revenue)}
               trend={trend(data.finance.revenue, data.previousFinance.revenue)}
+              icon={Wallet}
+              tone="primary"
             />
             <KpiCard
               label="Bénéfice net (mois)"
               value={data.finance.netProfit !== null ? formatCurrency(data.finance.netProfit) : null}
               unavailableReason="Non calculable"
               hint={!data.finance.cogsComplete ? "Coût d'achat manquant sur certains produits" : undefined}
+              icon={TrendingUp}
+              tone="success"
             />
           </>
         )}
         {canViewOrders && (
-          <KpiCard label="Commandes (mois)" value={String(data.finance.ordersCount)} />
+          <KpiCard label="Commandes (mois)" value={String(data.finance.ordersCount)} icon={ShoppingCart} tone="violet" />
         )}
-        {canViewCustomers && <KpiCard label="Nouveaux clients (mois)" value={String(data.newCustomersThisMonth)} />}
+        {canViewCustomers && (
+          <KpiCard label="Nouveaux clients (mois)" value={String(data.newCustomersThisMonth)} icon={Users} tone="info" />
+        )}
         {canViewDelivery && (
           <KpiCard
             label="Taux de livraison réussie"
             value={data.deliveryStats.successRate !== null ? `${(data.deliveryStats.successRate * 100).toFixed(1)}%` : null}
             unavailableReason="Aucune expédition"
+            icon={Truck}
+            tone="warning"
           />
         )}
         {canViewInventory && (
@@ -70,6 +78,8 @@ export default async function TableauDeBordPage() {
             label="Produits en stock faible"
             value={String(data.lowStockCount)}
             hint={data.lowStockCount > 0 ? "Nécessite votre attention" : undefined}
+            icon={Boxes}
+            tone={data.lowStockCount > 0 ? "danger" : "primary"}
           />
         )}
       </div>

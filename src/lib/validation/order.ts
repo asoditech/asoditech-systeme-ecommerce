@@ -51,13 +51,23 @@ export const paymentMethodSchema = z.enum([
   "AUTRE",
 ]);
 
-export const orderItemInputSchema = z.object({
-  productId: z.string().min(1).nullish(),
-  variationId: z.string().min(1).nullish(),
-  quantity: z.coerce.number().int().min(1, "La quantité doit être au moins 1."),
-  unitPrice: z.coerce.number().min(0, "Le prix unitaire doit être positif ou nul."),
-  discount: z.coerce.number().min(0).default(0),
-});
+export const orderItemInputSchema = z
+  .object({
+    productId: z.string().min(1).nullish(),
+    variationId: z.string().min(1).nullish(),
+    quantity: z.coerce.number().int().min(1, "La quantité doit être au moins 1."),
+    unitPrice: z.coerce.number().min(0, "Le prix unitaire doit être positif ou nul."),
+    discount: z.coerce.number().min(0).default(0),
+  })
+  // A per-line discount larger than the line's own gross amount would make
+  // that line's total negative — never a legitimate order, always a
+  // data-entry mistake. Reject it here rather than silently clamping, so
+  // staff notice and correct the discount instead of getting a total that
+  // doesn't match what they typed.
+  .refine((item) => item.discount <= item.unitPrice * item.quantity, {
+    message: "La remise ne peut pas dépasser le montant de la ligne.",
+    path: ["discount"],
+  });
 
 export const createOrderSchema = z.object({
   customerId: z.string().min(1, "Le client est requis."),
@@ -74,7 +84,19 @@ export const createOrderSchema = z.object({
   shippingCountry: z.string().trim().max(120).nullish().or(z.literal("")),
   shippingPhone: z.string().trim().max(30).nullish().or(z.literal("")),
   items: z.array(orderItemInputSchema).min(1, "Ajoutez au moins un article à la commande."),
-});
+})
+  // Order-level discount is on top of each line's own discount — together
+  // they must never exceed what the line items are actually worth, or the
+  // order total goes negative. See createOrderAction for how subtotal is
+  // computed server-side from these same items.
+  .refine(
+    (order) => {
+      const subtotal = order.items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
+      const itemsDiscount = order.items.reduce((sum, i) => sum + i.discount, 0);
+      return subtotal - itemsDiscount - order.discountTotal + order.shippingCost >= 0;
+    },
+    { message: "La remise dépasse le total de la commande.", path: ["discountTotal"] }
+  );
 
 export const updateOrderStatusSchema = z.object({
   id: z.string().min(1),
@@ -99,6 +121,20 @@ export const createRefundSchema = z.object({
 });
 
 export const refundStatusSchema = z.enum(["EN_ATTENTE", "APPROUVE", "REJETE", "COMPLETE"]);
+export type RefundStatusValue = z.infer<typeof refundStatusSchema>;
+
+/** Terminal: REJETE, COMPLETE. Added during the A–G audit — see docs/adr/0002. */
+export const REFUND_STATUS_TRANSITIONS: Record<RefundStatusValue, RefundStatusValue[]> = {
+  EN_ATTENTE: ["APPROUVE", "REJETE"],
+  APPROUVE: ["COMPLETE", "REJETE"],
+  REJETE: [],
+  COMPLETE: [],
+};
+
+export function canTransitionRefundStatus(from: RefundStatusValue, to: RefundStatusValue): boolean {
+  if (from === to) return false;
+  return REFUND_STATUS_TRANSITIONS[from].includes(to);
+}
 
 export const updateRefundStatusSchema = z.object({
   id: z.string().min(1),

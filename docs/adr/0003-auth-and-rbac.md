@@ -78,6 +78,21 @@ typical Moroccan e-commerce team structure — not a business requirement
 handed down explicitly. It's easy to adjust in `permissions.ts` as real
 usage reveals gaps.
 
+## Audit addendum (2026-08-21 A–G pre-integration hardening)
+The pre-integration audit found that `updateOrderPaymentStatusAction`
+allowed `paymentStatus` to be set directly to `REMBOURSE` by anyone holding
+`orders.edit`, bypassing both `orders.refund` and the `Refund` model's own
+amount validation/audit trail entirely — a caller could mark an order
+refunded without ever creating a `Refund` row. Fixed by rejecting
+`REMBOURSE` as a directly-settable value in that action outright (rather
+than just adding an `orders.refund` permission check to it), since
+`paymentStatus` reaching `REMBOURSE` should only ever be a side effect of
+`updateRefundStatusAction` transitioning a `Refund` to `COMPLETE` — see
+`docs/adr/0002-domain-model.md`. The UI
+(`src/components/orders/order-status-control.tsx`) now shows a read-only
+badge instead of an editable dropdown option once an order's
+`paymentStatus` is `REMBOURSE`.
+
 ## Consequences / scope
 - Password reset flow, email verification, and SSO are not implemented —
   not requested, and the seed script's "change the default password"

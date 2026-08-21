@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { createCustomerAction, updateCustomerAction } from "@/actions/customers";
+import {
+  createCustomerAction,
+  updateCustomerAction,
+  createCustomerAddressAction,
+  deleteCustomerAddressAction,
+} from "@/actions/customers";
 import { resetDb } from "../helpers/db";
 import { loginAsTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
@@ -90,5 +95,91 @@ describe("updateCustomerAction", () => {
     await loginAsTestUser({ role: "SALES" });
     const result = await updateCustomerAction(formData({ id: "does-not-exist", fullName: "X" }));
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("deleteCustomerAddressAction — IDOR protection (audit fix)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  it("refuses to delete an address that belongs to a different customer than claimed", async () => {
+    await loginAsTestUser({ role: "SALES" });
+    const ownerCustomer = await createCustomerAction(formData({ fullName: "Client A" }));
+    const otherCustomer = await createCustomerAction(formData({ fullName: "Client B" }));
+    if (!ownerCustomer.ok || !otherCustomer.ok) throw new Error("setup failed");
+
+    const address = await createCustomerAddressAction(
+      formData({ customerId: ownerCustomer.data.id, addressLine1: "12 Rue Atlas", city: "Casablanca" })
+    );
+    if (!address.ok) throw new Error("setup failed");
+
+    // Claim the address belongs to a different customer than it actually does.
+    const result = await deleteCustomerAddressAction(
+      formData({ id: address.data.id, customerId: otherCustomer.data.id })
+    );
+    expect(result.ok).toBe(false);
+
+    const stillExists = await prisma.customerAddress.findUnique({ where: { id: address.data.id } });
+    expect(stillExists).not.toBeNull();
+  });
+
+  it("deletes an address when the customerId matches its real owner", async () => {
+    await loginAsTestUser({ role: "SALES" });
+    const customer = await createCustomerAction(formData({ fullName: "Client A" }));
+    if (!customer.ok) throw new Error("setup failed");
+    const address = await createCustomerAddressAction(
+      formData({ customerId: customer.data.id, addressLine1: "12 Rue Atlas", city: "Casablanca" })
+    );
+    if (!address.ok) throw new Error("setup failed");
+
+    const result = await deleteCustomerAddressAction(
+      formData({ id: address.data.id, customerId: customer.data.id })
+    );
+    expect(result.ok).toBe(true);
+
+    const gone = await prisma.customerAddress.findUnique({ where: { id: address.data.id } });
+    expect(gone).toBeNull();
+  });
+});
+
+describe("createCustomerAddressAction", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  it("rejects an address for a non-existent customer instead of throwing", async () => {
+    await loginAsTestUser({ role: "SALES" });
+    const result = await createCustomerAddressAction(
+      formData({ customerId: "does-not-exist", addressLine1: "12 Rue Atlas", city: "Casablanca" })
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("only one address is marked default at a time", async () => {
+    await loginAsTestUser({ role: "SALES" });
+    const customer = await createCustomerAction(formData({ fullName: "Client A" }));
+    if (!customer.ok) throw new Error("setup failed");
+
+    await createCustomerAddressAction(
+      formData({ customerId: customer.data.id, addressLine1: "Adresse 1", city: "Casablanca", isDefault: "on" })
+    );
+    await createCustomerAddressAction(
+      formData({ customerId: customer.data.id, addressLine1: "Adresse 2", city: "Rabat", isDefault: "on" })
+    );
+
+    const addresses = await prisma.customerAddress.findMany({ where: { customerId: customer.data.id } });
+    expect(addresses.filter((a) => a.isDefault)).toHaveLength(1);
+    expect(addresses.find((a) => a.isDefault)?.addressLine1).toBe("Adresse 2");
   });
 });

@@ -106,6 +106,12 @@ model Customer {
   // Manually assigned only — no automatic segmentation logic exists yet.
   // See docs/adr/0002-domain-model.md.
   segment   CustomerSegment?
+  // Set only when this customer was created/matched from a WooCommerce
+  // order import (see docs/adr/0010-woocommerce-integration.md). Deduped by
+  // (source, externalId) when the order carries a real WC customer id, or
+  // by (source, email) for guest checkouts — never by fuzzy name matching.
+  source     RecordSource @default(INTERNE)
+  externalId String?
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
 
@@ -115,6 +121,7 @@ model Customer {
   orders      Order[]
 
   @@index([createdAt])
+  @@index([source, externalId])
   @@map("customers")
 }
 
@@ -163,6 +170,8 @@ model Category {
   slug        String   @unique
   description String?
   parentId    String?
+  source      RecordSource @default(INTERNE)
+  externalId  String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -170,6 +179,7 @@ model Category {
   children Category[] @relation("CategoryTree")
   products Product[]
 
+  @@index([source, externalId])
   @@map("categories")
 }
 
@@ -226,6 +236,8 @@ model ProductVariation {
   attributes Json
   price      Decimal? @db.Decimal(12, 2)
   cost       Decimal? @db.Decimal(12, 2)
+  source     RecordSource @default(INTERNE)
+  externalId String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -234,6 +246,7 @@ model ProductVariation {
   orderItems     OrderItem[]
 
   @@index([productId])
+  @@index([source, externalId])
   @@map("product_variations")
 }
 
@@ -245,10 +258,20 @@ model Warehouse {
   id        String   @id @default(cuid())
   name      String
   isDefault Boolean  @default(false)
+  // Set when this warehouse represents a real Shopify Location — see
+  // docs/adr/0011-shopify-integration.md. Shopify tracks inventory
+  // per-location; mapping each Location to its own Warehouse (rather than
+  // collapsing to one number) lets the existing per-warehouse
+  // InventoryItem model represent it faithfully, unlike WooCommerce (which
+  // has no location concept and only ever uses the single default
+  // warehouse).
+  source     RecordSource @default(INTERNE)
+  externalId String?
   createdAt DateTime @default(now())
 
   inventoryItems InventoryItem[]
 
+  @@index([source, externalId])
   @@map("warehouses")
 }
 
@@ -257,6 +280,12 @@ model Warehouse {
 // transaction — movements are the append-only source of truth, this table
 // exists purely so list/detail pages don't have to sum movements on every
 // read.
+//
+// DB-enforced invariant (not expressible in Prisma's schema DSL on the
+// 6.19.2 line, added via a raw-SQL migration — see
+// prisma/migrations/20260821020000_inventory_item_exactly_one_ref_check):
+// exactly one of productId/variationId must be set, never both, never
+// neither.
 model InventoryItem {
   id               String   @id @default(cuid())
   warehouseId      String
@@ -265,6 +294,13 @@ model InventoryItem {
   quantityOnHand   Int      @default(0)
   quantityReserved Int      @default(0)
   quantityDamaged  Int      @default(0)
+  // Shopify's own InventoryItem gid at this (product/variant, location)
+  // pair — a distinct resource from the Product/ProductVariation gid, and
+  // exactly what the inventorySetQuantities mutation requires as its
+  // target. Null for INTERNE/WooCommerce-backed rows (WooCommerce's stock
+  // API targets by product/variation id directly, no separate inventory
+  // item concept). See docs/adr/0011-shopify-integration.md.
+  externalId       String?
   updatedAt        DateTime @updatedAt
 
   warehouse Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
@@ -350,6 +386,9 @@ model Order {
   paymentMethod PaymentMethod      @default(PAIEMENT_LIVRAISON)
   source        RecordSource       @default(INTERNE)
   externalId    String?
+  // WooCommerce's human-readable order "number", which can differ from its
+  // numeric id (e.g. a sequential-numbering plugin). Display-only.
+  externalNumber String?
 
   subtotal      Decimal @db.Decimal(12, 2)
   discountTotal Decimal @default(0) @db.Decimal(12, 2)
@@ -391,7 +430,12 @@ model Order {
   @@index([status])
   @@index([paymentStatus])
   @@index([createdAt])
-  @@index([source, externalId])
+  // Prevents a duplicate Order under a genuine race between the order
+  // webhook and a concurrent manual sync both importing the same
+  // WooCommerce order for the first time (Postgres allows multiple NULLs
+  // in a unique index, so this never restricts INTERNE orders, which all
+  // have externalId=null). See docs/adr/0010-woocommerce-integration.md.
+  @@unique([source, externalId])
   @@map("orders")
 }
 
@@ -433,6 +477,9 @@ model Refund {
   reason        String?
   status        RefundStatus @default(EN_ATTENTE)
   processedById String?
+  // Set when this refund was imported alongside a WooCommerce order already
+  // marked "refunded" there — see docs/adr/0010-woocommerce-integration.md.
+  source        RecordSource @default(INTERNE)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
@@ -443,7 +490,8 @@ model Refund {
 }
 
 // ---------------------------------------------------------------------------
-// Delivery — see docs/adr/0006-delivery-providers.md
+// Delivery — see docs/adr/0006-delivery-providers.md and
+// docs/adr/0012-delivery-provider-integration.md (Phase 22)
 // ---------------------------------------------------------------------------
 
 enum ShippingProviderType {
@@ -457,13 +505,37 @@ model ShippingProvider {
   name      String
   type      ShippingProviderType @default(MANUEL)
   isActive  Boolean              @default(true)
-  // Non-secret adapter configuration only (e.g. default zones/rates).
-  // Real API credentials belong on Integration.credentialsEncrypted.
+  // Non-secret adapter configuration only (e.g. default zones/rates, or for
+  // an API provider, its non-secret settings such as account/warehouse id).
   config    Json?
+
+  // --- API connector fields (Phase 22) — only meaningful when type = API.
+  // See docs/adr/0012-delivery-provider-integration.md.
+  // Which registered adapter (src/lib/integrations/delivery/registry.ts)
+  // handles this row. Null for MANUEL/FLOTTE_INTERNE, and for an API
+  // provider not yet fully configured.
+  providerKey String?
+  // Mirrors IntegrationStatus's meaning exactly (see docs/adr/0010): saving
+  // credentials never implies CONNECTE, only a real "Tester la connexion"
+  // success does. Null (not DECONNECTE) for MANUEL/FLOTTE_INTERNE, whose
+  // connection status is not applicable rather than "disconnected".
+  connectionStatus      IntegrationStatus?
+  // AES-256-GCM ciphertext (src/lib/crypto.ts, same mechanism as
+  // Integration.credentialsEncrypted) — never returned to the client.
+  credentialsEncrypted  String?
+  // Capabilities the registered adapter reports supporting (see
+  // DeliveryCapability) — lets the UI show only the actions this provider
+  // instance genuinely supports instead of guessing from its type.
+  capabilities          String[]           @default([])
+  lastConnectionCheckAt DateTime?
+  lastSyncAt            DateTime?
+  lastError             String?
+
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 
-  shipments Shipment[]
+  shipments     Shipment[]
+  webhookEvents ShipmentWebhookEvent[]
 
   @@map("shipping_providers")
 }
@@ -492,6 +564,23 @@ model Shipment {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
+  // --- API connector fields (Phase 22), see
+  // docs/adr/0012-delivery-provider-integration.md. All null for shipments
+  // created against a MANUEL/FLOTTE_INTERNE provider.
+  // The provider's own shipment id, returned by createShipment — never
+  // fabricated. Unique per provider so a duplicate create request (retry,
+  // concurrent submit) can never attach two local rows to the same
+  // external shipment.
+  externalId        String?
+  // The provider's raw status string as last observed, preserved verbatim
+  // even when it doesn't map to a known local ShipmentStatus — see
+  // mapProviderStatus in the delivery integration layer. Never guessed.
+  providerStatusRaw String?
+  // Last time this shipment's status was actually fetched from the
+  // provider (manual "Synchroniser" action) — distinct from updatedAt,
+  // which also changes on a staff-entered manual status change.
+  lastSyncedAt      DateTime?
+
   updatedById String?
   order       Order            @relation(fields: [orderId], references: [id], onDelete: Restrict)
   provider    ShippingProvider @relation(fields: [providerId], references: [id], onDelete: Restrict)
@@ -500,7 +589,34 @@ model Shipment {
   @@index([orderId])
   @@index([providerId])
   @@index([status])
+  // Postgres allows multiple NULLs in a unique index, so this never
+  // restricts MANUEL/FLOTTE_INTERNE shipments (externalId always null).
+  // See docs/adr/0010-woocommerce-integration.md's identical Order pattern.
+  @@unique([providerId, externalId])
   @@map("shipments")
+}
+
+// Minimal, replay-protected record of processed delivery-provider webhook
+// deliveries — mirrors WebhookEvent's shape and guarantees exactly, but
+// scoped to ShippingProvider instead of Integration (delivery providers are
+// deliberately not modeled as an Integration row — see
+// docs/adr/0006-delivery-providers.md and
+// docs/adr/0012-delivery-provider-integration.md). No raw payload is ever
+// persisted — only id/topic/resource id/outcome.
+model ShipmentWebhookEvent {
+  id         String   @id @default(cuid())
+  providerId String
+  deliveryId String
+  topic      String
+  resourceId String?
+  status     String
+  receivedAt DateTime @default(now())
+
+  provider ShippingProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, deliveryId])
+  @@index([providerId, topic])
+  @@map("shipment_webhook_events")
 }
 
 // ---------------------------------------------------------------------------
@@ -603,8 +719,18 @@ enum IntegrationProvider {
   AI_PROVIDER
 }
 
+// DECONNECTE: never configured, or explicitly disconnected.
+// CONFIGURE: credentials saved but never (or not yet) verified by a real
+//   authenticated request — this is deliberately distinct from CONNECTE so
+//   the UI never claims a live connection merely because credentials exist.
+//   Added during Phase 20 (WooCommerce integration); see
+//   docs/adr/0004-integration-architecture.md's audit addendum and
+//   docs/adr/0010-woocommerce-integration.md.
+// CONNECTE: the most recent connection test actually succeeded.
+// ERREUR: the most recent connection test or sync attempt failed.
 enum IntegrationStatus {
   DECONNECTE
+  CONFIGURE
   CONNECTE
   ERREUR
 }
@@ -616,15 +742,20 @@ model Integration {
   // Non-secret configuration (store URLs, sync direction, flags, etc.)
   config               Json?
   // AES-256-GCM ciphertext (src/lib/crypto.ts) — never returned to the
-  // frontend as plaintext, never logged.
+  // frontend as plaintext, never logged. For WooCommerce this decrypts to
+  // { consumerKey, consumerSecret, webhookSecret }.
   credentialsEncrypted String?
   capabilities         String[]            @default([])
   lastSyncAt           DateTime?
+  // Set only when a "Tester la connexion" request actually succeeded —
+  // distinct from lastSyncAt, which covers data synchronization runs.
+  lastConnectionCheckAt DateTime?
   lastError            String?
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 
-  syncRuns SyncRun[]
+  syncRuns      SyncRun[]
+  webhookEvents WebhookEvent[]
 
   @@map("integrations")
 }
@@ -642,21 +773,56 @@ enum SyncRunStatus {
   PARTIEL
 }
 
+// One row per synchronization run, scoped to a single resource (e.g.
+// "PRODUCTS", "ORDERS", "STOCK_PUSH") rather than "everything" — so the
+// per-resource sync direction and honest per-item result breakdown (see
+// docs/adr/0010-woocommerce-integration.md) stay legible per run instead of
+// blurring together.
 model SyncRun {
   id             String        @id @default(cuid())
   integrationId  String
+  resource       String
   direction      SyncDirection
   status         SyncRunStatus @default(EN_COURS)
   startedAt      DateTime      @default(now())
   finishedAt     DateTime?
+  itemsImported  Int           @default(0)
+  itemsUpdated   Int           @default(0)
+  itemsUnchanged Int           @default(0)
+  itemsSkipped   Int           @default(0)
   itemsProcessed Int           @default(0)
   itemsFailed    Int           @default(0)
   errorSummary   String?
+  triggeredById  String?
 
   integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
 
   @@index([integrationId])
+  @@index([resource])
   @@map("sync_runs")
+}
+
+// Minimal, replay-protected record of processed webhook deliveries — no
+// raw external payload is ever persisted (see
+// docs/adr/0010-woocommerce-integration.md). `deliveryId` is the
+// provider's own per-delivery id (WooCommerce: X-WC-Webhook-Delivery-ID),
+// unique per (integration, deliveryId) so a captured-and-replayed request
+// is rejected rather than reprocessed.
+model WebhookEvent {
+  id            String   @id @default(cuid())
+  integrationId String
+  provider      IntegrationProvider
+  deliveryId    String
+  topic         String
+  resourceId    String?
+  status        String
+  receivedAt    DateTime @default(now())
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([integrationId, deliveryId])
+  @@index([integrationId, topic])
+  @@map("webhook_events")
 }
 
 // ---------------------------------------------------------------------------

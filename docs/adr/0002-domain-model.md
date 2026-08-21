@@ -95,6 +95,35 @@ reasoning: the set of currencies this system might invoice in isn't closed
 enough to justify a migration every time it changes. Default currency is
 "MAD" throughout, configurable per-order.
 
+## Audit addendum (2026-08-21 A–G pre-integration hardening)
+A full pre-integration audit (see project history) found that several status
+transitions were implemented as a blind `tx.model.update({ where: { id },
+... })` after a pre-transaction read of the current status. Two concurrent
+requests could both pass the same `canTransitionXStatus()` check against the
+same stale read, then both apply their side effects (e.g. both deduct stock
+for the same order reaching `EXPEDIEE`).
+
+**Fix, applied uniformly to `Order`, `Refund`, and `Shipment` status
+transitions**: the update is now `tx.model.updateMany({ where: { id, status:
+<the status read before the transaction> }, data: {...} })`, followed by a
+check that `result.count === 1` (throwing a local `*ConflictError` and
+converting it to a friendly French message otherwise). Postgres locks the
+row for the first UPDATE in a transaction; the second request's `WHERE`
+clause re-evaluates against the now-committed row and matches zero rows. This
+closes the race without needing an explicit `SELECT ... FOR UPDATE`, and is
+verified by genuine `Promise.all([...])` concurrency tests against the real
+test database (not mocks) in `tests/actions/orders.test.ts`,
+`tests/actions/inventory.test.ts`, `tests/actions/products.test.ts`.
+
+The same audit found that several `create` actions (Product SKU, Category
+slug, ProductVariation SKU, User email, ExpenseCategory name) only had a
+pre-transaction `findUnique` existence check, which has the identical race
+shape. These are now additionally wrapped in try/catch, converting a Postgres
+P2002 (unique constraint violation) into the same friendly error the
+pre-check produces — see `src/lib/prisma-errors.ts:isUniqueConstraintError`.
+The pre-check is kept (fast common-case UX); the P2002 catch is the
+defense-in-depth backstop for the race.
+
 ## Deferred (explicitly, not silently)
 - **Row-level multi-tenancy.** Not needed under the deployment-per-client
   model above. If ASODITECH later decides to run multiple clients from one

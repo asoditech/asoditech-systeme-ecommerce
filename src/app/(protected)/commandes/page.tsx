@@ -61,8 +61,15 @@ export default async function CommandesPage({
         <Input name="q" placeholder="N° commande, client..." defaultValue={params.q} className="max-w-56" />
         <Select name="status" defaultValue={params.status || "all"}>
           <SelectTrigger className="w-44">
+            {/* SelectValue's dynamic-label children must be a plain
+                ReactNode here, never a function — this page is a Server
+                Component and SelectValue is a Client Component, and a
+                closure can't cross that boundary (found via live browser
+                verification during the layout redesign; see the other
+                (client-component) Select usages elsewhere in the app,
+                where the function-children form is fine). */}
             <SelectValue placeholder="Statut">
-              {(value: string) => (value === "all" || !value ? "Tous les statuts" : ORDER_STATUS_LABELS[value]?.label ?? value)}
+              {params.status && params.status !== "all" ? (ORDER_STATUS_LABELS[params.status]?.label ?? params.status) : "Tous les statuts"}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -77,9 +84,9 @@ export default async function CommandesPage({
         <Select name="paymentStatus" defaultValue={params.paymentStatus || "all"}>
           <SelectTrigger className="w-48">
             <SelectValue placeholder="Paiement">
-              {(value: string) =>
-                value === "all" || !value ? "Tous les paiements" : ORDER_PAYMENT_STATUS_LABELS[value]?.label ?? value
-              }
+              {params.paymentStatus && params.paymentStatus !== "all"
+                ? (ORDER_PAYMENT_STATUS_LABELS[params.paymentStatus]?.label ?? params.paymentStatus)
+                : "Tous les paiements"}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>

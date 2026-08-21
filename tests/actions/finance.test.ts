@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { createExpenseAction } from "@/actions/finance";
+import { createOrderAction, createRefundAction, updateRefundStatusAction } from "@/actions/orders";
 import { getFinanceSummary } from "@/lib/queries/finance";
 import { resetDb } from "../helpers/db";
 import { loginAsTestUser } from "../helpers/auth";
@@ -96,5 +97,86 @@ describe("getFinanceSummary — data integrity", () => {
     expect(summary.ordersCount).toBe(1);
     expect(summary.cogs).toBe(40);
     expect(summary.grossProfit).toBe(60);
+  });
+
+  it("attributes a refund to the order's own period, not the refund's own date (audit fix)", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const customer = await prisma.customer.create({ data: { fullName: "Amine" } });
+    const warehouse = await prisma.warehouse.create({ data: { id: "default-warehouse", name: "Entrepôt", isDefault: true } });
+    const product = await prisma.product.create({ data: { name: "P", sku: "SKU-FIN-2", price: 100, cost: 40, status: "ACTIF" } });
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 10 } });
+
+    const created = await createOrderAction({
+      customerId: customer.id,
+      paymentMethod: "PAIEMENT_LIVRAISON",
+      shippingCost: 0,
+      discountTotal: 0,
+      currency: "MAD",
+      notes: "",
+      internalNotes: "",
+      shippingAddressLine1: "",
+      shippingAddressLine2: "",
+      shippingCity: "",
+      shippingRegion: "",
+      shippingCountry: "",
+      shippingPhone: "",
+      items: [{ productId: product.id, quantity: 1, unitPrice: 100, discount: 0 }],
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    // Backdate the order itself into a past period, as if it was sold last
+    // month; the refund below is processed "now" (a later period).
+    const pastPeriodStart = new Date("2025-01-01");
+    const pastPeriodEnd = new Date("2025-01-31T23:59:59");
+    await prisma.order.update({ where: { id: created.data.id }, data: { createdAt: new Date("2025-01-15") } });
+
+    const refund = await createRefundAction(formData({ orderId: created.data.id, amount: "100" }));
+    if (!refund.ok) throw new Error("setup failed");
+    await updateRefundStatusAction(formData({ id: refund.data.id, status: "APPROUVE" }));
+    await updateRefundStatusAction(formData({ id: refund.data.id, status: "COMPLETE" }));
+
+    // The order's own period (January 2025) must reflect the refund...
+    const januarySummary = await getFinanceSummary({ from: pastPeriodStart, to: pastPeriodEnd });
+    expect(januarySummary.revenue).toBe(0);
+    expect(januarySummary.refundsTotal).toBe(100);
+
+    // ...and "today" (when the refund was actually processed) must NOT
+    // show a phantom refund against orders that were never sold in it.
+    const todaySummary = await getFinanceSummary({
+      from: new Date(new Date().setHours(0, 0, 0, 0)),
+      to: new Date(new Date().setHours(23, 59, 59, 999)),
+    });
+    expect(todaySummary.refundsTotal).toBe(0);
+  });
+
+  it("does not net out a refund that is only EN_ATTENTE (not yet COMPLETE)", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const customer = await prisma.customer.create({ data: { fullName: "Amine" } });
+    const warehouse = await prisma.warehouse.create({ data: { id: "default-warehouse", name: "Entrepôt", isDefault: true } });
+    const product = await prisma.product.create({ data: { name: "P", sku: "SKU-FIN-3", price: 100, cost: 40, status: "ACTIF" } });
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 10 } });
+
+    const created = await createOrderAction({
+      customerId: customer.id,
+      paymentMethod: "PAIEMENT_LIVRAISON",
+      shippingCost: 0,
+      discountTotal: 0,
+      currency: "MAD",
+      notes: "",
+      internalNotes: "",
+      shippingAddressLine1: "",
+      shippingAddressLine2: "",
+      shippingCity: "",
+      shippingRegion: "",
+      shippingCountry: "",
+      shippingPhone: "",
+      items: [{ productId: product.id, quantity: 1, unitPrice: 100, discount: 0 }],
+    });
+    if (!created.ok) throw new Error("setup failed");
+    await createRefundAction(formData({ orderId: created.data.id, amount: "50" })); // stays EN_ATTENTE
+
+    const summary = await getFinanceSummary({ from: new Date("2020-01-01"), to: new Date("2030-01-01") });
+    expect(summary.revenue).toBe(100); // not reduced — refund never completed
+    expect(summary.refundsTotal).toBe(0);
   });
 });

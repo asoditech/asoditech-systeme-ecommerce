@@ -138,25 +138,35 @@ export async function createCustomerAddressAction(
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
 
-  if (parsed.data.isDefault) {
-    await prisma.customerAddress.updateMany({
-      where: { customerId: parsed.data.customerId },
-      data: { isDefault: false },
-    });
+  const customer = await prisma.customer.findUnique({ where: { id: parsed.data.customerId } });
+  if (!customer) {
+    return actionError("Client introuvable.");
   }
 
-  const address = await prisma.customerAddress.create({
-    data: {
-      customerId: parsed.data.customerId,
-      label: normalizeOptional(parsed.data.label),
-      addressLine1: parsed.data.addressLine1,
-      addressLine2: normalizeOptional(parsed.data.addressLine2),
-      city: parsed.data.city,
-      region: normalizeOptional(parsed.data.region),
-      country: parsed.data.country,
-      phone: normalizeOptional(parsed.data.phone),
-      isDefault: parsed.data.isDefault,
-    },
+  // Unsetting the previous default and creating the new address must
+  // commit together — a crash between the two would otherwise leave the
+  // customer with zero default addresses. Found during the A–G audit.
+  const address = await prisma.$transaction(async (tx) => {
+    if (parsed.data.isDefault) {
+      await tx.customerAddress.updateMany({
+        where: { customerId: parsed.data.customerId },
+        data: { isDefault: false },
+      });
+    }
+
+    return tx.customerAddress.create({
+      data: {
+        customerId: parsed.data.customerId,
+        label: normalizeOptional(parsed.data.label),
+        addressLine1: parsed.data.addressLine1,
+        addressLine2: normalizeOptional(parsed.data.addressLine2),
+        city: parsed.data.city,
+        region: normalizeOptional(parsed.data.region),
+        country: parsed.data.country,
+        phone: normalizeOptional(parsed.data.phone),
+        isDefault: parsed.data.isDefault,
+      },
+    });
   });
 
   await recordAuditEvent({
@@ -178,6 +188,16 @@ export async function deleteCustomerAddressAction(formData: FormData): Promise<A
   const customerId = formData.get("customerId");
   if (typeof id !== "string" || typeof customerId !== "string") {
     return actionError("Adresse invalide.");
+  }
+
+  // Verify the address actually belongs to the customer the caller claims
+  // it does, rather than trusting the two client-supplied IDs independently
+  // — otherwise a crafted request (or a stale second tab) could delete an
+  // address belonging to a different customer. Found during the A–G audit;
+  // see docs/adr/0003-auth-and-rbac.md.
+  const address = await prisma.customerAddress.findUnique({ where: { id } });
+  if (!address || address.customerId !== customerId) {
+    return actionError("Adresse introuvable pour ce client.");
   }
 
   await prisma.customerAddress.delete({ where: { id } });

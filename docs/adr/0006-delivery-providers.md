@@ -30,6 +30,35 @@ about what the abstraction actually needs).
 `delivered / total shipments` — `null` (rendered "Aucune expédition", never
 0%) when no shipments exist yet, per the Data Integrity Principle.
 
+## Audit addendum (2026-08-21 A–G pre-integration hardening)
+Two gaps found during the pre-integration audit:
+
+1. **Shipment creation had no order-status gate.** `createShipmentAction`
+   previously accepted a shipment for any order regardless of status — a
+   brand-new (`NOUVELLE`) or already-cancelled (`ANNULEE`) order could get a
+   `Shipment` row. Fixed by restricting creation to
+   `SHIPPABLE_ORDER_STATUSES = ["CONFIRMEE", "EN_PREPARATION", "ECHEC"]` (the
+   `ECHEC` case covers re-shipping after a failed delivery attempt). A
+   non-existent `providerId` is also now rejected explicitly instead of
+   failing on the FK constraint.
+2. **Order/Shipment state machines could silently diverge.** A shipment
+   reaching `LIVRE` had no effect on the linked `Order.status`, which could
+   stay `EXPEDIEE` forever even after real-world delivery. Fixed with a
+   one-directional auto-sync: when a shipment transitions to `LIVRE` and the
+   order's own transition table (`canTransitionOrderStatus`) allows
+   `EXPEDIEE → LIVREE`, the order is atomically advanced to `LIVREE` with
+   `deliveredAt` set, inside the same transaction as the shipment update. If
+   the order isn't in `EXPEDIEE` for some reason, this is skipped silently
+   rather than erroring — the shipment update is correct on its own either
+   way. Deliberately **not** extended to auto-sync `ECHEC`/`RETOURNE`
+   shipment statuses back onto the order, since those cases need staff
+   judgment (e.g. retry vs. cancel vs. refund) rather than one obvious
+   mapping — see `tests/actions/delivery.test.ts`.
+
+Both fixes use the same conditional-`updateMany` + row-count-check
+concurrency pattern documented in `docs/adr/0002-domain-model.md`'s audit
+addendum.
+
 ## Deferred (explicitly, not silently)
 - **Any real carrier API integration** (rate calculation, label
   generation, automatic tracking updates, webhook-driven status sync).

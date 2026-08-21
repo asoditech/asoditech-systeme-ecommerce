@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ORDER_STATUS_TRANSITIONS, type OrderStatusValue } from "@/lib/validation/order";
 import { ORDER_STATUS_LABELS, ORDER_PAYMENT_STATUS_LABELS } from "@/lib/status-labels";
+import { StatusBadge } from "@/components/status-badge";
 import type { OrderPaymentStatus } from "@prisma/client";
 
 export function OrderStatusControl({
@@ -103,6 +104,16 @@ export function OrderPaymentStatusControl({
 
   if (!canEdit) return null;
 
+  // REMBOURSE is derived — only set by completing a Refund (see
+  // updateOrderPaymentStatusAction, which now rejects it as a direct
+  // target). Once an order is refunded, show it as a fixed badge rather
+  // than an editable control that would just error on every option.
+  if (currentPaymentStatus === "REMBOURSE") {
+    return <StatusBadge status={currentPaymentStatus} labels={ORDER_PAYMENT_STATUS_LABELS} />;
+  }
+
+  const selectableStatuses = Object.entries(ORDER_PAYMENT_STATUS_LABELS).filter(([value]) => value !== "REMBOURSE");
+
   return (
     <Select
       value={currentPaymentStatus}
@@ -127,7 +138,7 @@ export function OrderPaymentStatusControl({
         <SelectValue>{(value: string) => ORDER_PAYMENT_STATUS_LABELS[value]?.label ?? value}</SelectValue>
       </SelectTrigger>
       <SelectContent>
-        {Object.entries(ORDER_PAYMENT_STATUS_LABELS).map(([value, meta]) => (
+        {selectableStatuses.map(([value, meta]) => (
           <SelectItem key={value} value={value}>
             {meta.label}
           </SelectItem>

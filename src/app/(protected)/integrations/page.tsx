@@ -1,6 +1,8 @@
 import { Plug } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { ConnectIntegrationDialog } from "@/components/integrations/connect-integration-dialog";
+import { WooCommerceCard } from "@/components/integrations/woocommerce-card";
+import { ShopifyCard } from "@/components/integrations/shopify-card";
 import { ConfirmActionButton } from "@/components/confirm-action-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -23,21 +25,26 @@ export default async function IntegrationsPage() {
   const canManage = hasPermission(user.role, "integrations.manage");
   const integrations = await prisma.integration.findMany();
 
-  const rows = Object.entries(INTEGRATION_PROVIDER_LABELS).map(([provider, label]) => ({
-    provider: provider as IntegrationProvider,
-    label,
-    record: integrations.find((i) => i.provider === provider),
-    configurable: CONFIGURABLE_PROVIDERS.includes(provider as IntegrationProvider),
-  }));
+  const rows = Object.entries(INTEGRATION_PROVIDER_LABELS)
+    .filter(([provider]) => provider !== "WOOCOMMERCE" && provider !== "SHOPIFY")
+    .map(([provider, label]) => ({
+      provider: provider as IntegrationProvider,
+      label,
+      record: integrations.find((i) => i.provider === provider),
+      configurable: CONFIGURABLE_PROVIDERS.includes(provider as IntegrationProvider),
+    }));
 
   return (
     <div>
       <PageHeader
         title="Intégrations"
-        description="État des connexions externes. WooCommerce et Shopify sont les premières intégrations prévues ; les adaptateurs de synchronisation seront livrés dans une phase ultérieure."
+        description="État des connexions externes. WooCommerce et Shopify disposent d'un adaptateur de synchronisation réel ; les autres intégrations restent au stade de configuration/planification — voir docs/adr/0010-woocommerce-integration.md et docs/adr/0011-shopify-integration.md."
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <WooCommerceCard canManage={canManage} />
+        <ShopifyCard canManage={canManage} />
+
         {rows.map((row) => {
           const status = row.record?.status ?? "DECONNECTE";
           const meta = INTEGRATION_STATUS_LABELS[status];
@@ -58,7 +65,7 @@ export default async function IntegrationsPage() {
                 {canManage && row.configurable && (
                   <div className="flex gap-2">
                     <ConnectIntegrationDialog provider={row.provider} label={row.label} />
-                    {row.record?.status === "CONNECTE" && (
+                    {row.record?.status && row.record.status !== "DECONNECTE" && (
                       <ConfirmActionButton
                         label="Déconnecter"
                         variant="ghost"

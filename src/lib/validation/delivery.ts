@@ -53,3 +53,56 @@ export const updateShipmentStatusSchema = z.object({
 });
 
 export type CreateShipmentInput = z.infer<typeof createShipmentSchema>;
+
+// --- API connector schemas (Phase 22) ---
+// See docs/adr/0012-delivery-provider-integration.md.
+
+/**
+ * Credentials/config are adapter-defined (see
+ * src/lib/integrations/delivery/types.ts) — this only validates the
+ * envelope (must be a JSON object), never specific field names, since no
+ * production adapter is registered yet to define them.
+ */
+export const configureDeliveryProviderApiSchema = z.object({
+  providerId: z.string().min(1),
+  providerKey: z.string().trim().min(1, "Sélectionnez un connecteur."),
+  credentialsJson: z
+    .string()
+    .trim()
+    .refine(
+      (value) => {
+        try {
+          const parsed = JSON.parse(value);
+          return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
+        } catch {
+          return false;
+        }
+      },
+      { message: "Les identifiants doivent être un objet JSON valide." }
+    ),
+  configJson: z
+    .string()
+    .trim()
+    .optional()
+    .refine(
+      (value) => {
+        if (!value) return true;
+        try {
+          const parsed = JSON.parse(value);
+          return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
+        } catch {
+          return false;
+        }
+      },
+      { message: "La configuration doit être un objet JSON valide." }
+    ),
+});
+
+export const createShipmentViaProviderSchema = z.object({
+  orderId: z.string().min(1),
+  providerId: z.string().min(1, "Le prestataire de livraison est requis."),
+  notes: z.string().trim().max(2000).nullish().or(z.literal("")),
+});
+
+export const providerIdSchema = z.object({ providerId: z.string().min(1) });
+export const shipmentIdSchema = z.object({ shipmentId: z.string().min(1) });

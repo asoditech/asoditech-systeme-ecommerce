@@ -15,6 +15,8 @@ import type { InventoryItem } from "@prisma/client";
  */
 const POSITIVE_TYPES = new Set(["AJUSTEMENT_POSITIF", "RETOUR", "RECEPTION"]);
 
+class NegativeStockError extends Error {}
+
 export async function adjustInventoryAction(formData: FormData): Promise<ActionResult<InventoryItem>> {
   const user = await requirePermissionForAction("inventory.adjust");
 
@@ -39,29 +41,46 @@ export async function adjustInventoryAction(formData: FormData): Promise<ActionR
   }
 
   const delta = POSITIVE_TYPES.has(parsed.data.type) ? parsed.data.quantity : -parsed.data.quantity;
-  if (item.quantityOnHand + delta < 0) {
-    return actionError("Cet ajustement rendrait le stock négatif.");
-  }
+  const previousQuantityOnHand = item.quantityOnHand;
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const result = await tx.inventoryItem.update({
-      where: { id: item.id },
-      data: {
-        quantityOnHand: { increment: delta },
-        ...(parsed.data.type === "ENDOMMAGE" ? { quantityDamaged: { increment: parsed.data.quantity } } : {}),
-      },
+  // The negative-stock check is done AFTER applying the increment inside
+  // the transaction, not against `item.quantityOnHand` read above — that
+  // read can be stale under concurrent adjustments (two requests both
+  // reading 3 in stock, both requesting -3, both passing a pre-check, both
+  // applying, landing on -3). Postgres locks the row for the `UPDATE`, so
+  // the second transaction's increment is applied against the first
+  // transaction's already-committed result; checking the post-update value
+  // here is what actually prevents negative stock under concurrency, not
+  // just a nicety. Found during the A–G audit; see
+  // docs/adr/0005-inventory-and-sync.md.
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.inventoryItem.update({
+        where: { id: item.id },
+        data: {
+          quantityOnHand: { increment: delta },
+          ...(parsed.data.type === "ENDOMMAGE" ? { quantityDamaged: { increment: parsed.data.quantity } } : {}),
+        },
+      });
+      if (result.quantityOnHand < 0) {
+        throw new NegativeStockError("Cet ajustement rendrait le stock négatif.");
+      }
+      await tx.inventoryMovement.create({
+        data: {
+          inventoryItemId: item.id,
+          type: parsed.data.type,
+          quantity: parsed.data.quantity,
+          reason: parsed.data.reason,
+          performedById: user.id,
+        },
+      });
+      return result;
     });
-    await tx.inventoryMovement.create({
-      data: {
-        inventoryItemId: item.id,
-        type: parsed.data.type,
-        quantity: parsed.data.quantity,
-        reason: parsed.data.reason,
-        performedById: user.id,
-      },
-    });
-    return result;
-  });
+  } catch (error) {
+    if (error instanceof NegativeStockError) return actionError(error.message);
+    throw error;
+  }
 
   await recordAuditEvent({
     actorType: "USER",
@@ -69,7 +88,7 @@ export async function adjustInventoryAction(formData: FormData): Promise<ActionR
     action: "inventory.adjusted",
     entityType: "InventoryItem",
     entityId: item.id,
-    previousValue: { quantityOnHand: item.quantityOnHand },
+    previousValue: { quantityOnHand: previousQuantityOnHand },
     newValue: { quantityOnHand: updated.quantityOnHand },
     metadata: { type: parsed.data.type, reason: parsed.data.reason },
   });
