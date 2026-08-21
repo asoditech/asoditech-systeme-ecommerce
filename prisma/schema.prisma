@@ -1,0 +1,748 @@
+// ASODITECH E-commerce Management System — core domain schema.
+// See docs/adr/ for the reasoning behind these boundaries. This system is
+// deployed as one standalone Instance per client (see docs/adr/0002), so
+// there is no tenantId column anywhere here — isolation is at the
+// deployment/database level, not the row level.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// DATABASE_URL is the pooled connection (PgBouncer) used by the app at
+// runtime; DIRECT_URL is the unpooled connection Prisma Migrate needs for
+// DDL. Locally both can point at the same local Postgres instance.
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth & RBAC — see docs/adr/0003-auth-and-rbac.md
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MANAGER
+  SALES
+  WAREHOUSE
+  DELIVERY
+  SUPPORT
+  ACCOUNTANT
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  name         String
+  passwordHash String
+  role         UserRole   @default(SALES)
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  lastLoginAt  DateTime?
+
+  sessions           Session[]
+  customersCreated   Customer[]          @relation("CustomerCreatedBy")
+  ordersCreated      Order[]             @relation("OrderCreatedBy")
+  productsCreated    Product[]           @relation("ProductCreatedBy")
+  inventoryMovements InventoryMovement[] @relation("MovementPerformedBy")
+  expensesRecorded   Expense[]           @relation("ExpenseRecordedBy")
+  shipmentsUpdated   Shipment[]          @relation("ShipmentUpdatedBy")
+  auditEvents        AuditEvent[]        @relation("AuditActorUser")
+  notifications      Notification[]
+
+  @@index([role])
+  @@map("users")
+}
+
+// Opaque, server-verified session tokens (see docs/adr/0003).
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+  lastUsedAt DateTime @default(now())
+  userAgent  String?
+  ipAddress  String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ---------------------------------------------------------------------------
+// Customers
+// ---------------------------------------------------------------------------
+
+enum CustomerSegment {
+  NOUVEAU
+  ACTIF
+  FIDELE
+  A_RISQUE
+  INACTIF
+  VIP
+}
+
+model Customer {
+  id        String           @id @default(cuid())
+  fullName  String
+  phone     String?
+  whatsapp  String?
+  email     String?
+  city      String?
+  region    String?
+  country   String           @default("Maroc")
+  notes     String?
+  tags      String[]         @default([])
+  // Manually assigned only — no automatic segmentation logic exists yet.
+  // See docs/adr/0002-domain-model.md.
+  segment   CustomerSegment?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  createdById String?
+  createdBy   User?             @relation("CustomerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  addresses   CustomerAddress[]
+  orders      Order[]
+
+  @@index([createdAt])
+  @@map("customers")
+}
+
+model CustomerAddress {
+  id           String   @id @default(cuid())
+  customerId   String
+  label        String?
+  addressLine1 String
+  addressLine2 String?
+  city         String
+  region       String?
+  country      String   @default("Maroc")
+  phone        String?
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_addresses")
+}
+
+// ---------------------------------------------------------------------------
+// Products, categories, variations
+// ---------------------------------------------------------------------------
+
+enum ProductStatus {
+  ACTIF
+  BROUILLON
+  ARCHIVE
+}
+
+// Origin of the record — internal management is the default; the others
+// exist so a future WooCommerce/Shopify adapter has somewhere to write
+// mapped products without changing this schema (see docs/adr/0004).
+enum RecordSource {
+  INTERNE
+  WOOCOMMERCE
+  SHOPIFY
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  parentId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryTree")
+  products Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id                String        @id @default(cuid())
+  name              String
+  sku               String        @unique
+  description       String?
+  categoryId        String?
+  price             Decimal       @db.Decimal(12, 2)
+  salePrice         Decimal?      @db.Decimal(12, 2)
+  cost              Decimal?      @db.Decimal(12, 2)
+  status            ProductStatus @default(BROUILLON)
+  trackInventory    Boolean       @default(true)
+  lowStockThreshold Int           @default(5)
+  source            RecordSource  @default(INTERNE)
+  externalId        String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  createdById    String?
+  createdBy      User?              @relation("ProductCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  category       Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  images         ProductImage[]
+  variations     ProductVariation[]
+  inventoryItems InventoryItem[]
+  orderItems     OrderItem[]
+
+  @@index([categoryId])
+  @@index([status])
+  @@index([source, externalId])
+  @@map("products")
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  url       String
+  altText   String?
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+model ProductVariation {
+  id         String   @id @default(cuid())
+  productId  String
+  sku        String   @unique
+  // e.g. { "Couleur": "Rouge", "Taille": "M" }
+  attributes Json
+  price      Decimal? @db.Decimal(12, 2)
+  cost       Decimal? @db.Decimal(12, 2)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  inventoryItems InventoryItem[]
+  orderItems     OrderItem[]
+
+  @@index([productId])
+  @@map("product_variations")
+}
+
+// ---------------------------------------------------------------------------
+// Inventory — see docs/adr/0005-inventory-and-sync.md
+// ---------------------------------------------------------------------------
+
+model Warehouse {
+  id        String   @id @default(cuid())
+  name      String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  inventoryItems InventoryItem[]
+
+  @@map("warehouses")
+}
+
+// Current-state cache: one row per (warehouse, product) or (warehouse,
+// variation). Kept in sync with InventoryMovement inserts inside the same
+// transaction — movements are the append-only source of truth, this table
+// exists purely so list/detail pages don't have to sum movements on every
+// read.
+model InventoryItem {
+  id               String   @id @default(cuid())
+  warehouseId      String
+  productId        String?
+  variationId      String?
+  quantityOnHand   Int      @default(0)
+  quantityReserved Int      @default(0)
+  quantityDamaged  Int      @default(0)
+  updatedAt        DateTime @updatedAt
+
+  warehouse Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  product   Product?            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variation ProductVariation?   @relation(fields: [variationId], references: [id], onDelete: Cascade)
+  movements InventoryMovement[]
+
+  @@unique([warehouseId, productId])
+  @@unique([warehouseId, variationId])
+  @@index([productId])
+  @@index([variationId])
+  @@map("inventory_items")
+}
+
+enum InventoryMovementType {
+  RECEPTION
+  VENTE
+  RETOUR
+  ENDOMMAGE
+  AJUSTEMENT_POSITIF
+  AJUSTEMENT_NEGATIF
+  RESERVATION
+  LIBERATION
+}
+
+model InventoryMovement {
+  id              String                @id @default(cuid())
+  inventoryItemId String
+  type            InventoryMovementType
+  quantity        Int
+  reason          String?
+  orderId         String?
+  performedById   String?
+  createdAt       DateTime              @default(now())
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  order         Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  performedBy   User?         @relation("MovementPerformedBy", fields: [performedById], references: [id], onDelete: SetNull)
+
+  @@index([inventoryItemId])
+  @@index([createdAt])
+  @@map("inventory_movements")
+}
+
+// ---------------------------------------------------------------------------
+// Orders — see docs/adr/0002-domain-model.md for the state machine
+// ---------------------------------------------------------------------------
+
+enum OrderStatus {
+  NOUVELLE
+  CONFIRMEE
+  EN_PREPARATION
+  EXPEDIEE
+  LIVREE
+  ANNULEE
+  RETOUR
+  REMBOURSEE
+  ECHEC
+}
+
+enum OrderPaymentStatus {
+  EN_ATTENTE
+  PAYE
+  PARTIELLEMENT_PAYE
+  ECHEC
+  REMBOURSE
+}
+
+enum PaymentMethod {
+  PAIEMENT_LIVRAISON
+  VIREMENT_BANCAIRE
+  CARTE_BANCAIRE
+  MOBILE_MONEY
+  AUTRE
+}
+
+model Order {
+  id            String             @id @default(cuid())
+  orderNumber   Int                @unique @default(autoincrement())
+  customerId    String
+  status        OrderStatus        @default(NOUVELLE)
+  paymentStatus OrderPaymentStatus @default(EN_ATTENTE)
+  paymentMethod PaymentMethod      @default(PAIEMENT_LIVRAISON)
+  source        RecordSource       @default(INTERNE)
+  externalId    String?
+
+  subtotal      Decimal @db.Decimal(12, 2)
+  discountTotal Decimal @default(0) @db.Decimal(12, 2)
+  shippingCost  Decimal @default(0) @db.Decimal(12, 2)
+  total         Decimal @db.Decimal(12, 2)
+  currency      String  @default("MAD") @db.Char(3)
+
+  // Address snapshot at time of order — never a live FK, so editing/deleting
+  // a customer address later cannot rewrite order history.
+  shippingAddressLine1 String?
+  shippingAddressLine2 String?
+  shippingCity         String?
+  shippingRegion       String?
+  shippingCountry      String?
+  shippingPhone        String?
+
+  notes         String?
+  internalNotes String?
+
+  confirmedAt DateTime?
+  shippedAt   DateTime?
+  deliveredAt DateTime?
+  cancelledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdById String?
+  createdBy   User?               @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  customer    Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  items       OrderItem[]
+  refunds     Refund[]
+  shipments   Shipment[]
+  movements   InventoryMovement[]
+  campaign    MarketingCampaign?  @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  campaignId  String?
+
+  @@index([customerId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([createdAt])
+  @@index([source, externalId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id           String   @id @default(cuid())
+  orderId      String
+  productId    String?
+  variationId  String?
+  nameSnapshot String
+  skuSnapshot  String
+  unitPrice    Decimal  @db.Decimal(12, 2)
+  quantity     Int
+  discount     Decimal  @default(0) @db.Decimal(12, 2)
+  total        Decimal  @db.Decimal(12, 2)
+  // Product cost at time of sale — snapshotted so historical margin
+  // calculations don't drift when a product's cost is edited later.
+  costSnapshot Decimal? @db.Decimal(12, 2)
+
+  order     Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product?          @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variation ProductVariation? @relation(fields: [variationId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+enum RefundStatus {
+  EN_ATTENTE
+  APPROUVE
+  REJETE
+  COMPLETE
+}
+
+model Refund {
+  id            String       @id @default(cuid())
+  orderId       String
+  amount        Decimal      @db.Decimal(12, 2)
+  reason        String?
+  status        RefundStatus @default(EN_ATTENTE)
+  processedById String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@map("refunds")
+}
+
+// ---------------------------------------------------------------------------
+// Delivery — see docs/adr/0006-delivery-providers.md
+// ---------------------------------------------------------------------------
+
+enum ShippingProviderType {
+  MANUEL
+  FLOTTE_INTERNE
+  API
+}
+
+model ShippingProvider {
+  id        String               @id @default(cuid())
+  name      String
+  type      ShippingProviderType @default(MANUEL)
+  isActive  Boolean              @default(true)
+  // Non-secret adapter configuration only (e.g. default zones/rates).
+  // Real API credentials belong on Integration.credentialsEncrypted.
+  config    Json?
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  shipments Shipment[]
+
+  @@map("shipping_providers")
+}
+
+enum ShipmentStatus {
+  EN_ATTENTE
+  EN_TRANSIT
+  LIVRE
+  ECHEC
+  RETOURNE
+  ANNULE
+}
+
+model Shipment {
+  id             String         @id @default(cuid())
+  orderId        String
+  providerId     String
+  trackingNumber String?
+  trackingUrl    String?
+  status         ShipmentStatus @default(EN_ATTENTE)
+  cost           Decimal?       @db.Decimal(12, 2)
+  failedReason   String?
+  notes          String?
+  shippedAt      DateTime?
+  deliveredAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  updatedById String?
+  order       Order            @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  provider    ShippingProvider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  updatedBy   User?            @relation("ShipmentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([providerId])
+  @@index([status])
+  @@map("shipments")
+}
+
+// ---------------------------------------------------------------------------
+// Finance — see docs/adr/0007-finance-and-profit.md
+// Revenue is derived from Order data, never stored as its own ledger.
+// ---------------------------------------------------------------------------
+
+model ExpenseCategory {
+  id       String  @id @default(cuid())
+  name     String  @unique
+  isSystem Boolean @default(false)
+
+  expenses Expense[]
+
+  @@map("expense_categories")
+}
+
+model Expense {
+  id           String   @id @default(cuid())
+  categoryId   String
+  amount       Decimal  @db.Decimal(12, 2)
+  currency     String   @default("MAD") @db.Char(3)
+  date         DateTime
+  description  String?
+  vendor       String?
+  recordedById String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  category   ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  recordedBy User?           @relation("ExpenseRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([categoryId])
+  @@index([date])
+  @@map("expenses")
+}
+
+// ---------------------------------------------------------------------------
+// Marketing — see docs/adr/0008-marketing-and-attribution.md
+// ---------------------------------------------------------------------------
+
+enum MarketingChannelType {
+  META
+  GOOGLE
+  TIKTOK
+  AUTRE
+}
+
+model MarketingChannel {
+  id       String               @id @default(cuid())
+  name     String
+  type     MarketingChannelType @default(AUTRE)
+  isActive Boolean              @default(true)
+
+  campaigns MarketingCampaign[]
+
+  @@map("marketing_channels")
+}
+
+enum CampaignStatus {
+  BROUILLON
+  ACTIVE
+  EN_PAUSE
+  TERMINEE
+}
+
+model MarketingCampaign {
+  id        String         @id @default(cuid())
+  channelId String
+  name      String
+  startDate DateTime
+  endDate   DateTime?
+  budget    Decimal?       @db.Decimal(12, 2)
+  spend     Decimal?       @db.Decimal(12, 2)
+  status    CampaignStatus @default(BROUILLON)
+  notes     String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  channel MarketingChannel @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  orders  Order[]
+
+  @@index([channelId])
+  @@map("marketing_campaigns")
+}
+
+// ---------------------------------------------------------------------------
+// Integrations — see docs/adr/0004-integration-architecture.md
+// ---------------------------------------------------------------------------
+
+enum IntegrationProvider {
+  WOOCOMMERCE
+  SHOPIFY
+  META_ADS
+  GOOGLE_ADS
+  TIKTOK_ADS
+  WHATSAPP
+  EMAIL
+  GOOGLE_SHEETS
+  AI_PROVIDER
+}
+
+enum IntegrationStatus {
+  DECONNECTE
+  CONNECTE
+  ERREUR
+}
+
+model Integration {
+  id                   String              @id @default(cuid())
+  provider             IntegrationProvider @unique
+  status               IntegrationStatus   @default(DECONNECTE)
+  // Non-secret configuration (store URLs, sync direction, flags, etc.)
+  config               Json?
+  // AES-256-GCM ciphertext (src/lib/crypto.ts) — never returned to the
+  // frontend as plaintext, never logged.
+  credentialsEncrypted String?
+  capabilities         String[]            @default([])
+  lastSyncAt           DateTime?
+  lastError            String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  syncRuns SyncRun[]
+
+  @@map("integrations")
+}
+
+enum SyncDirection {
+  IMPORT
+  EXPORT
+  BIDIRECTIONNEL
+}
+
+enum SyncRunStatus {
+  EN_COURS
+  SUCCES
+  ECHEC
+  PARTIEL
+}
+
+model SyncRun {
+  id             String        @id @default(cuid())
+  integrationId  String
+  direction      SyncDirection
+  status         SyncRunStatus @default(EN_COURS)
+  startedAt      DateTime      @default(now())
+  finishedAt     DateTime?
+  itemsProcessed Int           @default(0)
+  itemsFailed    Int           @default(0)
+  errorSummary   String?
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([integrationId])
+  @@map("sync_runs")
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+enum NotificationType {
+  STOCK_FAIBLE
+  RUPTURE_STOCK
+  NOUVELLE_COMMANDE
+  ECHEC_LIVRAISON
+  COMMANDE_RETOURNEE
+  PROBLEME_PAIEMENT
+  ERREUR_INTEGRATION
+  ECHEC_SYNCHRONISATION
+}
+
+model Notification {
+  id         String           @id @default(cuid())
+  userId     String
+  type       NotificationType
+  title      String
+  message    String
+  entityType String?
+  entityId   String?
+  isRead     Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ---------------------------------------------------------------------------
+// Settings — singleton row
+// ---------------------------------------------------------------------------
+
+model BusinessSettings {
+  id                       String   @id @default("singleton")
+  companyName              String   @default("")
+  currency                 String   @default("MAD") @db.Char(3)
+  address                  String?
+  city                     String?
+  country                  String   @default("Maroc")
+  phone                    String?
+  email                    String?
+  logoUrl                  String?
+  timezone                 String   @default("Africa/Casablanca")
+  locale                   String   @default("fr")
+  lowStockDefaultThreshold Int      @default(5)
+  orderNumberPrefix        String   @default("CMD")
+  updatedAt                DateTime @updatedAt
+
+  @@map("business_settings")
+}
+
+// ---------------------------------------------------------------------------
+// Audit log — append-only, generic. See docs/adr/0003-auth-and-rbac.md.
+// ---------------------------------------------------------------------------
+
+enum AuditActorType {
+  USER
+  SYSTEM
+  INTEGRATION
+}
+
+model AuditEvent {
+  id            String         @id @default(cuid())
+  actorType     AuditActorType
+  actorUserId   String?
+  action        String
+  entityType    String
+  entityId      String
+  previousValue Json?
+  newValue      Json?
+  metadata      Json?
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime       @default(now())
+
+  actorUser User? @relation("AuditActorUser", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([actorUserId])
+  @@map("audit_events")
+}
