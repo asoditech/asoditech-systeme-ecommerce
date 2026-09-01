@@ -72,12 +72,56 @@ pnpm test                                                # run once
 pnpm test:watch                                           # watch mode
 ```
 
+## Deployment (Vercel)
+
+This system is deployed as **one Vercel project + one PostgreSQL database
+per client instance** (see `docs/adr/0002-domain-model.md` — isolation is
+at the deployment level, there is no `tenantId`).
+
+1. **Provision a PostgreSQL database** the Vercel build and functions can
+   reach (Neon, Supabase, Vercel Postgres, …).
+
+2. **Set the project's Environment Variables** (Project → Settings →
+   Environment Variables), for every environment you deploy:
+
+   | Variable | Value |
+   | --- | --- |
+   | `DATABASE_URL` | pooled connection string (PgBouncer / port 6543 on Supabase) |
+   | `DIRECT_URL` | direct connection string (port 5432); may equal `DATABASE_URL` if there is no pooler |
+   | `AUTH_SECRET` | `openssl rand -base64 32` |
+   | `INTEGRATION_ENCRYPTION_KEY` | `openssl rand -base64 32` (base64-encoded 32 bytes) |
+
+   `NODE_ENV` is set to `production` by Vercel automatically. Without these
+   four, `next build` fails while collecting routes (`src/lib/env.ts`
+   validates them at import).
+
+3. **Build command** — leave it on the default. Vercel automatically runs
+   the `vercel-build` script when one is present, which here is
+   `prisma migrate deploy && next build`: it applies `prisma/migrations`
+   to the production DB (using `DIRECT_URL`) and then builds. `prisma
+   generate` still runs from `postinstall` and no longer needs a database
+   URL — see the comment in `prisma.config.ts`. (If you prefer, set the
+   Build Command explicitly to `pnpm vercel-build`.)
+
+4. **Seed the first owner account** once, from your machine, pointed at the
+   production database:
+
+   ```bash
+   DATABASE_URL="<prod DIRECT_URL>" SEED_OWNER_EMAIL="you@example.com" \
+     SEED_OWNER_PASSWORD="<a strong password>" pnpm exec tsx prisma/seed.ts
+   ```
+
+   `SEED_OWNER_PASSWORD` is **required** outside local dev. The seed is
+   idempotent (upsert) — safe to re-run, and it never creates business
+   data.
+
 ## Scripts
 
 | Command | Purpose |
 | --- | --- |
 | `pnpm dev` | Start the dev server |
-| `pnpm build` | Production build |
+| `pnpm build` | Production build (`next build`) |
+| `pnpm vercel-build` | `prisma migrate deploy && next build` — Vercel build command |
 | `pnpm lint` | ESLint |
 | `pnpm typecheck` | TypeScript, no emit |
 | `pnpm test` | Vitest, against `.env.test`'s database |
