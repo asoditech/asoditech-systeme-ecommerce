@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 
 const TONES = {
-  primary: { badge: "bg-blue-500/10 text-blue-600 dark:text-blue-400", bar: "bg-blue-500" },
+  primary: { badge: "bg-primary/12 text-primary", bar: "bg-primary" },
   success: { badge: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400", bar: "bg-emerald-500" },
   warning: { badge: "bg-amber-500/10 text-amber-600 dark:text-amber-400", bar: "bg-amber-500" },
   info: { badge: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400", bar: "bg-cyan-500" },

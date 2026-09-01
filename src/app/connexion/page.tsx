@@ -14,7 +14,7 @@ export default async function ConnexionPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-white p-4">
+    <div className="force-light relative flex min-h-screen items-center justify-center overflow-hidden bg-white p-4 text-foreground">
       {/* soft color blobs the glass card refracts */}
       <div
         aria-hidden

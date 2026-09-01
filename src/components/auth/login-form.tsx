@@ -5,6 +5,7 @@ import { loginAction } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FieldError } from "@/components/ui/field";
 import { useLoginTransition } from "@/components/preloader/login-transition-provider";
 
 // On success `loginAction` calls `redirect()`, and React keeps this
@@ -82,46 +83,38 @@ export function LoginForm() {
 
   return (
     <div className="space-y-6">
-      <form action={formAction} className="space-y-5">
-        <div className="space-y-1.5">
-          <Label htmlFor="email">E-mail</Label>
+      <form action={formAction} className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="email" required>
+            E-mail
+          </Label>
           <Input
             id="email"
             name="email"
             type="email"
             autoComplete="email"
             required
-            className="h-10 rounded-xl border-black/10 bg-white/70"
+            aria-invalid={state && !state.ok ? true : undefined}
+            className="rounded-xl border-black/10 bg-white/70"
           />
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="password">Mot de passe</Label>
+        <div className="space-y-2">
+          <Label htmlFor="password" required>
+            Mot de passe
+          </Label>
           <Input
             id="password"
             name="password"
             type="password"
             autoComplete="current-password"
             required
-            className="h-10 rounded-xl border-black/10 bg-white/70"
+            aria-invalid={state && !state.ok ? true : undefined}
+            className="rounded-xl border-black/10 bg-white/70"
           />
         </div>
-        {state && !state.ok && (
-          <p className="text-sm text-destructive" role="alert">
-            {state.error}
-          </p>
-        )}
-        <Button
-          type="submit"
-          size="lg"
-          disabled={isPending}
-          className="w-full rounded-xl border-0 text-white shadow-lg shadow-orange-500/25 transition hover:brightness-105 hover:shadow-orange-500/35 focus-visible:ring-orange-400/50 active:brightness-95"
-          style={{
-            backgroundColor: "#ff6a3d",
-            backgroundImage:
-              "radial-gradient(ellipse at top, #ffd93d 0%, #ff8a3d 35%, #ff3d3d 65%, transparent 75%)",
-          }}
-        >
-          {isPending ? "Connexion..." : "Se connecter"}
+        <FieldError>{state && !state.ok ? state.error : null}</FieldError>
+        <Button type="submit" size="lg" loading={isPending} className="w-full rounded-xl">
+          {isPending ? "Connexion…" : "Se connecter"}
         </Button>
       </form>
 
