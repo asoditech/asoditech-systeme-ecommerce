@@ -146,61 +146,83 @@
 }
 
 /* ---------------------------------------------------------------------------
- * Scrollbars — thin, rounded, theme-aware. Subtle at rest, a touch stronger
- * on hover. The `border + background-clip` trick insets the thumb so it reads
- * as a ~6px pill with breathing room rather than a full-width bar. Firefox
- * gets the equivalent via `scrollbar-width` / `scrollbar-color`.
+ * Scrollbars — branded to match the "orbit" preloader / login button: a warm
+ * orange pill (#ffb238 → #ff8a3d, the same gradient as the preloader's
+ * progress bar and exhaust particles) riding in a faint theme-aware groove.
+ * Rounded, inset via the `border + background-clip` trick, softly translucent
+ * at rest and full-strength on hover. Applies to the whole app — the page,
+ * the sidebar menu, and every inner scroll container. Firefox gets the
+ * closest equivalent it supports via `scrollbar-width` / `scrollbar-color`.
  * ------------------------------------------------------------------------- */
-@layer base {
-  html {
-    scrollbar-gutter: stable;
-  }
+:root {
+  --scrollbar-track: oklch(0.2 0.04 265 / 0.06); /* faint slate groove */
+}
+.dark {
+  --scrollbar-track: oklch(1 0 0 / 0.05);
+}
 
+@layer base {
   * {
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in oklch, var(--muted-foreground) 32%, transparent) transparent;
+    scrollbar-color: #ff9a44 transparent;
   }
 
   ::-webkit-scrollbar {
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
   }
   ::-webkit-scrollbar-track {
-    background: transparent;
+    background: var(--scrollbar-track);
+    border-radius: 9999px;
+    margin: 3px;
   }
   ::-webkit-scrollbar-thumb {
     border-radius: 9999px;
-    border: 3px solid transparent;
+    border: 3.5px solid transparent;
     background-clip: content-box;
-    background-color: color-mix(in oklch, var(--muted-foreground) 28%, transparent);
-    transition: background-color 0.15s ease;
+    background-color: #ff8a3d; /* fallback for no gradient support */
+    background-image: linear-gradient(
+      180deg,
+      color-mix(in oklch, #ffb238 62%, transparent),
+      color-mix(in oklch, #ff8a3d 62%, transparent)
+    );
+    transition: background-image 0.15s ease;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background-color: color-mix(in oklch, var(--muted-foreground) 48%, transparent);
+    background-image: linear-gradient(180deg, #ffc25e, #ff8a3d);
   }
   ::-webkit-scrollbar-thumb:active {
-    background-color: color-mix(in oklch, var(--muted-foreground) 60%, transparent);
+    background-image: linear-gradient(180deg, #ff8a3d, #ff6a2d);
   }
   ::-webkit-scrollbar-corner {
     background: transparent;
   }
 
-  /* Compact contexts (dropdowns, popovers, command palette, small panels)
-     get a slimmer bar so it doesn't crowd the content. */
+  /* Compact contexts (dropdowns, popovers, selects, command palette, Radix
+     ScrollArea viewports) get a slimmer bar so it doesn't crowd content. */
   [data-slot="popover-content"] ::-webkit-scrollbar,
   [data-slot="dropdown-menu-content"] ::-webkit-scrollbar,
   [data-slot="select-content"] ::-webkit-scrollbar,
   [data-slot="command"] ::-webkit-scrollbar,
   [data-radix-scroll-area-viewport]::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
   }
   [data-slot="popover-content"] ::-webkit-scrollbar-thumb,
   [data-slot="dropdown-menu-content"] ::-webkit-scrollbar-thumb,
   [data-slot="select-content"] ::-webkit-scrollbar-thumb,
   [data-slot="command"] ::-webkit-scrollbar-thumb,
   [data-radix-scroll-area-viewport]::-webkit-scrollbar-thumb {
-    border-width: 2px;
+    border-width: 2.5px;
+  }
+
+  /* Opt-out — for scroll containers where a visible bar would read as an
+     accent stripe rather than a control (e.g. the sidebar nav). */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 }
 

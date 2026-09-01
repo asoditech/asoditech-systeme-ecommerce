@@ -20,7 +20,7 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
         <div className="flex h-14 shrink-0 items-center border-b border-sidebar-border px-4">
           <BrandMark />
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="no-scrollbar flex-1 overflow-y-auto">
           <SidebarNav permissions={permissions} />
         </div>
       </aside>
@@ -38,7 +38,7 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
             <UserMenu name={user.name} role={USER_ROLE_LABELS[user.role]} />
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+        <main className="flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable] md:p-6">
           <div className="mx-auto w-full max-w-[1600px]">{children}</div>
         </main>
       </div>
