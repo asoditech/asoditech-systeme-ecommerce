@@ -1,10 +1,21 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useRef } from "react";
 import { loginAction } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useLoginTransition } from "@/components/preloader/login-transition-provider";
+
+// On success `loginAction` calls `redirect()`, and React keeps this
+// transition pending until the destination route has actually committed —
+// so `isPending` returning to false with the URL unchanged means the
+// attempt settled locally (validation error, wrong credentials, or a
+// thrown exception) rather than navigated. This grace window just lets a
+// same-tick redirect's URL update land first before we draw that
+// conclusion; it never decides the preloader's minimum or maximum time on
+// screen, only which outcome to report.
+const SETTLE_GRACE_MS = 80;
 
 // TODO: replace with ASODITECH's real WhatsApp number, phone number and
 // support email once provided — these are placeholders.
@@ -50,6 +61,24 @@ const CONTACT_LINKS = [
 
 export function LoginForm() {
   const [state, formAction, isPending] = useActionState(loginAction, undefined);
+  const { beginLoginTransition, resolveLoginTransition } = useLoginTransition();
+  const wasPendingRef = useRef(false);
+
+  useEffect(() => {
+    if (isPending && !wasPendingRef.current) {
+      beginLoginTransition();
+      wasPendingRef.current = isPending;
+      return;
+    }
+
+    if (!isPending && wasPendingRef.current) {
+      wasPendingRef.current = isPending;
+      const t = setTimeout(resolveLoginTransition, SETTLE_GRACE_MS);
+      return () => clearTimeout(t);
+    }
+
+    wasPendingRef.current = isPending;
+  }, [isPending, beginLoginTransition, resolveLoginTransition]);
 
   return (
     <div className="space-y-6">
