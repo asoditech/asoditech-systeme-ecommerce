@@ -565,3 +565,27 @@ pre-existing `main` baseline. Not committed.
 `TRACKING_ENDPOINT = LIVE_VERIFIED`. `CITIES_ENDPOINT = LIVE_VERIFIED`.
 `AUTH = LIVE_VERIFIED (CHECK_API)`. `ADD_PARCEL = reconstructed, not live`.
 `REAL_PARCEL_CREATED = NO`.
+
+## Amendment — 2026-09-01 structural stabilization pass
+
+Not an OzonExpress change; recorded here because this ADR carried the
+build-status note.
+
+- **`next build` now passes clean** (exit 0, all 26 routes prerender). The
+  `useContext` null failure on `/_global-error` + `/acces-refuse`
+  documented above no longer reproduces on `main` — the earlier notes
+  ("`next build` still fails at the pre-existing baseline") are **stale**.
+  The app now ships its own `error.tsx` (root + `(protected)/`),
+  `not-found.tsx` (root + `(protected)/`) and `global-error.tsx`, so Next
+  no longer falls back to its default error pages during prerender.
+- **SSRF guard hardening** (`src/lib/integrations/shared/private-ip.ts`,
+  shared by WooCommerce + Shopify — ADRs 0010/0011): a URL `hostname`
+  keeps the brackets around an IPv6 literal (`[::1]`), which `isIP()` does
+  not recognise, so such a host was being sent through DNS resolution
+  instead of classified directly. Brackets are now stripped first — an
+  IPv6 literal is rejected as a literal, with no network call, exactly
+  like an IPv4 literal. New `tests/lib/private-ip.test.ts` covers it.
+- Verification: **394/394 tests pass** (two consecutive clean runs),
+  typecheck clean, lint 0 errors (2 pre-existing preloader `<img>`
+  warnings), `next build` exit 0, `git diff --check` clean, secrets scan
+  clean. Not committed.
