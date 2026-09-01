@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { createShippingProviderAction, createShipmentAction, updateShipmentStatusAction } from "@/actions/delivery";
+import {
+  createShippingProviderAction,
+  createShipmentAction,
+  updateShipmentStatusAction,
+  deleteShippingProviderAction,
+} from "@/actions/delivery";
 import { updateOrderStatusAction, createOrderAction } from "@/actions/orders";
 import { resetDb } from "../helpers/db";
 import { loginAsTestUser } from "../helpers/auth";
@@ -127,5 +132,72 @@ describe("updateShipmentStatusAction", () => {
 
     const result = await updateShipmentStatusAction(formData({ id: shipmentId, status: "LIVRE" }));
     expect(result.ok).toBe(false); // EN_ATTENTE -> LIVRE is not a valid direct transition
+  });
+});
+
+describe("deleteShippingProviderAction", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  it("deletes a provider with no shipments and records an audit event", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const provider = await createShippingProviderAction(formData({ name: "ozon 2", type: "MANUEL" }));
+    if (!provider.ok) throw new Error("setup failed");
+
+    const result = await deleteShippingProviderAction(formData({ id: provider.data.id }));
+    expect(result.ok).toBe(true);
+    expect(await prisma.shippingProvider.findUnique({ where: { id: provider.data.id } })).toBeNull();
+
+    const audit = await prisma.auditEvent.findFirst({ where: { action: "shipping_provider.deleted", entityId: provider.data.id } });
+    expect(audit).not.toBeNull();
+  });
+
+  it("refuses to delete a provider that still has shipments (friendly message, keeps history)", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const orderId = await seedShippableOrder();
+    await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
+    const provider = await createShippingProviderAction(formData({ name: "Avec historique", type: "MANUEL" }));
+    if (!provider.ok) throw new Error("setup failed");
+    const shipment = await createShipmentAction(formData({ orderId, providerId: provider.data.id }));
+    if (!shipment.ok) throw new Error("setup failed");
+
+    const result = await deleteShippingProviderAction(formData({ id: provider.data.id }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/expédition/i);
+    expect(await prisma.shippingProvider.findUnique({ where: { id: provider.data.id } })).not.toBeNull();
+  });
+
+  it("cascade-deletes the provider's webhook events", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const provider = await createShippingProviderAction(formData({ name: "API row", type: "API" }));
+    if (!provider.ok) throw new Error("setup failed");
+    await prisma.shipmentWebhookEvent.create({
+      data: { providerId: provider.data.id, deliveryId: "d1", topic: "t", status: "TRAITE" },
+    });
+
+    const result = await deleteShippingProviderAction(formData({ id: provider.data.id }));
+    expect(result.ok).toBe(true);
+    expect(await prisma.shipmentWebhookEvent.count({ where: { providerId: provider.data.id } })).toBe(0);
+  });
+
+  it("denies a role without delivery.manage", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const provider = await createShippingProviderAction(formData({ name: "Prestataire RBAC", type: "MANUEL" }));
+    if (!provider.ok) throw new Error("setup failed");
+    mockCookieStore.clear();
+    await loginAsTestUser({ role: "SUPPORT" });
+    await expect(deleteShippingProviderAction(formData({ id: provider.data.id }))).rejects.toThrow();
+  });
+
+  it("returns a friendly error for an unknown id", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const result = await deleteShippingProviderAction(formData({ id: "does-not-exist" }));
+    expect(result.ok).toBe(false);
   });
 });

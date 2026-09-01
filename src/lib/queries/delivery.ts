@@ -65,13 +65,23 @@ export async function listOrdersAwaitingShipment() {
  * Serializable summary of the delivery-provider adapters actually
  * registered on this deployment (never the full adapter object, which
  * carries functions and can't cross the Server -> Client boundary — see
- * docs/adr/0012-delivery-provider-integration.md). Empty in production
- * today; see src/lib/integrations/delivery/providers/index.ts.
+ * docs/adr/0012-delivery-provider-integration.md). Populated from
+ * src/lib/integrations/delivery/providers/index.ts (currently: OzonExpress).
  */
-export function listAvailableDeliveryConnectors(): { key: string; displayName: string; capabilities: string[] }[] {
+export interface AvailableDeliveryConnector {
+  key: string;
+  displayName: string;
+  capabilities: string[];
+  /** Typed credential inputs for the "Configurer" form. Empty → the raw
+   * JSON credential editor is shown instead. */
+  credentialFields: { name: string; label: string; type: "text" | "password"; required: boolean; help?: string }[];
+}
+
+export function listAvailableDeliveryConnectors(): AvailableDeliveryConnector[] {
   return listDeliveryProviders().map((adapter) => ({
     key: adapter.key,
     displayName: adapter.displayName,
     capabilities: [...adapter.capabilities],
+    credentialFields: adapter.credentialFields ? adapter.credentialFields.map((f) => ({ ...f })) : [],
   }));
 }

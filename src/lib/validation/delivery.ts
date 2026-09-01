@@ -106,3 +106,4 @@ export const createShipmentViaProviderSchema = z.object({
 
 export const providerIdSchema = z.object({ providerId: z.string().min(1) });
 export const shipmentIdSchema = z.object({ shipmentId: z.string().min(1) });
+export const shippingProviderIdSchema = z.object({ id: z.string().min(1) });

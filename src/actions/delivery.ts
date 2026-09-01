@@ -13,7 +13,9 @@ import {
   createShipmentViaProviderSchema,
   providerIdSchema,
   shipmentIdSchema,
+  shippingProviderIdSchema,
 } from "@/lib/validation/delivery";
+import { isForeignKeyConstraintError } from "@/lib/prisma-errors";
 import { encryptSecret } from "@/lib/crypto";
 import { listDeliveryProviders } from "@/lib/integrations/delivery/registry";
 import {
@@ -59,6 +61,52 @@ export async function createShippingProviderAction(formData: FormData): Promise<
 
   revalidatePath("/livraison");
   return actionOk(provider);
+}
+
+/**
+ * Deletes a shipping provider. Refused (friendly message) if any shipment
+ * still references it — `Shipment.provider` is `onDelete: Restrict`, so a
+ * provider with delivery history is kept for that history's integrity.
+ * Its `ShipmentWebhookEvent` rows cascade-delete with it.
+ */
+export async function deleteShippingProviderAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("delivery.manage");
+
+  const parsed = shippingProviderIdSchema.safeParse({ id: formData.get("id") });
+  if (!parsed.success) return actionError("Prestataire invalide.");
+
+  const provider = await prisma.shippingProvider.findUnique({
+    where: { id: parsed.data.id },
+    include: { _count: { select: { shipments: true } } },
+  });
+  if (!provider) return actionError("Prestataire de livraison introuvable.");
+  if (provider._count.shipments > 0) {
+    return actionError(
+      `Impossible de supprimer « ${provider.name} » : ${provider._count.shipments} expédition(s) y sont rattachées. ` +
+        "Désactivez-le plutôt pour ne plus l'utiliser."
+    );
+  }
+
+  try {
+    await prisma.shippingProvider.delete({ where: { id: provider.id } });
+  } catch (error) {
+    if (isForeignKeyConstraintError(error)) {
+      return actionError("Impossible de supprimer ce prestataire : des expéditions y sont rattachées.");
+    }
+    throw error;
+  }
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "shipping_provider.deleted",
+    entityType: "ShippingProvider",
+    entityId: provider.id,
+    previousValue: { name: provider.name, type: provider.type },
+  });
+
+  revalidatePath("/livraison");
+  return actionOk({ id: provider.id });
 }
 
 export async function createShipmentAction(formData: FormData): Promise<ActionResult<IdResult>> {
@@ -223,7 +271,7 @@ export async function configureDeliveryProviderApiAction(formData: FormData): Pr
  * real authenticated request via the registered adapter. */
 export async function testDeliveryProviderConnectionAction(
   formData: FormData
-): Promise<ActionResult<{ status: "CONNECTE" | "ERREUR" }>> {
+): Promise<ActionResult<{ status: "CONNECTE"; details?: Record<string, string | number> }>> {
   const user = await requirePermissionForAction("delivery.manage");
 
   const parsed = providerIdSchema.safeParse({ providerId: formData.get("providerId") });
@@ -242,11 +290,14 @@ export async function testDeliveryProviderConnectionAction(
     action: result.status === "CONNECTE" ? "shipping_provider.connection_test_succeeded" : "shipping_provider.connection_test_failed",
     entityType: "ShippingProvider",
     entityId: parsed.data.providerId,
+    // `details` are non-secret read-only facts (e.g. city count) — safe in
+    // the audit trail; the adapter guarantees no credential/URL is in them.
+    ...(result.status === "CONNECTE" && result.details ? { metadata: result.details } : {}),
   });
 
   revalidatePath("/livraison");
   if (result.status === "ERREUR") return actionError(result.error ?? "Échec de la connexion.");
-  return actionOk({ status: "CONNECTE" });
+  return actionOk({ status: "CONNECTE", details: result.details });
 }
 
 /** Statuses that already have an active (non-terminal, non-failed) API

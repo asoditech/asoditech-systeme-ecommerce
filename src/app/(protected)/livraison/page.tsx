@@ -9,6 +9,7 @@ import { ShipmentStatusSelect } from "@/components/delivery/shipment-status-sele
 import { ProviderForm } from "@/components/delivery/provider-form";
 import { ProviderConnectionStatus, ProviderConnectionControls } from "@/components/delivery/provider-connection";
 import { ShipmentProviderControls } from "@/components/delivery/shipment-provider-controls";
+import { ConfirmActionButton } from "@/components/confirm-action-button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -21,6 +22,7 @@ import {
   listOrdersAwaitingShipment,
   listAvailableDeliveryConnectors,
 } from "@/lib/queries/delivery";
+import { deleteShippingProviderAction } from "@/actions/delivery";
 import { formatCurrency, formatDate, formatOrderNumber, formatPercent } from "@/lib/format";
 import { SHIPMENT_STATUS_LABELS, SHIPPING_PROVIDER_TYPE_LABELS } from "@/lib/status-labels";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
@@ -196,9 +198,26 @@ export default async function LivraisonPage() {
                       <TableCell>{p.type === "API" ? <ProviderConnectionStatus status={p.connectionStatus} /> : "—"}</TableCell>
                       {canManage && (
                         <TableCell>
-                          {p.type === "API" && (
-                            <ProviderConnectionControls providerId={p.id} providerKey={p.providerKey} connectors={connectors} />
-                          )}
+                          <div className="flex items-center justify-end gap-2">
+                            {p.type === "API" && (
+                              <ProviderConnectionControls providerId={p.id} providerKey={p.providerKey} connectors={connectors} />
+                            )}
+                            <ConfirmActionButton
+                              label="Supprimer"
+                              variant="ghost"
+                              destructive
+                              disabled={p._count.shipments > 0}
+                              title={`Supprimer « ${p.name} » ?`}
+                              description={
+                                p._count.shipments > 0
+                                  ? "Ce prestataire a des expéditions rattachées et ne peut pas être supprimé. Désactivez-le pour ne plus l'utiliser."
+                                  : "Cette action est définitive. Le prestataire et sa configuration (identifiants chiffrés inclus) seront supprimés."
+                              }
+                              hiddenFields={{ id: p.id }}
+                              action={deleteShippingProviderAction}
+                              successMessage="Prestataire supprimé."
+                            />
+                          </div>
                         </TableCell>
                       )}
                     </TableRow>

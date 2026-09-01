@@ -77,11 +77,14 @@ export async function loadApiProvider(providerId: string): Promise<LoadedApiProv
  * (configureDeliveryProviderApiAction) never does this on its own. See
  * docs/adr/0012-delivery-provider-integration.md.
  */
-export async function testProviderConnection(providerId: string): Promise<{ status: "CONNECTE" | "ERREUR"; error?: string }> {
+export async function testProviderConnection(
+  providerId: string
+): Promise<{ status: "CONNECTE" | "ERREUR"; error?: string; details?: Record<string, string | number> }> {
   const { row, adapter, credentials, config } = await loadApiProvider(providerId);
 
+  let details: Record<string, string | number> | undefined;
   try {
-    await adapter.testConnection(credentials, config);
+    ({ details } = await adapter.testConnection(credentials, config));
   } catch (error) {
     const message = friendlyDeliveryError(error);
     await prisma.shippingProvider.update({
@@ -100,7 +103,7 @@ export async function testProviderConnection(providerId: string): Promise<{ stat
       capabilities: [...adapter.capabilities],
     },
   });
-  return { status: "CONNECTE" };
+  return { status: "CONNECTE", details };
 }
 
 function requireAddress(order: Order): OrderAddressIncompleteError | null {

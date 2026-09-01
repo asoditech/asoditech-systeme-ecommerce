@@ -44,6 +44,7 @@ export type AuditAction =
   | "shipment.webhook_rejected"
   | "shipping_provider.created"
   | "shipping_provider.updated"
+  | "shipping_provider.deleted"
   | "shipping_provider.api_configured"
   | "shipping_provider.connection_test_succeeded"
   | "shipping_provider.connection_test_failed"

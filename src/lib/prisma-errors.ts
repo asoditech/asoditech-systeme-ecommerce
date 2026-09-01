@@ -12,3 +12,14 @@ import { Prisma } from "@prisma/client";
 export function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
+
+/**
+ * True when `error` is a Postgres foreign-key-constraint violation (Prisma
+ * code P2003) — e.g. deleting a row another table still references under an
+ * `onDelete: Restrict` relation. Callers should pre-check the dependent
+ * count for a friendly message; this is the backstop for the race where a
+ * dependent row is inserted between the check and the delete.
+ */
+export function isForeignKeyConstraintError(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003";
+}

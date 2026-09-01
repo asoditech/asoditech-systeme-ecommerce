@@ -106,15 +106,31 @@ data, no fabrication) with no LLM wired in yet — see
 (capability model, registry, credential storage, connection lifecycle,
 shipment create/cancel/status-sync, webhook signature-verification and
 replay-protection plumbing) is built and tested against a fixture
-connector — see `docs/adr/0012-delivery-provider-integration.md`. No real
-carrier is wired in yet: none was specified in this project's brief, and
-guessing one would mean inventing an untested integration against a real
-vendor's API. The "Configurer" control on a `type = API` provider (Livraison
-→ Prestataires) is disabled with an honest "no connector available" message
-until a real carrier's adapter is added under
-`src/lib/integrations/delivery/providers/` and registered in that
-directory's `index.ts` — at that point it becomes selectable with no
-further schema or UI change needed.
+connector — see `docs/adr/0012-delivery-provider-integration.md`. The
+"Configurer" control on a `type = API` provider (Livraison → Prestataires)
+is disabled with an honest "no connector available" message until a real
+carrier's adapter is added under `src/lib/integrations/delivery/providers/`
+and registered in that directory's `index.ts` — at that point it becomes
+selectable with no further schema or UI change needed.
+
+**OzonExpress (Maroc)** — adapter under
+`src/lib/integrations/delivery/providers/ozonexpress/`, fixture-tested
+end-to-end (`CREATE_SHIPMENT` / `FETCH_STATUS` / `FETCH_COST`; no
+cancellation or webhook — OzonExpress has neither). The adapter is
+**registered**: it shows up in Livraison → Prestataires → Configurer with
+password-masked Customer ID / Clé API fields. Registration does **not**
+mean connected — saving credentials is `CONFIGURE`; only a successful
+"Tester la connexion" (an authenticated `tracking` read + `GET /cities`,
+never a parcel) transitions to `CONNECTE`. Per-client credentials
+(`{"customerId":"…","apiKey":"…"}`) are encrypted at rest, one
+`ShippingProvider` row per client/instance, never shared. Delivery cost
+comes from OzonExpress's authoritative per-city price (`GET /cities`, 801
+cities); a `cityIdByName` override map in the connector config handles
+spelling corrections. ✅ Authentication (`CHECK_API`), the `tracking`
+envelope, and `GET /cities` are verified against a real account. ⚠️
+`add-parcel` has not been run live and some status wording is still a
+best guess — see `docs/adr/0013-ozonexpress-integration.md`
+(`REAL_PARCEL_CREATED = NO`).
 
 ### WooCommerce setup
 1. In WooCommerce admin: WooCommerce → Réglages → Avancé → REST API →
@@ -157,6 +173,32 @@ further schema or UI change needed.
    "Order update", "Order cancellation", and "Refund creation", signed
    with the app's own **Client secret** — enter that same value as the
    webhook secret in step 2 (edit the connection again if you skipped it).
+
+### OzonExpress (livraison) setup
+1. In this app: Livraison → onglet **Prestataires** → "Nouveau
+   prestataire", type **API**, name it (e.g. "OzonExpress").
+2. On that row, click **Configurer**, choose the **OzonExpress (Maroc)**
+   connector, and enter your **Identifiant client OzonExpress** and
+   **Clé API OzonExpress** (from OzonExpress; the key is masked and never
+   shown again). Optional JSON config: `stockMode` (`"ramassage"` default
+   or `"stock"`), `defaultParcelNature`, and a `cityIdByName` map to
+   correct any city names the catalogue spells differently. Save → the row
+   is **Configuré (non vérifié)**.
+3. Click **Tester la connexion** — this makes one authenticated `tracking`
+   read (empty code) plus `GET /cities`; it never creates a parcel. Only a
+   success marks the row **Connecté** and shows OzonExpress's
+   authentication message and the number of served cities.
+4. Create shipments from Livraison → "À expédier" once the row is
+   Connecté. The delivery cost is taken from OzonExpress's per-city price
+   (`GET /cities`). There is no cancellation and no webhook (OzonExpress
+   has neither); status is updated by the per-shipment "Synchroniser"
+   button.
+
+✅ Authentication, the `tracking` response envelope, and `GET /cities`
+(801 cities with per-city pricing) were verified against a real
+OzonExpress account. ⚠️ `add-parcel` has **not** been run live yet, and
+the delivered/returned/refused status wording is still a best guess — see
+`docs/adr/0013-ozonexpress-integration.md`.
 
 ### Known limitations (both integrations)
 - Real-time stock locking across this system's own manually-created
