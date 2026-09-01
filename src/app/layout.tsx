@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeScript } from "@/components/theme-script";
+import { LoginTransitionProvider } from "@/components/preloader/login-transition-provider";
 import "./globals.css";
 
 const inter = Inter({
@@ -22,8 +23,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="antialiased" suppressHydrationWarning>
         <ThemeScript />
         <ThemeProvider>
-          {children}
-          <Toaster />
+          <LoginTransitionProvider>
+            {children}
+            <Toaster />
+          </LoginTransitionProvider>
         </ThemeProvider>
       </body>
     </html>
