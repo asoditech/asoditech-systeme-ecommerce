@@ -68,10 +68,20 @@ export async function listOrdersAwaitingShipment() {
  * docs/adr/0012-delivery-provider-integration.md). Empty in production
  * today; see src/lib/integrations/delivery/providers/index.ts.
  */
-export function listAvailableDeliveryConnectors(): { key: string; displayName: string; capabilities: string[] }[] {
+export interface AvailableDeliveryConnector {
+  key: string;
+  displayName: string;
+  capabilities: string[];
+  /** Typed credential inputs for the "Configurer" form. Empty → the raw
+   * JSON credential editor is shown instead. */
+  credentialFields: { name: string; label: string; type: "text" | "password"; required: boolean; help?: string }[];
+}
+
+export function listAvailableDeliveryConnectors(): AvailableDeliveryConnector[] {
   return listDeliveryProviders().map((adapter) => ({
     key: adapter.key,
     displayName: adapter.displayName,
     capabilities: [...adapter.capabilities],
+    credentialFields: adapter.credentialFields ? adapter.credentialFields.map((f) => ({ ...f })) : [],
   }));
 }

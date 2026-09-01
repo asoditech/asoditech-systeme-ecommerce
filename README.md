@@ -106,15 +106,32 @@ data, no fabrication) with no LLM wired in yet — see
 (capability model, registry, credential storage, connection lifecycle,
 shipment create/cancel/status-sync, webhook signature-verification and
 replay-protection plumbing) is built and tested against a fixture
-connector — see `docs/adr/0012-delivery-provider-integration.md`. No real
-carrier is wired in yet: none was specified in this project's brief, and
-guessing one would mean inventing an untested integration against a real
-vendor's API. The "Configurer" control on a `type = API` provider (Livraison
-→ Prestataires) is disabled with an honest "no connector available" message
-until a real carrier's adapter is added under
-`src/lib/integrations/delivery/providers/` and registered in that
-directory's `index.ts` — at that point it becomes selectable with no
-further schema or UI change needed.
+connector — see `docs/adr/0012-delivery-provider-integration.md`. The
+"Configurer" control on a `type = API` provider (Livraison → Prestataires)
+is disabled with an honest "no connector available" message until a real
+carrier's adapter is added under `src/lib/integrations/delivery/providers/`
+and registered in that directory's `index.ts` — at that point it becomes
+selectable with no further schema or UI change needed.
+
+**OzonExpress (Maroc)** — a complete adapter exists under
+`src/lib/integrations/delivery/providers/ozonexpress/` and is fixture-tested
+end-to-end (`CREATE_SHIPMENT` / `FETCH_STATUS` / `FETCH_COST`; no
+cancellation or webhook — OzonExpress has neither). It is **deliberately
+not registered in production**: OzonExpress publishes no official merchant
+API documentation, so the adapter's contract (base URL, path-based
+customer-id/API-key auth, `add-parcel` / `tracking` fields, status
+vocabulary) is reconstructed from several independent community
+integrations and marked `OZONEXPRESS_VERIFICATION = "UNVERIFIED"`. Enabling
+it is a two-line change in
+`src/lib/integrations/delivery/providers/index.ts`, to be made only after
+OzonExpress confirms the contract and it is verified against a real
+account. Per-client credentials
+(`{"customerId":"…","apiKey":"…"}`, encrypted at rest, one
+`ShippingProvider` row per client/instance, never shared) and an
+operator-maintained city-name → OzonExpress-city-id map go in the
+connector config. See `docs/adr/0013-ozonexpress-integration.md` for the
+full API research, field/status mappings, limitations, and the
+fixture-tested vs live-tested breakdown (`LIVE_TESTED = NO`).
 
 ### WooCommerce setup
 1. In WooCommerce admin: WooCommerce → Réglages → Avancé → REST API →

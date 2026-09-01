@@ -104,12 +104,33 @@ export interface DeliveryWebhookEvent {
   rawStatus: string | null;
 }
 
+/**
+ * One credential input an adapter needs, so the "Configurer" UI can render
+ * proper typed fields (label, password masking, help text) instead of
+ * asking the operator to hand-write a JSON blob. Optional: an adapter that
+ * doesn't declare this falls back to the raw-JSON credential editor. The
+ * field `name`s become the keys of the JSON object stored (encrypted) in
+ * `ShippingProvider.credentialsEncrypted` — the adapter still validates the
+ * assembled object itself (never trust the UI). `type: "password"` only
+ * affects rendering; every field is encrypted at rest identically.
+ */
+export interface DeliveryCredentialField {
+  name: string;
+  label: string;
+  type: "text" | "password";
+  required: boolean;
+  help?: string;
+}
+
 export interface DeliveryProviderAdapter {
   /** Unique registry key, e.g. "acme-carrier". Never a display label. */
   readonly key: string;
   /** French, user-facing name shown in the provider-selection UI. */
   readonly displayName: string;
   readonly capabilities: readonly DeliveryCapability[];
+  /** Optional typed credential schema for the config UI — see
+   * DeliveryCredentialField. */
+  readonly credentialFields?: readonly DeliveryCredentialField[];
 
   /** Performs one real authenticated, read-only request to confirm the
    * credentials/config actually work. This is the only path allowed to

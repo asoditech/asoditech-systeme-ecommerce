@@ -19,5 +19,24 @@ import "server-only";
  * key. It must never import test/fixture adapters — those live under
  * tests/helpers and register themselves directly into the registry from
  * test code, never from here.
+ *
+ * ── OzonExpress (Maroc) — implemented, NOT enabled (Phase 23) ──────────
+ * A complete OzonExpress adapter exists under `./ozonexpress/` and is
+ * fixture-tested end-to-end. It is deliberately NOT registered here:
+ * OzonExpress publishes no official merchant API documentation, so the
+ * adapter's contract is reconstructed from several independent community
+ * integrations and marked `OZONEXPRESS_VERIFICATION === "UNVERIFIED"`.
+ * Enabling it live would stake real money on guessed field semantics (COD
+ * amount, numeric city id) — exactly what
+ * docs/adr/0012-delivery-provider-integration.md and this project's
+ * delivery-integration principles forbid.
+ *
+ * To enable it once the contract is confirmed with OzonExpress, add these
+ * two lines — nothing else (schema, Server Action, UI) changes:
+ *
+ *     import { registerOzonExpressProvider } from "./ozonexpress";
+ *     registerOzonExpressProvider();
+ *
+ * See docs/adr/0013-ozonexpress-integration.md.
  */
 export {};
