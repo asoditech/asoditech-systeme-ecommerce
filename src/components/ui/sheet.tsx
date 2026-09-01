@@ -49,7 +49,7 @@ function SheetContent({
       <DialogPrimitive.Popup
         data-slot="sheet-content"
         className={cn(
-          "fixed z-50 flex flex-col gap-4 bg-background p-4 shadow-lg outline-none duration-200",
+          "fixed z-50 flex flex-col gap-4 bg-background p-5 shadow-modal outline-none duration-200",
           sheetSideClasses[side],
           className
         )}

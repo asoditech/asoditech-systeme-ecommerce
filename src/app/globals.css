@@ -2,7 +2,19 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+/* `.force-light` opts a subtree out of dark mode entirely — both the token
+   values (redeclared below) and the `dark:` utility variants. Used by the
+   always-light /connexion page. */
+@custom-variant dark (&:is(.dark *):not(.force-light, .force-light *));
+
+/* ASODITECH design-system shadows — soft, layered, restrained. Cards sit
+   almost flat; overlays lift progressively (popover < dialog). See
+   docs/adr/0014-ui-design-system.md. */
+@theme {
+  --shadow-card: 0 1px 2px -1px oklch(0.28 0.04 265 / 0.06), 0 1px 3px 0 oklch(0.28 0.04 265 / 0.05);
+  --shadow-popover: 0 4px 14px -4px oklch(0.28 0.04 265 / 0.12), 0 2px 6px -2px oklch(0.28 0.04 265 / 0.08);
+  --shadow-modal: 0 28px 60px -16px oklch(0.24 0.04 265 / 0.22), 0 10px 28px -10px oklch(0.24 0.04 265 / 0.12);
+}
 
 @theme inline {
   --color-background: var(--background);
@@ -49,15 +61,17 @@
 }
 
 /*
- * ASODITECH brand palette — a deep corporate blue accent over a neutral
- * slate scale in light mode; a genuinely dark, near-black "creative dark
- * mode" (not just an inverted gray) in dark mode. The sidebar now follows
- * the active theme like every other surface (light in light mode, near
- * black — deeper than the page background, for depth — in dark mode)
- * rather than staying permanently dark. Values are Tailwind v4's own
- * blue/slate oklch scale in light mode; dark mode's near-black tones are
- * deliberately near-neutral (very low chroma) rather than navy-tinted
- * gray, for a richer, higher-contrast look against the vivid blue accent.
+ * ASODITECH brand palette.
+ *
+ * The accent is the warm orange of the ASODITECH "orbit" preloader and the
+ * login button (#ff8a3d — see src/components/preloader/, deepened a touch
+ * here for legible white-on-orange labels). It carries every primary
+ * button, focus ring, active/selected state, and the sidebar's active-item
+ * indicator, so the preloader and the app read as one design system. It
+ * sits over a neutral slate scale in light mode and a genuinely dark,
+ * near-neutral "creative dark mode" in dark mode. Chart colours stay on
+ * the cool analytics scale — data-viz, not interactive chrome.
+ * See docs/adr/0014-ui-design-system.md.
  */
 :root {
   --background: oklch(0.984 0.003 247.858); /* slate-50 */
@@ -66,34 +80,34 @@
   --card-foreground: oklch(0.208 0.042 265.755);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.208 0.042 265.755);
-  --primary: oklch(0.546 0.245 262.881); /* blue-600 */
-  --primary-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.705 0.174 47.5); /* ASODITECH orange ≈ #f9812f */
+  --primary-foreground: oklch(1 0 0);
   --secondary: oklch(0.968 0.007 247.896); /* slate-100 */
   --secondary-foreground: oklch(0.279 0.041 260.031); /* slate-800 */
   --muted: oklch(0.968 0.007 247.896);
   --muted-foreground: oklch(0.551 0.027 264.364); /* slate-500 */
-  --accent: oklch(0.97 0.014 254.604); /* blue-50 */
-  --accent-foreground: oklch(0.379 0.146 265.522); /* blue-800 */
+  --accent: oklch(0.966 0.024 62); /* warm 50 — hover/selected surface */
+  --accent-foreground: oklch(0.47 0.15 45); /* burnt orange */
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.929 0.013 255.508); /* slate-200 */
-  --input: oklch(0.929 0.013 255.508);
-  --ring: oklch(0.546 0.245 262.881);
+  --input: oklch(0.923 0.013 255.508); /* slate-200/300 — a hair stronger than border */
+  --ring: oklch(0.705 0.174 47.5);
   --chart-1: oklch(0.546 0.245 262.881);
   --chart-2: oklch(0.656 0.196 253.8);
   --chart-3: oklch(0.769 0.147 251.5);
   --chart-4: oklch(0.446 0.043 257.281);
   --chart-5: oklch(0.279 0.041 260.031);
   --radius: 0.5rem;
-  /* Sidebar follows the light theme: same white surface as cards, subtle
-     border, sidebar-primary matches the page's own blue accent. */
+  /* Sidebar follows the light theme; the active-item indicator is the
+     brand orange. */
   --sidebar: oklch(1 0 0);
   --sidebar-foreground: oklch(0.279 0.041 260.031); /* slate-800 */
-  --sidebar-primary: oklch(0.546 0.245 262.881); /* blue-600 */
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.968 0.007 247.896); /* slate-100 */
+  --sidebar-primary: oklch(0.705 0.174 47.5);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.966 0.024 62); /* warm tint — active nav bg */
   --sidebar-accent-foreground: oklch(0.208 0.042 265.755); /* slate-900 */
   --sidebar-border: oklch(0.929 0.013 255.508); /* slate-200 */
-  --sidebar-ring: oklch(0.546 0.245 262.881);
+  --sidebar-ring: oklch(0.705 0.174 47.5);
 }
 
 .dark {
@@ -103,34 +117,33 @@
   --card-foreground: oklch(0.97 0.004 260);
   --popover: oklch(0.16 0.01 275);
   --popover-foreground: oklch(0.97 0.004 260);
-  --primary: oklch(0.68 0.19 258); /* vivid blue, boosted for pop against near-black */
-  --primary-foreground: oklch(0.99 0 0);
+  --primary: oklch(0.74 0.165 52); /* brand orange, lifted for pop against near-black */
+  --primary-foreground: oklch(0.18 0.03 50); /* deep brown-black — legible on the lighter orange */
   --secondary: oklch(0.2 0.012 275);
   --secondary-foreground: oklch(0.97 0.004 260);
   --muted: oklch(0.19 0.011 275);
   --muted-foreground: oklch(0.64 0.02 260);
-  --accent: oklch(0.22 0.05 258); /* blue-tinted, not gray — a "creative" accent surface */
-  --accent-foreground: oklch(0.82 0.12 258);
+  --accent: oklch(0.26 0.05 55); /* warm-tinted accent surface */
+  --accent-foreground: oklch(0.82 0.12 60);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 8%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.68 0.19 258);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.74 0.165 52);
   --chart-1: oklch(0.68 0.19 258);
   --chart-2: oklch(0.74 0.16 253);
   --chart-3: oklch(0.82 0.12 251);
   --chart-4: oklch(0.64 0.02 260);
   --chart-5: oklch(0.87 0.02 253);
-  /* Sidebar follows the dark theme too, but deeper than the card surface
-     — true near-black, for the same "sidebar recedes, content lifts"
-     depth cue premium dark dashboards (Linear, Vercel) use. */
+  /* Sidebar recedes below the card surface (true near-black), active item
+     lit by the brand orange. */
   --sidebar: oklch(0.06 0.005 285);
   --sidebar-foreground: oklch(0.75 0.015 260);
-  --sidebar-primary: oklch(0.68 0.19 258);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.17 0.02 270);
+  --sidebar-primary: oklch(0.74 0.165 52);
+  --sidebar-primary-foreground: oklch(0.18 0.03 50);
+  --sidebar-accent: oklch(0.2 0.028 55);
   --sidebar-accent-foreground: oklch(0.99 0 0);
   --sidebar-border: oklch(1 0 0 / 6%);
-  --sidebar-ring: oklch(0.68 0.19 258);
+  --sidebar-ring: oklch(0.74 0.165 52);
 }
 
 @layer base {
@@ -143,6 +156,33 @@
   html {
     @apply font-sans;
   }
+}
+
+/* Always-light surfaces (the /connexion page, any pre-auth screen) — the
+   glassmorphic design is committed to a light look, so pin the tokens it
+   uses to their light values even when the app is in dark mode. A wrapper
+   that directly declares a custom property overrides the inherited `.dark`
+   value for itself and its descendants. */
+.force-light {
+  color-scheme: light;
+  --background: oklch(0.984 0.003 247.858);
+  --foreground: oklch(0.208 0.042 265.755);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.208 0.042 265.755);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.208 0.042 265.755);
+  --primary: oklch(0.705 0.174 47.5);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.968 0.007 247.896);
+  --secondary-foreground: oklch(0.279 0.041 260.031);
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.551 0.027 264.364);
+  --accent: oklch(0.966 0.024 62);
+  --accent-foreground: oklch(0.47 0.15 45);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.929 0.013 255.508);
+  --input: oklch(0.923 0.013 255.508);
+  --ring: oklch(0.705 0.174 47.5);
 }
 
 /* ---------------------------------------------------------------------------
