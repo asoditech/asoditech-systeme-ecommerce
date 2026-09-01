@@ -59,10 +59,19 @@ export async function assertPublicHost(hostname: string): Promise<void> {
     throw new InvalidHostError("Cette adresse n'est pas accessible depuis le serveur.");
   }
 
-  const literalVersion = isIP(hostname);
+  // A URL's `hostname` keeps the brackets around an IPv6 literal
+  // (`[::1]`), which `isIP()` does not recognize — strip them so an IPv6
+  // literal is classified directly, exactly like an IPv4 literal, and
+  // never sent through DNS resolution (a `[::1]` that isn't recognized as
+  // a literal would otherwise be looked up, making a security-critical
+  // check depend on resolver behaviour/latency).
+  const bareHost =
+    hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+
+  const literalVersion = isIP(bareHost);
   const addresses = literalVersion
-    ? [hostname]
-    : await lookup(hostname, { all: true })
+    ? [bareHost]
+    : await lookup(bareHost, { all: true })
         .then((results) => results.map((r) => r.address))
         .catch(() => {
           throw new InvalidHostError("Impossible de résoudre cette adresse.");
