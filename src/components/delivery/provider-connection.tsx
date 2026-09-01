@@ -97,8 +97,16 @@ export function ProviderConnectionControls({
       const fd = new FormData();
       fd.set("providerId", providerId);
       const result = await testDeliveryProviderConnectionAction(fd);
-      if (result.ok) toast.success("Connexion réussie.");
-      else toast.error(result.error);
+      if (result.ok) {
+        const detail = result.data.details
+          ? Object.entries(result.data.details)
+              .map(([k, v]) => `${k} : ${v}`)
+              .join(" · ")
+          : undefined;
+        toast.success(detail ? `Connexion réussie — ${detail}` : "Connexion réussie.");
+      } else {
+        toast.error(result.error);
+      }
       router.refresh();
     });
   }

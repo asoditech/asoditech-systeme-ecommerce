@@ -41,6 +41,20 @@ export type DeliveryProviderConfig = Record<string, unknown>;
 
 export interface DeliveryConnectionResult {
   ok: true;
+  /** Optional read-only facts gathered during the connection test that are
+   * safe to show the operator (e.g. `{ "villes desservies": 120 }`). Never
+   * a credential, token, or URL. Surfaced in the "Tester la connexion"
+   * success message. */
+  details?: Record<string, string | number>;
+}
+
+/** One destination in a carrier's service-area catalogue. `id` is the
+ * carrier's own identifier (kept as a string even when numeric); `name` is
+ * the human city name. Optional `region` when the carrier groups cities. */
+export interface DeliveryCity {
+  id: string;
+  name: string;
+  region?: string | null;
 }
 
 export interface CreateShipmentAdapterInput {
@@ -155,6 +169,16 @@ export interface DeliveryProviderAdapter {
     credentials: DeliveryCredentials,
     config: DeliveryProviderConfig
   ): Promise<FetchStatusAdapterResult>;
+
+  /** Retrieves the carrier's authoritative destination catalogue (the set
+   * of cities/areas it delivers to, with the carrier's own ids). Optional —
+   * only carriers whose API requires a carrier-specific destination id
+   * (rather than a free-text city) implement it. Read-only; safe to call
+   * during a connection test. */
+  listCities?(
+    credentials: DeliveryCredentials,
+    config: DeliveryProviderConfig
+  ): Promise<DeliveryCity[]>;
 
   /** Maps one raw provider status string to a local ShipmentStatus value.
    * Returns null for a status this adapter doesn't recognize — the caller

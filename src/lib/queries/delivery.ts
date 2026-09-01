@@ -65,8 +65,8 @@ export async function listOrdersAwaitingShipment() {
  * Serializable summary of the delivery-provider adapters actually
  * registered on this deployment (never the full adapter object, which
  * carries functions and can't cross the Server -> Client boundary — see
- * docs/adr/0012-delivery-provider-integration.md). Empty in production
- * today; see src/lib/integrations/delivery/providers/index.ts.
+ * docs/adr/0012-delivery-provider-integration.md). Populated from
+ * src/lib/integrations/delivery/providers/index.ts (currently: OzonExpress).
  */
 export interface AvailableDeliveryConnector {
   key: string;

@@ -5,13 +5,23 @@ import { z } from "zod";
 /**
  * OzonExpress adapter — credential / config shapes and response schemas.
  *
- * ⚠️ UNVERIFIED CONTRACT. OzonExpress (ozonexpress.ma) publishes no
- * official merchant API documentation. Every endpoint, field name, and
- * response shape below was reconstructed by cross-referencing several
- * independent third-party integrations and is corroborated but NOT
- * confirmed by OzonExpress. See docs/adr/0013-ozonexpress-integration.md
- * ("API research") for the full provenance and the list of things that
- * are still unknown.
+ * Endpoints (path-based customer id + API key auth):
+ *   POST /customers/{CUSTOMER_ID}/{API_KEY}/add-parcel
+ *   POST /customers/{CUSTOMER_ID}/{API_KEY}/parcel-info
+ *   POST /customers/{CUSTOMER_ID}/{API_KEY}/tracking
+ *   GET  /cities                                  (catalogue — still unconfirmed)
+ *
+ * ✅ CONFIRMED against the live API (2026-09-01): the `tracking` response
+ * envelope — `{ CHECK_API: {RESULT,MESSAGE}, TRACKING: {…, HISTORY:[…],
+ * LAST_TRACKING:{STATUT,…}} }` — and that `CHECK_API.RESULT === "SUCCESS"`
+ * with `MESSAGE === "Valide API Key"` is the authentication signal. Real
+ * status vocabulary seen: "Nouveau Colis", "Attente De Ramassage",
+ * "Ramassé", "Reçu", "Mise en distribution".
+ *
+ * ⚠️ STILL not confirmed live: the `add-parcel` request fields + response
+ * envelope, the `parcel-info` envelope, `GET /cities`, and the full status
+ * list (delivered / returned / refused / cancelled wording). Those schemas
+ * stay defensively parsed. See docs/adr/0013-ozonexpress-integration.md.
  */
 
 // ---------------------------------------------------------------------------
@@ -36,12 +46,17 @@ export type OzonExpressCredentials = z.infer<typeof ozonExpressCredentialsSchema
 /**
  * Non-secret per-instance configuration.
  *
- * `cityIdByName` — OzonExpress's `add-parcel` requires a NUMERIC city id,
- * and there is no public authoritative city catalogue. This map is how an
- * operator declares "our city name → OzonExpress id"; the adapter looks
- * the recipient's city up here and refuses (typed DeliveryConfigError,
- * before any network call) rather than guessing an id if it is missing.
- * Keys are compared case-insensitively and trimmed.
+ * `cityIdByName` — OPTIONAL override map ("our city name → OzonExpress
+ * id"). The adapter's primary source is now the authoritative
+ * `GET /cities` catalogue; this map only supplies corrections / aliases
+ * for names the catalogue spells differently. Keys are compared
+ * case-insensitively and trimmed. The adapter still refuses (typed
+ * DeliveryConfigError) rather than guessing an id when neither source
+ * resolves the recipient's city.
+ *
+ * `citiesPath` — path of the destination-catalogue endpoint. Defaults to
+ * `"cities"` (`GET {baseUrl}/cities`), per the owner-provided
+ * documentation. Escape hatch only.
  *
  * `stockMode` — OzonExpress `parcel-stock`: "ramassage" (0, carrier picks
  * the parcel up from the merchant) or "stock" (1, parcel already sits in
@@ -59,6 +74,7 @@ export type OzonExpressCredentials = z.infer<typeof ozonExpressCredentialsSchema
  */
 export const ozonExpressConfigSchema = z.object({
   cityIdByName: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+  citiesPath: z.string().trim().min(1).max(200).optional(),
   stockMode: z.enum(["ramassage", "stock"]).optional(),
   defaultParcelNature: z.string().trim().max(120).optional(),
   requestTimeoutMs: z.number().int().min(1000).max(60_000).optional(),
@@ -123,10 +139,101 @@ export const ozonExpressAddParcelResponseSchema = z
   })
   .passthrough();
 
-/** tracking / parcel-info. The status lives under different keys across
- * observed responses; the mapper probes each. */
+/**
+ * `GET /cities` — the destination catalogue. Confirmed live (2026-09-01):
+ * `{ CITIES: { "<id>": { ID, REF, NAME, "DELIVERED-PRICE",
+ * "RETURNED-PRICE", "REFUSED-PRICE" } } }` — an object keyed by id. A bare
+ * array and the alternate wrapper keys are also tolerated. The mapper
+ * drops any entry missing an id or a name.
+ */
+export const ozonExpressCityEntrySchema = z
+  .object({
+    ID: z.union([z.string(), z.number()]).optional(),
+    id: z.union([z.string(), z.number()]).optional(),
+    CITY_ID: z.union([z.string(), z.number()]).optional(),
+    REF: z.union([z.string(), z.number()]).optional(),
+    ref: z.union([z.string(), z.number()]).optional(),
+    NAME: z.string().optional(),
+    name: z.string().optional(),
+    CITY_NAME: z.string().optional(),
+    ville: z.string().optional(),
+    VILLE: z.string().optional(),
+    "DELIVERED-PRICE": z.union([z.string(), z.number()]).optional(),
+    "RETURNED-PRICE": z.union([z.string(), z.number()]).optional(),
+    "REFUSED-PRICE": z.union([z.string(), z.number()]).optional(),
+  })
+  .passthrough();
+
+const cityListOrMap = z.union([
+  z.array(ozonExpressCityEntrySchema),
+  z.record(z.string(), ozonExpressCityEntrySchema),
+]);
+
+export const ozonExpressCitiesResponseSchema = z.union([
+  z.array(ozonExpressCityEntrySchema),
+  z
+    .object({
+      CITIES: cityListOrMap.optional(),
+      cities: cityListOrMap.optional(),
+      result: cityListOrMap.optional(),
+      data: cityListOrMap.optional(),
+    })
+    .passthrough(),
+]);
+
+/**
+ * `CHECK_API` — the auth-result block OzonExpress prepends to every
+ * credentialed response. `RESULT: "SUCCESS"` + `MESSAGE: "Valide API Key"`
+ * means the customer id / API key pair authenticated. This is the
+ * connection-test signal (confirmed against the live API 2026-09-01).
+ */
+export const ozonExpressCheckApiSchema = z
+  .object({ RESULT: z.string().optional(), MESSAGE: z.string().optional() })
+  .passthrough();
+
+/** One entry of `TRACKING.HISTORY` / the `TRACKING.LAST_TRACKING` block. */
+export const ozonExpressTrackingEntrySchema = z
+  .object({
+    STATUT: z.string().optional(),
+    STATUS: z.string().optional(),
+    TIME: z.union([z.string(), z.number()]).optional(),
+    TIME_STR: z.string().optional(),
+    COMMENT: z.string().optional(),
+  })
+  .passthrough();
+
+/**
+ * Real `POST /customers/{id}/{key}/tracking` response (confirmed against
+ * the live API 2026-09-01):
+ *   { CHECK_API: {RESULT,MESSAGE},
+ *     TRACKING: { "TRACKING-NUMBER", RESULT, MESSAGE,
+ *                 HISTORY: [ {STATUT,TIME,TIME_STR,COMMENT}, … ],
+ *                 LAST_TRACKING: {STATUT,TIME,TIME_STR,COMMENT} } }
+ * HISTORY may deserialize as an array or as an object keyed "1","2",…
+ * (PHP assoc-array). Older permissive fields kept as a fallback.
+ */
 export const ozonExpressTrackingResponseSchema = z
   .object({
+    CHECK_API: ozonExpressCheckApiSchema.optional(),
+    TRACKING: z
+      .object({
+        "TRACKING-NUMBER": z.union([z.string(), z.number()]).optional(),
+        RESULT: z.string().optional(),
+        MESSAGE: z.string().optional(),
+        HISTORY: z
+          .union([
+            z.array(ozonExpressTrackingEntrySchema),
+            z.record(z.string(), ozonExpressTrackingEntrySchema),
+          ])
+          .optional(),
+        LAST_TRACKING: ozonExpressTrackingEntrySchema.optional(),
+        "DELIVERED-PRICE": z.union([z.string(), z.number()]).optional(),
+        "RETURNED-PRICE": z.union([z.string(), z.number()]).optional(),
+        "REFUSED-PRICE": z.union([z.string(), z.number()]).optional(),
+      })
+      .passthrough()
+      .optional(),
+    // — legacy fallback fields (kept until every response variant is confirmed) —
     RESULT: z.string().optional(),
     MESSAGE: z.string().optional(),
     "TRACKING-NUMBER": z.union([z.string(), z.number()]).optional(),
@@ -135,7 +242,6 @@ export const ozonExpressTrackingResponseSchema = z
       .object({ STATUT: z.string().optional(), STATUS: z.string().optional() })
       .passthrough()
       .optional(),
-    TRACKING: z.unknown().optional(),
     "DELIVERED-PRICE": z.union([z.string(), z.number()]).optional(),
   })
   .passthrough();

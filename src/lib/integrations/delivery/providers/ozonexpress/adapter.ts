@@ -1,9 +1,10 @@
 import "server-only";
 
-import { DeliveryConfigError, DeliveryNotFoundError } from "@/lib/integrations/delivery/errors";
+import { DeliveryConfigError } from "@/lib/integrations/delivery/errors";
 import type {
   CreateShipmentAdapterInput,
   CreateShipmentAdapterResult,
+  DeliveryCity,
   DeliveryConnectionResult,
   DeliveryCredentials,
   DeliveryProviderAdapter,
@@ -17,7 +18,12 @@ import {
   buildAddParcelForm,
   mapOzonExpressStatus,
   parseAddParcelResponse,
+  parseOzonExpressCities,
   parseTrackingResponse,
+  readCheckApiMessage,
+  resolveCity,
+  toDeliveryCities,
+  type OzonExpressCity,
 } from "./mapper";
 import {
   ozonExpressConfigSchema,
@@ -30,34 +36,55 @@ import {
  * OzonExpress Morocco delivery-provider adapter.
  *
  * ═══════════════════════════════════════════════════════════════════════
- *  ⚠️  UNVERIFIED CONTRACT — NOT REGISTERED IN PRODUCTION
+ *  ENDPOINTS OWNER-CONFIRMED · REQUEST/RESPONSE FIELDS NOT YET LIVE-TESTED
  * ═══════════════════════════════════════════════════════════════════════
- * OzonExpress publishes no official merchant API documentation. This
- * adapter is a faithful implementation of the contract that is
- * consistently reported across several independent third-party
- * integrations, but every endpoint, field, and status string is
- * corroborated, NOT confirmed. It is intentionally NOT wired into
- * `src/lib/integrations/delivery/providers/index.ts` — enabling it is a
- * one-line change an operator makes only after OzonExpress confirms the
- * contract (or supplies real docs). See
- * docs/adr/0013-ozonexpress-integration.md.
+ * Endpoints (path-based customer id + API key auth):
+ *   POST /customers/{CUSTOMER_ID}/{API_KEY}/add-parcel   (CREATE_SHIPMENT)
+ *   POST /customers/{CUSTOMER_ID}/{API_KEY}/tracking     (FETCH_STATUS + auth check)
+ *   POST /customers/{CUSTOMER_ID}/{API_KEY}/parcel-info  (available, unused)
+ *   GET  /cities   (or credentialed …/cities — path not yet confirmed)
  *
- * Capabilities: CREATE_SHIPMENT, FETCH_STATUS, FETCH_COST.
- *   - CANCEL_SHIPMENT is deliberately NOT declared — no OzonExpress
- *     cancellation endpoint is known to exist. Attempting to cancel a
- *     provider-backed shipment therefore fails with the shared typed
- *     "unsupported" error (registry.assertCapability), never a silent
- *     local-only cancellation.
- *   - WEBHOOKS is deliberately NOT declared — OzonExpress has no known
- *     callback mechanism. Status stays poll-only via `syncShipmentStatus`.
+ * ✅ Confirmed live (2026-09-01): the `tracking` envelope and that
+ * `CHECK_API.RESULT === "SUCCESS"` is the auth signal.
+ *
+ * Registered in production so the owner can configure credentials and run
+ * "Tester la connexion". NOT auto-CONNECTE: saving credentials → CONFIGURE;
+ * only a successful real connection test → CONNECTE.
+ *
+ * ⚠️ Still pending live confirmation: `add-parcel` fields + response,
+ * `GET /cities`, and the delivered/returned/refused/cancelled status
+ * wording. See docs/adr/0013-ozonexpress-integration.md.
+ *
+ * Capabilities: CREATE_SHIPMENT, FETCH_STATUS, FETCH_COST. No
+ * CANCEL_SHIPMENT (no endpoint) and no WEBHOOKS (no callback) — attempts
+ * hit the shared typed "unsupported" error, never a silent local action.
  */
 
 export const OZONEXPRESS_PROVIDER_KEY = "ozonexpress";
 
-/** Machine-readable marker that this adapter's contract has not been
- * verified against official OzonExpress documentation or a live account.
- * Surfaced in the config UI and the ADR. */
-export const OZONEXPRESS_VERIFICATION = "UNVERIFIED" as const;
+/**
+ * Contract status:
+ *  - "TRACKING_LIVE_VERIFIED" — the `tracking` endpoint, its `CHECK_API`
+ *    auth signal, and the response envelope have been confirmed against a
+ *    real OzonExpress account. `add-parcel` and `GET /cities` have not.
+ */
+export const OZONEXPRESS_VERIFICATION = "TRACKING_LIVE_VERIFIED" as const;
+
+/** `GET /cities` catalogue path. Overridable via config. */
+const DEFAULT_CITIES_PATH = "cities";
+
+/**
+ * Fetches the destination catalogue via the un-credentialed `GET /cities`
+ * (confirmed live 2026-09-01). Returns `[]` on any failure — the caller
+ * decides whether that is fatal.
+ */
+async function fetchCities(client: OzonExpressClient, cfg: OzonExpressConfig): Promise<OzonExpressCity[]> {
+  try {
+    return parseOzonExpressCities(await client.get(cfg.citiesPath ?? DEFAULT_CITIES_PATH));
+  } catch {
+    return [];
+  }
+}
 
 function parseCredentials(raw: DeliveryCredentials): OzonExpressCredentials {
   const parsed = ozonExpressCredentialsSchema.safeParse(raw);
@@ -77,9 +104,15 @@ function parseConfig(raw: DeliveryProviderConfig): OzonExpressConfig {
   return parsed.data;
 }
 
+function clientFor(credentials: DeliveryCredentials, config: DeliveryProviderConfig) {
+  const creds = parseCredentials(credentials);
+  const cfg = parseConfig(config);
+  return { cfg, client: new OzonExpressClient(creds, cfg.baseUrl, { timeoutMs: cfg.requestTimeoutMs }) };
+}
+
 export const ozonExpressAdapter: DeliveryProviderAdapter = {
   key: OZONEXPRESS_PROVIDER_KEY,
-  displayName: "OzonExpress (Maroc) — contrat non vérifié",
+  displayName: "OzonExpress (Maroc)",
   capabilities: ["CREATE_SHIPMENT", "FETCH_STATUS", "FETCH_COST"],
 
   credentialFields: [
@@ -100,33 +133,44 @@ export const ozonExpressAdapter: DeliveryProviderAdapter = {
   ],
 
   /**
-   * OzonExpress has no dedicated "ping / account" endpoint. The cheapest
-   * safe authenticated call is a `tracking` lookup for a sentinel code:
-   * valid credentials return a parseable body (even if it says the parcel
-   * doesn't exist), while bad credentials return an auth error — which the
-   * client turns into a typed DeliveryAuthError and this method lets
-   * propagate. A "parcel not found" style response is treated as success:
-   * it proves the credentials authenticated.
+   * Safe verification path — "Tester la connexion" calls only this, and it
+   * never creates a parcel.
+   *
+   * The credential check is a `POST tracking` with an empty tracking
+   * number: OzonExpress answers with a `CHECK_API` block
+   * (`{RESULT:"SUCCESS", MESSAGE:"Valide API Key"}` for a valid key). The
+   * client's `assertNoApiError` already raises `DeliveryAuthError` from a
+   * `CHECK_API.RESULT === "ERROR"`, so reaching this line means the key
+   * authenticated; `CHECK_API.MESSAGE` is surfaced as a detail. The
+   * `GET /cities` count is a best-effort extra (its exact path is not yet
+   * confirmed) and never fails the test.
    */
   async testConnection(
     credentials: DeliveryCredentials,
     config: DeliveryProviderConfig
   ): Promise<DeliveryConnectionResult> {
-    const creds = parseCredentials(credentials);
-    const cfg = parseConfig(config);
-    const client = new OzonExpressClient(creds, cfg.baseUrl, { timeoutMs: cfg.requestTimeoutMs });
-    try {
-      await client.post("tracking", { "tracking-number": "__connftest__" });
-    } catch (error) {
-      // A "not found" for the sentinel code still means auth worked.
-      // Any auth / config / transport error is a real failure and
-      // propagates unchanged (the service layer records ERREUR + lastError).
-      if (error instanceof DeliveryNotFoundError) {
-        return { ok: true };
-      }
-      throw error;
-    }
-    return { ok: true };
+    const { cfg, client } = clientFor(credentials, config);
+    const details: Record<string, string | number> = {};
+
+    // 1. Credential check — POST tracking with an empty code.
+    const raw = await client.post("tracking", { "tracking-number": "" });
+    const checkMessage = readCheckApiMessage(raw);
+    details["authentification"] = checkMessage ?? "clé acceptée";
+
+    // 2. Best-effort destination-catalogue count (GET /cities is confirmed).
+    const cities = await fetchCities(client, cfg);
+    if (cities.length > 0) details["villes desservies"] = cities.length;
+
+    return { ok: true, details };
+  },
+
+  /** Retrieves OzonExpress's destination catalogue (`GET /cities`). Read-only. */
+  async listCities(
+    credentials: DeliveryCredentials,
+    config: DeliveryProviderConfig
+  ): Promise<DeliveryCity[]> {
+    const { cfg, client } = clientFor(credentials, config);
+    return toDeliveryCities(await fetchCities(client, cfg));
   },
 
   async createShipment(
@@ -134,13 +178,15 @@ export const ozonExpressAdapter: DeliveryProviderAdapter = {
     credentials: DeliveryCredentials,
     config: DeliveryProviderConfig
   ): Promise<CreateShipmentAdapterResult> {
-    const creds = parseCredentials(credentials);
-    const cfg = parseConfig(config);
-    const client = new OzonExpressClient(creds, cfg.baseUrl, { timeoutMs: cfg.requestTimeoutMs });
+    const { cfg, client } = clientFor(credentials, config);
 
-    // buildAddParcelForm throws DeliveryConfigError for an unmapped city or
-    // a negative COD BEFORE any network call.
-    const form = buildAddParcelForm(input, cfg);
+    // Resolve the recipient city against the `GET /cities` catalogue
+    // (config override wins) BEFORE creating the parcel — a typed
+    // DeliveryConfigError here means no parcel is ever submitted. The
+    // catalogue also carries the authoritative per-city delivery price.
+    const catalogue = await fetchCities(client, cfg);
+    const resolvedCity = resolveCity(input.city, cfg, catalogue);
+    const form = buildAddParcelForm(input, cfg, catalogue);
     const raw = await client.post("add-parcel", form);
     const parsed = parseAddParcelResponse(raw);
 
@@ -150,7 +196,9 @@ export const ozonExpressAdapter: DeliveryProviderAdapter = {
       // No per-parcel public tracking URL pattern is documented by
       // OzonExpress — never constructed by guessing (docs/adr/0012).
       trackingUrl: null,
-      cost: parsed.cost,
+      // The provider's own returned figure wins; otherwise the city's
+      // authoritative DELIVERED-PRICE from the catalogue. Never a guess.
+      cost: parsed.cost ?? resolvedCity.deliveredPrice,
       rawStatus: parsed.rawStatus,
     };
   },
@@ -160,10 +208,7 @@ export const ozonExpressAdapter: DeliveryProviderAdapter = {
     credentials: DeliveryCredentials,
     config: DeliveryProviderConfig
   ): Promise<FetchStatusAdapterResult> {
-    const creds = parseCredentials(credentials);
-    const cfg = parseConfig(config);
-    const client = new OzonExpressClient(creds, cfg.baseUrl, { timeoutMs: cfg.requestTimeoutMs });
-
+    const { client } = clientFor(credentials, config);
     const raw = await client.post("tracking", { "tracking-number": input.externalId });
     const parsed = parseTrackingResponse(raw);
     return { rawStatus: parsed.rawStatus, trackingUrl: null, cost: parsed.cost };

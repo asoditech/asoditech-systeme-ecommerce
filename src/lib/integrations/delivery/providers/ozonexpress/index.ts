@@ -1,7 +1,7 @@
 import "server-only";
 
-import { registerDeliveryProvider } from "@/lib/integrations/delivery/registry";
-import { ozonExpressAdapter } from "./adapter";
+import { hasDeliveryProvider, registerDeliveryProvider } from "@/lib/integrations/delivery/registry";
+import { ozonExpressAdapter, OZONEXPRESS_PROVIDER_KEY } from "./adapter";
 
 export {
   ozonExpressAdapter,
@@ -11,16 +11,19 @@ export {
 
 /**
  * Registers the OzonExpress adapter into the process-wide delivery
- * registry. Call this from
- * `src/lib/integrations/delivery/providers/index.ts` to make OzonExpress
- * selectable in production.
+ * registry. Called from
+ * `src/lib/integrations/delivery/providers/index.ts` (the production
+ * bootstrap) so OzonExpress is selectable in "Livraison → Prestataires".
  *
- * ⚠️ It is intentionally NOT called there yet — OzonExpress's API contract
- * is reconstructed from community integrations, not official documentation
- * (`OZONEXPRESS_VERIFICATION === "UNVERIFIED"`). Enable it only once the
- * contract is confirmed with OzonExpress. See
- * docs/adr/0013-ozonexpress-integration.md.
+ * Registration only makes the connector configurable — it does NOT imply a
+ * working connection. Saving credentials lands on CONFIGURE; only a
+ * successful "Tester la connexion" (a real authenticated request) moves it
+ * to CONNECTE. See docs/adr/0013-ozonexpress-integration.md.
+ *
+ * Idempotent: a no-op if an "ozonexpress" adapter is already registered
+ * (dev hot-reload can evaluate the bootstrap more than once).
  */
 export function registerOzonExpressProvider(): void {
+  if (hasDeliveryProvider(OZONEXPRESS_PROVIDER_KEY)) return;
   registerDeliveryProvider(ozonExpressAdapter);
 }

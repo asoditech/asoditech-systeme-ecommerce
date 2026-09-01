@@ -127,15 +127,30 @@ describe("OzonExpressClient", () => {
     it("a 'Parcel not found' message maps to DeliveryNotFoundError", () => {
       expect(() => assertNoApiError({ RESULT: "ERROR", MESSAGE: "Parcel not found" })).toThrow(DeliveryNotFoundError);
     });
-    it("an unclassifiable message maps to a generic DeliveryUnavailableError with a fixed French string", () => {
-      expect(() => assertNoApiError({ RESULT: "ERROR", MESSAGE: "weird internal thing 0xDEAD" })).toThrow(
-        DeliveryUnavailableError
-      );
+    it("an unclassifiable message surfaces OzonExpress's own wording (the operator's diagnostic)", () => {
+      let err: Error | undefined;
       try {
-        assertNoApiError({ RESULT: "ERROR", MESSAGE: "weird internal thing 0xDEAD" });
+        assertNoApiError({ RESULT: "ERROR", MESSAGE: "Compte marchand non activé" });
       } catch (e) {
-        expect((e as Error).message).not.toContain("0xDEAD");
+        err = e as Error;
       }
+      expect(err).toBeInstanceOf(DeliveryUnavailableError);
+      expect(err?.message).toContain("Compte marchand non activé");
+    });
+
+    it("redacts this client's credential values and long tokens from a surfaced message", () => {
+      let err: Error | undefined;
+      try {
+        assertNoApiError(
+          { RESULT: "ERROR", MESSAGE: `Clé ${FAKE_OZ_API_KEY} invalide (ref ABCDEFGHIJ0123456789KLMNOP)` },
+          (s) => s.split(FAKE_OZ_API_KEY).join("«masqué»")
+        );
+      } catch (e) {
+        err = e as Error;
+      }
+      expect(err?.message).not.toContain(FAKE_OZ_API_KEY);
+      expect(err?.message).not.toContain("ABCDEFGHIJ0123456789KLMNOP");
+      expect(err?.message).toContain("«masqué»");
     });
     it("passes through a genuine success body untouched", () => {
       expect(() => assertNoApiError({ "TRACKING-NUMBER": "OZE1", RESULT: "SUCCESS" })).not.toThrow();
@@ -145,5 +160,35 @@ describe("OzonExpressClient", () => {
   it("bad credentials are surfaced as DeliveryAuthError (fake returns HTTP 200 RESULT:ERROR)", async () => {
     const c = new OzonExpressClient({ customerId: "wrong", apiKey: "wrong" }, FAKE_OZ_BASE_URL);
     await expect(c.post("tracking", { "tracking-number": "OZE1" })).rejects.toBeInstanceOf(DeliveryAuthError);
+  });
+
+  describe("get() — the un-credentialed GET /cities catalogue", () => {
+    it("hits <host>/<path> with NO customer/key path segments", async () => {
+      await client().get("cities");
+      const url = state.seenUrls[0];
+      expect(new URL(url).pathname).toBe("/cities");
+      expect(url).not.toContain(FAKE_OZ_CUSTOMER_ID);
+      expect(url).not.toContain(FAKE_OZ_API_KEY);
+    });
+
+    it("returns the parsed JSON body (real shape: CITIES keyed by id)", async () => {
+      const body = (await client().get("cities")) as { CITIES: Record<string, unknown> };
+      expect(Object.keys(body.CITIES).length).toBeGreaterThan(0);
+    });
+
+    it("maps a 5xx to DeliveryUnavailableError", async () => {
+      state.forceCitiesHttpStatus = 502;
+      await expect(client().get("cities")).rejects.toBeInstanceOf(DeliveryUnavailableError);
+    });
+
+    it("maps non-JSON to DeliveryMalformedResponseError", async () => {
+      state.malformedBody = true;
+      await expect(client().get("cities")).rejects.toBeInstanceOf(DeliveryMalformedResponseError);
+    });
+
+    it("re-checks SSRF — a private-IP host is rejected", async () => {
+      const c = new OzonExpressClient(creds, "https://10.0.0.1", { timeoutMs: 1000 });
+      await expect(c.get("cities")).rejects.toBeInstanceOf(DeliveryConfigError);
+    });
   });
 });

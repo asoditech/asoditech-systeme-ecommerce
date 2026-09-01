@@ -9,10 +9,10 @@ import { DeliveryUnsupportedCapabilityError } from "./errors";
  * implementation. See docs/adr/0012-delivery-provider-integration.md.
  *
  * Production adapters are registered exactly once, at module load, by
- * importing them in providers/index.ts. That file is currently empty (no
- * real carrier is chosen yet — see the ADR) so this registry is empty in
- * production today; the UI reflects that honestly rather than offering a
- * connector that doesn't exist. Tests register their own fixture adapter
+ * providers/index.ts (currently: OzonExpress — see
+ * docs/adr/0013-ozonexpress-integration.md). Registration only makes a
+ * connector configurable; a real "Tester la connexion" success is still
+ * required before it is CONNECTE. Tests register their own fixture adapter
  * directly (see tests/helpers/reference-delivery-provider.ts) — it is
  * never imported from providers/index.ts, so it can never reach a
  * production build.
@@ -24,6 +24,12 @@ export function registerDeliveryProvider(adapter: DeliveryProviderAdapter): void
     throw new Error(`Un connecteur de livraison "${adapter.key}" est déjà enregistré.`);
   }
   registry.set(adapter.key, adapter);
+}
+
+/** True once an adapter is registered for `key` — used by the production
+ * bootstrap to stay idempotent under dev hot-reload. */
+export function hasDeliveryProvider(key: string): boolean {
+  return registry.has(key);
 }
 
 export function getDeliveryProvider(key: string): DeliveryProviderAdapter | undefined {

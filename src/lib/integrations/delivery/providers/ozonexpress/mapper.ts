@@ -1,43 +1,137 @@
 import "server-only";
 
-import { z } from "zod";
 import { DeliveryConfigError, DeliveryMalformedResponseError } from "@/lib/integrations/delivery/errors";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
 import { parseMoney } from "./client";
 import {
   ozonExpressAddParcelResponseSchema,
+  ozonExpressCitiesResponseSchema,
   ozonExpressParcelBodySchema,
   ozonExpressTrackingResponseSchema,
   type OzonExpressConfig,
 } from "./types";
-import type { CreateShipmentAdapterInput } from "@/lib/integrations/delivery/types";
+import type { CreateShipmentAdapterInput, DeliveryCity } from "@/lib/integrations/delivery/types";
 
 /**
  * OzonExpress ↔ local-model translation. All carrier-specific vocabulary
  * lives here (docs/adr/0012 "Status synchronization": mapping is
  * adapter-owned, never a shared guess table).
  *
- * ⚠️ UNVERIFIED. See docs/adr/0013-ozonexpress-integration.md.
+ * See docs/adr/0013-ozonexpress-integration.md.
  */
+
+// ---------------------------------------------------------------------------
+// GET /cities — destination catalogue
+// ---------------------------------------------------------------------------
+
+/**
+ * One OzonExpress destination, as returned by `GET /cities` (confirmed
+ * live 2026-09-01): `{ ID, REF, NAME, "DELIVERED-PRICE", "RETURNED-PRICE",
+ * "REFUSED-PRICE" }`. The delivery price here is authoritative — it is
+ * what OzonExpress bills on delivery to that city.
+ */
+export interface OzonExpressCity {
+  id: string;
+  name: string;
+  ref: string | null;
+  deliveredPrice: number | null;
+  returnedPrice: number | null;
+  refusedPrice: number | null;
+}
+
+/**
+ * Parses a `GET /cities` body into `OzonExpressCity[]`. The confirmed
+ * shape is `{ CITIES: { "<id>": {ID,REF,NAME,DELIVERED-PRICE,…} } }` — an
+ * object keyed by id — but a bare array and the other envelope keys
+ * (`cities` / `result` / `data`) are tolerated too. An entry missing an id
+ * or a name is dropped, never guessed. Returns `[]` for an unrecognisable
+ * body rather than throwing.
+ */
+export function parseOzonExpressCities(raw: unknown): OzonExpressCity[] {
+  const parsed = ozonExpressCitiesResponseSchema.safeParse(raw);
+  if (!parsed.success) return [];
+
+  const container = Array.isArray(parsed.data)
+    ? parsed.data
+    : parsed.data.CITIES ?? parsed.data.cities ?? parsed.data.result ?? parsed.data.data ?? [];
+  // CITIES is an object keyed by id in the live response; Object.values
+  // handles that and passes an array straight through.
+  const list = Array.isArray(container) ? container : Object.values(container);
+
+  const cities: OzonExpressCity[] = [];
+  for (const entry of list) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as Record<string, unknown>;
+    const idRaw = e.ID ?? e.id ?? e.CITY_ID ?? e.ref ?? e.REF;
+    const name = (e.NAME ?? e.name ?? e.CITY_NAME ?? e.ville ?? e.VILLE) as string | undefined;
+    if (idRaw === undefined || idRaw === null || !name) continue;
+    const id = String(idRaw).trim();
+    if (!id) continue;
+    cities.push({
+      id,
+      name: String(name).trim(),
+      ref: e.REF !== undefined ? String(e.REF) : e.ref !== undefined ? String(e.ref) : null,
+      deliveredPrice: parseMoney(e["DELIVERED-PRICE"]),
+      returnedPrice: parseMoney(e["RETURNED-PRICE"]),
+      refusedPrice: parseMoney(e["REFUSED-PRICE"]),
+    });
+  }
+  return cities;
+}
+
+/** Generic view for the shared `listCities` capability. */
+export function toDeliveryCities(cities: OzonExpressCity[]): DeliveryCity[] {
+  return cities.map((c) => ({ id: c.id, name: c.name, region: null }));
+}
+
+/** Back-compat: parse straight to `DeliveryCity[]`. */
+export function parseCitiesResponse(raw: unknown): DeliveryCity[] {
+  return toDeliveryCities(parseOzonExpressCities(raw));
+}
 
 // ---------------------------------------------------------------------------
 // Outbound: local order → add-parcel form fields
 // ---------------------------------------------------------------------------
 
-/** Resolves the recipient city to an OzonExpress numeric city id using the
- * operator-supplied `cityIdByName` map. Throws a typed config error (before
- * any network call) rather than guessing an id — see docs/adr/0013
- * ("City identifiers"). */
-export function resolveCityId(city: string, config: OzonExpressConfig): string {
-  const map = config.cityIdByName ?? {};
+export type CityLike = { id: string; name: string; deliveredPrice?: number | null };
+
+/**
+ * Resolves the recipient city to an OzonExpress city id + its
+ * authoritative delivery price. Resolution order:
+ *   1. an explicit `config.cityIdByName` override (operator correction), then
+ *   2. the `GET /cities` catalogue, matched case-insensitively on name.
+ * Throws a typed config error (never guesses an id) when neither resolves.
+ */
+export function resolveCity(
+  city: string,
+  config: OzonExpressConfig,
+  catalogue: readonly CityLike[] = []
+): { id: string; deliveredPrice: number | null } {
   const target = city.trim().toLowerCase();
-  for (const [name, id] of Object.entries(map)) {
-    if (name.trim().toLowerCase() === target) return String(id).trim();
+
+  for (const [name, id] of Object.entries(config.cityIdByName ?? {})) {
+    if (name.trim().toLowerCase() === target) {
+      const idStr = String(id).trim();
+      const match = catalogue.find((c) => c.id === idStr);
+      return { id: idStr, deliveredPrice: match?.deliveredPrice ?? null };
+    }
   }
+  for (const entry of catalogue) {
+    if (entry.name.trim().toLowerCase() === target) {
+      return { id: entry.id, deliveredPrice: entry.deliveredPrice ?? null };
+    }
+  }
+
   throw new DeliveryConfigError(
-    `Aucun identifiant de ville OzonExpress n'est configuré pour « ${city} ». ` +
-      "Ajoutez la correspondance ville → identifiant dans la configuration du connecteur."
+    `« ${city} » ne correspond à aucune ville desservie par OzonExpress. ` +
+      "Vérifiez l'orthographe de la ville de la commande, ou ajoutez une correspondance " +
+      "ville → identifiant dans la configuration du connecteur."
   );
+}
+
+/** Just the id — kept for `buildAddParcelForm` and existing callers/tests. */
+export function resolveCityId(city: string, config: OzonExpressConfig, catalogue: readonly CityLike[] = []): string {
+  return resolveCity(city, config, catalogue).id;
 }
 
 /**
@@ -58,7 +152,8 @@ export function normalizeMoroccanPhone(phone: string | null): string {
 
 export function buildAddParcelForm(
   input: CreateShipmentAdapterInput,
-  config: OzonExpressConfig
+  config: OzonExpressConfig,
+  catalogue: readonly CityLike[] = []
 ): Record<string, string> {
   if (input.codAmount !== null && input.codAmount < 0) {
     throw new DeliveryConfigError("Le montant à encaisser (COD) ne peut pas être négatif.");
@@ -70,7 +165,7 @@ export function buildAddParcelForm(
     "tracking-number": input.localShipmentId,
     "parcel-receiver": input.recipientName,
     "parcel-phone": normalizeMoroccanPhone(input.phone),
-    "parcel-city": resolveCityId(input.city, config),
+    "parcel-city": resolveCityId(input.city, config, catalogue),
     "parcel-address": [input.addressLine1, input.addressLine2].filter(Boolean).join(", "),
     // COD amount to collect. `0` is meaningful here (prepaid order — collect
     // nothing), and is NOT the "missing cost" case docs/adr/0012 warns
@@ -142,45 +237,47 @@ export interface ParsedTrackingResult {
   cost: number | null;
 }
 
-const nestedTrackingStatusSchema = z
-  .object({
-    STATUT: z.string().optional(),
-    STATUS: z.string().optional(),
-    "LAST-TRACKING": z.object({ STATUT: z.string().optional(), STATUS: z.string().optional() }).passthrough().optional(),
-    "TRACKING-HISTORY": z
-      .array(z.object({ STATUT: z.string().optional(), STATUS: z.string().optional(), DATE: z.string().optional() }).passthrough())
-      .optional(),
-  })
-  .passthrough();
+/**
+ * `CHECK_API.MESSAGE` from a credentialed response (e.g. "Valide API Key")
+ * — surfaced by the connection test. Returns undefined when the block is
+ * absent or not a SUCCESS.
+ */
+export function readCheckApiMessage(raw: unknown): string | undefined {
+  const parsed = ozonExpressTrackingResponseSchema.safeParse(raw);
+  const check = parsed.success ? parsed.data.CHECK_API : undefined;
+  if (check?.RESULT?.toUpperCase() === "SUCCESS") return check.MESSAGE?.trim() || undefined;
+  return undefined;
+}
 
-/** OzonExpress puts the current status under a different key depending on
- * the response variant. Probe the known locations; if none is present the
- * status genuinely could not be read (malformed) rather than "unknown". */
+/**
+ * Real `tracking` envelope (confirmed live): the current status is
+ * `TRACKING.LAST_TRACKING.STATUT`, with the last `TRACKING.HISTORY` entry
+ * as a fallback. Older permissive shapes are still probed last. If no
+ * status is anywhere, that's malformed (not "unknown").
+ */
 export function parseTrackingResponse(raw: unknown): ParsedTrackingResult {
   const parsed = ozonExpressTrackingResponseSchema.safeParse(raw);
   if (!parsed.success) {
     throw new DeliveryMalformedResponseError("Réponse de suivi OzonExpress invalide.");
   }
 
-  let status: string | undefined =
+  const t = parsed.data.TRACKING;
+  const historyEntries = t?.HISTORY
+    ? Array.isArray(t.HISTORY)
+      ? t.HISTORY
+      : Object.values(t.HISTORY)
+    : [];
+  const lastHistory = historyEntries.length > 0 ? historyEntries[historyEntries.length - 1] : undefined;
+
+  const status =
+    t?.LAST_TRACKING?.STATUT?.trim() ||
+    t?.LAST_TRACKING?.STATUS?.trim() ||
+    lastHistory?.STATUT?.trim() ||
+    lastHistory?.STATUS?.trim() ||
+    // legacy fallbacks
     parsed.data.STATUS?.trim() ||
     parsed.data["LAST-TRACKING"]?.STATUT?.trim() ||
     parsed.data["LAST-TRACKING"]?.STATUS?.trim();
-
-  if (!status && parsed.data.TRACKING !== undefined) {
-    const nested = nestedTrackingStatusSchema.safeParse(parsed.data.TRACKING);
-    if (nested.success) {
-      const history = nested.data["TRACKING-HISTORY"];
-      const latest = history && history.length > 0 ? history[history.length - 1] : undefined;
-      status =
-        nested.data.STATUT?.trim() ||
-        nested.data.STATUS?.trim() ||
-        nested.data["LAST-TRACKING"]?.STATUT?.trim() ||
-        nested.data["LAST-TRACKING"]?.STATUS?.trim() ||
-        latest?.STATUT?.trim() ||
-        latest?.STATUS?.trim();
-    }
-  }
 
   if (!status) {
     throw new DeliveryMalformedResponseError(
@@ -188,7 +285,8 @@ export function parseTrackingResponse(raw: unknown): ParsedTrackingResult {
     );
   }
 
-  return { rawStatus: status, cost: parseMoney(parsed.data["DELIVERED-PRICE"]) };
+  const cost = parseMoney(t?.["DELIVERED-PRICE"] ?? parsed.data["DELIVERED-PRICE"]);
+  return { rawStatus: status, cost };
 }
 
 // ---------------------------------------------------------------------------
@@ -196,70 +294,78 @@ export function parseTrackingResponse(raw: unknown): ParsedTrackingResult {
 // ---------------------------------------------------------------------------
 
 /**
- * OzonExpress raw status → local ShipmentStatus.
+ * OzonExpress raw `STATUT` → local ShipmentStatus.
  *
- * ⚠️ UNVERIFIED and deliberately CONSERVATIVE. OzonExpress does not publish
- * its status vocabulary; the entries below are the French/English strings
- * that appear consistently across the community integrations this adapter
- * was reconstructed from. Anything not in this table is returned as `null`
+ * ✅ Confirmed against the live API (2026-09-01): "Nouveau Colis",
+ * "Attente De Ramassage", "Ramassé", "Reçu", "Mise en distribution".
+ * ⚠️ The delivered / returned / refused / cancelled wording is NOT yet
+ * confirmed — the entries for those are a best guess of OzonExpress's
+ * likely French phrasing. Anything not in this table is returned as `null`
  * by `mapOzonExpressStatus` and preserved verbatim as
- * `Shipment.providerStatusRaw` — never guessed (docs/adr/0012 "Status
- * synchronization", docs/adr/0013 "Status mapping").
+ * `Shipment.providerStatusRaw` — never guessed a local status (docs/adr/0012
+ * "Status synchronization", docs/adr/0013).
  *
- * Keys are matched after normalization (lower-case, trimmed, runs of
- * space / `_` / `-` collapsed to a single space).
+ * Keys are matched after normalization (lower-case, accent-stripped,
+ * trimmed, runs of space / `_` / `-` collapsed to a single space).
  */
 const STATUS_TABLE: Record<string, ShipmentStatusValue> = {
-  // — awaiting pickup / at hub, not yet moving to the customer —
-  "nouveau colis": "EN_ATTENTE",
+  // — registered / awaiting the carrier's pickup (still at the merchant) —
+  "nouveau colis": "EN_ATTENTE", // confirmed
   nouveau: "EN_ATTENTE",
   new: "EN_ATTENTE",
   "new parcel": "EN_ATTENTE",
   "en attente": "EN_ATTENTE",
   pending: "EN_ATTENTE",
-  "colis recu": "EN_ATTENTE",
-  receptionne: "EN_ATTENTE",
-  received: "EN_ATTENTE",
-  "au depot": "EN_ATTENTE",
-  "at warehouse": "EN_ATTENTE",
-  "pris en charge": "EN_ATTENTE",
-  "picked up": "EN_ATTENTE",
-  ramasse: "EN_ATTENTE",
+  "attente de ramassage": "EN_ATTENTE", // confirmed
+  "en attente de ramassage": "EN_ATTENTE",
 
-  // — moving toward / with the customer —
+  // — carrier has physically taken the parcel / it is moving —
+  ramasse: "EN_TRANSIT", // confirmed ("Ramassé")
+  "picked up": "EN_TRANSIT",
+  "pris en charge": "EN_TRANSIT",
+  recu: "EN_TRANSIT", // confirmed ("Reçu" — at OZ depot)
+  "colis recu": "EN_TRANSIT",
+  receptionne: "EN_TRANSIT",
+  received: "EN_TRANSIT",
+  "au depot": "EN_TRANSIT",
+  "at warehouse": "EN_TRANSIT",
   expedie: "EN_TRANSIT",
   shipped: "EN_TRANSIT",
   "en transit": "EN_TRANSIT",
   "in transit": "EN_TRANSIT",
   "en cours de livraison": "EN_TRANSIT",
   "out for delivery": "EN_TRANSIT",
-  "mise en distribution": "EN_TRANSIT",
+  "mise en distribution": "EN_TRANSIT", // confirmed
   distribution: "EN_TRANSIT",
 
-  // — terminal: delivered —
+  // — terminal: delivered (wording unconfirmed) —
   livre: "LIVRE",
   delivered: "LIVRE",
   "livraison confirmee": "LIVRE",
+  "colis livre": "LIVRE",
 
-  // — failed delivery —
+  // — failed delivery (wording unconfirmed) —
   "non livre": "ECHEC",
   "echec de livraison": "ECHEC",
   "delivery failed": "ECHEC",
   refuse: "ECHEC",
   refused: "ECHEC",
   "refus client": "ECHEC",
+  "colis refuse": "ECHEC",
 
-  // — returned to sender —
+  // — returned to sender (wording unconfirmed) —
   retourne: "RETOURNE",
   returned: "RETOURNE",
   retour: "RETOURNE",
   "retour a expediteur": "RETOURNE",
+  "colis retourne": "RETOURNE",
   "return to sender": "RETOURNE",
 
-  // — cancelled —
+  // — cancelled (wording unconfirmed) —
   annule: "ANNULE",
   cancelled: "ANNULE",
   canceled: "ANNULE",
+  "colis annule": "ANNULE",
 };
 
 function normalizeStatus(raw: string): string {

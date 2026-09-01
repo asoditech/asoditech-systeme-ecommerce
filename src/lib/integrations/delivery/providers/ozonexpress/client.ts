@@ -12,18 +12,21 @@ import { ozonExpressErrorEnvelopeSchema, type OzonExpressCredentials } from "./t
 
 /**
  * Thin, centralized OzonExpress HTTP client. Every network call the
- * adapter makes goes through `post()` — one place for the path-based auth,
- * SSRF re-validation, timeout, retry, and the "HTTP 200 that is actually
- * an error" unwrapping.
+ * adapter makes goes through `post()` (credentialed actions) or `get()`
+ * (the un-credentialed `/cities` catalogue) — one place for the path-based
+ * auth, SSRF re-validation, timeout, retry, and the "HTTP 200 that is
+ * actually an error" unwrapping.
  *
  * ⚠️ Path-based credentials. OzonExpress authenticates by embedding the
  * customer id AND api key as URL path segments
  * (`/customers/{id}/{key}/<action>`), not via a header. That means the
  * request URL itself is a secret. This client therefore NEVER puts a URL
  * (or anything derived from one) into an error message, a thrown value, or
- * a return value — callers only ever see the typed DeliveryProviderError
- * subclasses with fixed French strings. See
- * docs/adr/0013-ozonexpress-integration.md ("Credentials").
+ * a return value. Errors carry either a fixed French string or, for an
+ * unclassified OzonExpress `RESULT:ERROR`, OzonExpress's own MESSAGE first
+ * run through `redact` (this client's own credential values) and a
+ * length/token safeguard. See docs/adr/0013-ozonexpress-integration.md
+ * ("Credentials").
  */
 
 const PRODUCTION_BASE_URL = "https://api.ozonexpress.ma";
@@ -54,6 +57,9 @@ export class OzonExpressClient {
   private readonly baseHost: string;
   private readonly pathPrefix: string;
   private readonly timeoutMs: number;
+  /** Credential values to strip from any provider message before it is
+   * surfaced — see `redact`. */
+  private readonly secrets: string[];
 
   constructor(
     credentials: OzonExpressCredentials,
@@ -61,6 +67,7 @@ export class OzonExpressClient {
     options?: { timeoutMs?: number }
   ) {
     this.timeoutMs = options?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.secrets = [credentials.customerId, credentials.apiKey].filter((s) => s.length >= 4);
     const base = (baseUrlOverride ?? PRODUCTION_BASE_URL).replace(/\/+$/, "");
     let parsed: URL;
     try {
@@ -76,6 +83,16 @@ export class OzonExpressClient {
     // never break out of its path segment.
     this.pathPrefix = `/customers/${encodeURIComponent(credentials.customerId)}/${encodeURIComponent(credentials.apiKey)}`;
   }
+
+  /** Replaces this client's own credential values with «masqué» anywhere
+   * they appear in `text`. */
+  private redact = (text: string): string => {
+    let out = text;
+    for (const secret of this.secrets) {
+      out = out.split(secret).join("«masqué»");
+    }
+    return out;
+  };
 
   /**
    * POSTs `form` as multipart/form-data to `<host><prefix>/<action>` and
@@ -149,7 +166,7 @@ export class OzonExpressClient {
       } catch {
         throw new DeliveryMalformedResponseError("Réponse illisible reçue d'OzonExpress.");
       }
-      assertNoApiError(parsed);
+      assertNoApiError(parsed, this.redact);
       return parsed;
     }
     // Unreachable in practice (every path above either returns or throws),
@@ -158,28 +175,91 @@ export class OzonExpressClient {
       ? new DeliveryUnavailableError("Impossible de joindre OzonExpress.")
       : new DeliveryUnavailableError("OzonExpress a retourné une réponse inattendue.");
   }
+
+  /**
+   * GETs `<host>/<path>` (no credential path segments) and returns the
+   * parsed JSON body. Used for `GET /cities`, the destination catalogue,
+   * which the owner-provided documentation lists as an un-credentialed
+   * endpoint. Same SSRF re-check, timeout, retry, and error normalization
+   * as `post()`.
+   */
+  async get(path: string): Promise<unknown> {
+    try {
+      await assertPublicHost(new URL(this.baseHost).hostname);
+    } catch (error) {
+      if (error instanceof InvalidHostError) {
+        throw new DeliveryConfigError("L'hôte OzonExpress configuré n'est pas autorisé.");
+      }
+      throw error;
+    }
+
+    const url = `${this.baseHost}/${path.replace(/^\/+/, "")}`;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          signal: controller.signal,
+          redirect: "error",
+        });
+      } catch (error) {
+        clearTimeout(timer);
+        if (error instanceof DOMException && error.name === "AbortError") {
+          throw new DeliveryTimeoutError("OzonExpress n'a pas répondu à temps.");
+        }
+        if (attempt < MAX_RETRIES - 1) {
+          await sleep(500 * 2 ** attempt);
+          continue;
+        }
+        throw new DeliveryUnavailableError("Impossible de joindre OzonExpress.");
+      }
+      clearTimeout(timer);
+
+      if ((response.status === 429 || response.status >= 500) && attempt < MAX_RETRIES - 1) {
+        await sleep(500 * 2 ** attempt);
+        continue;
+      }
+      if (!response.ok) throw errorForStatus(response.status);
+
+      let parsed: unknown;
+      try {
+        parsed = await response.json();
+      } catch {
+        throw new DeliveryMalformedResponseError("Réponse illisible reçue d'OzonExpress.");
+      }
+      assertNoApiError(parsed, this.redact);
+      return parsed;
+    }
+    throw new DeliveryUnavailableError("Impossible de joindre OzonExpress.");
+  }
 }
 
 /**
- * OzonExpress signals many failures with HTTP 200 + `{"RESULT":"ERROR",
- * "MESSAGE":"..."}`, sometimes wrapped one level under an action key
- * (`{"ADD-PARCEL":{"RESULT":"ERROR",...}}`). Detect both and raise a typed
- * error whose message is a fixed French string (errorForApiMessage never
- * interpolates the raw MESSAGE — it only classifies it).
+ * OzonExpress signals failures with HTTP 200 + `{"RESULT":"ERROR",
+ * "MESSAGE":"..."}`, either at top level or one level under an action key
+ * (`CHECK_API`, `ADD-PARCEL`, `TRACKING`, …). A block whose
+ * `RESULT === "SUCCESS"` (e.g. `CHECK_API` on a valid key) is left alone.
+ * `errorForApiMessage` maps known MESSAGE substrings to fixed French
+ * strings; anything it can't classify surfaces OzonExpress's own message,
+ * first run through `redact` (this client's credential values) and a
+ * length/token safeguard.
  */
-export function assertNoApiError(parsed: unknown): void {
+export function assertNoApiError(parsed: unknown, redact?: (s: string) => string): void {
   if (parsed === null || typeof parsed !== "object") return;
 
   const top = ozonExpressErrorEnvelopeSchema.safeParse(parsed);
   if (top.success && top.data.RESULT?.toUpperCase() === "ERROR") {
-    throw errorForApiMessage(top.data.MESSAGE ?? "");
+    throw errorForApiMessage(top.data.MESSAGE ?? "", redact);
   }
 
   for (const value of Object.values(parsed as Record<string, unknown>)) {
     if (value === null || typeof value !== "object") continue;
     const nested = ozonExpressErrorEnvelopeSchema.safeParse(value);
     if (nested.success && nested.data.RESULT?.toUpperCase() === "ERROR") {
-      throw errorForApiMessage(nested.data.MESSAGE ?? "");
+      throw errorForApiMessage(nested.data.MESSAGE ?? "", redact);
     }
   }
 }

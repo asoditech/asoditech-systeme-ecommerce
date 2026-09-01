@@ -117,15 +117,21 @@ describe("OzonExpress connector — Server Action layer", () => {
       expect(JSON.stringify(row.config)).not.toContain(FAKE_OZ_API_KEY);
     });
 
-    it("only a real successful connection test sets CONNECTE", async () => {
+    it("only a real successful connection test sets CONNECTE, and reports the city count", async () => {
       await loginAsTestUser({ role: "MANAGER" });
       const provider = await configuredProvider();
 
       const result = await testDeliveryProviderConnectionAction(formData({ providerId: provider.id }));
       expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.details?.["villes desservies"]).toBe(4);
       const row = await prisma.shippingProvider.findUniqueOrThrow({ where: { id: provider.id } });
       expect(row.connectionStatus).toBe("CONNECTE");
       expect(row.capabilities.sort()).toEqual(["CREATE_SHIPMENT", "FETCH_COST", "FETCH_STATUS"]);
+      // The read-only verification facts are safe to keep in the audit trail.
+      const audit = await prisma.auditEvent.findFirstOrThrow({
+        where: { action: "shipping_provider.connection_test_succeeded" },
+      });
+      expect(JSON.stringify(audit.metadata)).not.toContain(FAKE_OZ_API_KEY);
     });
 
     it("a failed connection test sets ERREUR with a safe message (no credential, no URL)", async () => {

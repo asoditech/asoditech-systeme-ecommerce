@@ -33,7 +33,20 @@ import {
  * community integrations this adapter was reconstructed from. Treat this
  * as a best-effort classification, not an exhaustive contract.
  */
-export function errorForApiMessage(message: string): DeliveryProviderError {
+/** Redacts anything that looks like it could carry a credential, then caps
+ * length — applied to OzonExpress's own MESSAGE before it is shown. */
+function sanitizeApiMessage(message: string, redact?: (s: string) => string): string {
+  let out = (redact ? redact(message) : message).trim();
+  // Belt-and-braces: drop standalone long token-like runs (≥ 20 chars, no
+  // spaces) in case a message ever echoes a key we didn't pass to redact().
+  out = out.replace(/\b[A-Za-z0-9_-]{20,}\b/g, "«masqué»");
+  return out.length > 240 ? out.slice(0, 240) + "…" : out;
+}
+
+export function errorForApiMessage(
+  message: string,
+  redact?: (s: string) => string
+): DeliveryProviderError {
   const normalized = message.toLowerCase();
   if (normalized.includes("city")) {
     return new DeliveryConfigError(
@@ -56,7 +69,15 @@ export function errorForApiMessage(message: string): DeliveryProviderError {
   if (normalized.includes("not found") || normalized.includes("introuvable")) {
     return new DeliveryNotFoundError("Ressource introuvable chez OzonExpress.");
   }
-  return new DeliveryUnavailableError("OzonExpress a retourné une erreur pour cette requête.");
+  // Unclassified: surface OzonExpress's own (sanitized) message — it is the
+  // diagnostic the operator needs when a connection test or a shipment
+  // fails for a reason we don't have a specific mapping for. The message is
+  // server-authored text, never a credential; it is still run through
+  // sanitizeApiMessage as a safeguard.
+  const detail = sanitizeApiMessage(message, redact);
+  return new DeliveryUnavailableError(
+    detail ? `OzonExpress a refusé la requête : ${detail}` : "OzonExpress a retourné une erreur pour cette requête."
+  );
 }
 
 /** Maps a non-2xx HTTP status from OzonExpress to a typed error. Never

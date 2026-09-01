@@ -1,7 +1,12 @@
 # ADR 0013 — OzonExpress delivery adapter (Phase 23)
 
 ## Status
-Accepted (2026-08-31)
+Accepted (2026-08-31). **Amended 2026-09-01** — see the "Phase 23
+continuation" addendum at the end: the owner has provided API documentation
+confirming the endpoints, the adapter is now registered in production for
+configuration + connection testing (still not auto-CONNECTE), and a
+`GET /cities` authoritative catalogue + a safe verification path were added.
+Where the addendum and the original body disagree, the addendum wins.
 
 ## Context
 `docs/adr/0012-delivery-provider-integration.md` (Phase 22) built the
@@ -351,3 +356,212 @@ screen — `credentialFields` lets each adapter describe its own config form.
 `LIVE_TESTED = NO`. `FIXTURE_TESTED = YES` (full lifecycle, real test DB,
 mocked HTTP). `CONTRACT_SOURCE = community-reconstructed, unverified`.
 `PRODUCTION_REGISTERED = NO`.
+
+---
+
+# Phase 23 continuation — endpoint confirmation, production registration, `/cities` (2026-09-01)
+
+## What the owner provided
+The owner supplied OzonExpress's API documentation confirming these
+endpoints and path-based (`customer id` + `api key`) authentication:
+
+| Purpose | Endpoint |
+| --- | --- |
+| Create shipment | `POST /customers/{CUSTOMER_ID}/{API_KEY}/add-parcel` |
+| Parcel details | `POST /customers/{CUSTOMER_ID}/{API_KEY}/parcel-info` |
+| Tracking / status | `POST /customers/{CUSTOMER_ID}/{API_KEY}/tracking` |
+| Destination catalogue | `GET /cities` |
+
+This confirms the three endpoints Phase 23 already reconstructed and adds
+`GET /cities` as the **authoritative city catalogue** (Phase 23 had only an
+operator-maintained map). It does **not** yet include a transcription of
+the exact request-parameter lists or response envelopes into this repo, and
+**no real authenticated call has been made** (no test credentials were
+provided). The documentation contains **no** cancellation endpoint and
+**no** webhook/callback mechanism — `CANCEL_SHIPMENT` and `WEBHOOKS` remain
+undeclared.
+
+## Changes
+
+### Production registration (the UI fix)
+`src/lib/integrations/delivery/providers/index.ts` now calls
+`registerOzonExpressProvider()`. Effect:
+- "OzonExpress (Maroc)" appears in the Livraison → Prestataires "Configurer"
+  connector picker; the button is no longer disabled (it disabled only
+  while the registry was empty).
+- The typed credential form renders **Identifiant client OzonExpress**
+  (text) + **Clé API OzonExpress** (password), French-first, assembled
+  client-side into the encrypted credentials JSON.
+- **Registration ≠ CONNECTE.** Saving credentials still lands on
+  `CONFIGURE`; only a successful `testDeliveryProviderConnectionAction`
+  (a real authenticated request) sets `CONNECTE`. Unchanged.
+- `displayName` is now `"OzonExpress (Maroc)"` (the "— contrat non vérifié"
+  suffix is dropped; the connection-status badge already conveys verified
+  state). `OZONEXPRESS_VERIFICATION` is `"ENDPOINTS_CONFIRMED"` (was
+  `"UNVERIFIED"`).
+
+### `GET /cities` — authoritative catalogue
+- New `OzonExpressClient.get(path)` — an **un-credentialed** `GET`
+  (`/cities` per the documentation), with the same SSRF re-check, timeout,
+  retry, and error normalization as `post()`.
+- `mapper.parseCitiesResponse` → `DeliveryCity[]`, tolerating a bare array
+  or a `{CITIES|cities|result|data:[…]}` wrapper and probing each entry's
+  id/name across the common spellings; an entry missing an id **or** a
+  name is dropped, never guessed; an unrecognisable body yields `[]`.
+- `mapper.resolveCityId(city, config, catalogue)` resolution order:
+  **(1)** `config.cityIdByName` override (operator correction / alias) →
+  **(2)** the `GET /cities` catalogue (case-insensitive) → **(3)** typed
+  `DeliveryConfigError`, never a guessed id.
+- `adapter.createShipment` fetches `/cities` first and passes the catalogue
+  to `buildAddParcelForm`; if `/cities` is unreachable it falls back to the
+  override map alone, still erroring rather than guessing.
+- New generic optional `DeliveryProviderAdapter.listCities?()` +
+  `DeliveryCity` type — a real capability many regional COD carriers share,
+  not an Ozon special-case.
+
+### Safe verification path (no accidental COD shipment)
+"Tester la connexion" is structurally incapable of creating a parcel (it
+only calls `adapter.testConnection`; `createShipment` is a separate action
+requiring an order). `testConnection` now:
+1. `GET /cities` — proves reachability + documented format, and reports the
+   city count. Non-fatal: a parse/HTTP failure here just omits the count.
+2. an authenticated `parcel-info` lookup for the sentinel
+   `"__connexion_test__"` — proves the credentials authenticate ("parcel
+   not found" counts as success). Bad credentials → `DeliveryAuthError` →
+   the provider row goes `ERREUR` + `lastError`.
+
+New optional `DeliveryConnectionResult.details` (a
+`Record<string, string|number>` of non-secret read-only facts) is surfaced
+in the success toast — "Connexion réussie — villes desservies : 120" — and
+stored in the `shipping_provider.connection_test_succeeded` audit event's
+metadata (the adapter guarantees no credential/URL is ever in it).
+
+### Idempotency / custom tracking number
+Unchanged: the local `Shipment.id` is sent as the `add-parcel`
+`tracking-number`. Whether OzonExpress accepts an arbitrary custom value
+and dedupes on it is stated by the community reconstruction but not yet
+confirmed against the documentation body — the adapter reads back whatever
+`TRACKING-NUMBER` the response carries either way, so correctness does not
+depend on it.
+
+## What is NOT done (needs an owner action)
+- **A real authenticated call.** No OzonExpress test/live credentials were
+  provided. `credentials authentication`, `/cities` retrieval, response
+  format, tracking response, and the `DELIVERED-PRICE` / `RETURNED-PRICE` /
+  `REFUSED-PRICE` fields have **not** been observed on a live response.
+- **Transcribing the documentation body.** The request-parameter lists and
+  response envelopes in `types.ts` / `mapper.ts` are still the resilient
+  Phase 23 reconstruction (defensive parsing, tolerant of extra keys). They
+  should be tightened to the documentation's exact field names, and the
+  status vocabulary in `mapper.ts` reconciled against the documentation's
+  status list, before auto-transitions are relied on.
+- **No real parcel was created** and none should be until the above is
+  done — then a single low-value live parcel to confirm `add-parcel`.
+
+## Verification (this amendment)
+- Tests: **369/369 pass** (+19 vs. the Phase 23 commit — `parseCitiesResponse`,
+  catalogue-based city resolution, `client.get`, `testConnection` city
+  count + catalogue-unavailable fallback, production-registry wiring +
+  masked-field exposure, audit-metadata safety).
+- `typecheck`: clean. `lint`: 0 errors (2 pre-existing preloader `<img>`
+  warnings). `git diff --check`: clean. Secrets scan: none; `.env*`
+  git-ignored.
+- `build`: still fails at the **pre-existing `main` baseline** (`useContext`
+  null prerendering `/_global-error` + `/acces-refuse`, invalid React-18
+  peer deps in the lockfile) — verified identical with this work stashed.
+- **No commit made.**
+
+## Follow-up fixes (same amendment)
+
+### Provider deletion
+`deleteShippingProviderAction` + a "Supprimer" button on every row of
+Livraison → Prestataires (`ConfirmActionButton`, `delivery.manage` only,
+disabled when the provider has shipments). Refused with a friendly message
+if any `Shipment` still references it (`onDelete: Restrict`); its
+`ShipmentWebhookEvent` rows cascade-delete. New audit action
+`shipping_provider.deleted`. This closes the "no way to remove a test
+provider" gap.
+
+### Connection-test errors are now legible
+Previously an unclassified OzonExpress `RESULT:ERROR` surfaced only as
+"OzonExpress a retourné une erreur pour cette requête." — useless for
+verification. `errorForApiMessage` now surfaces OzonExpress's **own
+MESSAGE** for the unclassified case ("OzonExpress a refusé la requête :
+…"), first run through `OzonExpressClient.redact` (this client's own
+customer id + API key → «masqué») and a length/long-token safeguard. The
+MESSAGE is server-authored diagnostic text, never a credential. Known
+substrings (`city`, `api key`, `not found`, …) still map to the fixed
+French strings. `testConnection`'s sentinel `parcel-info` lookup now treats
+a malformed response (as well as "not found") as auth-OK, and lets every
+other error — including the newly-informative refusal — propagate to the
+operator.
+
+## Status markers (updated)
+`LIVE_TESTED = NO`. `FIXTURE_TESTED = YES`.
+`ENDPOINTS = owner-confirmed (add-parcel, parcel-info, tracking, GET /cities)`.
+`FIELD_SCHEMAS = reconstructed, pending documentation-body transcription`.
+`PRODUCTION_REGISTERED = YES (configurable + testable; not auto-CONNECTE)`.
+`REAL_PARCEL_CREATED = NO`.
+
+---
+
+# Phase 23 continuation — live `tracking` + `/cities` verification (2026-09-01)
+
+A real OzonExpress account (id `70275`) was used for READ-ONLY calls — no
+parcel was created.
+
+## What the live API returned
+
+### `POST /customers/{id}/{key}/tracking` (multipart, `tracking-number` empty)
+```
+{ "CHECK_API": { "RESULT": "SUCCESS", "MESSAGE": "Valide API Key" },
+  "TRACKING": { "TRACKING-NUMBER": "", "RESULT": "SUCCESS",
+                "MESSAGE": "Valid tracking number",
+                "HISTORY": { "1": {STATUT,TIME,TIME_STR,COMMENT}, … },   // object keyed "1".."N"
+                "LAST_TRACKING": { "STATUT": "…", "TIME": "…", "COMMENT": "…" } } }
+```
+- **`CHECK_API.RESULT === "SUCCESS"` (`MESSAGE: "Valide API Key"`) is the
+  authentication signal** — no top-level `RESULT:ERROR`.
+- `HISTORY` deserializes as an **object keyed by index string**, not an array.
+- Real `STATUT` values seen: `Nouveau Colis`, `Attente De Ramassage`,
+  `Ramassé`, `Reçu`, `Mise en distribution`.
+
+### `GET /cities` (un-credentialed — confirmed)
+```
+{ "CITIES": { "37": { "ID":37, "REF":"AGA", "NAME":"Agadir",
+                      "DELIVERED-PRICE":35, "RETURNED-PRICE":0, "REFUSED-PRICE":10 }, … } }
+```
+- **801 cities**, each with the carrier's **authoritative per-city
+  delivery price**. `CITIES` is an object keyed by id.
+- `GET …/customers/{id}/{key}/cities` returns only `CHECK_API` — the
+  credentialed path is NOT the catalogue; `GET /cities` is.
+
+## Changes
+
+| Area | Change |
+| --- | --- |
+| `types.ts` | `tracking` schema rewritten to the real `{CHECK_API, TRACKING:{HISTORY (array\|record), LAST_TRACKING}}` envelope. `/cities` schema: `CITIES` accepts an array **or** an id-keyed record; city entry now carries `DELIVERED-PRICE`/`RETURNED-PRICE`/`REFUSED-PRICE`. |
+| `mapper.ts` | New `parseOzonExpressCities` → `OzonExpressCity[]` (id, name, ref, 3 prices); `parseCitiesResponse`/`toDeliveryCities` give the generic view. New `resolveCity` returns `{id, deliveredPrice}` (config override → catalogue → typed error). `readCheckApiMessage` extracts the auth message. `parseTrackingResponse` reads `TRACKING.LAST_TRACKING.STATUT` → last `HISTORY` entry → legacy fallbacks. Status table updated with the 5 confirmed live statuses (`Ramassé`/`Reçu` → `EN_TRANSIT`); delivered/returned/refused/cancelled wording still marked unconfirmed. |
+| `adapter.ts` | `testConnection` now does `POST tracking` (empty code) and surfaces `CHECK_API.MESSAGE` as `details["authentification"]`; the bad-key `CHECK_API.RESULT:ERROR` is turned into `DeliveryAuthError` by the client. `fetchCities` = `GET /cities` only. `createShipment` sets `cost = add-parcel cost ?? the resolved city's DELIVERED-PRICE` — never a guess. `OZONEXPRESS_VERIFICATION = "TRACKING_LIVE_VERIFIED"`. |
+| `client.ts` | `assertNoApiError` doc clarified: a `RESULT:"SUCCESS"` block (e.g. `CHECK_API`) is left alone; only `RESULT:"ERROR"` (top-level or one level nested) raises. |
+
+## Answers
+
+| Question | Answer |
+| --- | --- |
+| Real authentication succeeded? | **YES** — `CHECK_API: {RESULT:"SUCCESS", MESSAGE:"Valide API Key"}`. |
+| `/cities` succeeded? | **YES** — `GET /cities`, 801 cities, all with `DELIVERED-PRICE`. |
+| Any real parcel created? | **NO.** Only `tracking` (empty code) and `GET /cities` were called. |
+| `add-parcel` verified? | **NO** — still the reconstruction. Needs one real low-value parcel. |
+| Delivered/returned/refused/cancelled status wording | **NOT yet seen** — the mapper's entries for those remain a documented best-guess. |
+
+## Verification (this amendment)
+385 tests pass (fake now mirrors the real `CHECK_API`/`TRACKING`/`CITIES`
+shapes; a live Zod check confirmed the `/cities` schema against all 801
+rows). typecheck + lint clean. `next build` still fails only at the
+pre-existing `main` baseline. Not committed.
+
+## Status markers (updated again)
+`TRACKING_ENDPOINT = LIVE_VERIFIED`. `CITIES_ENDPOINT = LIVE_VERIFIED`.
+`AUTH = LIVE_VERIFIED (CHECK_API)`. `ADD_PARCEL = reconstructed, not live`.
+`REAL_PARCEL_CREATED = NO`.

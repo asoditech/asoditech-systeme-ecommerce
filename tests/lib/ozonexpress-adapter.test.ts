@@ -21,7 +21,7 @@ import {
 import type { CreateShipmentAdapterInput } from "@/lib/integrations/delivery/types";
 
 const credentials = { customerId: FAKE_OZ_CUSTOMER_ID, apiKey: FAKE_OZ_API_KEY };
-const config = { baseUrl: FAKE_OZ_BASE_URL, cityIdByName: { Casablanca: 1, Rabat: 2 }, requestTimeoutMs: 1000 };
+const config = { baseUrl: FAKE_OZ_BASE_URL, requestTimeoutMs: 1000 };
 
 const shipmentInput: CreateShipmentAdapterInput = {
   localShipmentId: "ship_1",
@@ -39,6 +39,7 @@ const shipmentInput: CreateShipmentAdapterInput = {
 };
 
 let state: FakeOzonExpressState;
+const addParcelCalls = () => state.seenUrls.filter((u) => u.includes("/add-parcel"));
 
 describe("ozonExpressAdapter (fixture)", () => {
   beforeEach(() => {
@@ -47,13 +48,13 @@ describe("ozonExpressAdapter (fixture)", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("is not verified and not production-registered", () => {
-    expect(OZONEXPRESS_VERIFICATION).toBe("UNVERIFIED");
+  it("tracking is live-verified; add-parcel / cities are not", () => {
+    expect(OZONEXPRESS_VERIFICATION).toBe("TRACKING_LIVE_VERIFIED");
     expect(ozonExpressAdapter.key).toBe(OZONEXPRESS_PROVIDER_KEY);
-    expect(ozonExpressAdapter.displayName).toMatch(/non vérifié/i);
+    expect(ozonExpressAdapter.displayName).toBe("OzonExpress (Maroc)");
   });
 
-  it("declares only the capabilities OzonExpress actually supports", () => {
+  it("declares only the capabilities the documentation supports", () => {
     expect([...ozonExpressAdapter.capabilities].sort()).toEqual(["CREATE_SHIPMENT", "FETCH_COST", "FETCH_STATUS"]);
     expect(() => assertCapability(ozonExpressAdapter, "CANCEL_SHIPMENT")).toThrow();
     expect(() => assertCapability(ozonExpressAdapter, "WEBHOOKS")).toThrow();
@@ -64,47 +65,101 @@ describe("ozonExpressAdapter (fixture)", () => {
     expect(ozonExpressAdapter.credentialFields?.find((f) => f.name === "apiKey")?.type).toBe("password");
   });
 
-  describe("testConnection", () => {
-    it("succeeds against valid credentials (sentinel lookup authenticates)", async () => {
-      await expect(ozonExpressAdapter.testConnection(credentials, config)).resolves.toEqual({ ok: true });
+  describe("listCities (GET /cities)", () => {
+    it("returns the parsed destination catalogue", async () => {
+      const cities = await ozonExpressAdapter.listCities!(credentials, config);
+      expect(cities.map((c) => c.name)).toContain("Casablanca");
+      expect(cities.find((c) => c.name === "Rabat")?.id).toBe("2");
     });
 
-    it("fails with DeliveryAuthError on bad credentials", async () => {
+    it("parses a bare-array envelope too", async () => {
+      state.citiesEnvelope = "bare-array";
+      const cities = await ozonExpressAdapter.listCities!(credentials, config);
+      expect(cities.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("testConnection — safe verification path (never creates a parcel)", () => {
+    it("succeeds with valid credentials, reporting CHECK_API's message and the city count", async () => {
+      const result = await ozonExpressAdapter.testConnection(credentials, config);
+      expect(result.ok).toBe(true);
+      expect(result.details?.["authentification"]).toBe("Valide API Key");
+      expect(result.details?.["villes desservies"]).toBe(4);
+      expect(addParcelCalls()).toHaveLength(0);
+    });
+
+    it("still succeeds (auth proven via CHECK_API) when the city catalogue is unavailable", async () => {
+      state.forceCitiesHttpStatus = 500;
+      const result = await ozonExpressAdapter.testConnection(credentials, config);
+      expect(result.ok).toBe(true);
+      expect(result.details?.["authentification"]).toBe("Valide API Key");
+      expect(result.details?.["villes desservies"]).toBeUndefined();
+      expect(addParcelCalls()).toHaveLength(0);
+    });
+
+    it("fails with DeliveryAuthError on bad credentials (CHECK_API RESULT:ERROR)", async () => {
       await expect(
         ozonExpressAdapter.testConnection({ customerId: "x", apiKey: "y" }, config)
       ).rejects.toBeInstanceOf(DeliveryAuthError);
     });
 
+    it("fails with DeliveryAuthError when CHECK_API reports an account problem", async () => {
+      state.forceCheckApiErrorMessage = "API Key désactivée";
+      await expect(ozonExpressAdapter.testConnection(credentials, config)).rejects.toBeInstanceOf(DeliveryAuthError);
+    });
+
     it("fails with DeliveryConfigError on incomplete credentials, before any network call", async () => {
-      vi.unstubAllGlobals(); // prove no fetch happens
+      vi.unstubAllGlobals();
       await expect(
         ozonExpressAdapter.testConnection({ customerId: "only-this" }, config)
       ).rejects.toBeInstanceOf(DeliveryConfigError);
     });
+
+    it("surfaces an unclassified OzonExpress account error verbatim (the operator's diagnostic)", async () => {
+      state.forcePathErrorMessage = "Compte marchand suspendu — contactez OzonExpress";
+      await expect(
+        ozonExpressAdapter.testConnection(credentials, config)
+      ).rejects.toThrow(/Compte marchand suspendu/);
+    });
   });
 
   describe("createShipment", () => {
-    it("returns exactly what OzonExpress returned — real tracking number, real cost, never fabricated", async () => {
+    it("resolves the city from GET /cities, then persists exactly what OzonExpress returned", async () => {
       const result = await ozonExpressAdapter.createShipment!(shipmentInput, credentials, config);
       expect(result.externalId).toBeTruthy();
       expect(result.trackingNumber).toBe(result.externalId);
-      expect(result.trackingUrl).toBeNull(); // no documented URL pattern
+      expect(result.trackingUrl).toBeNull();
       expect(result.cost).toBe(25);
       expect(result.rawStatus).toBe("Nouveau colis");
+    });
+
+    it("accepts a config cityIdByName override when the catalogue spells the city differently", async () => {
+      const result = await ozonExpressAdapter.createShipment!(
+        { ...shipmentInput, city: "Casa" },
+        credentials,
+        { ...config, cityIdByName: { Casa: 1 } }
+      );
+      expect(result.externalId).toBeTruthy();
     });
 
     it("reads the nested ADD-PARCEL.NEW-PARCEL envelope variant too", async () => {
       state.nestSuccessEnvelope = true;
       const result = await ozonExpressAdapter.createShipment!(shipmentInput, credentials, config);
-      expect(result.externalId).toBeTruthy();
       expect(result.cost).toBe(25);
     });
 
-    it("refuses (typed config error, no network call) an order whose city has no configured OzonExpress id", async () => {
+    it("falls back to the city's authoritative DELIVERED-PRICE when add-parcel returns no cost", async () => {
+      state.omitAddParcelPrice = true;
+      // shipmentInput.city === "Casablanca" -> fake catalogue DELIVERED-PRICE 20
+      const result = await ozonExpressAdapter.createShipment!(shipmentInput, credentials, config);
+      expect(result.cost).toBe(20);
+    });
+
+    it("refuses (typed config error, NO add-parcel call) a city not in the catalogue or the override", async () => {
       await expect(
-        ozonExpressAdapter.createShipment!({ ...shipmentInput, city: "Ifrane" }, credentials, config)
+        ozonExpressAdapter.createShipment!({ ...shipmentInput, city: "Ville Inexistante" }, credentials, config)
       ).rejects.toBeInstanceOf(DeliveryConfigError);
-      expect(state.seenUrls).toHaveLength(0);
+      expect(addParcelCalls()).toHaveLength(0);
     });
 
     it("surfaces an OzonExpress 'City Not Found' application error as a typed config error", async () => {
@@ -123,7 +178,6 @@ describe("ozonExpressAdapter (fixture)", () => {
 
     it("uses the local shipment id as the custom tracking number (idempotent retry)", async () => {
       await ozonExpressAdapter.createShipment!(shipmentInput, credentials, config);
-      // OzonExpress rejects a duplicate custom tracking number -> typed error, not a 2nd parcel.
       await expect(
         ozonExpressAdapter.createShipment!(shipmentInput, credentials, config)
       ).rejects.toThrow();
