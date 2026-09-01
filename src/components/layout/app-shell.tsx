@@ -20,7 +20,7 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
         <div className="flex h-14 shrink-0 items-center border-b border-sidebar-border px-4">
           <BrandMark />
         </div>
-        <div className="no-scrollbar flex-1 overflow-y-auto">
+        <div className="sidebar-scroll flex-1 overflow-y-auto">
           <SidebarNav permissions={permissions} />
         </div>
       </aside>
