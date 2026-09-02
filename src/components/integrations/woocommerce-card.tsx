@@ -1,36 +1,18 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Store, Globe, Clock, AlertCircle, Tags, Package, ShoppingCart, Boxes } from "lucide-react";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConnectIntegrationDialog } from "@/components/integrations/connect-integration-dialog";
 import { WooCommerceActions } from "@/components/integrations/woocommerce-actions";
+import { ConnectionStatusPill } from "@/components/integrations/connection-status-pill";
+import { SyncResourceRow } from "@/components/integrations/sync-resource-row";
 import { prisma } from "@/lib/prisma";
 import { formatDateTime } from "@/lib/format";
-import { INTEGRATION_STATUS_LABELS } from "@/lib/status-labels";
-import type { SyncRun } from "@prisma/client";
 
-const RESOURCE_LABELS: Record<string, { label: string; direction: string }> = {
-  CATEGORIES: { label: "Catégories", direction: "WooCommerce → Système" },
-  PRODUITS: { label: "Produits (dont variations et stock)", direction: "WooCommerce → Système" },
-  COMMANDES: { label: "Commandes (dont clients)", direction: "WooCommerce → Système" },
-  STOCK_ENVOI: { label: "Stock", direction: "Système → WooCommerce" },
-};
-
-const SYNC_RUN_STATUS_LABELS: Record<string, string> = {
-  EN_COURS: "En cours",
-  SUCCES: "Succès",
-  ECHEC: "Échec",
-  PARTIEL: "Partiel",
-};
-
-function summaryLine(run: SyncRun): string {
-  const parts = [
-    run.itemsImported > 0 && `${run.itemsImported} importé(s)`,
-    run.itemsUpdated > 0 && `${run.itemsUpdated} mis à jour`,
-    run.itemsUnchanged > 0 && `${run.itemsUnchanged} inchangé(s)`,
-    run.itemsSkipped > 0 && `${run.itemsSkipped} ignoré(s)`,
-    run.itemsFailed > 0 && `${run.itemsFailed} échoué(s)`,
-  ].filter(Boolean);
-  return parts.length > 0 ? parts.join(", ") : "aucun élément traité";
-}
+const RESOURCES = [
+  { key: "CATEGORIES", icon: Tags, label: "Catégories", direction: "WooCommerce → Système" },
+  { key: "PRODUITS", icon: Package, label: "Produits (dont variations et stock)", direction: "WooCommerce → Système" },
+  { key: "COMMANDES", icon: ShoppingCart, label: "Commandes (dont clients)", direction: "WooCommerce → Système" },
+  { key: "STOCK_ENVOI", icon: Boxes, label: "Stock", direction: "Système → WooCommerce" },
+] as const;
 
 export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
   const integration = await prisma.integration.findUnique({ where: { provider: "WOOCOMMERCE" } });
@@ -43,58 +25,64 @@ export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
     : [];
 
   const status = integration?.status ?? "DECONNECTE";
-  const meta = INTEGRATION_STATUS_LABELS[status];
   const config = (integration?.config as { siteUrl?: string } | null) ?? null;
   const hasCredentials = Boolean(integration?.credentialsEncrypted);
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between">
-        <CardTitle className="text-base">WooCommerce</CardTitle>
-        <Badge variant={meta.variant}>{meta.label}</Badge>
+    <Card className="overflow-hidden">
+      <CardHeader className="flex-row items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400">
+            <Store className="size-5" />
+          </div>
+          <div>
+            <CardTitle>WooCommerce</CardTitle>
+            <ConnectionStatusPill status={status} />
+          </div>
+        </div>
       </CardHeader>
+
       <CardContent className="space-y-4">
-        {config?.siteUrl && <p className="text-xs text-muted-foreground">Boutique : {config.siteUrl}</p>}
+        {config?.siteUrl && (
+          <div className="flex items-center gap-1.5 truncate rounded-md bg-muted/50 px-2.5 py-1.5 text-xs text-muted-foreground">
+            <Globe className="size-3.5 shrink-0" />
+            <span className="truncate">{config.siteUrl}</span>
+          </div>
+        )}
 
         {integration?.lastError && status === "ERREUR" && (
-          <p className="text-xs text-destructive">{integration.lastError}</p>
+          <div className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/8 px-3 py-2 text-xs text-destructive">
+            <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+            <p>{integration.lastError}</p>
+          </div>
         )}
 
         {integration?.lastConnectionCheckAt && (
-          <p className="text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Clock className="size-3.5 shrink-0" />
             Dernière vérification : {formatDateTime(integration.lastConnectionCheckAt)}
-          </p>
-        )}
-
-        <div className="space-y-1.5">
-          {(["CATEGORIES", "PRODUITS", "COMMANDES", "STOCK_ENVOI"] as const).map((resource) => {
-            const run = runs.find((r) => r.resource === resource);
-            const info = RESOURCE_LABELS[resource];
-            return (
-              <div key={resource} className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">
-                  {info.label} <span className="text-muted-foreground/70">({info.direction})</span>
-                </span>
-                {run ? (
-                  <span title={summaryLine(run)}>
-                    {SYNC_RUN_STATUS_LABELS[run.status]} · {formatDateTime(run.startedAt)}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground/70">Jamais synchronisé</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {canManage && (
-          <div className="space-y-2 pt-1">
-            <ConnectIntegrationDialog provider="WOOCOMMERCE" label="WooCommerce" />
-            <WooCommerceActions canManage={canManage} hasCredentials={hasCredentials} />
           </div>
         )}
+
+        <div className="divide-y divide-border/60 rounded-lg border border-border/60 px-3">
+          {RESOURCES.map((resource) => (
+            <SyncResourceRow
+              key={resource.key}
+              icon={resource.icon}
+              label={resource.label}
+              direction={resource.direction}
+              run={runs.find((r) => r.resource === resource.key)}
+            />
+          ))}
+        </div>
       </CardContent>
+
+      {canManage && (
+        <CardFooter className="flex flex-wrap items-center gap-2">
+          <ConnectIntegrationDialog provider="WOOCOMMERCE" label="WooCommerce" />
+          <WooCommerceActions canManage={canManage} hasCredentials={hasCredentials} />
+        </CardFooter>
+      )}
     </Card>
   );
 }
-
