@@ -7,12 +7,31 @@ import { recordAuditEvent } from "@/lib/audit";
 import {
   createProductSchema,
   updateProductSchema,
+  updateProductOperationalSettingsSchema,
   createCategorySchema,
   createProductVariationSchema,
 } from "@/lib/validation/product";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
-import type { Category } from "@prisma/client";
+import type { Category, Product } from "@prisma/client";
+
+/**
+ * Product *definition* (name/sku/price/description/status/category) is
+ * owned by whichever platform the product actually lives on once it's
+ * externally sourced — ASODITECH is not a second WooCommerce/Shopify
+ * editor. See docs/adr/0017-product-management-boundary.md. Used by
+ * every action below that would otherwise let staff edit those fields
+ * from here, where the change would just be silently overwritten by the
+ * next sync — the real enforcement point, not just a hidden UI button;
+ * the ASODITECH-owned operational fields (cost/trackInventory/
+ * lowStockThreshold — see updateProductOperationalSettingsAction) are
+ * unaffected by this guard.
+ */
+function externalSourceError(product: Pick<Product, "source">): string | null {
+  if (product.source === "INTERNE") return null;
+  const platform = product.source === "WOOCOMMERCE" ? "WooCommerce" : "Shopify";
+  return `Ce produit provient de ${platform} — modifiez sa fiche directement sur ${platform}, pas depuis ASODITECH.`;
+}
 
 function normalizeOptional(value: string | null | undefined): string | null {
   return value && value.trim().length > 0 ? value.trim() : null;
@@ -119,6 +138,8 @@ export async function updateProductAction(formData: FormData): Promise<ActionRes
   if (!existing) {
     return actionError("Produit introuvable.");
   }
+  const sourceError = externalSourceError(existing);
+  if (sourceError) return actionError(sourceError);
 
   if (parsed.data.sku !== existing.sku) {
     const skuTaken = await prisma.product.findUnique({ where: { sku: parsed.data.sku } });
@@ -238,6 +259,11 @@ export async function createProductVariationAction(
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
 
+  const product = await prisma.product.findUnique({ where: { id: parsed.data.productId } });
+  if (!product) return actionError("Produit introuvable.");
+  const sourceError = externalSourceError(product);
+  if (sourceError) return actionError(sourceError);
+
   const existingSku = await prisma.productVariation.findUnique({ where: { sku: parsed.data.sku } });
   if (existingSku) {
     return actionError("Un SKU de variation identique existe déjà.", { sku: ["SKU déjà utilisé."] });
@@ -283,4 +309,53 @@ export async function createProductVariationAction(
 
   revalidatePath(`/produits/${parsed.data.productId}`);
   return actionOk({ id: variation.id });
+}
+
+/**
+ * Updates only the fields ASODITECH owns regardless of where a product's
+ * definition lives — cost, inventory tracking, and the low-stock
+ * threshold (see updateProductOperationalSettingsSchema). Unlike
+ * updateProductAction, this works for a WooCommerce/Shopify-sourced
+ * product too: these are never touched by either sync (see each
+ * provider's mapper.ts "Field ownership" comment), so nothing here can be
+ * silently overwritten by the next import. See
+ * docs/adr/0017-product-management-boundary.md.
+ */
+export async function updateProductOperationalSettingsAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("products.edit");
+
+  const parsed = updateProductOperationalSettingsSchema.safeParse({
+    id: formData.get("id"),
+    cost: formData.get("cost") || undefined,
+    trackInventory: formData.get("trackInventory") === "on",
+    lowStockThreshold: formData.get("lowStockThreshold") || 5,
+  });
+  if (!parsed.success) {
+    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+
+  const existing = await prisma.product.findUnique({ where: { id: parsed.data.id } });
+  if (!existing) return actionError("Produit introuvable.");
+
+  const product = await prisma.product.update({
+    where: { id: parsed.data.id },
+    data: {
+      cost: parsed.data.cost ?? null,
+      trackInventory: parsed.data.trackInventory,
+      lowStockThreshold: parsed.data.lowStockThreshold,
+    },
+  });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "product.updated",
+    entityType: "Product",
+    entityId: product.id,
+    previousValue: { cost: existing.cost?.toString() ?? null, trackInventory: existing.trackInventory, lowStockThreshold: existing.lowStockThreshold },
+    newValue: { cost: product.cost?.toString() ?? null, trackInventory: product.trackInventory, lowStockThreshold: product.lowStockThreshold },
+  });
+
+  revalidatePath(`/produits/${product.id}`);
+  return actionOk({ id: product.id });
 }

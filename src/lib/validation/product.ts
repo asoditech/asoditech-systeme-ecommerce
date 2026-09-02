@@ -56,6 +56,22 @@ export const updateCategorySchema = createCategorySchema.extend({
   id: z.string().min(1),
 });
 
+/**
+ * Fields ASODITECH remains the source of truth for even on an externally
+ * (WooCommerce/Shopify) sourced product — never overwritten by a sync run
+ * (see the two providers' mapper.ts "Field ownership" comments). Phase 28
+ * — docs/adr/0017-product-management-boundary.md: product *definition*
+ * (name/sku/price/description/status/category) moves to the platform the
+ * product actually lives on; this narrower schema is what stays editable
+ * from ASODITECH regardless of source.
+ */
+export const updateProductOperationalSettingsSchema = z.object({
+  id: z.string().min(1),
+  cost: z.coerce.number().min(0).nullish(),
+  trackInventory: z.coerce.boolean().default(true),
+  lowStockThreshold: z.coerce.number().int().min(0).default(5),
+});
+
 export const createProductVariationSchema = z.object({
   productId: z.string().min(1),
   sku: skuSchema,

@@ -5,3 +5,5 @@ export { verifyHmacSha256Base64, generateSharedSecret } from "./hmac";
 export { assertPublicHost, isPrivateOrReservedIP, InvalidHostError } from "./private-ip";
 export { recordWebhookEventOnce } from "./webhook-event";
 export { stripHtml } from "./html";
+export { getConnectedCommercePlatforms, resolveExternalProductEditUrl, type ConnectedCommercePlatform } from "./product-management-url";
+export { resolveOrdersSyncSince } from "./sync-cursor";

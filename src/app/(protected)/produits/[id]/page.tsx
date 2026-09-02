@@ -1,21 +1,46 @@
 import { notFound } from "next/navigation";
-import { Boxes, Tag, ShoppingBag, Wallet, Hash, FolderOpen, Receipt, FileText, Check, type LucideIcon } from "lucide-react";
+import Link from "next/link";
+import {
+  Boxes,
+  Tag,
+  ShoppingBag,
+  Wallet,
+  Hash,
+  FolderOpen,
+  Receipt,
+  FileText,
+  Check,
+  Store,
+  ExternalLink,
+  AlertTriangle,
+  LogIn,
+  type LucideIcon,
+} from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { KpiCard } from "@/components/kpi-card";
 import { ProductForm } from "@/components/products/product-form";
 import { VariationForm } from "@/components/products/variation-form";
+import { OperationalSettingsForm } from "@/components/products/operational-settings-form";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { getProductDetail, getProductSalesStats, listCategories } from "@/lib/queries/products";
+import { resolveExternalProductEditUrl } from "@/lib/integrations/shared";
 import { formatCurrency } from "@/lib/format";
-import { PRODUCT_STATUS_LABELS } from "@/lib/status-labels";
+import { PRODUCT_STATUS_LABELS, RECORD_SOURCE_LABELS } from "@/lib/status-labels";
 import { cn } from "@/lib/utils";
+import type { RecordSource } from "@prisma/client";
+
+const SOURCE_ICON: Partial<Record<RecordSource, LucideIcon>> = {
+  WOOCOMMERCE: Store,
+  SHOPIFY: ShoppingBag,
+};
 
 /** One labeled fact in the spec strip (SKU / Catégorie / Coût d'achat) — icon, label, value. */
 function SpecItem({
@@ -159,12 +184,39 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
   const totalStock = product.inventoryItems.reduce((sum, i) => sum + i.quantityOnHand, 0);
   const isLowStock = product.trackInventory && totalStock <= product.lowStockThreshold;
 
+  // Product *definition* (name/sku/price/description/status/category) is
+  // owned by WooCommerce/Shopify once a product is externally sourced —
+  // ASODITECH is not a second product editor. See
+  // docs/adr/0017-product-management-boundary.md.
+  const isExternal = product.source !== "INTERNE";
+  const externalEditUrl = isExternal ? await resolveExternalProductEditUrl(product) : null;
+  const externalLabel = product.source === "WOOCOMMERCE" ? "WooCommerce" : product.source === "SHOPIFY" ? "Shopify" : null;
+
   return (
     <div>
       <PageHeader
         title={product.name}
         breadcrumbs={[{ label: "Produits", href: "/produits" }, { label: product.name }]}
-        actions={<StatusBadge status={product.status} labels={PRODUCT_STATUS_LABELS} />}
+        actions={
+          <>
+            <StatusBadge status={product.status} labels={PRODUCT_STATUS_LABELS} />
+            {isExternal && canEdit && externalEditUrl && externalLabel && (
+              <Button
+                render={
+                  <a
+                    href={externalEditUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`Ouvre l'administration ${externalLabel} — soyez déjà connecté(e) à ${externalLabel} dans ce navigateur, sinon une page de connexion s'affichera.`}
+                  />
+                }
+              >
+                Modifier sur {externalLabel}
+                <ExternalLink className="size-4" />
+              </Button>
+            )}
+          </>
+        }
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -196,7 +248,16 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
 
         <TabsContent value="apercu" className="space-y-4">
           <Card>
-            <CardContent className="flex flex-col sm:flex-row sm:items-center">
+            <CardContent className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center">
+              <SpecItem
+                icon={SOURCE_ICON[product.source] ?? Hash}
+                label="Source"
+                value={
+                  product.externalId
+                    ? `${RECORD_SOURCE_LABELS[product.source]} (réf. ${product.externalId})`
+                    : RECORD_SOURCE_LABELS[product.source]
+                }
+              />
               <SpecItem icon={Hash} label="SKU" value={product.sku} />
               <SpecItem icon={FolderOpen} label="Catégorie" value={product.category?.name ?? "Aucune"} muted={!product.category} />
               <SpecItem
@@ -207,6 +268,20 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
               />
             </CardContent>
           </Card>
+
+          {isExternal && !externalEditUrl && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/8 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+              <p>
+                Le lien de gestion {externalLabel} n&apos;est pas disponible pour le moment (intégration
+                déconnectée ou non configurée). Vérifiez la connexion dans{" "}
+                <Link href="/integrations" className="font-medium underline underline-offset-2">
+                  Intégrations
+                </Link>
+                .
+              </p>
+            </div>
+          )}
 
           {product.description && (
             <Card>
@@ -258,7 +333,11 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
               </Table>
             </div>
           )}
-          {canEdit && <VariationForm productId={product.id} />}
+          {/* Creating a new variation is catalog editing — for an
+              externally-sourced product that belongs on the platform the
+              product lives on, not a second editor here. See
+              docs/adr/0017-product-management-boundary.md. */}
+          {canEdit && !isExternal && <VariationForm productId={product.id} />}
         </TabsContent>
 
         <TabsContent value="stock">
@@ -293,17 +372,59 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
         </TabsContent>
 
         {canEdit && (
-          <TabsContent value="modifier">
-            <div className="max-w-2xl">
-              <ProductForm
-                product={{
-                  ...product,
-                  price: product.price.toString(),
-                  salePrice: product.salePrice?.toString() ?? null,
-                  cost: product.cost?.toString() ?? null,
-                }}
-                categories={categories}
-              />
+          <TabsContent value="modifier" className="space-y-4">
+            <div className="max-w-2xl space-y-4">
+              {isExternal ? (
+                <>
+                  <Card>
+                    <CardContent className="flex flex-col items-start gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium">
+                          Ce produit est géré sur {externalLabel}.
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          Nom, SKU, prix, description, statut et catégorie se modifient directement sur{" "}
+                          {externalLabel} — ASODITECH synchronise ces informations, il ne les édite pas.
+                        </p>
+                        <p className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
+                          <LogIn className="mt-0.5 size-3.5 shrink-0" />
+                          <span>
+                            Ce lien ouvre l&apos;administration {externalLabel} dans ce navigateur — assurez-vous
+                            d&apos;y être déjà connecté. Si ce n&apos;est pas le cas, {externalLabel} vous demandera
+                            de vous identifier ; l&apos;adresse de connexion peut varier selon le site (par exemple
+                            une page de connexion personnalisée sur WordPress via une extension de sécurité).
+                          </span>
+                        </p>
+                      </div>
+                      {externalEditUrl && (
+                        <Button
+                          render={<a href={externalEditUrl} target="_blank" rel="noopener noreferrer" />}
+                          className="shrink-0"
+                        >
+                          Modifier sur {externalLabel}
+                          <ExternalLink className="size-4" />
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                  <OperationalSettingsForm
+                    productId={product.id}
+                    cost={product.cost?.toString() ?? null}
+                    trackInventory={product.trackInventory}
+                    lowStockThreshold={product.lowStockThreshold}
+                  />
+                </>
+              ) : (
+                <ProductForm
+                  product={{
+                    ...product,
+                    price: product.price.toString(),
+                    salePrice: product.salePrice?.toString() ?? null,
+                    cost: product.cost?.toString() ?? null,
+                  }}
+                  categories={categories}
+                />
+              )}
             </div>
           </TabsContent>
         )}
