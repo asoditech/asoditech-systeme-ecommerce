@@ -1,4 +1,5 @@
 import type { OrderStatus, PaymentMethod, ProductStatus } from "@prisma/client";
+import { stripHtml } from "@/lib/integrations/shared";
 import type { WcOrder, WcProduct } from "./types";
 
 /**
@@ -36,7 +37,12 @@ export function mapProductFields(wc: WcProduct): MappedProductFields {
     // string, which would collide with every other SKU-less product against
     // the internal SKU unique constraint.
     sku: wc.sku.trim() || `WC-${wc.id}`,
-    description: wc.description?.trim() || null,
+    // wc.description is free-text HTML (often full page-builder markup) —
+    // never rendered as HTML by this app (no dangerouslySetInnerHTML
+    // anywhere), so it's flattened to plain text at import time rather
+    // than showing raw tags on the product page. See
+    // src/lib/integrations/shared/html.ts.
+    description: stripHtml(wc.description),
     price: wc.regular_price,
     salePrice: wc.sale_price && wc.sale_price > 0 && wc.sale_price < wc.regular_price ? wc.sale_price : null,
     status: mapProductStatus(wc.status),

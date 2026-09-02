@@ -1,4 +1,5 @@
 import type { OrderStatus, PaymentMethod, ProductStatus } from "@prisma/client";
+import { stripHtml } from "@/lib/integrations/shared";
 import type { ShopifyOrder, ShopifyProduct, ShopifyVariant } from "./types";
 
 /**
@@ -73,12 +74,6 @@ export function mapVariantFields(variant: ShopifyVariant): { sku: string; price:
     price: Number(variant.price),
     trackInventory: variant.inventoryItem.tracked,
   };
-}
-
-function stripHtml(html: string | null | undefined): string | null {
-  if (!html) return null;
-  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-  return text || null;
 }
 
 /**

@@ -4,3 +4,4 @@ export { reconcileStockFromProvider } from "./stock-reconcile";
 export { verifyHmacSha256Base64, generateSharedSecret } from "./hmac";
 export { assertPublicHost, isPrivateOrReservedIP, InvalidHostError } from "./private-ip";
 export { recordWebhookEventOnce } from "./webhook-event";
+export { stripHtml } from "./html";

@@ -83,6 +83,32 @@ describe("mapProductFields", () => {
     expect(fields.sku).toBe("WC-42");
   });
 
+  it("strips HTML from the description — WooCommerce descriptions are page-builder markup this app never renders as HTML", () => {
+    const fields = mapProductFields(
+      makeWcProduct({ description: "<div class=\"ml-lead\"><p>Bonjour <strong>monde</strong></p></div>" })
+    );
+    expect(fields.description).toBe("Bonjour monde");
+    expect(fields.description).not.toContain("<");
+  });
+
+  it("preserves paragraph/list-item breaks as newlines rather than flattening the whole description to one line", () => {
+    const fields = mapProductFields(
+      makeWcProduct({
+        description:
+          "<p>Premier paragraphe.</p><p>Deuxième paragraphe.</p>" +
+          "<ul><li>Point un</li><li>Point deux</li></ul>",
+      })
+    );
+    expect(fields.description).toBe("Premier paragraphe.\n\nDeuxième paragraphe.\n\n• Point un\n• Point deux");
+  });
+
+  it("decodes common HTML entities (&amp;, &nbsp;, &#39;) rather than leaving them literal", () => {
+    const fields = mapProductFields(
+      makeWcProduct({ description: "Camel &amp; dor&#39;e&nbsp;finition" })
+    );
+    expect(fields.description).toBe("Camel & dor'e finition");
+  });
+
   it("only treats sale_price as a real sale when it is positive and below the regular price", () => {
     expect(mapProductFields(makeWcProduct({ regular_price: 100, sale_price: 80 })).salePrice).toBe(80);
     expect(mapProductFields(makeWcProduct({ regular_price: 100, sale_price: 0 })).salePrice).toBeNull();
