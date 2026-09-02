@@ -23,6 +23,16 @@ export type DeliveryCapability =
   | "FETCH_STATUS"
   | "FETCH_COST"
   | "WEBHOOKS"
+  // The provider exposes an authoritative catalogue of the destinations it
+  // serves, each with the provider's own city identifier — retrievable via
+  // `listCities`. Declared ONLY by providers that both implement
+  // `listCities` and genuinely require a provider-specific destination id
+  // (rather than a free-text city). Drives the persistent city-mapping
+  // layer (docs/adr/0018-delivery-city-mapping.md): a provider without this
+  // capability never gets fabricated provider city ids and the mapping UI
+  // tells the operator so. Never assumed — shipment creation does not
+  // depend on it.
+  | "FETCH_CITIES"
   // Group several already-created shipments into one carrier "delivery
   // note" / manifest / bordereau — the handover document (plus parcel
   // labels) the operator prints and gives the carrier. See
@@ -72,6 +82,18 @@ export interface CreateShipmentAdapterInput {
   addressLine1: string;
   addressLine2: string | null;
   city: string;
+  /**
+   * The provider's own city identifier, already resolved by the generic
+   * city-mapping layer (docs/adr/0018-delivery-city-mapping.md) — set when
+   * a persisted `DeliveryCityMapping` matched, or the provider's catalogue
+   * had exactly one safe normalized match. `null` when neither did: the
+   * adapter then applies its own last-resort resolution (e.g. OzonExpress's
+   * `config.cityIdByName`) and, failing that, throws a typed error BEFORE
+   * any external call — never guesses. An adapter that needs a
+   * provider-specific city id MUST prefer this value over re-deriving one
+   * from `city`.
+   */
+  resolvedProviderCityId: string | null;
   region: string | null;
   country: string;
   phone: string | null;

@@ -105,6 +105,29 @@ export const createShipmentViaProviderSchema = z.object({
 });
 
 export const providerIdSchema = z.object({ providerId: z.string().min(1) });
+
+// --- Generic provider city mapping (Phase 31) ---
+// See docs/adr/0018-delivery-city-mapping.md. Provider-agnostic: no field
+// is specific to any one carrier. `providerCityId` is whatever string the
+// provider documents as its identifier (a number arrives as its string
+// form) and is re-validated server-side against the provider's catalogue
+// when one is available — the client can never get an arbitrary id
+// persisted. `providerCityName` from the client is only a hint; the action
+// overwrites it from the catalogue entry.
+export const createDeliveryCityMappingSchema = z.object({
+  providerId: z.string().min(1),
+  localCity: z.string().trim().min(1, "La ville locale est requise.").max(150),
+  providerCityId: z.string().trim().min(1, "Sélectionnez la ville du transporteur.").max(200),
+  providerCityName: z.string().trim().max(200).optional(),
+});
+
+export const updateDeliveryCityMappingSchema = z.object({
+  id: z.string().min(1),
+  providerCityId: z.string().trim().min(1, "Sélectionnez la ville du transporteur.").max(200),
+  providerCityName: z.string().trim().max(200).optional(),
+});
+
+export const deliveryCityMappingIdSchema = z.object({ id: z.string().min(1) });
 export const shipmentIdSchema = z.object({ shipmentId: z.string().min(1) });
 export const shippingProviderIdSchema = z.object({ id: z.string().min(1) });
 

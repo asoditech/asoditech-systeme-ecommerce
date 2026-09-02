@@ -44,7 +44,7 @@ describe("reference delivery adapter (fixture, proves the abstraction)", () => {
 
   it("createShipment returns exactly what the provider returned — never fabricated", async () => {
     const result = await referenceDeliveryProvider.createShipment!(
-      { localShipmentId: "s1", orderNumber: "1001", recipientName: "Amine", addressLine1: "1 rue", addressLine2: null, city: "Rabat", region: null, country: "MA", phone: null, codAmount: null, currency: "MAD", notes: null },
+      { localShipmentId: "s1", orderNumber: "1001", recipientName: "Amine", addressLine1: "1 rue", addressLine2: null, city: "Rabat", resolvedProviderCityId: null, region: null, country: "MA", phone: null, codAmount: null, currency: "MAD", notes: null },
       credentials,
       config
     );
@@ -57,7 +57,7 @@ describe("reference delivery adapter (fixture, proves the abstraction)", () => {
     state.malformedCreateResponse = true;
     await expect(
       referenceDeliveryProvider.createShipment!(
-        { localShipmentId: "s1", orderNumber: "1001", recipientName: "Amine", addressLine1: "1 rue", addressLine2: null, city: "Rabat", region: null, country: "MA", phone: null, codAmount: null, currency: "MAD", notes: null },
+        { localShipmentId: "s1", orderNumber: "1001", recipientName: "Amine", addressLine1: "1 rue", addressLine2: null, city: "Rabat", resolvedProviderCityId: null, region: null, country: "MA", phone: null, codAmount: null, currency: "MAD", notes: null },
         credentials,
         config
       )
@@ -68,7 +68,7 @@ describe("reference delivery adapter (fixture, proves the abstraction)", () => {
     state.forceCreateStatus = 422;
     await expect(
       referenceDeliveryProvider.createShipment!(
-        { localShipmentId: "s1", orderNumber: "1001", recipientName: "Amine", addressLine1: "1 rue", addressLine2: null, city: "Rabat", region: null, country: "MA", phone: null, codAmount: null, currency: "MAD", notes: null },
+        { localShipmentId: "s1", orderNumber: "1001", recipientName: "Amine", addressLine1: "1 rue", addressLine2: null, city: "Rabat", resolvedProviderCityId: null, region: null, country: "MA", phone: null, codAmount: null, currency: "MAD", notes: null },
         credentials,
         config
       )
@@ -77,7 +77,7 @@ describe("reference delivery adapter (fixture, proves the abstraction)", () => {
 
   it("cancelShipment calls the carrier's cancel endpoint", async () => {
     const created = await referenceDeliveryProvider.createShipment!(
-      { localShipmentId: "s1", orderNumber: "1001", recipientName: "Amine", addressLine1: "1 rue", addressLine2: null, city: "Rabat", region: null, country: "MA", phone: null, codAmount: null, currency: "MAD", notes: null },
+      { localShipmentId: "s1", orderNumber: "1001", recipientName: "Amine", addressLine1: "1 rue", addressLine2: null, city: "Rabat", resolvedProviderCityId: null, region: null, country: "MA", phone: null, codAmount: null, currency: "MAD", notes: null },
       credentials,
       config
     );

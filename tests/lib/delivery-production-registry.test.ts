@@ -22,7 +22,13 @@ describe("production delivery-provider registry", () => {
     expect(connector!.credentialFields.map((f) => f.name)).toEqual(["customerId", "apiKey"]);
     expect(connector!.credentialFields.find((f) => f.name === "apiKey")?.type).toBe("password");
     // capabilities the documentation supports — no cancel, no webhooks
-    expect([...connector!.capabilities].sort()).toEqual(["CREATE_SHIPMENT", "FETCH_COST", "FETCH_STATUS", "GENERATE_MANIFEST"]);
+    expect([...connector!.capabilities].sort()).toEqual([
+      "CREATE_SHIPMENT",
+      "FETCH_CITIES",
+      "FETCH_COST",
+      "FETCH_STATUS",
+      "GENERATE_MANIFEST",
+    ]);
   });
 
   it("does NOT leak any test/fixture adapter into production", () => {

@@ -140,7 +140,7 @@ export function resolveCity(
     const list = result.candidates.map((c) => `« ${c.name} » (id ${c.id})`).join(", ");
     throw new DeliveryConfigError(
       `« ${city} » correspond à plusieurs villes OzonExpress à la fois : ${list}. ` +
-        "Ajoutez une correspondance ville → identifiant précise dans la configuration du connecteur."
+        "Ajoutez une correspondance de ville précise depuis Livraison → Prestataires → « Correspondances de villes »."
     );
   }
 
@@ -151,13 +151,20 @@ export function resolveCity(
   throw new DeliveryConfigError(
     `« ${city} » ne correspond à aucune ville desservie par OzonExpress.${hint} ` +
       "Vérifiez l'orthographe de la ville de la commande, ou ajoutez une correspondance " +
-      "ville → identifiant dans la configuration du connecteur."
+      "depuis Livraison → Prestataires → « Correspondances de villes »."
   );
 }
 
 /** Just the id — kept for `buildAddParcelForm` and existing callers/tests. */
 export function resolveCityId(city: string, config: OzonExpressConfig, catalogue: readonly CityLike[] = []): string {
   return resolveCity(city, config, catalogue).id;
+}
+
+/** The catalogue's authoritative delivery price for a known city id, or
+ * `null` when the id isn't in the supplied catalogue (e.g. an explicit
+ * DeliveryCityMapping to an id the catalogue no longer lists). */
+export function providerCityDeliveredPrice(catalogue: readonly CityLike[], id: string): number | null {
+  return catalogue.find((c) => c.id === id)?.deliveredPrice ?? null;
 }
 
 /**
@@ -191,7 +198,12 @@ export function buildAddParcelForm(
     "tracking-number": input.localShipmentId,
     "parcel-receiver": input.recipientName,
     "parcel-phone": normalizeMoroccanPhone(input.phone),
-    "parcel-city": resolveCityId(input.city, config, catalogue),
+    // The generic city-mapping layer already resolved the OzonExpress city
+    // id (explicit DeliveryCityMapping, then a safe catalogue match) — use
+    // it verbatim. Only when it couldn't (null) does the adapter's own
+    // `config.cityIdByName` + catalogue resolution run, throwing a typed
+    // error rather than guessing. See docs/adr/0018-delivery-city-mapping.md.
+    "parcel-city": input.resolvedProviderCityId?.trim() || resolveCityId(input.city, config, catalogue),
     "parcel-address": [input.addressLine1, input.addressLine2].filter(Boolean).join(", "),
     // COD amount to collect. `0` is meaningful here (prepaid order — collect
     // nothing), and is NOT the "missing cost" case docs/adr/0012 warns

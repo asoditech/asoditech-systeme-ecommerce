@@ -26,6 +26,7 @@ const baseInput: CreateShipmentAdapterInput = {
   addressLine1: "12 rue Hassan II",
   addressLine2: "Appt 4",
   city: "Casablanca",
+  resolvedProviderCityId: null,
   region: null,
   country: "MA",
   phone: "+212 612-345-678",

@@ -6,6 +6,7 @@ import { decryptSecret } from "@/lib/crypto";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { applyShipmentStatusTransition, SHIPPABLE_ORDER_STATUSES, ACTIVE_SHIPMENT_STATUSES } from "@/lib/delivery";
 import { matchCityName } from "./city-match";
+import { resolveProviderCity, providerExposesCityCatalogue } from "./city-resolution";
 import { getDeliveryProvider, assertCapability } from "./registry";
 import {
   DeliveryProviderError,
@@ -16,6 +17,7 @@ import type {
   DeliveryProviderConfig,
   DeliveryProviderAdapter,
   CreateShipmentAdapterInput,
+  DeliveryCity,
   DeliveryManifestDocument,
 } from "./types";
 import type { Shipment, ShippingProvider, Order, DeliveryManifest, Prisma } from "@prisma/client";
@@ -229,6 +231,37 @@ export async function testProviderConnection(
   return { status: "CONNECTE", details };
 }
 
+/**
+ * Retrieves a provider's destination catalogue for the city-mapping UI and
+ * for server-side validation of an operator-supplied provider city id (see
+ * docs/adr/0018-delivery-city-mapping.md). Provider-agnostic:
+ *   - `supported: false` — the provider's adapter does not expose a
+ *     catalogue (no FETCH_CITIES / no `listCities`), or the row isn't a
+ *     usable API connector. No provider city id can be selected or
+ *     validated; the caller must not fabricate one.
+ *   - `supported: true` — `cities` is the live catalogue (possibly `[]` if
+ *     the read failed transiently; the caller treats an empty catalogue as
+ *     "cannot validate right now", never "any id is fine").
+ * Never throws for the normal "not an API provider / not configured" cases.
+ */
+export async function fetchProviderCityCatalogue(
+  providerId: string
+): Promise<{ supported: boolean; cities: DeliveryCity[] }> {
+  const row = await prisma.shippingProvider.findUnique({ where: { id: providerId } });
+  if (!row || row.type !== "API" || !row.providerKey) return { supported: false, cities: [] };
+  const adapter = getDeliveryProvider(row.providerKey);
+  if (!adapter || !providerExposesCityCatalogue(adapter)) return { supported: false, cities: [] };
+  if (!row.credentialsEncrypted) return { supported: true, cities: [] };
+  try {
+    const credentials = JSON.parse(decryptSecret(row.credentialsEncrypted)) as DeliveryCredentials;
+    const config = (row.config as DeliveryProviderConfig | null) ?? {};
+    const cities = await adapter.listCities!(credentials, config);
+    return { supported: true, cities };
+  } catch {
+    return { supported: true, cities: [] };
+  }
+}
+
 function requireAddress(order: Order): OrderAddressIncompleteError | null {
   if (!order.shippingAddressLine1 || !order.shippingCity || !order.shippingCountry) {
     return new OrderAddressIncompleteError(
@@ -257,6 +290,34 @@ export async function createShipmentViaProvider(params: {
   const { row, adapter, credentials, config } = await loadApiProvider(params.providerId);
   assertCapability(adapter, "CREATE_SHIPMENT");
 
+  // Generic, provider-agnostic city resolution — see
+  // docs/adr/0018-delivery-city-mapping.md. Runs before the local shipment
+  // row is reserved: a purely local resolution problem must cost nothing
+  // and, above all, must never reach an external call.
+  //   1. explicit persisted DeliveryCityMapping for (provider, city)
+  //   2. else a safe exact match against the provider's catalogue (only
+  //      fetched for providers that expose one — FETCH_CITIES)
+  // On ambiguous / unresolved this stays null and the adapter applies its
+  // own last-resort resolution (e.g. OzonExpress config.cityIdByName),
+  // then throws a typed DeliveryConfigError rather than guessing.
+  let resolvedProviderCityId: string | null = null;
+  {
+    let catalogue: DeliveryCity[] = [];
+    if (providerExposesCityCatalogue(adapter)) {
+      try {
+        catalogue = await adapter.listCities!(credentials, config);
+      } catch {
+        catalogue = [];
+      }
+    }
+    const resolution = await resolveProviderCity({
+      shippingProviderId: row.id,
+      localCity: params.order.shippingCity!,
+      availableProviderCities: catalogue.map((c) => ({ id: c.id, name: c.name })),
+    });
+    if (resolution.status === "resolved") resolvedProviderCityId = resolution.providerCityId;
+  }
+
   // Local-first row reserves a stable id to derive a client-side
   // idempotency key from if the adapter wants one — the row starts
   // EN_ATTENTE with no externalId and is only ever updated (never a
@@ -282,6 +343,7 @@ export async function createShipmentViaProvider(params: {
     addressLine1: params.order.shippingAddressLine1!,
     addressLine2: params.order.shippingAddressLine2,
     city: params.order.shippingCity!,
+    resolvedProviderCityId,
     region: params.order.shippingRegion,
     country: params.order.shippingCountry!,
     phone: params.order.shippingPhone,

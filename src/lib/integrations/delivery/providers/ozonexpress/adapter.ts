@@ -24,6 +24,7 @@ import {
   parseDeliveryNoteRef,
   parseOzonExpressCities,
   parseTrackingResponse,
+  providerCityDeliveredPrice,
   readCheckApiMessage,
   resolveCity,
   toDeliveryCities,
@@ -124,7 +125,7 @@ function clientFor(credentials: DeliveryCredentials, config: DeliveryProviderCon
 export const ozonExpressAdapter: DeliveryProviderAdapter = {
   key: OZONEXPRESS_PROVIDER_KEY,
   displayName: "OzonExpress (Maroc)",
-  capabilities: ["CREATE_SHIPMENT", "FETCH_STATUS", "FETCH_COST", "GENERATE_MANIFEST"],
+  capabilities: ["CREATE_SHIPMENT", "FETCH_STATUS", "FETCH_COST", "FETCH_CITIES", "GENERATE_MANIFEST"],
 
   credentialFields: [
     {
@@ -191,12 +192,17 @@ export const ozonExpressAdapter: DeliveryProviderAdapter = {
   ): Promise<CreateShipmentAdapterResult> {
     const { cfg, client } = clientFor(credentials, config);
 
-    // Resolve the recipient city against the `GET /cities` catalogue
-    // (config override wins) BEFORE creating the parcel — a typed
-    // DeliveryConfigError here means no parcel is ever submitted. The
-    // catalogue also carries the authoritative per-city delivery price.
+    // Resolve the recipient city BEFORE creating the parcel — a typed
+    // DeliveryConfigError here means no parcel is ever submitted.
+    //   - `input.resolvedProviderCityId` set  → the generic mapping layer
+    //     already resolved it (explicit DeliveryCityMapping, or a safe
+    //     catalogue match); trust it verbatim.
+    //   - null → fall back to the adapter's own `config.cityIdByName` +
+    //     catalogue resolution, which throws rather than guessing.
+    // The catalogue also carries the authoritative per-city delivery price.
     const catalogue = await fetchCities(client, cfg);
-    const resolvedCity = resolveCity(input.city, cfg, catalogue);
+    const resolvedCityId = input.resolvedProviderCityId?.trim() || resolveCity(input.city, cfg, catalogue).id;
+    const resolvedDeliveredPrice = providerCityDeliveredPrice(catalogue, resolvedCityId);
     const form = buildAddParcelForm(input, cfg, catalogue);
     const raw = await client.post("add-parcel", form);
     const parsed = parseAddParcelResponse(raw);
@@ -209,7 +215,7 @@ export const ozonExpressAdapter: DeliveryProviderAdapter = {
       trackingUrl: null,
       // The provider's own returned figure wins; otherwise the city's
       // authoritative DELIVERED-PRICE from the catalogue. Never a guess.
-      cost: parsed.cost ?? resolvedCity.deliveredPrice,
+      cost: parsed.cost ?? resolvedDeliveredPrice,
       rawStatus: parsed.rawStatus,
     };
   },

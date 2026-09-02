@@ -8,6 +8,7 @@ import { CreateShipmentDialog, type ShipmentProviderOption } from "@/components/
 import { ShipmentStatusSelect } from "@/components/delivery/shipment-status-select";
 import { ProviderForm } from "@/components/delivery/provider-form";
 import { ProviderConnectionStatus, ProviderConnectionControls } from "@/components/delivery/provider-connection";
+import { CityMappingDialog } from "@/components/delivery/city-mapping-dialog";
 import { ShipmentProviderControls } from "@/components/delivery/shipment-provider-controls";
 import { ManifestBuilder, type ManifestableShipment } from "@/components/delivery/manifest-builder";
 import { ConfirmActionButton } from "@/components/confirm-action-button";
@@ -327,7 +328,10 @@ export default async function LivraisonPage() {
                         <TableCell>
                           <div className="flex items-center justify-end gap-2">
                             {p.type === "API" && (
-                              <ProviderConnectionControls providerId={p.id} providerKey={p.providerKey} connectors={connectors} />
+                              <>
+                                <ProviderConnectionControls providerId={p.id} providerKey={p.providerKey} connectors={connectors} />
+                                <CityMappingDialog providerId={p.id} providerName={p.name} />
+                              </>
                             )}
                             <ConfirmActionButton
                               label="Supprimer"

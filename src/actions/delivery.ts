@@ -15,8 +15,12 @@ import {
   providerIdSchema,
   shipmentIdSchema,
   shippingProviderIdSchema,
+  createDeliveryCityMappingSchema,
+  updateDeliveryCityMappingSchema,
+  deliveryCityMappingIdSchema,
 } from "@/lib/validation/delivery";
-import { isForeignKeyConstraintError } from "@/lib/prisma-errors";
+import { localCityKey } from "@/lib/integrations/delivery/city-resolution";
+import { isForeignKeyConstraintError, isUniqueConstraintError } from "@/lib/prisma-errors";
 import { encryptSecret } from "@/lib/crypto";
 import { listDeliveryProviders } from "@/lib/integrations/delivery/registry";
 import {
@@ -25,6 +29,7 @@ import {
   cancelShipmentViaProvider,
   syncShipmentStatus,
   generateManifestViaProvider,
+  fetchProviderCityCatalogue,
   friendlyDeliveryError,
   reserveShipmentSlot,
   type SyncShipmentStatusOutcome,
@@ -541,4 +546,232 @@ export async function syncShipmentStatusAction(formData: FormData): Promise<Acti
   revalidatePath("/livraison");
   revalidatePath(`/commandes/${shipment.orderId}`);
   return actionOk({ outcome: result.outcome });
+}
+
+// --- Generic provider city mapping (Phase 31) ---
+// See docs/adr/0018-delivery-city-mapping.md. Nothing here is
+// carrier-specific: the model, the resolver, and these actions all speak
+// "provider city id / name" and are re-used unchanged by any future
+// provider adapter that exposes a destination catalogue.
+
+export interface DeliveryCityMappingContext {
+  providerId: string;
+  providerName: string;
+  /** The adapter exposes a selectable destination catalogue (FETCH_CITIES).
+   * When false, no provider city id can be chosen or validated and the UI
+   * says so — never a fabricated list. */
+  catalogueSupported: boolean;
+  /** The provider's live catalogue. Empty with `catalogueSupported: true`
+   * means the read failed transiently — the UI asks the operator to retry
+   * rather than letting them type a raw id. */
+  catalogue: { id: string; name: string }[];
+  mappings: {
+    id: string;
+    localCityLabel: string;
+    localCityKey: string;
+    providerCityId: string;
+    providerCityName: string;
+  }[];
+}
+
+/**
+ * Read model for the "Correspondances de villes" dialog. Lazy — the
+ * catalogue is a live provider call, so it is fetched only when the
+ * operator opens the dialog, never on every Livraison page render.
+ */
+export async function getDeliveryCityMappingContextAction(
+  formData: FormData
+): Promise<ActionResult<DeliveryCityMappingContext>> {
+  await requirePermissionForAction("delivery.view");
+
+  const parsed = providerIdSchema.safeParse({ providerId: formData.get("providerId") });
+  if (!parsed.success) return actionError("Prestataire invalide.");
+
+  const provider = await prisma.shippingProvider.findUnique({ where: { id: parsed.data.providerId } });
+  if (!provider) return actionError("Prestataire de livraison introuvable.");
+
+  const [{ supported, cities }, mappings] = await Promise.all([
+    fetchProviderCityCatalogue(provider.id),
+    prisma.deliveryCityMapping.findMany({
+      where: { shippingProviderId: provider.id },
+      orderBy: { localCityLabel: "asc" },
+    }),
+  ]);
+
+  return actionOk({
+    providerId: provider.id,
+    providerName: provider.name,
+    catalogueSupported: supported,
+    catalogue: cities.map((c) => ({ id: c.id, name: c.name })),
+    mappings: mappings.map((m) => ({
+      id: m.id,
+      localCityLabel: m.localCityLabel,
+      localCityKey: m.localCityKey,
+      providerCityId: m.providerCityId,
+      providerCityName: m.providerCityName,
+    })),
+  });
+}
+
+/**
+ * Loads a provider row and its catalogue for a mapping mutation, enforcing
+ * every server-side rule the client must not be trusted for:
+ *  - the provider exists and is a usable API connector;
+ *  - its adapter exposes a catalogue (otherwise no id can be validated —
+ *    the mutation is refused rather than trusting an arbitrary id);
+ *  - the supplied `providerCityId` is a real catalogue entry, and its name
+ *    is taken from the catalogue, not from the client.
+ */
+async function resolveMappingProviderCity(
+  providerId: string,
+  providerCityId: string
+): Promise<
+  | { ok: true; providerName: string; providerCityId: string; providerCityName: string }
+  | { ok: false; error: string }
+> {
+  const provider = await prisma.shippingProvider.findUnique({ where: { id: providerId } });
+  if (!provider) return { ok: false, error: "Prestataire de livraison introuvable." };
+
+  const { supported, cities } = await fetchProviderCityCatalogue(provider.id);
+  if (!supported) {
+    return {
+      ok: false,
+      error:
+        "Ce prestataire n'expose pas de catalogue de villes sélectionnable via l'intégration actuelle. " +
+        "Aucune correspondance de ville ne peut être enregistrée.",
+    };
+  }
+  if (cities.length === 0) {
+    return {
+      ok: false,
+      error: "Le catalogue des villes du transporteur est momentanément indisponible. Réessayez dans un instant.",
+    };
+  }
+  const entry = cities.find((c) => c.id === providerCityId);
+  if (!entry) {
+    return { ok: false, error: "La ville du transporteur sélectionnée n'existe pas dans son catalogue." };
+  }
+  return { ok: true, providerName: provider.name, providerCityId: entry.id, providerCityName: entry.name };
+}
+
+export async function createDeliveryCityMappingAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("delivery.manage");
+
+  const parsed = createDeliveryCityMappingSchema.safeParse({
+    providerId: formData.get("providerId"),
+    localCity: formData.get("localCity"),
+    providerCityId: formData.get("providerCityId"),
+    providerCityName: formData.get("providerCityName") || undefined,
+  });
+  if (!parsed.success) {
+    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+
+  const key = localCityKey(parsed.data.localCity);
+  if (!key) return actionError("La ville locale est requise.");
+
+  const resolved = await resolveMappingProviderCity(parsed.data.providerId, parsed.data.providerCityId);
+  if (!resolved.ok) return actionError(resolved.error);
+
+  let mapping;
+  try {
+    mapping = await prisma.deliveryCityMapping.create({
+      data: {
+        shippingProviderId: parsed.data.providerId,
+        localCityKey: key,
+        localCityLabel: parsed.data.localCity.trim(),
+        providerCityId: resolved.providerCityId,
+        providerCityName: resolved.providerCityName,
+      },
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return actionError(`Une correspondance existe déjà pour « ${parsed.data.localCity.trim()} » chez ce prestataire.`);
+    }
+    throw error;
+  }
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "delivery_city_mapping.created",
+    entityType: "DeliveryCityMapping",
+    entityId: mapping.id,
+    newValue: {
+      providerId: parsed.data.providerId,
+      localCity: mapping.localCityLabel,
+      providerCityId: mapping.providerCityId,
+      providerCityName: mapping.providerCityName,
+    },
+  });
+
+  revalidatePath("/livraison");
+  return actionOk({ id: mapping.id });
+}
+
+export async function updateDeliveryCityMappingAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("delivery.manage");
+
+  const parsed = updateDeliveryCityMappingSchema.safeParse({
+    id: formData.get("id"),
+    providerCityId: formData.get("providerCityId"),
+    providerCityName: formData.get("providerCityName") || undefined,
+  });
+  if (!parsed.success) {
+    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+
+  const existing = await prisma.deliveryCityMapping.findUnique({ where: { id: parsed.data.id } });
+  if (!existing) return actionError("Correspondance de ville introuvable.");
+
+  const resolved = await resolveMappingProviderCity(existing.shippingProviderId, parsed.data.providerCityId);
+  if (!resolved.ok) return actionError(resolved.error);
+
+  const updated = await prisma.deliveryCityMapping.update({
+    where: { id: existing.id },
+    data: { providerCityId: resolved.providerCityId, providerCityName: resolved.providerCityName },
+  });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "delivery_city_mapping.updated",
+    entityType: "DeliveryCityMapping",
+    entityId: updated.id,
+    previousValue: { providerCityId: existing.providerCityId, providerCityName: existing.providerCityName },
+    newValue: { providerCityId: updated.providerCityId, providerCityName: updated.providerCityName },
+    metadata: { providerId: existing.shippingProviderId, localCity: existing.localCityLabel },
+  });
+
+  revalidatePath("/livraison");
+  return actionOk({ id: updated.id });
+}
+
+export async function deleteDeliveryCityMappingAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("delivery.manage");
+
+  const parsed = deliveryCityMappingIdSchema.safeParse({ id: formData.get("id") });
+  if (!parsed.success) return actionError("Correspondance de ville invalide.");
+
+  const existing = await prisma.deliveryCityMapping.findUnique({ where: { id: parsed.data.id } });
+  if (!existing) return actionError("Correspondance de ville introuvable.");
+
+  await prisma.deliveryCityMapping.delete({ where: { id: existing.id } });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "delivery_city_mapping.deleted",
+    entityType: "DeliveryCityMapping",
+    entityId: existing.id,
+    previousValue: {
+      providerId: existing.shippingProviderId,
+      localCity: existing.localCityLabel,
+      providerCityId: existing.providerCityId,
+      providerCityName: existing.providerCityName,
+    },
+  });
+
+  revalidatePath("/livraison");
+  return actionOk({ id: existing.id });
 }

@@ -539,8 +539,51 @@ model ShippingProvider {
   shipments     Shipment[]
   webhookEvents ShipmentWebhookEvent[]
   manifests     DeliveryManifest[]
+  cityMappings  DeliveryCityMapping[]
 
   @@map("shipping_providers")
+}
+
+// A persistent, provider-agnostic override that pins one local ASODITECH
+// city to a specific delivery provider's own city identifier — see
+// docs/adr/0018-delivery-city-mapping.md. The core problem: a local order
+// says "Casablanca" but a carrier's catalogue may spell it differently, or
+// carry several near-identical entries, and every carrier uses its own id
+// scheme. The system must never guess, so when the safe automatic match is
+// ambiguous or finds nothing, an operator records the exact provider city
+// here and shipment creation uses it verbatim.
+//
+// Nothing here is carrier-specific: `providerCityId` holds whatever string
+// the provider documents as its identifier (a number is stored as its
+// string form), and `providerCityName` is kept only for display / audit.
+// One mapping belongs to exactly one ShippingProvider; the same local city
+// can map differently for every provider. `onDelete: Cascade` because a
+// mapping is pure per-provider configuration (like credentials), not
+// history — deleting the provider discards it.
+model DeliveryCityMapping {
+  id                 String   @id @default(cuid())
+  shippingProviderId String
+  // The local city, normalized with the shared normalizeCityName() rules
+  // (lower-cased, accent-stripped, whitespace-collapsed) — the lookup key.
+  localCityKey       String
+  // The local city exactly as the operator entered / saw it when creating
+  // the mapping. Display and audit only, never matched against.
+  localCityLabel     String
+  // The provider's own city identifier, stored verbatim as supplied. Never
+  // parsed, never assumed numeric.
+  providerCityId     String
+  // The provider's own display name for that city, from its catalogue.
+  providerCityName   String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  provider ShippingProvider @relation(fields: [shippingProviderId], references: [id], onDelete: Cascade)
+
+  // At most one mapping per (provider, local city) — the DB is the real
+  // guard against a duplicate created by two concurrent requests.
+  @@unique([shippingProviderId, localCityKey])
+  @@index([shippingProviderId])
+  @@map("delivery_city_mappings")
 }
 
 enum ShipmentStatus {

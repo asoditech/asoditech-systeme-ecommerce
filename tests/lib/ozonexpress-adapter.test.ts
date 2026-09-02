@@ -30,6 +30,7 @@ const shipmentInput: CreateShipmentAdapterInput = {
   addressLine1: "12 rue Hassan II",
   addressLine2: null,
   city: "Casablanca",
+  resolvedProviderCityId: null,
   region: null,
   country: "MA",
   phone: "0612345678",
@@ -55,7 +56,13 @@ describe("ozonExpressAdapter (fixture)", () => {
   });
 
   it("declares only the capabilities the documentation supports", () => {
-    expect([...ozonExpressAdapter.capabilities].sort()).toEqual(["CREATE_SHIPMENT", "FETCH_COST", "FETCH_STATUS", "GENERATE_MANIFEST"]);
+    expect([...ozonExpressAdapter.capabilities].sort()).toEqual([
+      "CREATE_SHIPMENT",
+      "FETCH_CITIES",
+      "FETCH_COST",
+      "FETCH_STATUS",
+      "GENERATE_MANIFEST",
+    ]);
     expect(() => assertCapability(ozonExpressAdapter, "CANCEL_SHIPMENT")).toThrow();
     expect(() => assertCapability(ozonExpressAdapter, "WEBHOOKS")).toThrow();
   });

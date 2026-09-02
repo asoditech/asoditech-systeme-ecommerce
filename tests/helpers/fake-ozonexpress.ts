@@ -80,6 +80,9 @@ export interface FakeOzonExpressState {
   /** Records the raw request URLs seen — tests assert the api key never
    * leaks elsewhere, and that path auth is used. */
   seenUrls: string[];
+  /** Every `add-parcel` form body the fake received, in order — tests
+   * assert which `parcel-city` id was actually sent to the carrier. */
+  seenAddParcelForms: Record<string, string>[];
 }
 
 export function emptyFakeOzonExpressState(): FakeOzonExpressState {
@@ -89,6 +92,7 @@ export function emptyFakeOzonExpressState(): FakeOzonExpressState {
     enforceAuth: true,
     citiesEnvelope: "wrapped-CITIES",
     seenUrls: [],
+    seenAddParcelForms: [],
     deliveryNotes: new Map(),
     nextDeliveryNoteId: 1,
   };
@@ -152,6 +156,7 @@ export function installFakeOzonExpress(state: FakeOzonExpressState) {
       const form = init?.body instanceof FormData ? init.body : new FormData();
 
       if (action === "add-parcel") {
+        state.seenAddParcelForms.push(Object.fromEntries(form.entries()) as Record<string, string>);
         if (state.forceAddParcelErrorMessage) {
           const err = { RESULT: "ERROR", MESSAGE: state.forceAddParcelErrorMessage };
           return json(state.nestErrorEnvelope ? { "ADD-PARCEL": err } : err);

@@ -144,6 +144,12 @@ export const referenceDeliveryProvider: DeliveryProviderAdapter = {
     "WEBHOOKS",
     "GENERATE_MANIFEST",
   ],
+  // Note: deliberately does NOT declare FETCH_CITIES even though it
+  // implements `listCities` (used by the connection-test diagnostic). It is
+  // a generic fixture that does not require a provider-specific destination
+  // id, so the generic city-mapping layer treats it as "no catalogue" —
+  // exactly the "provider without a catalogue" path we want to exercise.
+  // See docs/adr/0018-delivery-city-mapping.md.
 
   async testConnection(credentials, config) {
     const { apiKey } = parseCredentials(credentials);
