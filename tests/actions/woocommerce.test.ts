@@ -423,6 +423,42 @@ describe("WooCommerce integration", () => {
       expect(notification.message).toContain("WooCommerce");
     });
 
+    /**
+     * Phase 29 E2E audit — Integration.lastSyncAt is a single field shared
+     * across every resource, bumped to "now" by the preceding products
+     * sync in seedProductWithCost(). Before the fix, syncWooCommerceOrdersAction
+     * used that shared timestamp as its `since` bound, so a real order
+     * placed minutes earlier — well within the intended 30-day window —
+     * was silently excluded (itemsImported: 0, status still "SUCCES").
+     * Reproduced live against a real WooCommerce store with 298 real
+     * orders before being fixed.
+     */
+    it("imports an order created before the preceding products sync, not just ones dated after it (audit fix)", async () => {
+      await seedProductWithCost();
+      const oneHourAgo = new Date(Date.now() - 60 * 60_000).toISOString();
+      state.orders = [
+        {
+          id: 9050,
+          number: "9050",
+          status: "processing",
+          date_created: oneHourAgo,
+          customer_id: 0,
+          total: "50.00",
+          billing: { first_name: "Karim", last_name: "Idrissi", email: "karim@example.com", city: "Tanger", country: "MA", address_1: "3 Rue Z" },
+          shipping: {},
+          line_items: [{ id: 6, name: "Thé vert", product_id: 501, sku: "THE-VERT", quantity: 1, price: "50.00", subtotal: "50.00", total: "50.00" }],
+        },
+      ];
+
+      const result = await syncWooCommerceOrdersAction();
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.summary.imported).toBe(1);
+
+      const order = await prisma.order.findFirst({ where: { source: "WOOCOMMERCE", externalId: "9050" } });
+      expect(order).not.toBeNull();
+    });
+
     it("deduplicates a guest customer across two orders sharing the same billing e-mail, without fuzzy name matching", async () => {
       await seedProductWithCost();
       state.orders = [

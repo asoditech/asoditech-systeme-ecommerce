@@ -395,6 +395,40 @@ describe("Shopify integration", () => {
       expect(notification.message).toContain("Shopify");
     });
 
+    /**
+     * Phase 29 E2E audit — see the matching WooCommerce regression test in
+     * tests/actions/woocommerce.test.ts for the full root-cause writeup.
+     * Integration.lastSyncAt is shared across every resource; before the
+     * fix, an order placed before the preceding products sync (but well
+     * within the intended 30-day window) was silently excluded.
+     */
+    it("imports an order created before the preceding products sync, not just ones dated after it (audit fix)", async () => {
+      await seedProductWithCost();
+      const oneHourAgo = new Date(Date.now() - 60 * 60_000).toISOString();
+      state.orders = [
+        {
+          id: "gid://shopify/Order/9050",
+          name: "#9050",
+          createdAt: oneHourAgo,
+          displayFinancialStatus: "PENDING",
+          displayFulfillmentStatus: "UNFULFILLED",
+          email: "karim@example.com",
+          shippingAddress: { firstName: "Karim", lastName: "Idrissi", address1: "3 Rue Z", city: "Tanger", country: "MA" },
+          total: 50,
+          subtotal: 50,
+          lineItems: [{ id: "gid://shopify/LineItem/6", title: "Thé vert", sku: "THE-VERT", quantity: 1, productId: "gid://shopify/Product/501", unitPrice: 50, discountedTotal: 50, originalTotal: 50 }],
+        },
+      ];
+
+      const result = await syncShopifyOrdersAction();
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.summary.imported).toBe(1);
+
+      const order = await prisma.order.findFirst({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/9050" } });
+      expect(order).not.toBeNull();
+    });
+
     it("deduplicates a guest customer across two orders sharing the same email, without fuzzy name matching", async () => {
       await seedProductWithCost();
       state.orders = [

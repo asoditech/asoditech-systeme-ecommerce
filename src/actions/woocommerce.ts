@@ -12,6 +12,7 @@ import { generateWebhookSecret } from "@/lib/integrations/woocommerce/webhook-si
 import { syncCategories, syncProducts, syncOrders, pushStockToWooCommerce } from "@/lib/integrations/woocommerce/sync";
 import type { SyncSummary } from "@/lib/integrations/woocommerce/sync";
 import { notifyConnectionError, notifySyncFailure } from "@/lib/notifications";
+import { resolveOrdersSyncSince } from "@/lib/integrations/shared";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import type { SyncDirection, SyncRunStatus } from "@prisma/client";
 import type { CurrentUser } from "@/lib/auth/session";
@@ -233,10 +234,14 @@ export async function syncWooCommerceOrdersAction(): Promise<ActionResult<{ summ
     return actionError(friendlyError(error));
   }
 
-  // Bound the import to orders created since the last successful sync (or
-  // the last 30 days on a first run) rather than the store's entire order
-  // history every time — see docs/adr/0010-woocommerce-integration.md.
-  const since = integration.lastSyncAt ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  // Bound the import to orders created since the last successful ORDERS
+  // sync (or the last 30 days on a first run) rather than the store's
+  // entire order history every time — see
+  // docs/adr/0010-woocommerce-integration.md. Deliberately NOT
+  // integration.lastSyncAt: that field is shared across every resource
+  // (products/categories/stock too) and gets bumped by whichever synced
+  // most recently — see resolveOrdersSyncSince's own doc comment.
+  const since = await resolveOrdersSyncSince(integration.id);
 
   return runSync(user, integration.id, "COMMANDES", "IMPORT", () =>
     syncOrders(client, { type: "USER", userId: user.id }, since)
