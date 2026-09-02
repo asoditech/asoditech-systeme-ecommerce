@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -19,7 +20,9 @@ export function MobileNav({ permissions }: { permissions: Set<Permission> }) {
       <SheetContent side="left" className="w-72 border-sidebar-border bg-sidebar p-0 sm:max-w-72">
         <SheetHeader className="border-b border-sidebar-border px-4 py-3.5">
           <SheetTitle className="sr-only">Menu de navigation</SheetTitle>
-          <BrandMark />
+          <Link href="/tableau-de-bord" onClick={() => setOpen(false)}>
+            <BrandMark />
+          </Link>
         </SheetHeader>
         <div className="overflow-y-auto">
           <SidebarNav permissions={permissions} onNavigate={() => setOpen(false)} />
