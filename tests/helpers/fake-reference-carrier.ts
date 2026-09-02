@@ -25,10 +25,21 @@ export interface FakeCarrierState {
   /** When true, every request hangs until aborted — used to test timeout
    * handling. */
   hang?: boolean;
+  /** When set, POST /manifests responds with this HTTP status. */
+  forceManifestStatus?: number;
+  /** When true, POST /manifests returns a body with no `ref`. */
+  manifestOmitRef?: boolean;
+  /** Codes seen by the most recent POST /manifests call. */
+  lastManifestCodes?: string[];
+  nextManifestId: number;
+  /** GET /cities response — defaults to [] (no catalogue) so existing
+   * tests that never set this see the same behavior as before listCities
+   * existed. */
+  cities?: { id: string; name: string }[];
 }
 
 export function emptyFakeCarrierState(): FakeCarrierState {
-  return { shipments: new Map(), nextId: 1 };
+  return { shipments: new Map(), nextId: 1, nextManifestId: 1 };
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -69,6 +80,32 @@ export function installFakeReferenceCarrier(state: FakeCarrierState) {
         const record = { id, status: "created", tracking_number: `TRK-${id}`, tracking_url: `https://example.com/track/${id}`, cost: 25.5 };
         state.shipments.set(id, record);
         return jsonResponse(record);
+      }
+
+      if (path === "/cities" && method === "GET") {
+        return jsonResponse({ cities: state.cities ?? [] });
+      }
+
+      if (path === "/manifests" && method === "POST") {
+        if (state.forceManifestStatus) return jsonResponse({ error: "forced" }, state.forceManifestStatus);
+        let codes: string[] = [];
+        try {
+          const parsed = init?.body ? JSON.parse(String(init.body)) : {};
+          codes = Array.isArray(parsed.codes) ? parsed.codes : [];
+        } catch {
+          codes = [];
+        }
+        state.lastManifestCodes = codes;
+        const ref = `MREF-${state.nextManifestId++}`;
+        return jsonResponse(
+          state.manifestOmitRef
+            ? { parcel_count: codes.length }
+            : {
+                ref,
+                parcel_count: codes.length,
+                documents: [{ label: "Bordereau", url: `https://example.com/manifest/${ref}.pdf` }],
+              }
+        );
       }
 
       const cancelMatch = path.match(/^\/shipments\/([^/]+)\/cancel$/);

@@ -1,16 +1,22 @@
 import "server-only";
 
 import { DeliveryConfigError, DeliveryMalformedResponseError } from "@/lib/integrations/delivery/errors";
+import { matchCityName, normalizeCityName } from "@/lib/integrations/delivery/city-match";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
 import { parseMoney } from "./client";
 import {
   ozonExpressAddParcelResponseSchema,
   ozonExpressCitiesResponseSchema,
+  ozonExpressDeliveryNoteResponseSchema,
   ozonExpressParcelBodySchema,
   ozonExpressTrackingResponseSchema,
   type OzonExpressConfig,
 } from "./types";
-import type { CreateShipmentAdapterInput, DeliveryCity } from "@/lib/integrations/delivery/types";
+import type {
+  CreateShipmentAdapterInput,
+  DeliveryCity,
+  DeliveryManifestDocument,
+} from "@/lib/integrations/delivery/types";
 
 /**
  * OzonExpress ↔ local-model translation. All carrier-specific vocabulary
@@ -98,32 +104,52 @@ export type CityLike = { id: string; name: string; deliveredPrice?: number | nul
 /**
  * Resolves the recipient city to an OzonExpress city id + its
  * authoritative delivery price. Resolution order:
- *   1. an explicit `config.cityIdByName` override (operator correction), then
- *   2. the `GET /cities` catalogue, matched case-insensitively on name.
- * Throws a typed config error (never guesses an id) when neither resolves.
+ *   1. an explicit `config.cityIdByName` override (operator correction) —
+ *      matched via the same harmless-differences normalization as the
+ *      catalogue (`normalizeCityName`: case, accents, incidental
+ *      whitespace), so an override doesn't have to be typed byte-for-byte;
+ *   2. the `GET /cities` catalogue, matched via `matchCityName`.
+ * Never guesses (Phase 27B — docs/adr/0013-ozonexpress-integration.md):
+ * more than one catalogue entry normalizing to the same name is reported
+ * as ambiguous (both candidates, so the operator can add a precise
+ * override) rather than silently taking the first; zero matches includes
+ * any substring-based near-miss suggestions purely as a hint, never
+ * treated as a match.
  */
 export function resolveCity(
   city: string,
   config: OzonExpressConfig,
   catalogue: readonly CityLike[] = []
 ): { id: string; deliveredPrice: number | null } {
-  const target = city.trim().toLowerCase();
+  const target = normalizeCityName(city);
 
   for (const [name, id] of Object.entries(config.cityIdByName ?? {})) {
-    if (name.trim().toLowerCase() === target) {
+    if (normalizeCityName(name) === target) {
       const idStr = String(id).trim();
       const match = catalogue.find((c) => c.id === idStr);
       return { id: idStr, deliveredPrice: match?.deliveredPrice ?? null };
     }
   }
-  for (const entry of catalogue) {
-    if (entry.name.trim().toLowerCase() === target) {
-      return { id: entry.id, deliveredPrice: entry.deliveredPrice ?? null };
-    }
+
+  const result = matchCityName(city, catalogue);
+  if (result.outcome === "resolved") {
+    const match = catalogue.find((c) => c.id === result.id);
+    return { id: result.id, deliveredPrice: match?.deliveredPrice ?? null };
+  }
+  if (result.outcome === "ambiguous") {
+    const list = result.candidates.map((c) => `« ${c.name} » (id ${c.id})`).join(", ");
+    throw new DeliveryConfigError(
+      `« ${city} » correspond à plusieurs villes OzonExpress à la fois : ${list}. ` +
+        "Ajoutez une correspondance ville → identifiant précise dans la configuration du connecteur."
+    );
   }
 
+  const hint =
+    result.suggestions.length > 0
+      ? ` Villes proches trouvées dans le catalogue : ${result.suggestions.map((c) => `« ${c.name} »`).join(", ")}.`
+      : "";
   throw new DeliveryConfigError(
-    `« ${city} » ne correspond à aucune ville desservie par OzonExpress. ` +
+    `« ${city} » ne correspond à aucune ville desservie par OzonExpress.${hint} ` +
       "Vérifiez l'orthographe de la ville de la commande, ou ajoutez une correspondance " +
       "ville → identifiant dans la configuration du connecteur."
   );
@@ -226,6 +252,68 @@ export function parseAddParcelResponse(raw: unknown): ParsedCreateResult {
     cost: parseMoney(body["DELIVERED-PRICE"]),
     rawStatus: body.STATUS?.trim() || null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Bon de Livraison (delivery note / manifest) — see docs/adr/0015
+// ---------------------------------------------------------------------------
+
+const DEFAULT_PORTAL_BASE_URL = "https://client.ozoneexpress.ma";
+
+/**
+ * Pulls the delivery-note reference out of an `add-delivery-note`
+ * response. The owner documentation's example reads a flat `ref`; the
+ * capitalised and one-level-nested variants OzonExpress uses elsewhere are
+ * tolerated too. Throws `DeliveryMalformedResponseError` — never a
+ * fabricated ref — when none is present (docs/adr/0012, docs/adr/0015).
+ */
+export function parseDeliveryNoteRef(raw: unknown): string {
+  const parsed = ozonExpressDeliveryNoteResponseSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new DeliveryMalformedResponseError("Réponse de création du bon de livraison OzonExpress invalide.");
+  }
+  const d = parsed.data;
+  const candidate =
+    d.ref ??
+    d.REF ??
+    d.Ref ??
+    d["DELIVERY-NOTE"]?.ref ??
+    d["DELIVERY-NOTE"]?.REF ??
+    d["DELIVERY-NOTE"]?.Ref ??
+    d["ADD-DELIVERY-NOTE"]?.ref ??
+    d["ADD-DELIVERY-NOTE"]?.REF ??
+    d["ADD-DELIVERY-NOTE"]?.Ref;
+  const ref = candidate === undefined || candidate === null ? "" : String(candidate).trim();
+  if (!ref) {
+    throw new DeliveryMalformedResponseError(
+      "OzonExpress n'a pas renvoyé de référence pour le bon de livraison."
+    );
+  }
+  return ref;
+}
+
+/**
+ * The three printable documents OzonExpress's customer portal exposes for
+ * a delivery-note reference, per the owner-provided documentation:
+ *   - the bordereau (BL) PDF
+ *   - an A4 label sheet
+ *   - 10×10 cm labels
+ * These are opened by the operator in their browser (where they are
+ * already signed into the portal); this app never fetches them. The
+ * portal base is `config.portalBaseUrl` (already validated `https:` by the
+ * config schema) or the production default.
+ */
+export function buildDeliveryNoteDocuments(
+  ref: string,
+  config: OzonExpressConfig
+): DeliveryManifestDocument[] {
+  const base = (config.portalBaseUrl ?? DEFAULT_PORTAL_BASE_URL).replace(/\/+$/, "");
+  const q = `dn-ref=${encodeURIComponent(ref)}`;
+  return [
+    { label: "Bordereau (BL)", url: `${base}/pdf-delivery-note?${q}` },
+    { label: "Étiquettes A4", url: `${base}/pdf-delivery-note-tickets?${q}` },
+    { label: "Étiquettes 10×10 cm", url: `${base}/pdf-delivery-note-tickets-4-4?${q}` },
+  ];
 }
 
 // ---------------------------------------------------------------------------

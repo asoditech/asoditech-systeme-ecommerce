@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
+import { checkAndNotifyLowStock } from "@/lib/notifications";
 import { inventoryAdjustmentSchema } from "@/lib/validation/inventory";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import type { InventoryItem } from "@prisma/client";
@@ -92,6 +93,13 @@ export async function adjustInventoryAction(formData: FormData): Promise<ActionR
     newValue: { quantityOnHand: updated.quantityOnHand },
     metadata: { type: parsed.data.type, reason: parsed.data.reason },
   });
+
+  if (updated.quantityOnHand < previousQuantityOnHand) {
+    await checkAndNotifyLowStock(
+      { productIds: [item.productId], variationIds: [item.variationId] },
+      user.id
+    );
+  }
 
   revalidatePath("/stock");
   revalidatePath("/produits");

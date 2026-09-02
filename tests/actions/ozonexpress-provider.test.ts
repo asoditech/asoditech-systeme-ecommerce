@@ -7,6 +7,7 @@ import {
   createShipmentViaProviderAction,
   cancelShipmentAction,
   syncShipmentStatusAction,
+  generateDeliveryManifestAction,
 } from "@/actions/delivery";
 import { updateOrderStatusAction, createOrderAction } from "@/actions/orders";
 import { resetDb } from "../helpers/db";
@@ -126,7 +127,7 @@ describe("OzonExpress connector — Server Action layer", () => {
       if (result.ok) expect(result.data.details?.["villes desservies"]).toBe(4);
       const row = await prisma.shippingProvider.findUniqueOrThrow({ where: { id: provider.id } });
       expect(row.connectionStatus).toBe("CONNECTE");
-      expect(row.capabilities.sort()).toEqual(["CREATE_SHIPMENT", "FETCH_COST", "FETCH_STATUS"]);
+      expect(row.capabilities.sort()).toEqual(["CREATE_SHIPMENT", "FETCH_COST", "FETCH_STATUS", "GENERATE_MANIFEST"]);
       // The read-only verification facts are safe to keep in the audit trail.
       const audit = await prisma.auditEvent.findFirstOrThrow({
         where: { action: "shipping_provider.connection_test_succeeded" },
@@ -270,6 +271,69 @@ describe("OzonExpress connector — Server Action layer", () => {
       const updated = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
       expect(updated.providerStatusRaw).toBe("colis en zone de tri regionale");
       expect(updated.status).toBe("EN_ATTENTE");
+    });
+  });
+
+  describe("Bon de Livraison (manifest)", () => {
+    async function seedEnAttenteShipment(providerId: string) {
+      const orderId = await seedShippableOrder();
+      const create = await createShipmentViaProviderAction(formData({ orderId, providerId }));
+      if (!create.ok) throw new Error("shipment setup failed");
+      return prisma.shipment.findFirstOrThrow({ where: { orderId } });
+    }
+
+    it("generates a manifest, links the shipments, stores https-only document links, audits it", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await configuredProvider();
+      const s1 = await seedEnAttenteShipment(provider.id);
+      const s2 = await seedEnAttenteShipment(provider.id);
+
+      const result = await generateDeliveryManifestAction(
+        formData({ providerId: provider.id, shipmentIds: `${s1.id},${s2.id}` })
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(Object.keys(result.data)).toEqual(["id"]);
+
+      const manifest = await prisma.deliveryManifest.findFirstOrThrow();
+      expect(manifest.status).toBe("FINALISE");
+      expect(manifest.externalRef).toMatch(/^BL/);
+      const docs = manifest.documents as { label: string; url: string }[];
+      expect(docs).toHaveLength(3);
+      for (const d of docs) expect(new URL(d.url).protocol).toBe("https:");
+
+      const linked = await prisma.shipment.findMany({ where: { manifestId: manifest.id } });
+      expect(linked.map((s) => s.id).sort()).toEqual([s1.id, s2.id].sort());
+
+      const audit = await prisma.auditEvent.findFirstOrThrow({ where: { action: "delivery_manifest.created" } });
+      expect(JSON.stringify(audit.metadata)).not.toContain(FAKE_OZ_API_KEY);
+    });
+
+    it("is denied without delivery.manage", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await configuredProvider();
+      const s1 = await seedEnAttenteShipment(provider.id);
+      mockCookieStore.clear();
+
+      await loginAsTestUser({ role: "SUPPORT" }); // no delivery.manage
+      await expect(
+        generateDeliveryManifestAction(formData({ providerId: provider.id, shipmentIds: s1.id }))
+      ).rejects.toThrow();
+      expect(await prisma.deliveryManifest.count()).toBe(0);
+    });
+
+    it("rejects a batch that mixes two providers and records a delivery_manifest.failed audit", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const a = await configuredProvider("OzonExpress A");
+      const b = await configuredProvider("OzonExpress B");
+      const sa = await seedEnAttenteShipment(a.id);
+      const sb = await seedEnAttenteShipment(b.id);
+
+      const result = await generateDeliveryManifestAction(
+        formData({ providerId: a.id, shipmentIds: `${sa.id},${sb.id}` })
+      );
+      expect(result.ok).toBe(false);
+      expect(await prisma.deliveryManifest.count()).toBe(0);
+      expect(await prisma.auditEvent.count({ where: { action: "delivery_manifest.failed" } })).toBe(1);
     });
   });
 

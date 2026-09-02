@@ -11,6 +11,7 @@ import { WooCommerceError } from "@/lib/integrations/woocommerce/errors";
 import { generateWebhookSecret } from "@/lib/integrations/woocommerce/webhook-signature";
 import { syncCategories, syncProducts, syncOrders, pushStockToWooCommerce } from "@/lib/integrations/woocommerce/sync";
 import type { SyncSummary } from "@/lib/integrations/woocommerce/sync";
+import { notifyConnectionError, notifySyncFailure } from "@/lib/notifications";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import type { SyncDirection, SyncRunStatus } from "@prisma/client";
 import type { CurrentUser } from "@/lib/auth/session";
@@ -92,6 +93,10 @@ export async function testWooCommerceConnectionAction(): Promise<ActionResult<{ 
       entityId: integration.id,
       metadata: { provider: "WOOCOMMERCE" },
     });
+    await notifyConnectionError(
+      { entityType: "Integration", entityId: integration.id, label: "WooCommerce", recipientPermission: "integrations.view" },
+      user.id
+    );
     revalidatePath("/integrations");
     return actionError(message);
   }
@@ -142,6 +147,10 @@ async function runSync(
       data: { status: "ECHEC", finishedAt: new Date(), errorSummary: message },
     });
     await prisma.integration.update({ where: { id: integrationId }, data: { status: "ERREUR", lastError: message } });
+    await notifySyncFailure(
+      { id: syncRun.id, provider: "WooCommerce", resource, status: "ECHEC", imported: 0, failed: 0, firstNote: message },
+      user.id
+    );
     revalidatePath("/integrations");
     return actionError(message);
   }
@@ -173,6 +182,21 @@ async function runSync(
     entityId: syncRun.id,
     metadata: { provider: "WOOCOMMERCE", resource, ...summary },
   });
+
+  if (status === "ECHEC" || status === "PARTIEL") {
+    await notifySyncFailure(
+      {
+        id: syncRun.id,
+        provider: "WooCommerce",
+        resource,
+        status,
+        imported: summary.imported,
+        failed: summary.failed,
+        firstNote: summary.notes[0] ?? null,
+      },
+      user.id
+    );
+  }
 
   revalidatePath("/integrations");
   return actionOk({ summary });

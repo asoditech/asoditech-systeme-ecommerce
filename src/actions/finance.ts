@@ -140,7 +140,7 @@ export async function createExpenseCategoryAction(formData: FormData): Promise<A
   await recordAuditEvent({
     actorType: "USER",
     actorUserId: user.id,
-    action: "expense.created",
+    action: "expense_category.created",
     entityType: "ExpenseCategory",
     entityId: category.id,
     newValue: { name: category.name },

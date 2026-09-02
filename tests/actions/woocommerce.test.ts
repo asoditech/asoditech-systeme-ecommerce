@@ -14,7 +14,7 @@ import {
 } from "@/actions/woocommerce";
 import { importOrder } from "@/lib/integrations/woocommerce/sync";
 import { resetDb } from "../helpers/db";
-import { loginAsTestUser } from "../helpers/auth";
+import { loginAsTestUser, createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 import {
   installFakeWooCommerceServer,
@@ -133,7 +133,8 @@ describe("WooCommerce integration", () => {
     });
 
     it("sets status to ERREUR with a safe message on invalid credentials, never leaking the secret", async () => {
-      await loginAsTestUser({ role: "ADMIN" });
+      const actor = await loginAsTestUser({ role: "ADMIN" });
+      const teammate = await createTestUser({ role: "ADMIN" }); // also holds integrations.view
       const connectResult = await connectIntegrationAction(
         formData({ provider: "WOOCOMMERCE", siteUrl: FAKE_STORE_URL, apiKey: "wrong-key", apiSecret: "wrong-secret" })
       );
@@ -149,6 +150,14 @@ describe("WooCommerce integration", () => {
       const integration = await prisma.integration.findUniqueOrThrow({ where: { provider: "WOOCOMMERCE" } });
       expect(integration.status).toBe("ERREUR");
       expect(integration.lastError).not.toContain("wrong-key");
+
+      // docs/adr/0016-notifications.md — never leaks the secret into the notification either.
+      const notifications = await prisma.notification.findMany();
+      expect(notifications).toHaveLength(1);
+      expect(notifications[0].type).toBe("ERREUR_INTEGRATION");
+      expect(notifications[0].userId).toBe(teammate.id);
+      expect(notifications[0].message).not.toContain("wrong-key");
+      expect(notifications.map((n) => n.userId)).not.toContain(actor.id);
     });
   });
 
@@ -254,9 +263,12 @@ describe("WooCommerce integration", () => {
       const movements = await prisma.inventoryMovement.findMany();
       expect(movements).toHaveLength(0);
 
-      const syncRuns = await prisma.syncRun.findMany({ where: { resource: "PRODUITS" } });
+      const syncRuns = await prisma.syncRun.findMany({ where: { resource: "PRODUITS" }, include: { triggeredBy: true } });
       expect(syncRuns).toHaveLength(1);
       expect(syncRuns[0].status).toBe("SUCCES");
+      // Phase 26 audit fix: triggeredById now has a real FK relation, so
+      // it's actually joinable instead of an untyped orphan string column.
+      expect(syncRuns[0].triggeredBy?.role).toBe("ADMIN");
     });
 
     it("running the same sync twice is idempotent — no duplicates, second run reports unchanged", async () => {
@@ -364,6 +376,7 @@ describe("WooCommerce integration", () => {
 
     it("imports a registered-customer order with correct totals, line items, and a cost snapshot from the internal product", async () => {
       const product = await seedProductWithCost();
+      const teammate = await createTestUser({ role: "SALES" }); // holds orders.view, distinct from the syncing ADMIN
 
       state.orders = [
         {
@@ -401,6 +414,13 @@ describe("WooCommerce integration", () => {
       expect(order.items[0].discount.toString()).not.toBeNull();
       expect(order.customer.fullName).toBe("Amine Tazi");
       expect(order.customer.source).toBe("WOOCOMMERCE");
+
+      // docs/adr/0016-notifications.md — an imported order notifies exactly
+      // like a manually-created one, tagged with its WooCommerce source.
+      const notification = await prisma.notification.findFirstOrThrow({ where: { userId: teammate.id } });
+      expect(notification.type).toBe("NOUVELLE_COMMANDE");
+      expect(notification.message).toContain("Amine Tazi");
+      expect(notification.message).toContain("WooCommerce");
     });
 
     it("deduplicates a guest customer across two orders sharing the same billing e-mail, without fuzzy name matching", async () => {

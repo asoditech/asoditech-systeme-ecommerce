@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { createExpenseAction } from "@/actions/finance";
+import { createExpenseAction, createExpenseCategoryAction } from "@/actions/finance";
 import { createOrderAction, createRefundAction, updateRefundStatusAction } from "@/actions/orders";
 import { getFinanceSummary } from "@/lib/queries/finance";
 import { resetDb } from "../helpers/db";
@@ -46,6 +46,35 @@ describe("createExpenseAction", () => {
     const expense = await prisma.expense.findUniqueOrThrow({ where: { id: result.data.id } });
     expect(expense.recordedById).toBe(user.id);
     expect(expense.amount.toString()).toBe("500");
+  });
+});
+
+describe("createExpenseCategoryAction", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  it("audits creation as expense_category.created, not expense.created (Phase 26 audit fix)", async () => {
+    const user = await loginAsTestUser({ role: "ACCOUNTANT" });
+    const result = await createExpenseCategoryAction(formData({ name: "Logistique" }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const audit = await prisma.auditEvent.findFirstOrThrow({ where: { entityId: result.data.id, entityType: "ExpenseCategory" } });
+    expect(audit.action).toBe("expense_category.created");
+    expect(audit.actorUserId).toBe(user.id);
+  });
+
+  it("rejects a duplicate category name", async () => {
+    await loginAsTestUser({ role: "ACCOUNTANT" });
+    await createExpenseCategoryAction(formData({ name: "Logistique" }));
+    const second = await createExpenseCategoryAction(formData({ name: "Logistique" }));
+    expect(second.ok).toBe(false);
   });
 });
 

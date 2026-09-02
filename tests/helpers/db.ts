@@ -22,6 +22,7 @@ export async function resetDb() {
     prisma.expenseCategory.deleteMany(),
     prisma.shipmentWebhookEvent.deleteMany(),
     prisma.shipment.deleteMany(),
+    prisma.deliveryManifest.deleteMany(),
     prisma.shippingProvider.deleteMany(),
     prisma.refund.deleteMany(),
     prisma.orderItem.deleteMany(),

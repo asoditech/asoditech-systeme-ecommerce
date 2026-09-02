@@ -330,11 +330,13 @@ additions and the interim preloader work).
 - **The OzonExpress city catalogue** — currently an operator-maintained
   `cityIdByName` map in connector config. If OzonExpress exposes a real
   `cities` endpoint, a future change can fetch and cache it.
-- **Delivery-note (Bon de Livraison) / label-PDF flow** — OzonExpress's
-  4-step `add-delivery-note` → `add-parcel-to-delivery-note` →
-  `save-delivery-note` → PDF-URL process. Not modelled: the generic
-  delivery layer has no "batch manifest / printable label" concept, and
-  adding one is its own phase.
+- ~~**Delivery-note (Bon de Livraison) / label-PDF flow**~~ — **done, see
+  `docs/adr/0015-delivery-manifest.md`.** A generic `GENERATE_MANIFEST`
+  capability + `DeliveryManifest` model + the OzonExpress 4-step
+  implementation + a "Bons de livraison" tab now exist. Portal PDF URLs
+  are operator-opened links, never fetched server-side.
+  `MANIFEST_LIVE_TESTED = NO` (endpoints owner-documented, not yet run
+  against the live API — same posture as `add-parcel`).
 - **Bulk status polling** — `tracking` accepts an array; the current
   per-shipment "Synchroniser" calls it one parcel at a time. A batched
   poll job is a later optimization.

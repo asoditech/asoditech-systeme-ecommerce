@@ -107,3 +107,26 @@ export const createShipmentViaProviderSchema = z.object({
 export const providerIdSchema = z.object({ providerId: z.string().min(1) });
 export const shipmentIdSchema = z.object({ shipmentId: z.string().min(1) });
 export const shippingProviderIdSchema = z.object({ id: z.string().min(1) });
+
+/**
+ * Bon de Livraison / manifest generation — see
+ * docs/adr/0015-delivery-manifest.md. `shipmentIds` arrives as a
+ * comma-separated list of local Shipment ids from the checkbox form.
+ */
+export const generateManifestSchema = z.object({
+  providerId: z.string().min(1, "Le prestataire est requis."),
+  shipmentIds: z
+    .string()
+    .transform((v) =>
+      v
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    )
+    .pipe(
+      z
+        .array(z.string().min(1))
+        .min(1, "Sélectionnez au moins une expédition.")
+        .max(200, "Un bon de livraison ne peut pas dépasser 200 colis.")
+    ),
+});

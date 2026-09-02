@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { POST } from "@/app/api/webhooks/shopify/route";
 import { resetDb } from "../helpers/db";
+import { createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 import { installFakeShopifyServer, emptyFakeShopifyStore, FAKE_ACCESS_TOKEN, type FakeShopifyState } from "../helpers/fake-shopify";
 
@@ -77,6 +78,7 @@ describe("POST /api/webhooks/shopify", () => {
 
   it("processes a validly signed orders/create delivery by re-fetching and importing the order", async () => {
     await seedIntegration();
+    const staff = await createTestUser({ role: "SALES" }); // holds orders.view
     const body = orderCreatePayload();
     const response = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/create", "x-shopify-webhook-id": "d1" }));
     expect(response.status).toBe(200);
@@ -89,6 +91,10 @@ describe("POST /api/webhooks/shopify", () => {
 
     const audit = await prisma.auditEvent.findFirstOrThrow({ where: { action: "integration.webhook_received" } });
     expect(audit).toBeTruthy();
+
+    // docs/adr/0016-notifications.md — new wiring this phase.
+    const notification = await prisma.notification.findFirstOrThrow({ where: { userId: staff.id } });
+    expect(notification.type).toBe("NOUVELLE_COMMANDE");
   });
 
   it("rejects an invalid signature with 401 and imports nothing", async () => {

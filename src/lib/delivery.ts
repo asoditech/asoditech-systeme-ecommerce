@@ -8,6 +8,26 @@ import { canTransitionShipmentStatus, type ShipmentStatusValue } from "@/lib/val
 /** Thrown when a conditional status-transition update matches 0 rows. */
 export class ShipmentConflictError extends Error {}
 
+/** Order statuses a shipment may be created (or retried) against — see
+ * docs/adr/0006-delivery-providers.md. Single source of truth, shared by
+ * `createShipmentAction`/`createShipmentViaProviderAction`
+ * (src/actions/delivery.ts) and the city-resolution connection-test
+ * diagnostic (service.ts) so "which orders still need a shipment" can't
+ * silently diverge between the two. */
+export const SHIPPABLE_ORDER_STATUSES: OrderStatus[] = ["CONFIRMEE", "EN_PREPARATION", "ECHEC"];
+
+/** Statuses that already have an active (non-terminal, non-failed) API
+ * shipment in flight for a given order+provider — a second create request
+ * against the same pair is refused rather than risking two real-world
+ * parcels from one accidental double submission. See docs/adr/0012,
+ * "Retry / concurrency safety". This narrows, but does not eliminate, the
+ * residual race under genuinely concurrent requests — see the ADR.
+ * Anything else (ECHEC, ANNULE, RETOURNE) has no live external parcel
+ * standing in the way, so a fresh attempt against the same order+provider
+ * is allowed. Shared for the same reason as SHIPPABLE_ORDER_STATUSES
+ * above. */
+export const ACTIVE_SHIPMENT_STATUSES: ShipmentStatusValue[] = ["EN_ATTENTE", "EN_TRANSIT"];
+
 export type ShipmentTransitionResult =
   | { ok: true }
   | { ok: false; reason: "invalid_transition" | "conflict" };

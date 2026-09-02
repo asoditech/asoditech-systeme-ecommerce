@@ -55,7 +55,7 @@ describe("ozonExpressAdapter (fixture)", () => {
   });
 
   it("declares only the capabilities the documentation supports", () => {
-    expect([...ozonExpressAdapter.capabilities].sort()).toEqual(["CREATE_SHIPMENT", "FETCH_COST", "FETCH_STATUS"]);
+    expect([...ozonExpressAdapter.capabilities].sort()).toEqual(["CREATE_SHIPMENT", "FETCH_COST", "FETCH_STATUS", "GENERATE_MANIFEST"]);
     expect(() => assertCapability(ozonExpressAdapter, "CANCEL_SHIPMENT")).toThrow();
     expect(() => assertCapability(ozonExpressAdapter, "WEBHOOKS")).toThrow();
   });

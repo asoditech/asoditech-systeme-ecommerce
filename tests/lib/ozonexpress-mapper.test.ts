@@ -110,6 +110,49 @@ describe("ozonexpress mapper — city resolution", () => {
     // override to an id not in the catalogue -> null price, still resolves the id
     expect(resolveCity("Zagora", { cityIdByName: { Zagora: 500 } }, CATALOGUE)).toEqual({ id: "500", deliveredPrice: null });
   });
+
+  // Phase 27B — city resolution hardening (docs/adr/0013-ozonexpress-integration.md).
+  it("resolves through an accent difference (e.g. Fès vs Fes)", () => {
+    const catalogueWithAccent = [...CATALOGUE, { id: "3", name: "Fès", ref: "FES", deliveredPrice: 30, returnedPrice: 0, refusedPrice: 10 }];
+    expect(resolveCityId("Fes", {}, catalogueWithAccent)).toBe("3");
+  });
+
+  it("resolves through repeated internal whitespace on either side", () => {
+    const catalogueWithSpacing = [
+      { id: "5", name: "Sidi   Maarouf", ref: "SM", deliveredPrice: 18, returnedPrice: 0, refusedPrice: 8 },
+    ];
+    expect(resolveCityId("Sidi Maarouf", {}, catalogueWithSpacing)).toBe("5");
+    expect(resolveCityId("  Sidi  Maarouf  ", {}, catalogueWithSpacing)).toBe("5");
+  });
+
+  it("an override is matched with the same accent/whitespace-tolerant normalization as the catalogue", () => {
+    expect(resolveCityId("fes", { cityIdByName: { Fès: 3 } })).toBe("3");
+  });
+
+  it("throws — never silently picks the first — when two catalogue entries normalize to the same name", () => {
+    const dup = [
+      { id: "1", name: "Casablanca", ref: "CAS1", deliveredPrice: 20, returnedPrice: 0, refusedPrice: 10 },
+      { id: "77", name: "casablanca", ref: "CAS2", deliveredPrice: 22, returnedPrice: 0, refusedPrice: 10 },
+    ];
+    expect(() => resolveCityId("Casablanca", {}, dup)).toThrow(DeliveryConfigError);
+    try {
+      resolveCityId("Casablanca", {}, dup);
+    } catch (error) {
+      expect((error as Error).message).toContain("plusieurs villes");
+      expect((error as Error).message).toContain("id 1");
+      expect((error as Error).message).toContain("id 77");
+    }
+  });
+
+  it("a no-match error names substring-based near misses as a hint, without ever using one to resolve", () => {
+    try {
+      resolveCityId("Casa", {}, CATALOGUE);
+      throw new Error("expected resolveCityId to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(DeliveryConfigError);
+      expect((error as Error).message).toContain("Casablanca");
+    }
+  });
 });
 
 describe("ozonexpress mapper — phone normalization", () => {

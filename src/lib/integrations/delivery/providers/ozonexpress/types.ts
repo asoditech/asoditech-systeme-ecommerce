@@ -71,6 +71,13 @@ export type OzonExpressCredentials = z.infer<typeof ozonExpressCredentialsSchema
  *
  * `baseUrl` — override only, for testing against a mock. Defaults to the
  * production host. Always re-validated for SSRF before every request.
+ *
+ * `portalBaseUrl` — base of the OzonExpress customer portal that serves
+ * the printable delivery-note / label PDFs (see
+ * docs/adr/0015-delivery-manifest.md). Defaults to
+ * `https://client.ozoneexpress.ma`. These URLs are opened by the operator
+ * in their browser, never fetched server-side; `https:` is enforced so a
+ * misconfigured value can't inject a `javascript:` href.
  */
 export const ozonExpressConfigSchema = z.object({
   cityIdByName: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
@@ -79,8 +86,49 @@ export const ozonExpressConfigSchema = z.object({
   defaultParcelNature: z.string().trim().max(120).optional(),
   requestTimeoutMs: z.number().int().min(1000).max(60_000).optional(),
   baseUrl: z.string().url().optional(),
+  portalBaseUrl: z
+    .string()
+    .url()
+    .refine((u) => new URL(u).protocol === "https:", "L'URL du portail OzonExpress doit utiliser HTTPS.")
+    .optional(),
 });
 export type OzonExpressConfig = z.infer<typeof ozonExpressConfigSchema>;
+
+/**
+ * `add-delivery-note` (Bon de Livraison step 1) response. The owner
+ * documentation's PHP example reads the new reference from a flat `ref`
+ * key (`json_decode($response1, true)["ref"]`); this tolerates the
+ * capitalised / nested variants OzonExpress uses elsewhere too. Steps 2
+ * (`add-parcel-to-delivery-note`) and 3 (`save-delivery-note`) return no
+ * documented body — success is "no RESULT:ERROR", handled by the client's
+ * `assertNoApiError`. ⚠️ NOT yet live-tested — see
+ * docs/adr/0015-delivery-manifest.md.
+ */
+export const ozonExpressDeliveryNoteResponseSchema = z
+  .object({
+    ref: z.union([z.string(), z.number()]).optional(),
+    REF: z.union([z.string(), z.number()]).optional(),
+    Ref: z.union([z.string(), z.number()]).optional(),
+    "DELIVERY-NOTE": z
+      .object({
+        ref: z.union([z.string(), z.number()]).optional(),
+        REF: z.union([z.string(), z.number()]).optional(),
+        Ref: z.union([z.string(), z.number()]).optional(),
+        RESULT: z.string().optional(),
+        MESSAGE: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
+    "ADD-DELIVERY-NOTE": z
+      .object({
+        ref: z.union([z.string(), z.number()]).optional(),
+        REF: z.union([z.string(), z.number()]).optional(),
+        Ref: z.union([z.string(), z.number()]).optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
 
 // ---------------------------------------------------------------------------
 // API response schemas — deliberately permissive

@@ -10,7 +10,7 @@ import {
 } from "@/actions/orders";
 import { createOrderSchema } from "@/lib/validation/order";
 import { resetDb } from "../helpers/db";
-import { loginAsTestUser } from "../helpers/auth";
+import { loginAsTestUser, createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 
 function formData(fields: Record<string, string>) {
@@ -365,6 +365,123 @@ describe("updateOrderPaymentStatusAction", () => {
   });
 });
 
+describe("order notifications (docs/adr/0016-notifications.md)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  it("createOrderAction notifies orders.view holders, excluding the creator", async () => {
+    const { customer, product } = await seedOrderable();
+    const creator = await loginAsTestUser({ role: "SALES" });
+    const teammate = await createTestUser({ role: "MANAGER" });
+
+    const result = await createOrderAction({
+      customerId: customer.id,
+      paymentMethod: "PAIEMENT_LIVRAISON",
+      shippingCost: 0,
+      discountTotal: 0,
+      currency: "MAD",
+      notes: "",
+      internalNotes: "",
+      shippingAddressLine1: "",
+      shippingAddressLine2: "",
+      shippingCity: "",
+      shippingRegion: "",
+      shippingCountry: "",
+      shippingPhone: "",
+      items: [{ productId: product.id, quantity: 1, unitPrice: 100, discount: 0 }],
+    });
+    if (!result.ok) throw new Error("setup failed");
+
+    const notifications = await prisma.notification.findMany();
+    const recipientIds = notifications.map((n) => n.userId);
+    expect(recipientIds).toContain(teammate.id);
+    expect(recipientIds).not.toContain(creator.id);
+    expect(notifications[0].type).toBe("NOUVELLE_COMMANDE");
+    expect(notifications[0].entityId).toBe(result.data.id);
+  });
+
+  it("notifies orders.view holders when an order is returned", async () => {
+    const { customer, product } = await seedOrderable();
+    const actor = await loginAsTestUser({ role: "MANAGER" });
+    const teammate = await createTestUser({ role: "SALES" });
+
+    const created = await createOrderAction({
+      customerId: customer.id,
+      paymentMethod: "PAIEMENT_LIVRAISON",
+      shippingCost: 0,
+      discountTotal: 0,
+      currency: "MAD",
+      notes: "",
+      internalNotes: "",
+      shippingAddressLine1: "",
+      shippingAddressLine2: "",
+      shippingCity: "",
+      shippingRegion: "",
+      shippingCountry: "",
+      shippingPhone: "",
+      items: [{ productId: product.id, quantity: 1, unitPrice: 100, discount: 0 }],
+    });
+    if (!created.ok) throw new Error("setup failed");
+    await prisma.notification.deleteMany(); // clear the "new order" notification from setup
+
+    await updateOrderStatusAction(formData({ id: created.data.id, status: "CONFIRMEE" }));
+    await updateOrderStatusAction(formData({ id: created.data.id, status: "EN_PREPARATION" }));
+    await updateOrderStatusAction(formData({ id: created.data.id, status: "EXPEDIEE" }));
+    await prisma.notification.deleteMany(); // clear low-stock check from the EXPEDIEE transition
+    await updateOrderStatusAction(formData({ id: created.data.id, status: "RETOUR" }));
+
+    const notifications = await prisma.notification.findMany();
+    const recipientIds = notifications.map((n) => n.userId);
+    expect(recipientIds).toContain(teammate.id);
+    expect(recipientIds).not.toContain(actor.id);
+    expect(notifications.every((n) => n.type === "COMMANDE_RETOURNEE")).toBe(true);
+  });
+
+  it("notifies orders.view holders when payment fails, deduped against a second ECHEC", async () => {
+    const { customer, product } = await seedOrderable();
+    const actor = await loginAsTestUser({ role: "MANAGER" });
+    const teammate = await createTestUser({ role: "SALES" });
+
+    const created = await createOrderAction({
+      customerId: customer.id,
+      paymentMethod: "PAIEMENT_LIVRAISON",
+      shippingCost: 0,
+      discountTotal: 0,
+      currency: "MAD",
+      notes: "",
+      internalNotes: "",
+      shippingAddressLine1: "",
+      shippingAddressLine2: "",
+      shippingCity: "",
+      shippingRegion: "",
+      shippingCountry: "",
+      shippingPhone: "",
+      items: [{ productId: product.id, quantity: 1, unitPrice: 100, discount: 0 }],
+    });
+    if (!created.ok) throw new Error("setup failed");
+    await prisma.notification.deleteMany();
+
+    await updateOrderPaymentStatusAction(formData({ id: created.data.id, paymentStatus: "ECHEC" }));
+    // A second ECHEC->ECHEC call is rejected by the action itself before it
+    // ever reaches notify() (existing.paymentStatus !== "ECHEC" guard) — the
+    // dedupeKey exists as a backstop for a genuine retry of the same event,
+    // asserted directly at the notify() layer in notifications.test.ts.
+
+    const notifications = await prisma.notification.findMany();
+    const recipientIds = notifications.map((n) => n.userId);
+    expect(recipientIds).toContain(teammate.id);
+    expect(recipientIds).not.toContain(actor.id);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].type).toBe("PROBLEME_PAIEMENT");
+  });
+});
+
 describe("refunds", () => {
   beforeEach(async () => {
     await resetDb();
@@ -419,6 +536,26 @@ describe("refunds", () => {
     // it must still count against the remaining refundable balance.
     const second = await createRefundAction(formData({ orderId, amount: "30" }));
     expect(second.ok).toBe(false);
+  });
+
+  it("prevents two concurrent refunds from jointly exceeding the order total (Phase 26 audit fix)", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const orderId = await createTestOrderWithTotal(100);
+
+    // Two genuinely concurrent requests, each individually well under the
+    // order total (60 + 60 = 120 > 100) — a stale-read race would let both
+    // pass the cap check against the same pre-refund aggregate. Only one
+    // may succeed; see the row lock in createRefundAction.
+    const [first, second] = await Promise.all([
+      createRefundAction(formData({ orderId, amount: "60" })),
+      createRefundAction(formData({ orderId, amount: "60" })),
+    ]);
+    const results = [first, second];
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(results.filter((r) => !r.ok)).toHaveLength(1);
+
+    const total = await prisma.refund.aggregate({ where: { orderId, status: { not: "REJETE" } }, _sum: { amount: true } });
+    expect(Number(total._sum.amount)).toBe(60); // never 120
   });
 
   it("rejects an invalid refund transition (REJETE -> COMPLETE)", async () => {

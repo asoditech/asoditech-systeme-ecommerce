@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { recordAuditEvent } from "@/lib/audit";
 import { actorAuditFields, actorPerformedById, type SyncActor } from "./actor";
+import { checkAndNotifyLowStock } from "@/lib/notifications";
 import type { RecordSource } from "@prisma/client";
 
 /**
@@ -85,6 +86,12 @@ export async function reconcileStockFromProvider(params: {
       metadata: { source },
     });
   });
+
+  // The provider's own count just moved us down — surface anything now low,
+  // exactly as a manual downward adjustment does (src/actions/inventory.ts).
+  if (delta < 0) {
+    await checkAndNotifyLowStock({ productIds: [productId], variationIds: [variationId] }, actorPerformedById(actor));
+  }
 
   return "reconciled";
 }

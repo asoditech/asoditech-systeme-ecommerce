@@ -61,13 +61,37 @@ export interface FakeOzonExpressState {
   citiesEnvelope: "wrapped-CITIES" | "bare-array" | "wrapped-data";
   /** `GET /cities` returns this HTTP status instead of the catalogue. */
   forceCitiesHttpStatus?: number;
+  /** Bon de Livraison — add-delivery-note responds with a body that has no
+   * `ref` (malformed-response test). */
+  deliveryNoteOmitRef?: boolean;
+  /** Bon de Livraison — add-delivery-note nests the ref under
+   * `DELIVERY-NOTE.ref` instead of a flat `ref`. */
+  deliveryNoteNestRef?: boolean;
+  /** Bon de Livraison — this step (`add-delivery-note` /
+   * `add-parcel-to-delivery-note` / `save-delivery-note`) responds with a
+   * top-level RESULT:ERROR + `deliveryNoteStepErrorMessage`. */
+  deliveryNoteFailStep?: "add-delivery-note" | "add-parcel-to-delivery-note" | "save-delivery-note";
+  deliveryNoteStepErrorMessage?: string;
+  /** Records the `Codes[i]` values the fake saw on add-parcel-to-delivery-note. */
+  seenManifestCodes?: string[];
+  /** Delivery notes created by the fake, keyed by ref → the codes added. */
+  deliveryNotes: Map<string, string[]>;
+  nextDeliveryNoteId: number;
   /** Records the raw request URLs seen — tests assert the api key never
    * leaks elsewhere, and that path auth is used. */
   seenUrls: string[];
 }
 
 export function emptyFakeOzonExpressState(): FakeOzonExpressState {
-  return { parcels: new Map(), nextId: 1, enforceAuth: true, citiesEnvelope: "wrapped-CITIES", seenUrls: [] };
+  return {
+    parcels: new Map(),
+    nextId: 1,
+    enforceAuth: true,
+    citiesEnvelope: "wrapped-CITIES",
+    seenUrls: [],
+    deliveryNotes: new Map(),
+    nextDeliveryNoteId: 1,
+  };
 }
 
 function json(body: unknown, status = 200) {
@@ -215,6 +239,40 @@ export function installFakeOzonExpress(state: FakeOzonExpressState) {
             "DELIVERED-PRICE": parcel.deliveredPrice === null ? null : String(parcel.deliveredPrice.toFixed(2)),
           },
         });
+      }
+
+      // ── Bon de Livraison (delivery note / manifest) — 4-step flow.
+      // ⚠️ Reconstruction from owner docs, not live-verified — see
+      // docs/adr/0015-delivery-manifest.md.
+      if (action === "add-delivery-note") {
+        if (state.deliveryNoteFailStep === "add-delivery-note") {
+          return json({ RESULT: "ERROR", MESSAGE: state.deliveryNoteStepErrorMessage ?? "delivery note failed" });
+        }
+        const ref = `BL${state.nextDeliveryNoteId++}${Date.now() % 10000}`;
+        state.deliveryNotes.set(ref, []);
+        if (state.deliveryNoteOmitRef) return json({ RESULT: "SUCCESS" });
+        return json(state.deliveryNoteNestRef ? { "DELIVERY-NOTE": { ref } } : { ref });
+      }
+
+      if (action === "add-parcel-to-delivery-note") {
+        if (state.deliveryNoteFailStep === "add-parcel-to-delivery-note") {
+          return json({ RESULT: "ERROR", MESSAGE: state.deliveryNoteStepErrorMessage ?? "add parcels failed" });
+        }
+        const ref = String(form.get("Ref") ?? "").trim();
+        const codes: string[] = [];
+        for (const [k, v] of form.entries()) {
+          if (/^Codes\[\d+\]$/.test(k)) codes.push(String(v));
+        }
+        state.seenManifestCodes = codes;
+        if (state.deliveryNotes.has(ref)) state.deliveryNotes.set(ref, codes);
+        return json({ RESULT: "SUCCESS" });
+      }
+
+      if (action === "save-delivery-note") {
+        if (state.deliveryNoteFailStep === "save-delivery-note") {
+          return json({ RESULT: "ERROR", MESSAGE: state.deliveryNoteStepErrorMessage ?? "save failed" });
+        }
+        return json({ RESULT: "SUCCESS" });
       }
 
       // POST cities via the credentialed path (the fallback the adapter tries).

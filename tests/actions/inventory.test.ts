@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { adjustInventoryAction } from "@/actions/inventory";
 import { resetDb } from "../helpers/db";
-import { loginAsTestUser } from "../helpers/auth";
+import { loginAsTestUser, createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 
 function formData(fields: Record<string, string>) {
@@ -143,5 +143,34 @@ describe("adjustInventoryAction", () => {
     await expect(
       prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, quantityOnHand: 0 } })
     ).rejects.toThrow();
+  });
+
+  it("notifies inventory.view holders when an adjustment drops stock to/below the threshold (docs/adr/0016-notifications.md)", async () => {
+    const { warehouse, product } = await seedInventoryItem(10); // default lowStockThreshold is 5
+    const actor = await loginAsTestUser({ role: "WAREHOUSE" });
+    const teammate = await createTestUser({ role: "MANAGER" }); // also holds inventory.view
+
+    const result = await adjustInventoryAction(
+      formData({ productId: product.id, warehouseId: warehouse.id, type: "AJUSTEMENT_NEGATIF", quantity: "7", reason: "Inventaire physique" })
+    );
+    expect(result.ok).toBe(true);
+
+    const notifications = await prisma.notification.findMany();
+    expect(notifications.every((n) => n.type === "STOCK_FAIBLE")).toBe(true);
+    const recipientIds = notifications.map((n) => n.userId);
+    expect(recipientIds).toContain(teammate.id);
+    expect(recipientIds).not.toContain(actor.id);
+  });
+
+  it("does not notify when the adjustment increases stock, even from a low starting point", async () => {
+    const { warehouse, product } = await seedInventoryItem(2);
+    await loginAsTestUser({ role: "WAREHOUSE" });
+    await createTestUser({ role: "MANAGER" });
+
+    await adjustInventoryAction(
+      formData({ productId: product.id, warehouseId: warehouse.id, type: "RECEPTION", quantity: "20", reason: "Réception fournisseur" })
+    );
+
+    expect(await prisma.notification.count()).toBe(0);
   });
 });

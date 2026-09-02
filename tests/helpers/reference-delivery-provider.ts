@@ -13,12 +13,15 @@ import type {
   CancelShipmentAdapterInput,
   CreateShipmentAdapterInput,
   CreateShipmentAdapterResult,
+  DeliveryCity,
   DeliveryCredentials,
   DeliveryProviderAdapter,
   DeliveryProviderConfig,
   DeliveryWebhookEvent,
   FetchStatusAdapterInput,
   FetchStatusAdapterResult,
+  GenerateManifestAdapterInput,
+  GenerateManifestAdapterResult,
 } from "@/lib/integrations/delivery/types";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
 
@@ -67,6 +70,16 @@ const statusResponseSchema = z.object({
   status: z.string(),
   tracking_url: z.string().nullable(),
   cost: z.number().nullable(),
+});
+
+const citiesResponseSchema = z.object({
+  cities: z.array(z.object({ id: z.string(), name: z.string() })),
+});
+
+const manifestResponseSchema = z.object({
+  ref: z.string().min(1),
+  parcel_count: z.number().nullable().optional(),
+  documents: z.array(z.object({ label: z.string(), url: z.string() })).optional(),
 });
 
 function parseCredentials(raw: DeliveryCredentials): { apiKey: string; webhookSecret?: string } {
@@ -123,13 +136,29 @@ async function request(baseUrl: string, path: string, apiKey: string, init?: Req
 export const referenceDeliveryProvider: DeliveryProviderAdapter = {
   key: REFERENCE_PROVIDER_KEY,
   displayName: "[TEST] Connecteur de référence",
-  capabilities: ["CREATE_SHIPMENT", "CANCEL_SHIPMENT", "FETCH_STATUS", "FETCH_COST", "WEBHOOKS"],
+  capabilities: [
+    "CREATE_SHIPMENT",
+    "CANCEL_SHIPMENT",
+    "FETCH_STATUS",
+    "FETCH_COST",
+    "WEBHOOKS",
+    "GENERATE_MANIFEST",
+  ],
 
   async testConnection(credentials, config) {
     const { apiKey } = parseCredentials(credentials);
     const { baseUrl } = parseConfig(config);
     await request(baseUrl, "/account", apiKey);
     return { ok: true };
+  },
+
+  async listCities(credentials, config): Promise<DeliveryCity[]> {
+    const { apiKey } = parseCredentials(credentials);
+    const { baseUrl } = parseConfig(config);
+    const raw = await request(baseUrl, "/cities", apiKey);
+    const parsed = citiesResponseSchema.safeParse(raw);
+    if (!parsed.success) throw new DeliveryMalformedResponseError("Réponse de catalogue de villes invalide.");
+    return parsed.data.cities.map((c) => ({ id: c.id, name: c.name }));
   },
 
   async createShipment(input: CreateShipmentAdapterInput, credentials, config): Promise<CreateShipmentAdapterResult> {
@@ -163,6 +192,32 @@ export const referenceDeliveryProvider: DeliveryProviderAdapter = {
     const parsed = statusResponseSchema.safeParse(raw);
     if (!parsed.success) throw new DeliveryMalformedResponseError("Réponse de statut invalide.");
     return { rawStatus: parsed.data.status, trackingUrl: parsed.data.tracking_url, cost: parsed.data.cost };
+  },
+
+  async generateManifest(
+    input: GenerateManifestAdapterInput,
+    credentials,
+    config
+  ): Promise<GenerateManifestAdapterResult> {
+    const { apiKey } = parseCredentials(credentials);
+    const { baseUrl } = parseConfig(config);
+    const raw = await request(baseUrl, "/manifests", apiKey, {
+      method: "POST",
+      body: JSON.stringify({ codes: input.externalIds }),
+    });
+    const parsed = manifestResponseSchema.safeParse(raw);
+    if (!parsed.success) throw new DeliveryMalformedResponseError("Réponse de bon de livraison invalide.");
+    return {
+      externalRef: parsed.data.ref,
+      parcelCount: parsed.data.parcel_count ?? null,
+      documents: (parsed.data.documents ?? []).filter((d) => {
+        try {
+          return new URL(d.url).protocol === "https:";
+        } catch {
+          return false;
+        }
+      }),
+    };
   },
 
   mapStatus(rawStatus: string): ShipmentStatusValue | null {

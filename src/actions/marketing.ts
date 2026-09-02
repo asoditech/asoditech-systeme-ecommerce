@@ -25,7 +25,7 @@ export async function createMarketingChannelAction(formData: FormData): Promise<
   await recordAuditEvent({
     actorType: "USER",
     actorUserId: user.id,
-    action: "marketing_campaign.created",
+    action: "marketing_channel.created",
     entityType: "MarketingChannel",
     entityId: channel.id,
     newValue: { name: channel.name },

@@ -4,13 +4,14 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
-import { applyShipmentStatusTransition } from "@/lib/delivery";
+import { applyShipmentStatusTransition, SHIPPABLE_ORDER_STATUSES, ACTIVE_SHIPMENT_STATUSES } from "@/lib/delivery";
 import {
   createShippingProviderSchema,
   createShipmentSchema,
   updateShipmentStatusSchema,
   configureDeliveryProviderApiSchema,
   createShipmentViaProviderSchema,
+  generateManifestSchema,
   providerIdSchema,
   shipmentIdSchema,
   shippingProviderIdSchema,
@@ -23,18 +24,34 @@ import {
   createShipmentViaProvider,
   cancelShipmentViaProvider,
   syncShipmentStatus,
+  generateManifestViaProvider,
   friendlyDeliveryError,
   type SyncShipmentStatusOutcome,
 } from "@/lib/integrations/delivery/service";
+import { notifyShipmentFailed, notifyConnectionError } from "@/lib/notifications";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
-import type { ShippingProvider, OrderStatus, ShipmentStatus } from "@prisma/client";
+import type { ShippingProvider } from "@prisma/client";
+
+/** Loads the order number + provider name a shipment-failed notification needs. */
+async function shipmentNotificationContext(shipmentId: string) {
+  const s = await prisma.shipment.findUnique({
+    where: { id: shipmentId },
+    select: { id: true, orderId: true, failedReason: true, order: { select: { orderNumber: true } }, provider: { select: { name: true } } },
+  });
+  return s
+    ? {
+        id: s.id,
+        orderId: s.orderId,
+        orderNumber: s.order.orderNumber,
+        providerName: s.provider.name,
+        reason: s.failedReason,
+      }
+    : null;
+}
 
 function normalizeOptional(value: string | null | undefined): string | null {
   return value && value.trim().length > 0 ? value.trim() : null;
 }
-
-/** Orders a shipment can legitimately be created against — see docs/adr/0006-delivery-providers.md. */
-const SHIPPABLE_ORDER_STATUSES: OrderStatus[] = ["CONFIRMEE", "EN_PREPARATION", "ECHEC"];
 
 export async function createShippingProviderAction(formData: FormData): Promise<ActionResult<ShippingProvider>> {
   const user = await requirePermissionForAction("delivery.manage");
@@ -205,6 +222,11 @@ export async function updateShipmentStatusAction(formData: FormData): Promise<Ac
     newValue: { status: parsed.data.status },
   });
 
+  if (parsed.data.status === "ECHEC" && existing.status !== "ECHEC") {
+    const ctx = await shipmentNotificationContext(existing.id);
+    if (ctx) await notifyShipmentFailed(ctx, user.id);
+  }
+
   revalidatePath("/livraison");
   revalidatePath(`/commandes/${existing.orderId}`);
   return actionOk({ id: existing.id });
@@ -296,17 +318,24 @@ export async function testDeliveryProviderConnectionAction(
   });
 
   revalidatePath("/livraison");
-  if (result.status === "ERREUR") return actionError(result.error ?? "Échec de la connexion.");
+  if (result.status === "ERREUR") {
+    const row = await prisma.shippingProvider.findUnique({
+      where: { id: parsed.data.providerId },
+      select: { name: true },
+    });
+    await notifyConnectionError(
+      {
+        entityType: "ShippingProvider",
+        entityId: parsed.data.providerId,
+        label: row?.name ?? "Prestataire de livraison",
+        recipientPermission: "delivery.view",
+      },
+      user.id
+    );
+    return actionError(result.error ?? "Échec de la connexion.");
+  }
   return actionOk({ status: "CONNECTE", details: result.details });
 }
-
-/** Statuses that already have an active (non-terminal, non-failed) API
- * shipment in flight for a given order+provider — a second create request
- * against the same pair is refused rather than risking two real-world
- * parcels from one accidental double submission. See docs/adr/0012,
- * "Retry / concurrency safety". This narrows, but does not eliminate, the
- * residual race under genuinely concurrent requests — see the ADR. */
-const ACTIVE_SHIPMENT_STATUSES: ShipmentStatus[] = ["EN_ATTENTE", "EN_TRANSIT"];
 
 export async function createShipmentViaProviderAction(formData: FormData): Promise<ActionResult<IdResult>> {
   const user = await requirePermissionForAction("delivery.manage");
@@ -398,6 +427,59 @@ export async function cancelShipmentAction(formData: FormData): Promise<ActionRe
   return actionOk({ id: shipment.id });
 }
 
+/**
+ * Bon de Livraison / manifest — groups a batch of EN_ATTENTE API
+ * shipments of one provider into a carrier delivery note and stores its
+ * printable-document links. See docs/adr/0015-delivery-manifest.md.
+ */
+export async function generateDeliveryManifestAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("delivery.manage");
+
+  const parsed = generateManifestSchema.safeParse({
+    providerId: formData.get("providerId"),
+    shipmentIds: formData.get("shipmentIds") ?? "",
+  });
+  if (!parsed.success) {
+    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+
+  try {
+    const manifest = await generateManifestViaProvider({
+      providerId: parsed.data.providerId,
+      shipmentIds: parsed.data.shipmentIds,
+      createdById: user.id,
+    });
+
+    await recordAuditEvent({
+      actorType: "USER",
+      actorUserId: user.id,
+      action: "delivery_manifest.created",
+      entityType: "DeliveryManifest",
+      entityId: manifest.id,
+      metadata: {
+        providerId: parsed.data.providerId,
+        externalRef: manifest.externalRef,
+        parcelCount: manifest.parcelCount,
+      },
+    });
+
+    revalidatePath("/livraison");
+    return actionOk({ id: manifest.id });
+  } catch (error) {
+    const message = friendlyDeliveryError(error);
+    await recordAuditEvent({
+      actorType: "USER",
+      actorUserId: user.id,
+      action: "delivery_manifest.failed",
+      entityType: "ShippingProvider",
+      entityId: parsed.data.providerId,
+      metadata: { error: message, shipmentCount: parsed.data.shipmentIds.length },
+    });
+    revalidatePath("/livraison");
+    return actionError(message);
+  }
+}
+
 export async function syncShipmentStatusAction(formData: FormData): Promise<ActionResult<{ outcome: SyncShipmentStatusOutcome["outcome"] }>> {
   const user = await requirePermissionForAction("delivery.manage");
 
@@ -433,6 +515,10 @@ export async function syncShipmentStatusAction(formData: FormData): Promise<Acti
       newValue: { status: result.newStatus },
       metadata: { source: "provider_sync" },
     });
+    if (result.newStatus === "ECHEC" && shipment.status !== "ECHEC") {
+      const ctx = await shipmentNotificationContext(shipment.id);
+      if (ctx) await notifyShipmentFailed(ctx, user.id);
+    }
   }
 
   revalidatePath("/livraison");

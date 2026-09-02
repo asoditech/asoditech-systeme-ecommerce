@@ -60,6 +60,12 @@ export const SHIPPING_PROVIDER_TYPE_LABELS: Record<string, string> = {
   API: "API",
 };
 
+export const DELIVERY_MANIFEST_STATUS_LABELS: Record<string, StatusMeta> = {
+  BROUILLON: { label: "Brouillon", variant: "secondary" },
+  FINALISE: { label: "Finalisé", variant: "default" },
+  ECHEC: { label: "Échec", variant: "destructive" },
+};
+
 export const REFUND_STATUS_LABELS: Record<string, StatusMeta> = {
   EN_ATTENTE: { label: "En attente", variant: "secondary" },
   APPROUVE: { label: "Approuvé", variant: "default" },

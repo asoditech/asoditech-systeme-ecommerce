@@ -55,6 +55,8 @@ model User {
   inventoryMovements InventoryMovement[] @relation("MovementPerformedBy")
   expensesRecorded   Expense[]           @relation("ExpenseRecordedBy")
   shipmentsUpdated   Shipment[]          @relation("ShipmentUpdatedBy")
+  manifestsCreated   DeliveryManifest[]  @relation("ManifestCreatedBy")
+  syncRunsTriggered  SyncRun[]           @relation("SyncRunTriggeredBy")
   auditEvents        AuditEvent[]        @relation("AuditActorUser")
   notifications      Notification[]
 
@@ -536,6 +538,7 @@ model ShippingProvider {
 
   shipments     Shipment[]
   webhookEvents ShipmentWebhookEvent[]
+  manifests     DeliveryManifest[]
 
   @@map("shipping_providers")
 }
@@ -581,19 +584,73 @@ model Shipment {
   // which also changes on a staff-entered manual status change.
   lastSyncedAt      DateTime?
 
+  // The delivery manifest (Bon de Livraison) this parcel was handed over
+  // on, if any — see docs/adr/0015-delivery-manifest.md. Set once, when a
+  // manifest is generated for a batch of EN_ATTENTE API shipments; a
+  // shipment is on at most one manifest. `SetNull` only so a manifest row
+  // could be removed in an admin cleanup without cascading the shipments;
+  // no code path deletes manifests.
+  manifestId        String?
+
   updatedById String?
-  order       Order            @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  provider    ShippingProvider @relation(fields: [providerId], references: [id], onDelete: Restrict)
-  updatedBy   User?            @relation("ShipmentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  order       Order             @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  provider    ShippingProvider  @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  updatedBy   User?             @relation("ShipmentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  manifest    DeliveryManifest? @relation(fields: [manifestId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@index([providerId])
   @@index([status])
+  @@index([manifestId])
   // Postgres allows multiple NULLs in a unique index, so this never
   // restricts MANUEL/FLOTTE_INTERNE shipments (externalId always null).
   // See docs/adr/0010-woocommerce-integration.md's identical Order pattern.
   @@unique([providerId, externalId])
   @@map("shipments")
+}
+
+enum DeliveryManifestStatus {
+  // Local row created, at least one carrier step not yet confirmed.
+  BROUILLON
+  // The carrier confirmed the whole batch (save-delivery-note succeeded)
+  // — the parcels are handed over, printable documents are available.
+  FINALISE
+  // A carrier step failed. No shipment is linked; the operator can retry
+  // with a fresh manifest.
+  ECHEC
+}
+
+// A carrier "delivery note" / manifest / bordereau — one handover document
+// grouping several API-created shipments of the SAME provider so the
+// operator can print it (plus parcel labels) and hand the batch to the
+// carrier in one go. See docs/adr/0015-delivery-manifest.md. Only carriers
+// whose adapter declares the GENERATE_MANIFEST capability can produce one.
+model DeliveryManifest {
+  id           String                 @id @default(cuid())
+  providerId   String
+  // The carrier's own manifest reference (e.g. OzonExpress "BL240115001").
+  // Null only while BROUILLON/ECHEC before the carrier returned one —
+  // never fabricated.
+  externalRef  String?
+  status       DeliveryManifestStatus @default(BROUILLON)
+  parcelCount  Int                    @default(0)
+  // [{ label, url }] — printable-document links the carrier documents for
+  // this manifest reference (the bordereau PDF, A4 label sheet, …). Opened
+  // by the operator in their browser; NEVER fetched or proxied
+  // server-side (the carrier portal owns rendering and its own auth). `[]`
+  // when the carrier exposes none.
+  documents    Json                   @default("[]")
+  failedReason String?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  createdById  String?
+
+  provider  ShippingProvider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  createdBy User?            @relation("ManifestCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  shipments Shipment[]
+
+  @@index([providerId])
+  @@map("delivery_manifests")
 }
 
 // Minimal, replay-protected record of processed delivery-provider webhook
@@ -796,9 +853,11 @@ model SyncRun {
   triggeredById  String?
 
   integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  triggeredBy User?       @relation("SyncRunTriggeredBy", fields: [triggeredById], references: [id], onDelete: SetNull)
 
   @@index([integrationId])
   @@index([resource])
+  @@index([triggeredById])
   @@map("sync_runs")
 }
 
@@ -840,6 +899,11 @@ enum NotificationType {
   ECHEC_SYNCHRONISATION
 }
 
+// Per-user, in-app alert about a business event the recipient is
+// permitted to see. Created (never edited beyond isRead) by
+// src/lib/notifications.ts's `notify()`, which fans one event out to
+// every ACTIVE user holding the event's permission. See
+// docs/adr/0016-notifications.md.
 model Notification {
   id         String           @id @default(cuid())
   userId     String
@@ -848,11 +912,20 @@ model Notification {
   message    String
   entityType String?
   entityId   String?
+  // Idempotency key for an event-driven notification, of the form
+  // `<event>:<entityId>[:<bucket>]` (a recurring-condition alert like low
+  // stock adds a per-day bucket; a one-shot event like "order created"
+  // does not). `@@unique([userId, dedupeKey])` — Postgres allows multiple
+  // NULLs, so a keyless ad-hoc notification is never restricted — makes
+  // fan-out via `createMany({ skipDuplicates: true })` concurrency-safe
+  // without an app-level lock. See docs/adr/0016-notifications.md.
+  dedupeKey  String?
   isRead     Boolean          @default(false)
   createdAt  DateTime         @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, dedupeKey])
   @@index([userId, isRead])
   @@index([createdAt])
   @@map("notifications")

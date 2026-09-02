@@ -22,7 +22,13 @@ export type DeliveryCapability =
   | "CANCEL_SHIPMENT"
   | "FETCH_STATUS"
   | "FETCH_COST"
-  | "WEBHOOKS";
+  | "WEBHOOKS"
+  // Group several already-created shipments into one carrier "delivery
+  // note" / manifest / bordereau — the handover document (plus parcel
+  // labels) the operator prints and gives the carrier. See
+  // docs/adr/0015-delivery-manifest.md. Declared only by carriers whose
+  // API genuinely has this workflow (OzonExpress does).
+  | "GENERATE_MANIFEST";
 
 /**
  * Deliberately not modeled as a capability in this phase: updating an
@@ -118,6 +124,39 @@ export interface DeliveryWebhookEvent {
   rawStatus: string | null;
 }
 
+export interface GenerateManifestAdapterInput {
+  /** The carrier's own shipment ids (`Shipment.externalId`) to place on
+   * one handover document. The caller guarantees they all belong to the
+   * same provider row and are ready for handover. */
+  externalIds: string[];
+}
+
+/**
+ * A printable document the carrier exposes for a manifest reference — the
+ * bordereau PDF, an A4 label sheet, etc. `url` is opened by the operator
+ * in their browser; it is NEVER fetched or proxied server-side (the
+ * carrier's portal owns rendering and its own auth). The adapter must
+ * guarantee `url` is an absolute `https:` URL.
+ */
+export interface DeliveryManifestDocument {
+  /** French label shown on the button, e.g. "Bordereau (BL)". */
+  label: string;
+  url: string;
+}
+
+export interface GenerateManifestAdapterResult {
+  /** The carrier's own manifest / delivery-note reference — required,
+   * never fabricated. */
+  externalRef: string;
+  /** Parcel count the carrier itself confirmed on the manifest, when its
+   * response reports one; `null` otherwise (never inferred from the input
+   * length). */
+  parcelCount: number | null;
+  /** Printable documents for this manifest reference. `[]` when the
+   * carrier exposes none. */
+  documents: DeliveryManifestDocument[];
+}
+
 /**
  * One credential input an adapter needs, so the "Configurer" UI can render
  * proper typed fields (label, password masking, help text) instead of
@@ -189,6 +228,19 @@ export interface DeliveryProviderAdapter {
    * woocommerce/mapper.ts:mapOrderStatus. Required whenever FETCH_STATUS
    * or WEBHOOKS is declared. */
   mapStatus?(rawStatus: string): ShipmentStatusValue | null;
+
+  /** Groups the given already-created shipments (by their carrier
+   * `externalId`) into one carrier delivery note / manifest and returns
+   * its reference plus any printable-document URLs. Required whenever the
+   * adapter declares `GENERATE_MANIFEST`. Whatever multi-step dance the
+   * carrier's API needs (OzonExpress: create → add parcels → save) is the
+   * adapter's concern — the caller only sees the outcome. See
+   * docs/adr/0015-delivery-manifest.md. */
+  generateManifest?(
+    input: GenerateManifestAdapterInput,
+    credentials: DeliveryCredentials,
+    config: DeliveryProviderConfig
+  ): Promise<GenerateManifestAdapterResult>;
 
   /** Verifies a raw webhook delivery's signature. Must use a
    * constant-time comparison (see shared/hmac.ts). */

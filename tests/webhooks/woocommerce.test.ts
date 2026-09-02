@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { POST } from "@/app/api/webhooks/woocommerce/route";
 import { resetDb } from "../helpers/db";
+import { createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 
 const WEBHOOK_SECRET = "test-webhook-secret";
@@ -84,6 +85,7 @@ describe("POST /api/webhooks/woocommerce", () => {
 
   it("processes a validly signed order.created delivery and creates the order", async () => {
     await seedIntegration();
+    const staff = await createTestUser({ role: "SALES" }); // holds orders.view
     const body = orderPayload();
     const response = await POST(
       request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "d1" })
@@ -98,6 +100,12 @@ describe("POST /api/webhooks/woocommerce", () => {
 
     const audit = await prisma.auditEvent.findFirstOrThrow({ where: { action: "integration.webhook_received" } });
     expect(audit).toBeTruthy();
+
+    // docs/adr/0016-notifications.md — a webhook has no acting user
+    // (actor: { type: "INTEGRATION" }), so every orders.view holder is
+    // notified, no one excepted.
+    const notification = await prisma.notification.findFirstOrThrow({ where: { userId: staff.id } });
+    expect(notification.type).toBe("NOUVELLE_COMMANDE");
   });
 
   it("rejects an invalid signature with 401 and creates no order", async () => {

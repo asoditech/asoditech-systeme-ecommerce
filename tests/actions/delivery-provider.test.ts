@@ -10,7 +10,7 @@ import {
 } from "@/actions/delivery";
 import { updateOrderStatusAction, createOrderAction } from "@/actions/orders";
 import { resetDb } from "../helpers/db";
-import { loginAsTestUser } from "../helpers/auth";
+import { loginAsTestUser, createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 import { registerReferenceDeliveryProvider, REFERENCE_PROVIDER_KEY } from "../helpers/reference-delivery-provider";
 import { installFakeReferenceCarrier, emptyFakeCarrierState, FAKE_API_KEY, type FakeCarrierState } from "../helpers/fake-reference-carrier";
@@ -135,8 +135,123 @@ describe("delivery provider API connector actions", () => {
       expect(row.connectionStatus).toBe("CONNECTE");
     });
 
+    // Phase 27B — city-resolution diagnostics surfaced through the
+    // connection test itself (docs/adr/0013-ozonexpress-integration.md).
+    describe("city-resolution diagnostics", () => {
+      async function connectedProviderWithCities(cities: { id: string; name: string }[]) {
+        const provider = await seedApiProviderRow();
+        await configureDeliveryProviderApiAction(
+          formData({ providerId: provider.id, providerKey: REFERENCE_PROVIDER_KEY, credentialsJson: JSON.stringify({ apiKey: FAKE_API_KEY }) })
+        );
+        carrierState.cities = cities;
+        return provider;
+      }
+
+      it("stays silent (no city keys) when every pending order's city resolves", async () => {
+        await loginAsTestUser({ role: "MANAGER" });
+        await seedShippableOrder(); // shippingCity: "Rabat"
+        const provider = await connectedProviderWithCities([{ id: "2", name: "Rabat" }]);
+
+        const result = await testDeliveryProviderConnectionAction(formData({ providerId: provider.id }));
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.data.details?.["villes de commandes non résolues"]).toBeUndefined();
+        expect(result.data.details?.["villes de commandes ambiguës"]).toBeUndefined();
+      });
+
+      it("reports an unresolved pending-order city without failing the connection test", async () => {
+        await loginAsTestUser({ role: "MANAGER" });
+        await seedShippableOrder(); // shippingCity: "Rabat"
+        const provider = await connectedProviderWithCities([{ id: "1", name: "Casablanca" }]); // no Rabat
+
+        const result = await testDeliveryProviderConnectionAction(formData({ providerId: provider.id }));
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.data.status).toBe("CONNECTE"); // diagnostic never turns a real success into a failure
+        expect(result.data.details?.["villes de commandes non résolues"]).toBe("Rabat");
+
+        const row = await prisma.shippingProvider.findUniqueOrThrow({ where: { id: provider.id } });
+        expect(row.connectionStatus).toBe("CONNECTE");
+      });
+
+      it("reports an ambiguous pending-order city — never silently picks one", async () => {
+        await loginAsTestUser({ role: "MANAGER" });
+        await seedShippableOrder(); // shippingCity: "Rabat"
+        const provider = await connectedProviderWithCities([
+          { id: "2", name: "Rabat" },
+          { id: "22", name: "RABAT" }, // normalizes the same — a real carrier data issue
+        ]);
+
+        const result = await testDeliveryProviderConnectionAction(formData({ providerId: provider.id }));
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.data.details?.["villes de commandes ambiguës"]).toBe("Rabat");
+      });
+
+      it("still reports an unresolved city for an order whose only shipment attempt already failed (live-test regression)", async () => {
+        // Found live during Phase 27B: an order retrying after a failed
+        // shipment attempt (status ECHEC, no external parcel — exactly
+        // what a rejected city resolution produces) was invisible to this
+        // diagnostic, because it reused the "awaiting first shipment"
+        // query, which excludes any order that already has a Shipment
+        // row of any status. The diagnostic must track exactly what
+        // createShipmentViaProviderAction itself would accept — an ECHEC
+        // shipment (no external id) never blocks a fresh attempt. The
+        // reference fixture adapter has no city-resolution concept of its
+        // own (that's OzonExpress-specific), so the failed attempt is
+        // seeded directly, exactly like a real one would leave behind.
+        await loginAsTestUser({ role: "MANAGER" });
+        const orderId = await seedShippableOrder(); // shippingCity: "Rabat"
+        const provider = await connectedProviderWithCities([{ id: "1", name: "Casablanca" }]); // no Rabat
+
+        await prisma.shipment.create({
+          data: {
+            orderId,
+            providerId: provider.id,
+            status: "ECHEC",
+            failedReason: "« Rabat » ne correspond à aucune ville desservie.",
+          },
+        });
+
+        const result = await testDeliveryProviderConnectionAction(formData({ providerId: provider.id }));
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.data.details?.["villes de commandes non résolues"]).toBe("Rabat");
+      });
+
+      it("excludes an order that already has a live shipment (EN_ATTENTE) on this provider", async () => {
+        await loginAsTestUser({ role: "MANAGER" });
+        const orderId = await seedShippableOrder(); // shippingCity: "Rabat"
+        const provider = await connectedProviderWithCities([{ id: "1", name: "Casablanca" }]); // no Rabat
+
+        await prisma.shipment.create({
+          data: { orderId, providerId: provider.id, status: "EN_ATTENTE", externalId: "ext-1" },
+        });
+
+        const result = await testDeliveryProviderConnectionAction(formData({ providerId: provider.id }));
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        // A real parcel is already pending for this order+provider — a
+        // fresh createShipmentViaProviderAction call would itself be
+        // refused, so there's nothing useful to flag here.
+        expect(result.data.details?.["villes de commandes non résolues"]).toBeUndefined();
+      });
+
+      it("does not add city keys when the adapter reports no catalogue at all", async () => {
+        await loginAsTestUser({ role: "MANAGER" });
+        await seedShippableOrder();
+        const provider = await connectedProviderWithCities([]); // empty catalogue — nothing to diagnose against
+
+        const result = await testDeliveryProviderConnectionAction(formData({ providerId: provider.id }));
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.data.details?.["villes de commandes non résolues"]).toBeUndefined();
+      });
+    });
+
     it("sets ERREUR on failed verification", async () => {
-      await loginAsTestUser({ role: "MANAGER" });
+      const actor = await loginAsTestUser({ role: "MANAGER" });
+      const teammate = await createTestUser({ role: "WAREHOUSE" }); // also holds delivery.view
       const provider = await seedApiProviderRow();
       await configureDeliveryProviderApiAction(
         formData({ providerId: provider.id, providerKey: REFERENCE_PROVIDER_KEY, credentialsJson: JSON.stringify({ apiKey: "wrong" }) })
@@ -145,6 +260,14 @@ describe("delivery provider API connector actions", () => {
       expect(result.ok).toBe(false);
       const row = await prisma.shippingProvider.findUniqueOrThrow({ where: { id: provider.id } });
       expect(row.connectionStatus).toBe("ERREUR");
+
+      // docs/adr/0016-notifications.md — delivery.view holders are alerted,
+      // the acting user is not.
+      const notifications = await prisma.notification.findMany();
+      expect(notifications).toHaveLength(1);
+      expect(notifications[0].type).toBe("ERREUR_INTEGRATION");
+      expect(notifications[0].userId).toBe(teammate.id);
+      expect(notifications.map((n) => n.userId)).not.toContain(actor.id);
     });
   });
 

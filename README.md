@@ -132,12 +132,13 @@ at the deployment level, there is no `tenantId`).
 See the implementation report delivered alongside this codebase for the
 current, authoritative state. In short: Dashboard, Customers, Products,
 Orders (with full state machine + inventory side effects), Inventory,
-Delivery, Finance, Analytics, Users & Permissions, and the Audit Log are
-real, working, permission-enforced modules with tests. **WooCommerce** and
-**Shopify** both have real adapters — connection test, product/variant
-import, bidirectional stock sync (per-location for Shopify), order import
-(with customer/refund handling), and signature-verified order webhooks —
-see `docs/adr/0010-woocommerce-integration.md` and
+Delivery, Finance, Analytics, Users & Permissions, Notifications, and the
+Audit Log are real, working, permission-enforced modules with tests.
+**WooCommerce** and **Shopify** both have real adapters — connection
+test, product/variant import, bidirectional stock sync (per-location for
+Shopify), order import (with customer/refund handling), and
+signature-verified order webhooks — see
+`docs/adr/0010-woocommerce-integration.md` and
 `docs/adr/0011-shopify-integration.md`. Marketing and the remaining
 Integrations (ad platforms, WhatsApp, email, Google Sheets, AI provider)
 have real CRUD for what's genuinely buildable without a live external
@@ -145,6 +146,16 @@ connection (channels/campaigns; credential storage) and honest "planned"
 states for what isn't. The AI Assistant is a controlled tool layer (real
 data, no fabrication) with no LLM wired in yet — see
 `docs/adr/0009-ai-tool-layer.md`.
+
+**Notifications**: the in-app bell/inbox (top bar + `/notifications`) is
+wired to real business events, not a static UI shell — a new order (manual
+or imported from WooCommerce/Shopify, sync or webhook), a payment failure,
+a returned order, a failed shipment, an item crossing its low-stock/
+out-of-stock threshold (manual adjustment or provider stock reconciliation
+alike), a failed delivery/WooCommerce/Shopify connection test, and a
+failed or partial sync run each fan out — best-effort, concurrency-safe,
+deduplicated — to every active user who already holds that event's own
+read permission. See `docs/adr/0016-notifications.md`.
 
 **Delivery-provider API connectors**: the full adapter architecture
 (capability model, registry, credential storage, connection lifecycle,
@@ -159,8 +170,9 @@ selectable with no further schema or UI change needed.
 
 **OzonExpress (Maroc)** — adapter under
 `src/lib/integrations/delivery/providers/ozonexpress/`, fixture-tested
-end-to-end (`CREATE_SHIPMENT` / `FETCH_STATUS` / `FETCH_COST`; no
-cancellation or webhook — OzonExpress has neither). The adapter is
+end-to-end (`CREATE_SHIPMENT` / `FETCH_STATUS` / `FETCH_COST` /
+`GENERATE_MANIFEST`; no cancellation or webhook — OzonExpress has
+neither). The adapter is
 **registered**: it shows up in Livraison → Prestataires → Configurer with
 password-masked Customer ID / Clé API fields. Registration does **not**
 mean connected — saving credentials is `CONFIGURE`; only a successful
@@ -172,9 +184,12 @@ comes from OzonExpress's authoritative per-city price (`GET /cities`, 801
 cities); a `cityIdByName` override map in the connector config handles
 spelling corrections. ✅ Authentication (`CHECK_API`), the `tracking`
 envelope, and `GET /cities` are verified against a real account. ⚠️
-`add-parcel` has not been run live and some status wording is still a
-best guess — see `docs/adr/0013-ozonexpress-integration.md`
-(`REAL_PARCEL_CREATED = NO`).
+`add-parcel` and the Bon de Livraison flow (Livraison → « Bons de
+livraison » : batch parcels onto a carrier delivery note, then open the
+bordereau + label PDFs on the OzonExpress portal) have not been run live
+and some status wording is still a best guess — see
+`docs/adr/0013-ozonexpress-integration.md` (`REAL_PARCEL_CREATED = NO`)
+and `docs/adr/0015-delivery-manifest.md` (`MANIFEST_LIVE_TESTED = NO`).
 
 ### WooCommerce setup
 1. In WooCommerce admin: WooCommerce → Réglages → Avancé → REST API →

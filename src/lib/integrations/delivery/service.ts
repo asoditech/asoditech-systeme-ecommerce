@@ -4,7 +4,8 @@ import "./providers"; // populates the production registry — see providers/ind
 import { prisma } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/crypto";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
-import { applyShipmentStatusTransition } from "@/lib/delivery";
+import { applyShipmentStatusTransition, SHIPPABLE_ORDER_STATUSES, ACTIVE_SHIPMENT_STATUSES } from "@/lib/delivery";
+import { matchCityName } from "./city-match";
 import { getDeliveryProvider, assertCapability } from "./registry";
 import {
   DeliveryProviderError,
@@ -15,12 +16,18 @@ import type {
   DeliveryProviderConfig,
   DeliveryProviderAdapter,
   CreateShipmentAdapterInput,
+  DeliveryManifestDocument,
 } from "./types";
-import type { Shipment, ShippingProvider, Order } from "@prisma/client";
+import type { Shipment, ShippingProvider, Order, DeliveryManifest, Prisma } from "@prisma/client";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
 
 export class DeliveryNotConfiguredError extends Error {}
 export class OrderAddressIncompleteError extends Error {}
+/** Raised by generateManifestViaProvider when the selected shipments fail
+ * a pre-flight check (wrong provider, not API-created, already on a
+ * manifest, not awaiting handover). Carries a ready-to-show French
+ * message; no local row is created. */
+export class ManifestSelectionError extends Error {}
 
 /** Never re-thrown as a generic 500 — every branch here is a safe, French,
  * user-facing message. Anything else propagates (a real bug, not a normal
@@ -29,7 +36,8 @@ export function friendlyDeliveryError(error: unknown): string {
   if (
     error instanceof DeliveryProviderError ||
     error instanceof DeliveryNotConfiguredError ||
-    error instanceof OrderAddressIncompleteError
+    error instanceof OrderAddressIncompleteError ||
+    error instanceof ManifestSelectionError
   ) {
     return error.message;
   }
@@ -72,6 +80,65 @@ export async function loadApiProvider(providerId: string): Promise<LoadedApiProv
 }
 
 /**
+ * Best-effort enrichment of a successful connection test: if the adapter
+ * can report its destination catalogue (`listCities` — "safe to call
+ * during a connection test" per its own doc comment), check whether the
+ * distinct shippingCity values of every order actually eligible for a
+ * shipment via THIS provider right now would resolve against it —
+ * eligible meaning exactly what `createShipmentViaProviderAction` itself
+ * checks (SHIPPABLE_ORDER_STATUSES, no ACTIVE_SHIPMENT_STATUSES shipment
+ * already on this provider), so an order whose only shipment attempt
+ * failed locally (e.g. on an earlier unresolved city) is correctly
+ * included as still needing one, not just orders that never had an
+ * attempt. This is what makes a city-resolution problem observable
+ * through the product itself — an operator sees "this order's city won't
+ * resolve" the moment they test the connection, instead of discovering it
+ * only when "Créer l'expédition" fails (Phase 27B —
+ * docs/adr/0013-ozonexpress-integration.md). Never fatal: any failure
+ * here is swallowed and simply omitted from `details` — a diagnostic that
+ * can't run must never turn a real CONNECTE into ERREUR. Silent (adds
+ * nothing) when every city resolves, so a healthy connector stays a
+ * one-line toast, not a wall of city names.
+ */
+async function enrichWithCityResolutionDiagnostics(
+  providerId: string,
+  adapter: DeliveryProviderAdapter,
+  credentials: DeliveryCredentials,
+  config: DeliveryProviderConfig,
+  details: Record<string, string | number> | undefined
+): Promise<Record<string, string | number> | undefined> {
+  if (!adapter.listCities) return details;
+  try {
+    const catalogue = await adapter.listCities(credentials, config);
+    if (catalogue.length === 0) return details;
+
+    const orders = await prisma.order.findMany({
+      where: {
+        status: { in: SHIPPABLE_ORDER_STATUSES },
+        shipments: { none: { providerId, status: { in: ACTIVE_SHIPMENT_STATUSES } } },
+      },
+      select: { shippingCity: true },
+    });
+    const distinctCities = [...new Set(orders.map((o) => o.shippingCity).filter((c): c is string => !!c))];
+
+    const unresolved: string[] = [];
+    const ambiguous: string[] = [];
+    for (const city of distinctCities) {
+      const result = matchCityName(city, catalogue);
+      if (result.outcome === "unresolved") unresolved.push(city);
+      else if (result.outcome === "ambiguous") ambiguous.push(city);
+    }
+
+    const enriched = { ...details };
+    if (unresolved.length > 0) enriched["villes de commandes non résolues"] = unresolved.join(", ");
+    if (ambiguous.length > 0) enriched["villes de commandes ambiguës"] = ambiguous.join(", ");
+    return enriched;
+  } catch {
+    return details;
+  }
+}
+
+/**
  * The only path allowed to report a genuine CONNECTE state — performs one
  * real authenticated request via the adapter. Saving credentials
  * (configureDeliveryProviderApiAction) never does this on its own. See
@@ -93,6 +160,8 @@ export async function testProviderConnection(
     });
     return { status: "ERREUR", error: message };
   }
+
+  details = await enrichWithCityResolutionDiagnostics(row.id, adapter, credentials, config, details);
 
   await prisma.shippingProvider.update({
     where: { id: row.id },
@@ -326,6 +395,136 @@ export async function syncShipmentStatus(params: {
     };
   }
   return { outcome: "updated", newStatus: mapped };
+}
+
+// ---------------------------------------------------------------------------
+// Delivery manifest (Bon de Livraison) — see docs/adr/0015-delivery-manifest.md
+// ---------------------------------------------------------------------------
+
+/**
+ * Shipment statuses a parcel can be on a fresh manifest in: only
+ * EN_ATTENTE — i.e. registered with the carrier but not yet handed over.
+ * Once EN_TRANSIT the carrier already has the parcel; a terminal status
+ * means it is done. Putting either on a new handover document is a
+ * mistake, so the selection is rejected rather than silently filtered.
+ */
+const MANIFESTABLE_SHIPMENT_STATUSES = new Set<ShipmentStatusValue>(["EN_ATTENTE"]);
+
+/** Sanitises the adapter's document list for the `documents` JSON column:
+ * only well-formed `{ label, https-url }` entries survive (the value is
+ * rendered as `<a href>` on the Livraison page, and the adapter contract
+ * already requires https, but this column is a JSON blob). */
+function documentsToJson(documents: DeliveryManifestDocument[]): { label: string; url: string }[] {
+  const clean: { label: string; url: string }[] = [];
+  for (const d of documents) {
+    if (typeof d?.label !== "string" || typeof d?.url !== "string") continue;
+    try {
+      if (new URL(d.url).protocol === "https:") clean.push({ label: d.label, url: d.url });
+    } catch {
+      // skip malformed url
+    }
+  }
+  return clean;
+}
+
+/**
+ * Groups the given local shipments into one carrier delivery note /
+ * manifest via the provider's `generateManifest` adapter method.
+ *
+ * Pre-flight (all-or-nothing, before any local row or network call): every
+ * shipment must exist, belong to `providerId`, be API-created
+ * (`externalId` set), not already be on a manifest, and be EN_ATTENTE.
+ * Any failure raises `ManifestSelectionError` with a French message —
+ * nothing is written.
+ *
+ * Then: a local `DeliveryManifest` (BROUILLON) is created, the adapter is
+ * called, and on success the manifest is finalised (`externalRef`,
+ * `parcelCount`, `documents`, status FINALISE) and every shipment is
+ * linked to it — atomically. On adapter failure the manifest is marked
+ * ECHEC with a safe reason and no shipment is linked; the typed error
+ * propagates.
+ */
+export async function generateManifestViaProvider(params: {
+  providerId: string;
+  shipmentIds: string[];
+  createdById: string;
+}): Promise<DeliveryManifest> {
+  const uniqueIds = [...new Set(params.shipmentIds)];
+  if (uniqueIds.length === 0) {
+    throw new ManifestSelectionError("Sélectionnez au moins une expédition.");
+  }
+
+  const { row, adapter, credentials, config } = await loadApiProvider(params.providerId);
+  assertCapability(adapter, "GENERATE_MANIFEST");
+
+  const shipments = await prisma.shipment.findMany({ where: { id: { in: uniqueIds } } });
+  if (shipments.length !== uniqueIds.length) {
+    throw new ManifestSelectionError("Une ou plusieurs expéditions sélectionnées sont introuvables.");
+  }
+  const problems: string[] = [];
+  for (const s of shipments) {
+    if (s.providerId !== row.id) problems.push("rattachées à un autre prestataire");
+    else if (!s.externalId) problems.push("créées manuellement (sans connecteur)");
+    else if (s.manifestId) problems.push("déjà sur un bon de livraison");
+    else if (!MANIFESTABLE_SHIPMENT_STATUSES.has(s.status as ShipmentStatusValue))
+      problems.push("qui ne sont plus en attente de remise au transporteur");
+  }
+  if (problems.length > 0) {
+    throw new ManifestSelectionError(
+      `Impossible de créer le bon de livraison : certaines expéditions sont ${[...new Set(problems)].join(", ")}.`
+    );
+  }
+
+  const manifest = await prisma.deliveryManifest.create({
+    data: {
+      providerId: row.id,
+      status: "BROUILLON",
+      parcelCount: shipments.length,
+      createdById: params.createdById,
+    },
+  });
+
+  let result;
+  try {
+    result = await adapter.generateManifest!(
+      { externalIds: shipments.map((s) => s.externalId!) },
+      credentials,
+      config
+    );
+  } catch (error) {
+    const message =
+      error instanceof DeliveryProviderError
+        ? error.message
+        : "Erreur inattendue lors de la création du bon de livraison.";
+    await prisma.deliveryManifest.update({
+      where: { id: manifest.id },
+      data: { status: "ECHEC", failedReason: message },
+    });
+    throw error;
+  }
+
+  const documents = documentsToJson(result.documents) as Prisma.InputJsonValue;
+  return prisma.$transaction(async (tx) => {
+    const finalised = await tx.deliveryManifest.update({
+      where: { id: manifest.id },
+      data: {
+        status: "FINALISE",
+        externalRef: result.externalRef,
+        parcelCount: result.parcelCount ?? shipments.length,
+        documents,
+        failedReason: null,
+      },
+    });
+    // Only link shipments still EN_ATTENTE and still unmanifested — guards
+    // the (narrow) window where another action moved one on between the
+    // pre-flight read and here. A shipment the carrier put on the manifest
+    // but that we couldn't link is still visible via the manifest's ref.
+    await tx.shipment.updateMany({
+      where: { id: { in: shipments.map((s) => s.id) }, manifestId: null, status: "EN_ATTENTE" },
+      data: { manifestId: manifest.id },
+    });
+    return finalised;
+  });
 }
 
 export type DeliveryWebhookOutcome =

@@ -6,7 +6,8 @@ import { canTransitionOrderStatus } from "@/lib/validation/order";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
 import type { ShopifyOrder } from "../types";
-import { actorAuditFields, emptySyncSummary, recordNote, type SyncActor, type SyncSummary } from "@/lib/integrations/shared";
+import { actorAuditFields, actorPerformedById, emptySyncSummary, recordNote, type SyncActor, type SyncSummary } from "@/lib/integrations/shared";
+import { notifyNewOrder } from "@/lib/notifications";
 import type { Prisma, OrderStatus } from "@prisma/client";
 
 /**
@@ -193,6 +194,19 @@ async function createImportedOrder(
     newValue: { total: fields.total.toString(), customerId },
     metadata: { source: "SHOPIFY", externalId: createdOrder.externalId },
   });
+
+  const customer = await prisma.customer.findUniqueOrThrow({ where: { id: customerId }, select: { fullName: true } });
+  await notifyNewOrder(
+    {
+      id: createdOrder.id,
+      orderNumber: createdOrder.orderNumber,
+      total: fields.total,
+      currency: fields.currency,
+      customerName: customer.fullName,
+      source: "SHOPIFY",
+    },
+    actorPerformedById(actor)
+  );
 
   return { outcome: "imported" };
 }

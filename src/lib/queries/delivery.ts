@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import "@/lib/integrations/delivery/providers"; // populates the registry — see that module's own doc comment
 import { listDeliveryProviders } from "@/lib/integrations/delivery/registry";
+import { SHIPPABLE_ORDER_STATUSES, ACTIVE_SHIPMENT_STATUSES } from "@/lib/delivery";
 import type { Prisma, ShipmentStatus } from "@prisma/client";
 
 const PAGE_SIZE = 25;
@@ -48,12 +49,49 @@ export async function getDeliveryStats() {
   };
 }
 
-/** Orders confirmed/preparing that don't have a shipment yet — need one created. */
+/**
+ * API-created shipments still EN_ATTENTE and not yet on a delivery note —
+ * the candidates for a new Bon de Livraison. See
+ * docs/adr/0015-delivery-manifest.md.
+ */
+export async function listManifestableShipments() {
+  return prisma.shipment.findMany({
+    where: {
+      status: "EN_ATTENTE",
+      manifestId: null,
+      externalId: { not: null },
+      provider: { type: "API" },
+    },
+    include: { order: { include: { customer: true } }, provider: true },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/** Delivery notes / manifests, newest first, with their provider + parcel count. */
+export async function listDeliveryManifests() {
+  return prisma.deliveryManifest.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 50,
+    include: { provider: true, _count: { select: { shipments: true } } },
+  });
+}
+
+/**
+ * Orders that still need a shipment created — i.e. exactly the orders
+ * `createShipmentAction`/`createShipmentViaProviderAction` would accept
+ * right now. Deliberately not "no shipment row at all": an order whose
+ * only shipment attempt already failed (status ECHEC — no external
+ * parcel, e.g. from an unresolved delivery-provider city) still needs
+ * one, and must keep showing up here for the operator to retry — see
+ * docs/adr/0013-ozonexpress-integration.md (Phase 27B fix; this powers
+ * the "À expédier" tab). Only a genuinely live shipment
+ * (ACTIVE_SHIPMENT_STATUSES) with any provider excludes an order.
+ */
 export async function listOrdersAwaitingShipment() {
   return prisma.order.findMany({
     where: {
-      status: { in: ["CONFIRMEE", "EN_PREPARATION"] },
-      shipments: { none: {} },
+      status: { in: SHIPPABLE_ORDER_STATUSES },
+      shipments: { none: { status: { in: ACTIVE_SHIPMENT_STATUSES } } },
     },
     include: { customer: true },
     orderBy: { createdAt: "asc" },

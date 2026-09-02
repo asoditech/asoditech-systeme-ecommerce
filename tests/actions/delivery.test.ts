@@ -8,7 +8,7 @@ import {
 } from "@/actions/delivery";
 import { updateOrderStatusAction, createOrderAction } from "@/actions/orders";
 import { resetDb } from "../helpers/db";
-import { loginAsTestUser } from "../helpers/auth";
+import { loginAsTestUser, createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 
 function formData(fields: Record<string, string>) {
@@ -132,6 +132,25 @@ describe("updateShipmentStatusAction", () => {
 
     const result = await updateShipmentStatusAction(formData({ id: shipmentId, status: "LIVRE" }));
     expect(result.ok).toBe(false); // EN_ATTENTE -> LIVRE is not a valid direct transition
+  });
+
+  it("notifies delivery.view holders when a shipment fails (docs/adr/0016-notifications.md)", async () => {
+    const actor = await loginAsTestUser({ role: "MANAGER" });
+    const teammate = await createTestUser({ role: "WAREHOUSE" }); // also holds delivery.view
+    const { shipmentId } = await createTestShipment();
+    await prisma.notification.deleteMany(); // clear the low-stock check fired by EXPEDIEE in createTestShipment
+
+    await updateShipmentStatusAction(formData({ id: shipmentId, status: "EN_TRANSIT" }));
+    const result = await updateShipmentStatusAction(formData({ id: shipmentId, status: "ECHEC", failedReason: "Client injoignable" }));
+    expect(result.ok).toBe(true);
+
+    const notifications = await prisma.notification.findMany();
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].type).toBe("ECHEC_LIVRAISON");
+    expect(notifications[0].userId).toBe(teammate.id);
+    expect(notifications[0].message).toContain("Client injoignable");
+    // the actor who made the change is never notified of their own action
+    expect(notifications.map((n) => n.userId)).not.toContain(actor.id);
   });
 });
 

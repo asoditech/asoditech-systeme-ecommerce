@@ -12,6 +12,12 @@ import {
   InsufficientStockError,
 } from "@/lib/inventory";
 import {
+  notifyNewOrder,
+  notifyOrderReturned,
+  notifyPaymentProblem,
+  checkAndNotifyLowStock,
+} from "@/lib/notifications";
+import {
   createOrderSchema,
   updateOrderStatusSchema,
   updateOrderPaymentStatusSchema,
@@ -196,6 +202,18 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
     newValue: { total: total.toString(), customerId: customer.id },
   });
 
+  await notifyNewOrder(
+    {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      total: total,
+      currency: parsed.data.currency,
+      customerName: customer.fullName,
+      source: "INTERNE",
+    },
+    user.id
+  );
+
   revalidatePath("/commandes");
   return actionOk({ id: order.id });
 }
@@ -285,6 +303,20 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
     metadata: parsed.data.note ? { note: parsed.data.note } : undefined,
   });
 
+  if (parsed.data.status === "EXPEDIEE") {
+    // Fulfillment just reduced on-hand stock — surface anything now low.
+    await checkAndNotifyLowStock(
+      { productIds: lines.map((l) => l.productId), variationIds: lines.map((l) => l.variationId) },
+      user.id
+    );
+  } else if (parsed.data.status === "RETOUR") {
+    const customer = await prisma.customer.findUnique({ where: { id: existing.customerId }, select: { fullName: true } });
+    await notifyOrderReturned(
+      { id: order.id, orderNumber: order.orderNumber, customerName: customer?.fullName ?? "Client" },
+      user.id
+    );
+  }
+
   revalidatePath("/commandes");
   revalidatePath(`/commandes/${order.id}`);
   return actionOk({ id: order.id });
@@ -330,6 +362,10 @@ export async function updateOrderPaymentStatusAction(formData: FormData): Promis
     previousValue: { paymentStatus: existing.paymentStatus },
     newValue: { paymentStatus: order.paymentStatus },
   });
+
+  if (order.paymentStatus === "ECHEC" && existing.paymentStatus !== "ECHEC") {
+    await notifyPaymentProblem({ id: order.id, orderNumber: order.orderNumber }, user.id);
+  }
 
   revalidatePath(`/commandes/${order.id}`);
   return actionOk({ id: order.id });
@@ -415,6 +451,21 @@ export async function createRefundAction(formData: FormData): Promise<ActionResu
   let refund;
   try {
     refund = await prisma.$transaction(async (tx) => {
+      // Row-level lock on the order, held until this transaction commits —
+      // without it, two concurrent createRefundAction calls for the same
+      // order (a double-click, or two staff refunding at once) can each
+      // read the same pre-refund aggregate below, each individually pass
+      // the cap check, and both insert — jointly refunding past the order
+      // total. Order status/Shipment status transitions close their own
+      // version of this race with a conditional `updateMany` + row count,
+      // but that pattern only applies to an UPDATE; this is an INSERT
+      // gated by an aggregate over a different table, so it needs an
+      // actual lock. Prisma has no pessimistic-locking API, so this is a
+      // deliberate, narrowly-scoped raw query rather than new ORM surface.
+      // Found during the Phase 26 structural audit; see
+      // docs/adr/0007-finance-and-profit.md.
+      await tx.$queryRaw`SELECT id FROM "orders" WHERE id = ${parsed.data.orderId} FOR UPDATE`;
+
       // Cap against the order total MINUS every refund already committed
       // or in flight for it (EN_ATTENTE/APPROUVE/COMPLETE — everything
       // except REJETE), not just the order total alone — otherwise two

@@ -5,7 +5,8 @@ import { recordAuditEvent } from "@/lib/audit";
 import { canTransitionOrderStatus } from "@/lib/validation/order";
 import { mapCustomerFieldsFromOrder, mapOrderFields, mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
 import type { WcOrder } from "../types";
-import { actorAuditFields, type SyncActor } from "./actor";
+import { actorAuditFields, actorPerformedById, type SyncActor } from "./actor";
+import { notifyNewOrder } from "@/lib/notifications";
 import { emptySyncSummary, recordNote, type SyncSummary } from "./types";
 import type { Prisma, OrderStatus } from "@prisma/client";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
@@ -187,6 +188,12 @@ async function createImportedOrder(
     newValue: { total: fields.total.toString(), customerId },
     metadata: { source: "WOOCOMMERCE", externalId: order.externalId },
   });
+
+  const customer = await prisma.customer.findUniqueOrThrow({ where: { id: customerId }, select: { fullName: true } });
+  await notifyNewOrder(
+    { id: order.id, orderNumber: order.orderNumber, total: fields.total, currency: fields.currency, customerName: customer.fullName, source: "WOOCOMMERCE" },
+    actorPerformedById(actor)
+  );
 
   return { outcome: "imported" };
 }

@@ -11,13 +11,17 @@ import type {
   DeliveryProviderConfig,
   FetchStatusAdapterInput,
   FetchStatusAdapterResult,
+  GenerateManifestAdapterInput,
+  GenerateManifestAdapterResult,
 } from "@/lib/integrations/delivery/types";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
 import { OzonExpressClient } from "./client";
 import {
   buildAddParcelForm,
+  buildDeliveryNoteDocuments,
   mapOzonExpressStatus,
   parseAddParcelResponse,
+  parseDeliveryNoteRef,
   parseOzonExpressCities,
   parseTrackingResponse,
   readCheckApiMessage,
@@ -55,9 +59,16 @@ import {
  * `GET /cities`, and the delivered/returned/refused/cancelled status
  * wording. See docs/adr/0013-ozonexpress-integration.md.
  *
- * Capabilities: CREATE_SHIPMENT, FETCH_STATUS, FETCH_COST. No
- * CANCEL_SHIPMENT (no endpoint) and no WEBHOOKS (no callback) — attempts
- * hit the shared typed "unsupported" error, never a silent local action.
+ * Capabilities: CREATE_SHIPMENT, FETCH_STATUS, FETCH_COST,
+ * GENERATE_MANIFEST. No CANCEL_SHIPMENT (no endpoint) and no WEBHOOKS (no
+ * callback) — attempts hit the shared typed "unsupported" error, never a
+ * silent local action.
+ *
+ * ⚠️ GENERATE_MANIFEST (Bon de Livraison) endpoints — `add-delivery-note`
+ * / `add-parcel-to-delivery-note` / `save-delivery-note` and the portal
+ * PDF URLs — are owner-documented but NOT yet live-tested (2026-09-01).
+ * Parsed defensively, same posture as `add-parcel`. See
+ * docs/adr/0015-delivery-manifest.md.
  */
 
 export const OZONEXPRESS_PROVIDER_KEY = "ozonexpress";
@@ -113,7 +124,7 @@ function clientFor(credentials: DeliveryCredentials, config: DeliveryProviderCon
 export const ozonExpressAdapter: DeliveryProviderAdapter = {
   key: OZONEXPRESS_PROVIDER_KEY,
   displayName: "OzonExpress (Maroc)",
-  capabilities: ["CREATE_SHIPMENT", "FETCH_STATUS", "FETCH_COST"],
+  capabilities: ["CREATE_SHIPMENT", "FETCH_STATUS", "FETCH_COST", "GENERATE_MANIFEST"],
 
   credentialFields: [
     {
@@ -212,6 +223,45 @@ export const ozonExpressAdapter: DeliveryProviderAdapter = {
     const raw = await client.post("tracking", { "tracking-number": input.externalId });
     const parsed = parseTrackingResponse(raw);
     return { rawStatus: parsed.rawStatus, trackingUrl: null, cost: parsed.cost };
+  },
+
+  /**
+   * Bon de Livraison, OzonExpress's 4-step handover flow:
+   *   1. POST add-delivery-note              → { ref }
+   *   2. POST add-parcel-to-delivery-note    Ref + Codes[i] = each tracking number
+   *   3. POST save-delivery-note             Ref
+   *   4. build the portal PDF URLs from the ref (operator opens them)
+   *
+   * The client's `assertNoApiError` turns an HTTP-200 `RESULT:ERROR` at
+   * any step into a typed error, so a failure at step 2 or 3 (which
+   * document no success body) still propagates. The local
+   * `DeliveryManifest` row the caller created is then marked ECHEC and no
+   * shipment is linked.
+   */
+  async generateManifest(
+    input: GenerateManifestAdapterInput,
+    credentials: DeliveryCredentials,
+    config: DeliveryProviderConfig
+  ): Promise<GenerateManifestAdapterResult> {
+    const { cfg, client } = clientFor(credentials, config);
+
+    const ref = parseDeliveryNoteRef(await client.post("add-delivery-note", {}));
+
+    const addForm: Record<string, string> = { Ref: ref };
+    input.externalIds.forEach((code, i) => {
+      addForm[`Codes[${i}]`] = code;
+    });
+    await client.post("add-parcel-to-delivery-note", addForm);
+
+    await client.post("save-delivery-note", { Ref: ref });
+
+    return {
+      externalRef: ref,
+      // OzonExpress documents no confirmed count in the responses — never
+      // inferred from input length (docs/adr/0012, docs/adr/0015).
+      parcelCount: null,
+      documents: buildDeliveryNoteDocuments(ref, cfg),
+    };
   },
 
   mapStatus(rawStatus: string): ShipmentStatusValue | null {

@@ -10,7 +10,7 @@ import {
 } from "@/actions/shopify";
 import { importOrder } from "@/lib/integrations/shopify/sync";
 import { resetDb } from "../helpers/db";
-import { loginAsTestUser } from "../helpers/auth";
+import { loginAsTestUser, createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 import {
   installFakeShopifyServer,
@@ -120,7 +120,8 @@ describe("Shopify integration", () => {
     });
 
     it("sets status to ERREUR (never CONNECTE) on invalid credentials, without leaking the token", async () => {
-      await loginAsTestUser({ role: "ADMIN" });
+      const actor = await loginAsTestUser({ role: "ADMIN" });
+      const teammate = await createTestUser({ role: "ADMIN" }); // also holds integrations.view
       await connectIntegrationAction(formData({ provider: "SHOPIFY", siteUrl: FAKE_SHOP_DOMAIN, apiKey: "wrong-token", apiSecret: "" }));
 
       const result = await testShopifyConnectionAction();
@@ -130,6 +131,15 @@ describe("Shopify integration", () => {
       const integration = await prisma.integration.findUniqueOrThrow({ where: { provider: "SHOPIFY" } });
       expect(integration.status).toBe("ERREUR");
       expect(integration.lastError).not.toContain("wrong-token");
+
+      // docs/adr/0016-notifications.md — Shopify's connection-error wiring
+      // was added this phase, mirroring WooCommerce's pre-existing one.
+      const notifications = await prisma.notification.findMany();
+      expect(notifications).toHaveLength(1);
+      expect(notifications[0].type).toBe("ERREUR_INTEGRATION");
+      expect(notifications[0].userId).toBe(teammate.id);
+      expect(notifications[0].message).not.toContain("wrong-token");
+      expect(notifications.map((n) => n.userId)).not.toContain(actor.id);
     });
   });
 
@@ -341,6 +351,7 @@ describe("Shopify integration", () => {
 
     it("imports a registered-customer order with correct totals, line items, and a cost snapshot", async () => {
       const product = await seedProductWithCost();
+      const teammate = await createTestUser({ role: "SALES" }); // holds orders.view, distinct from the syncing ADMIN
 
       state.orders = [
         {
@@ -375,6 +386,13 @@ describe("Shopify integration", () => {
       expect(Number(order.items[0].costSnapshot)).toBe(25);
       expect(order.customer.fullName).toBe("Amine Tazi");
       expect(order.customer.source).toBe("SHOPIFY");
+
+      // docs/adr/0016-notifications.md — new wiring this phase: an imported
+      // Shopify order notifies exactly like a manually-created one.
+      const notification = await prisma.notification.findFirstOrThrow({ where: { userId: teammate.id } });
+      expect(notification.type).toBe("NOUVELLE_COMMANDE");
+      expect(notification.message).toContain("Amine Tazi");
+      expect(notification.message).toContain("Shopify");
     });
 
     it("deduplicates a guest customer across two orders sharing the same email, without fuzzy name matching", async () => {

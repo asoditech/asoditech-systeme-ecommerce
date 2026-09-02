@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Truck, Package2, PackageCheck, PackageX, Percent } from "lucide-react";
+import { Truck, Package2, PackageCheck, PackageX, Percent, FileText, ExternalLink } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
@@ -9,8 +9,10 @@ import { ShipmentStatusSelect } from "@/components/delivery/shipment-status-sele
 import { ProviderForm } from "@/components/delivery/provider-form";
 import { ProviderConnectionStatus, ProviderConnectionControls } from "@/components/delivery/provider-connection";
 import { ShipmentProviderControls } from "@/components/delivery/shipment-provider-controls";
+import { ManifestBuilder, type ManifestableShipment } from "@/components/delivery/manifest-builder";
 import { ConfirmActionButton } from "@/components/confirm-action-button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
@@ -21,10 +23,16 @@ import {
   getDeliveryStats,
   listOrdersAwaitingShipment,
   listAvailableDeliveryConnectors,
+  listManifestableShipments,
+  listDeliveryManifests,
 } from "@/lib/queries/delivery";
 import { deleteShippingProviderAction } from "@/actions/delivery";
-import { formatCurrency, formatDate, formatOrderNumber, formatPercent } from "@/lib/format";
-import { SHIPMENT_STATUS_LABELS, SHIPPING_PROVIDER_TYPE_LABELS } from "@/lib/status-labels";
+import { formatCurrency, formatDate, formatDateTime, formatOrderNumber, formatPercent } from "@/lib/format";
+import {
+  SHIPMENT_STATUS_LABELS,
+  SHIPPING_PROVIDER_TYPE_LABELS,
+  DELIVERY_MANIFEST_STATUS_LABELS,
+} from "@/lib/status-labels";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
 
 export const metadata = { title: "Livraison — ASODITECH Gestion E-commerce" };
@@ -35,13 +43,40 @@ export default async function LivraisonPage() {
   const user = await requirePermission("delivery.view");
   const canManage = hasPermission(user.role, "delivery.manage");
 
-  const [stats, providers, { shipments }, awaitingShipment, connectors] = await Promise.all([
-    getDeliveryStats(),
-    listShippingProviders(),
-    listShipments({}),
-    canManage ? listOrdersAwaitingShipment() : Promise.resolve([]),
-    listAvailableDeliveryConnectors(),
-  ]);
+  const [stats, providers, { shipments }, awaitingShipment, connectors, manifestable, manifests] =
+    await Promise.all([
+      getDeliveryStats(),
+      listShippingProviders(),
+      listShipments({}),
+      canManage ? listOrdersAwaitingShipment() : Promise.resolve([]),
+      listAvailableDeliveryConnectors(),
+      canManage ? listManifestableShipments() : Promise.resolve([]),
+      canManage ? listDeliveryManifests() : Promise.resolve([]),
+    ]);
+
+  // Only carriers whose registered adapter declares GENERATE_MANIFEST get
+  // the Bons de livraison workflow at all.
+  const manifestCapableKeys = new Set(
+    connectors.filter((c) => c.capabilities.includes("GENERATE_MANIFEST")).map((c) => c.key)
+  );
+  const showManifestTab =
+    canManage &&
+    providers.some((p) => p.type === "API" && p.providerKey && manifestCapableKeys.has(p.providerKey));
+
+  const manifestableShipments: ManifestableShipment[] = manifestable
+    .filter((s) => s.provider.providerKey && manifestCapableKeys.has(s.provider.providerKey))
+    .map((s) => ({
+      id: s.id,
+      trackingNumber: s.trackingNumber,
+      orderId: s.orderId,
+      orderNumber: s.order.orderNumber,
+      customerName: s.order.customer.fullName,
+      cityLabel: s.order.shippingCity ?? null,
+      cost: s.cost !== null ? s.cost.toString() : null,
+      currency: s.order.currency,
+      providerId: s.providerId,
+      providerName: s.provider.name,
+    }));
 
   return (
     <div>
@@ -64,6 +99,9 @@ export default async function LivraisonPage() {
         <TabsList>
           <TabsTrigger value="expeditions">Expéditions</TabsTrigger>
           {canManage && <TabsTrigger value="a-expedier">À expédier ({awaitingShipment.length})</TabsTrigger>}
+          {showManifestTab && (
+            <TabsTrigger value="bons-livraison">Bons de livraison ({manifestableShipments.length})</TabsTrigger>
+          )}
           <TabsTrigger value="prestataires">Prestataires</TabsTrigger>
         </TabsList>
 
@@ -167,6 +205,84 @@ export default async function LivraisonPage() {
                 </Table>
               </div>
             )}
+          </TabsContent>
+        )}
+
+        {showManifestTab && (
+          <TabsContent value="bons-livraison" className="space-y-8">
+            <section className="space-y-3">
+              <div>
+                <h2 className="text-[15px] font-semibold">Regrouper des colis sur un bon de livraison</h2>
+                <p className="text-sm text-muted-foreground">
+                  Sélectionnez les colis « En attente » à remettre au transporteur, puis générez le bon
+                  de livraison. Le bordereau et les étiquettes s&apos;ouvrent sur le portail du transporteur.
+                </p>
+              </div>
+              <ManifestBuilder shipments={manifestableShipments} />
+            </section>
+
+            <section className="space-y-3">
+              <h2 className="text-[15px] font-semibold">Bons de livraison</h2>
+              {manifests.length === 0 ? (
+                <EmptyState icon={FileText} title="Aucun bon de livraison pour le moment." />
+              ) : (
+                <div className="rounded-lg border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Référence</TableHead>
+                        <TableHead>Prestataire</TableHead>
+                        <TableHead>Colis</TableHead>
+                        <TableHead>Statut</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Documents</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {manifests.map((m) => {
+                        const documents = Array.isArray(m.documents)
+                          ? (m.documents as { label: string; url: string }[])
+                          : [];
+                        return (
+                          <TableRow key={m.id}>
+                            <TableCell className="font-mono text-xs">{m.externalRef ?? "—"}</TableCell>
+                            <TableCell className="text-muted-foreground">{m.provider.name}</TableCell>
+                            <TableCell>{m._count.shipments || m.parcelCount}</TableCell>
+                            <TableCell>
+                              <StatusBadge status={m.status} labels={DELIVERY_MANIFEST_STATUS_LABELS} />
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">{formatDateTime(m.createdAt)}</TableCell>
+                            <TableCell>
+                              {m.status === "ECHEC" ? (
+                                <span className="text-xs text-destructive">{m.failedReason ?? "Échec"}</span>
+                              ) : documents.length === 0 ? (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              ) : (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {documents.map((d) => (
+                                    <Button
+                                      key={d.url}
+                                      variant="outline"
+                                      size="xs"
+                                      render={
+                                        <a href={d.url} target="_blank" rel="noopener noreferrer" />
+                                      }
+                                    >
+                                      <ExternalLink className="size-3" />
+                                      {d.label}
+                                    </Button>
+                                  ))}
+                                </div>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </section>
           </TabsContent>
         )}
 
