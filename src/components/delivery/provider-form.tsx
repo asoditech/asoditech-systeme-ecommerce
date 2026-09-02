@@ -18,14 +18,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { SHIPPING_PROVIDER_TYPE_LABELS } from "@/lib/status-labels";
-import type { ShippingProvider } from "@prisma/client";
-import type { ActionResult } from "@/actions/types";
+import type { ActionResult, IdResult } from "@/actions/types";
 
 export function ProviderForm() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [state, formAction, isPending] = useActionState(
-    async (_prevState: ActionResult<ShippingProvider> | undefined, formData: FormData) => {
+    async (_prevState: ActionResult<IdResult> | undefined, formData: FormData) => {
       const result = await createShippingProviderAction(formData);
       if (result.ok) {
         toast.success("Prestataire ajouté.");

@@ -28,6 +28,12 @@ export class OrderAddressIncompleteError extends Error {}
  * manifest, not awaiting handover). Carries a ready-to-show French
  * message; no local row is created. */
 export class ManifestSelectionError extends Error {}
+/**
+ * Phase 30 hardening. Raised by reserveShipmentSlot when an ACTIVE
+ * shipment already exists for (orderId, providerId) — see that function's
+ * own doc comment for why a plain pre-check `findFirst` isn't enough here.
+ */
+export class DuplicateActiveShipmentError extends Error {}
 
 /** Never re-thrown as a generic 500 — every branch here is a safe, French,
  * user-facing message. Anything else propagates (a real bug, not a normal
@@ -37,11 +43,59 @@ export function friendlyDeliveryError(error: unknown): string {
     error instanceof DeliveryProviderError ||
     error instanceof DeliveryNotConfiguredError ||
     error instanceof OrderAddressIncompleteError ||
-    error instanceof ManifestSelectionError
+    error instanceof ManifestSelectionError ||
+    error instanceof DuplicateActiveShipmentError
   ) {
     return error.message;
   }
   throw error;
+}
+
+/**
+ * Phase 30 hardening — closes a genuine race in the shipment-creation
+ * duplicate guard. Before this, both createShipmentAction and
+ * createShipmentViaProvider checked for an existing ACTIVE_SHIPMENT_STATUSES
+ * row with a plain `findFirst` *before* creating the new one — two
+ * concurrent requests (double-click, a retried request, or a scripted
+ * call) could both pass that check before either committed, so both
+ * proceeded. For the API path that means two real external parcels
+ * created for one order, not just a duplicate local row.
+ *
+ * There's no plain DB unique constraint that expresses "at most one
+ * ACTIVE shipment per (orderId, providerId)" — ECHEC/ANNULE/RETOURNE rows
+ * for the same pair are legitimate (a retry after a failed attempt), so a
+ * full unique index on (orderId, providerId) would incorrectly block
+ * that. Instead: a Postgres transaction-scoped advisory lock keyed on the
+ * pair serializes concurrent callers, so the second one's check runs only
+ * after the first's create has committed (and the lock auto-releases at
+ * transaction end — no separate unlock call, no risk of leaking a held
+ * lock on an error).
+ *
+ * `data` carries whatever fields the caller needs beyond orderId/providerId
+ * (the manual path also sets trackingNumber/trackingUrl/cost up front; the
+ * API path leaves those for the adapter response to fill in afterward).
+ *
+ * Returns the newly-created row or throws DuplicateActiveShipmentError.
+ */
+export async function reserveShipmentSlot(
+  orderId: string,
+  providerId: string,
+  data: Pick<Prisma.ShipmentUncheckedCreateInput, "updatedById" | "notes" | "trackingNumber" | "trackingUrl" | "cost">
+): Promise<Shipment> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`shipment-slot:${orderId}:${providerId}`}))`;
+
+    const existingActive = await tx.shipment.findFirst({
+      where: { orderId, providerId, status: { in: ACTIVE_SHIPMENT_STATUSES } },
+    });
+    if (existingActive) {
+      throw new DuplicateActiveShipmentError("Une expédition est déjà en cours pour cette commande auprès de ce prestataire.");
+    }
+
+    return tx.shipment.create({
+      data: { orderId, providerId, ...data },
+    });
+  });
 }
 
 interface LoadedApiProvider {
@@ -210,14 +264,15 @@ export async function createShipmentViaProvider(params: {
   // succeeds or fails. This bounds duplicate-request risk to "the adapter
   // itself must dedupe retries of the same localShipmentId" rather than
   // this system creating two local rows for one retried click.
-  const pending = await prisma.shipment.create({
-    data: {
-      orderId: params.order.id,
-      providerId: row.id,
-      status: "EN_ATTENTE",
-      notes: params.notes,
-      updatedById: params.updatedById,
-    },
+  //
+  // reserveShipmentSlot (not a plain prisma.shipment.create) is what
+  // actually closes the *concurrent-request* race: two callers hitting
+  // this function at the same instant for the same order+provider must
+  // not both reserve a slot and both call the adapter below — see that
+  // function's doc comment.
+  const pending = await reserveShipmentSlot(params.order.id, row.id, {
+    updatedById: params.updatedById,
+    notes: params.notes,
   });
 
   const input: CreateShipmentAdapterInput = {

@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { KpiCard } from "@/components/kpi-card";
-import { CreateShipmentDialog } from "@/components/delivery/create-shipment-dialog";
+import { CreateShipmentDialog, type ShipmentProviderOption } from "@/components/delivery/create-shipment-dialog";
 import { ShipmentStatusSelect } from "@/components/delivery/shipment-status-select";
 import { ProviderForm } from "@/components/delivery/provider-form";
 import { ProviderConnectionStatus, ProviderConnectionControls } from "@/components/delivery/provider-connection";
@@ -62,6 +62,17 @@ export default async function LivraisonPage() {
   const showManifestTab =
     canManage &&
     providers.some((p) => p.type === "API" && p.providerKey && manifestCapableKeys.has(p.providerKey));
+
+  // Deliberately narrowed before crossing into the Client Component below —
+  // `providers` (the full ShippingProvider row) carries credentialsEncrypted
+  // and raw adapter config, neither of which belongs in the client-side RSC
+  // payload. See CreateShipmentDialog's own doc comment. Phase 30 hardening.
+  const shipmentProviderOptions: ShipmentProviderOption[] = providers.map((p) => ({
+    id: p.id,
+    name: p.name,
+    type: p.type,
+    connectionStatus: p.connectionStatus,
+  }));
 
   const manifestableShipments: ManifestableShipment[] = manifestable
     .filter((s) => s.provider.providerKey && manifestCapableKeys.has(s.provider.providerKey))
@@ -197,7 +208,7 @@ export default async function LivraisonPage() {
                         <TableCell>{formatCurrency(o.total.toString(), o.currency)}</TableCell>
                         <TableCell className="text-muted-foreground">{formatDate(o.createdAt)}</TableCell>
                         <TableCell>
-                          <CreateShipmentDialog orderId={o.id} providers={providers} />
+                          <CreateShipmentDialog orderId={o.id} providers={shipmentProviderOptions} />
                         </TableCell>
                       </TableRow>
                     ))}

@@ -17,10 +17,26 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import type { ShippingProvider } from "@prisma/client";
+import type { ShippingProviderType, IntegrationStatus } from "@prisma/client";
 import type { ActionResult, IdResult } from "@/actions/types";
 
-export function CreateShipmentDialog({ orderId, providers }: { orderId: string; providers: ShippingProvider[] }) {
+/**
+ * Deliberately narrow — never the full ShippingProvider row. That row
+ * carries credentialsEncrypted (ciphertext, but still meant to never leave
+ * the server — see docs/adr/0004-integration-architecture.md's identical
+ * rule for Integration) and raw adapter `config`. This is a Client
+ * Component, so whatever shape its props take is serialized into the RSC
+ * payload sent to the browser — passing the full row here would put that
+ * ciphertext on the wire for no reason. Phase 30 hardening.
+ */
+export interface ShipmentProviderOption {
+  id: string;
+  name: string;
+  type: ShippingProviderType;
+  connectionStatus: IntegrationStatus | null;
+}
+
+export function CreateShipmentDialog({ orderId, providers }: { orderId: string; providers: ShipmentProviderOption[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [providerId, setProviderId] = useState<string | undefined>(undefined);

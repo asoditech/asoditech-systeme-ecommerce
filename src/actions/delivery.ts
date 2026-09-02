@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
-import { applyShipmentStatusTransition, SHIPPABLE_ORDER_STATUSES, ACTIVE_SHIPMENT_STATUSES } from "@/lib/delivery";
+import { applyShipmentStatusTransition, SHIPPABLE_ORDER_STATUSES } from "@/lib/delivery";
 import {
   createShippingProviderSchema,
   createShipmentSchema,
@@ -26,11 +26,11 @@ import {
   syncShipmentStatus,
   generateManifestViaProvider,
   friendlyDeliveryError,
+  reserveShipmentSlot,
   type SyncShipmentStatusOutcome,
 } from "@/lib/integrations/delivery/service";
 import { notifyShipmentFailed, notifyConnectionError } from "@/lib/notifications";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
-import type { ShippingProvider } from "@prisma/client";
 
 /** Loads the order number + provider name a shipment-failed notification needs. */
 async function shipmentNotificationContext(shipmentId: string) {
@@ -53,7 +53,7 @@ function normalizeOptional(value: string | null | undefined): string | null {
   return value && value.trim().length > 0 ? value.trim() : null;
 }
 
-export async function createShippingProviderAction(formData: FormData): Promise<ActionResult<ShippingProvider>> {
+export async function createShippingProviderAction(formData: FormData): Promise<ActionResult<IdResult>> {
   const user = await requirePermissionForAction("delivery.manage");
 
   const parsed = createShippingProviderSchema.safeParse({
@@ -77,7 +77,12 @@ export async function createShippingProviderAction(formData: FormData): Promise<
   });
 
   revalidatePath("/livraison");
-  return actionOk(provider);
+  // The full row (never returned to the client — see
+  // docs/adr/0004-integration-architecture.md's identical rule for
+  // Integration; ShippingProvider carries the same class of field
+  // (credentialsEncrypted, config) even though both are still null right
+  // after creation here). Phase 30 hardening.
+  return actionOk({ id: provider.id });
 }
 
 /**
@@ -153,18 +158,32 @@ export async function createShipmentAction(formData: FormData): Promise<ActionRe
 
   const provider = await prisma.shippingProvider.findUnique({ where: { id: parsed.data.providerId } });
   if (!provider) return actionError("Prestataire de livraison introuvable.");
+  // API providers must go through the real adapter call
+  // (createShipmentViaProviderAction) so a shipment always has a genuine
+  // external parcel behind it — this manual path is for MANUEL/
+  // FLOTTE_INTERNE providers only. Found during the Phase 29 E2E audit.
+  if (provider.type === "API") {
+    return actionError(
+      "Ce prestataire est connecté par API : utilisez « Créer une expédition » depuis la commande pour passer par le connecteur réel."
+    );
+  }
 
-  const shipment = await prisma.shipment.create({
-    data: {
-      orderId: parsed.data.orderId,
-      providerId: parsed.data.providerId,
+  // reserveShipmentSlot performs the duplicate-active-shipment check and
+  // the create inside one advisory-locked transaction, so two concurrent
+  // requests for the same order+provider can't both pass a stale check —
+  // see its own doc comment (Phase 30 hardening).
+  let shipment;
+  try {
+    shipment = await reserveShipmentSlot(order.id, parsed.data.providerId, {
       trackingNumber: normalizeOptional(parsed.data.trackingNumber),
       trackingUrl: normalizeOptional(parsed.data.trackingUrl),
       cost: parsed.data.cost ?? null,
       notes: normalizeOptional(parsed.data.notes),
       updatedById: user.id,
-    },
-  });
+    });
+  } catch (error) {
+    return actionError(friendlyDeliveryError(error));
+  }
 
   await recordAuditEvent({
     actorType: "USER",
@@ -355,13 +374,11 @@ export async function createShipmentViaProviderAction(formData: FormData): Promi
     return actionError("Cette commande n'est pas dans un statut permettant de créer une expédition.");
   }
 
-  const existingActive = await prisma.shipment.findFirst({
-    where: { orderId: order.id, providerId: parsed.data.providerId, status: { in: ACTIVE_SHIPMENT_STATUSES } },
-  });
-  if (existingActive) {
-    return actionError("Une expédition est déjà en cours pour cette commande auprès de ce prestataire.");
-  }
-
+  // The duplicate-active-shipment check happens inside createShipmentViaProvider
+  // (via reserveShipmentSlot's advisory-locked transaction) — a plain
+  // pre-check here would be redundant and, worse, non-atomic (Phase 30
+  // hardening: two concurrent requests could both pass a pre-check like
+  // this before either committed).
   try {
     const shipment = await createShipmentViaProvider({
       order,

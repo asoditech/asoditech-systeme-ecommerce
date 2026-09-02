@@ -86,6 +86,75 @@ describe("createShipmentAction", () => {
     const result = await createShipmentAction(formData({ orderId, providerId: provider.data.id }));
     expect(result.ok).toBe(false);
   });
+
+  /**
+   * Phase 29 E2E audit — createShipmentAction (the MANUEL/FLOTTE_INTERNE
+   * path) had no ACTIVE_SHIPMENT_STATUSES guard and no provider-type check,
+   * unlike its API sibling createShipmentViaProviderAction. A crafted call
+   * could record a second manual shipment for an order already being
+   * shipped, or fake a "shipment" against an API-connected provider with no
+   * real external parcel behind it.
+   */
+  it("rejects a second manual shipment while one is already active for the same provider (audit fix)", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const orderId = await seedShippableOrder();
+    await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
+    const provider = await createShippingProviderAction(formData({ name: "Livraison Rapide", type: "MANUEL" }));
+    if (!provider.ok) throw new Error("setup failed");
+
+    const first = await createShipmentAction(formData({ orderId, providerId: provider.data.id }));
+    expect(first.ok).toBe(true);
+
+    const second = await createShipmentAction(formData({ orderId, providerId: provider.data.id }));
+    expect(second.ok).toBe(false);
+
+    const shipments = await prisma.shipment.findMany({ where: { orderId } });
+    expect(shipments).toHaveLength(1);
+  });
+
+  /**
+   * Phase 30 hardening — the sequential test above only proves the check
+   * works when one request fully completes before the next starts. It
+   * does NOT prove the check is race-safe: a plain `findFirst` pre-check
+   * lets two concurrent requests both read "no active shipment" before
+   * either commits its create. reserveShipmentSlot closes this with a
+   * Postgres advisory-locked transaction — this test fires two requests
+   * genuinely concurrently (Promise.all) and asserts only one shipment
+   * row exists, the same shape as the existing "prevents a duplicate
+   * order under a genuine race" test in tests/actions/woocommerce.test.ts.
+   */
+  it("rejects a second manual shipment even when both requests race past the pre-check simultaneously (audit fix)", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const orderId = await seedShippableOrder();
+    await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
+    const provider = await createShippingProviderAction(formData({ name: "Livraison Rapide", type: "MANUEL" }));
+    if (!provider.ok) throw new Error("setup failed");
+
+    const [first, second] = await Promise.all([
+      createShipmentAction(formData({ orderId, providerId: provider.data.id })),
+      createShipmentAction(formData({ orderId, providerId: provider.data.id })),
+    ]);
+    const results = [first, second];
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(results.filter((r) => !r.ok)).toHaveLength(1);
+
+    const shipments = await prisma.shipment.findMany({ where: { orderId } });
+    expect(shipments).toHaveLength(1);
+  });
+
+  it("rejects creating a manual shipment against an API-type provider (audit fix)", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const orderId = await seedShippableOrder();
+    await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
+    const provider = await createShippingProviderAction(formData({ name: "OzonExpress", type: "API" }));
+    if (!provider.ok) throw new Error("setup failed");
+
+    const result = await createShipmentAction(formData({ orderId, providerId: provider.data.id }));
+    expect(result.ok).toBe(false);
+
+    const shipments = await prisma.shipment.findMany({ where: { orderId } });
+    expect(shipments).toHaveLength(0);
+  });
 });
 
 describe("updateShipmentStatusAction", () => {

@@ -304,6 +304,14 @@ describe("delivery provider API connector actions", () => {
       expect(await prisma.shipment.count({ where: { orderId } })).toBe(0);
     });
 
+    /**
+     * Phase 30 hardening: this used to assert only `toBeLessThanOrEqual(1)`
+     * — a best-effort expectation, because the guard at the time was a
+     * plain `findFirst` pre-check that two concurrent requests could both
+     * pass before either committed. reserveShipmentSlot's advisory-locked
+     * transaction (src/lib/integrations/delivery/service.ts) makes this a
+     * real guarantee now, not a probabilistic one — tightened to `toBe`.
+     */
     it("refuses a second concurrent create for the same order+provider (double-submit guard)", async () => {
       await loginAsTestUser({ role: "MANAGER" });
       const provider = await configuredConnectedProvider();
@@ -313,12 +321,14 @@ describe("delivery provider API connector actions", () => {
         createShipmentViaProviderAction(formData({ orderId, providerId: provider.id })),
         createShipmentViaProviderAction(formData({ orderId, providerId: provider.id })),
       ]);
-      const oks = [a.ok, b.ok].filter(Boolean);
-      // At least one must succeed; the guard's job is to prevent BOTH from
-      // succeeding (which would mean two real-world parcels for one order).
-      expect(oks.length).toBeLessThanOrEqual(1);
+      const results = [a, b];
+      // Exactly one must succeed — never both (two real-world parcels for
+      // one order) and never zero (a legitimate request must not be
+      // starved by the lock).
+      expect(results.filter((r) => r.ok)).toHaveLength(1);
+      expect(results.filter((r) => !r.ok)).toHaveLength(1);
       const shipments = await prisma.shipment.count({ where: { orderId, status: { in: ["EN_ATTENTE", "EN_TRANSIT"] } } });
-      expect(shipments).toBeLessThanOrEqual(1);
+      expect(shipments).toBe(1);
     });
 
     it("records shipment.creation_failed in the audit log on provider rejection, never a fake shipment.created", async () => {
