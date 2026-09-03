@@ -58,4 +58,13 @@ describe("RBAC permission matrix", () => {
     expect(hasPermission("SALES", "orders.cancel")).toBe(false);
     expect(hasPermission("SALES", "orders.refund")).toBe(false);
   });
+
+  it("grants inventory.transfer to stock-moving roles only (Phase 32b)", () => {
+    for (const role of ["OWNER", "ADMIN", "MANAGER", "WAREHOUSE"] as const) {
+      expect(hasPermission(role, "inventory.transfer")).toBe(true);
+    }
+    for (const role of ["SALES", "DELIVERY", "SUPPORT", "ACCOUNTANT"] as const) {
+      expect(hasPermission(role, "inventory.transfer")).toBe(false);
+    }
+  });
 });

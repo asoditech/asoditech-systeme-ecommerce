@@ -14,8 +14,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatCurrency } from "@/lib/format";
-import { PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
+import { PAYMENT_METHOD_LABELS, WAREHOUSE_TYPE_LABELS } from "@/lib/status-labels";
 import type { Customer } from "@prisma/client";
+
+interface SelectableWarehouse {
+  id: string;
+  name: string;
+  type: "ENTREPOT" | "MAGASIN";
+  isDefault: boolean;
+}
 
 type ProductWithVariations = Awaited<ReturnType<typeof searchProductsForOrderAction>>[number];
 type ProductVariation = ProductWithVariations["variations"][number];
@@ -31,8 +38,10 @@ interface LineItem {
   discount: number;
 }
 
-export function OrderForm() {
+export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehouse[] }) {
   const router = useRouter();
+  const defaultWarehouseId = warehouses.find((w) => w.isDefault)?.id ?? warehouses[0]?.id ?? "";
+  const [fulfillmentWarehouseId, setFulfillmentWarehouseId] = React.useState(defaultWarehouseId);
   const [customer, setCustomer] = React.useState<Customer | null>(null);
   const [customerQuery, setCustomerQuery] = React.useState("");
   const [customerResults, setCustomerResults] = React.useState<Customer[]>([]);
@@ -110,6 +119,7 @@ export function OrderForm() {
     startTransition(async () => {
       const result = await createOrderAction({
         customerId: customer.id,
+        fulfillmentWarehouseId: warehouses.length > 1 && fulfillmentWarehouseId ? fulfillmentWarehouseId : null,
         paymentMethod: paymentMethod as CreateOrderInputMethod,
         shippingCost: Number(shippingCost || 0),
         discountTotal: Number(discountTotal || 0),
@@ -325,6 +335,32 @@ export function OrderForm() {
                 </SelectContent>
               </Select>
             </div>
+            {warehouses.length > 1 && (
+              <div className="space-y-1.5">
+                <Label>Entrepôt de préparation</Label>
+                <Select
+                  value={fulfillmentWarehouseId}
+                  onValueChange={(v) => v && setFulfillmentWarehouseId(v)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue>
+                      {(value: string) => {
+                        const w = warehouses.find((x) => x.id === value);
+                        return w ? `${w.name} (${WAREHOUSE_TYPE_LABELS[w.type]})` : value;
+                      }}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {warehouses.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>
+                        {w.name} ({WAREHOUSE_TYPE_LABELS[w.type]})
+                        {w.isDefault ? " — par défaut" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label>Adresse de livraison</Label>
               <Input value={shippingAddress} onChange={(e) => setShippingAddress(e.target.value)} />

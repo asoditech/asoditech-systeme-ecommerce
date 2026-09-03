@@ -147,6 +147,15 @@ export const INVENTORY_MOVEMENT_TYPE_LABELS: Record<string, string> = {
   AJUSTEMENT_NEGATIF: "Ajustement négatif",
   RESERVATION: "Réservation",
   LIBERATION: "Libération",
+  TRANSFERT_SORTIE: "Transfert — sortie",
+  TRANSFERT_ENTREE: "Transfert — entrée",
+};
+
+export const TRANSFER_STATUS_LABELS: Record<string, StatusMeta> = {
+  BROUILLON: { label: "Brouillon", variant: "secondary" },
+  EN_TRANSIT: { label: "En transit", variant: "default" },
+  RECU: { label: "Reçu", variant: "default" },
+  ANNULE: { label: "Annulé", variant: "outline" },
 };
 
 export const WAREHOUSE_TYPE_LABELS: Record<string, string> = {

@@ -235,6 +235,11 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
               ) : (
                 <p className="text-muted-foreground">Aucune adresse renseignée.</p>
               )}
+              {order.fulfillmentWarehouse && (
+                <p className="border-t pt-2 text-muted-foreground">
+                  Préparé depuis : <span className="text-foreground">{order.fulfillmentWarehouse.name}</span>
+                </p>
+              )}
             </CardContent>
           </Card>
 

@@ -28,6 +28,8 @@ export async function resetDb() {
     prisma.orderItem.deleteMany(),
     prisma.order.deleteMany(),
     prisma.inventoryMovement.deleteMany(),
+    prisma.stockTransferLine.deleteMany(),
+    prisma.stockTransfer.deleteMany(),
     prisma.inventoryItem.deleteMany(),
     prisma.warehouse.deleteMany(),
     prisma.productVariation.deleteMany(),

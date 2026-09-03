@@ -73,6 +73,7 @@ export async function getOrderDetail(id: string) {
       refunds: { orderBy: { createdAt: "desc" } },
       shipments: { include: { provider: true }, orderBy: { createdAt: "desc" } },
       createdBy: true,
+      fulfillmentWarehouse: { select: { name: true, type: true } },
     },
   });
 }

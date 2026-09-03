@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
+import { getDefaultWarehouseId } from "@/lib/inventory";
 import {
   createProductSchema,
   updateProductSchema,
@@ -81,10 +82,10 @@ export async function createProductAction(formData: FormData): Promise<ActionRes
       });
 
       if (created.trackInventory) {
-        const defaultWarehouse = await tx.warehouse.findFirst({ where: { isDefault: true } });
-        if (defaultWarehouse) {
+        const defaultWarehouseId = await getDefaultWarehouseId(tx);
+        if (defaultWarehouseId) {
           await tx.inventoryItem.create({
-            data: { warehouseId: defaultWarehouse.id, productId: created.id, quantityOnHand: 0 },
+            data: { warehouseId: defaultWarehouseId, productId: created.id, quantityOnHand: 0 },
           });
         }
       }
@@ -282,10 +283,10 @@ export async function createProductVariationAction(
         },
       });
 
-      const defaultWarehouse = await tx.warehouse.findFirst({ where: { isDefault: true } });
-      if (defaultWarehouse) {
+      const defaultWarehouseId = await getDefaultWarehouseId(tx);
+      if (defaultWarehouseId) {
         await tx.inventoryItem.create({
-          data: { warehouseId: defaultWarehouse.id, variationId: created.id, quantityOnHand: 0 },
+          data: { warehouseId: defaultWarehouseId, variationId: created.id, quantityOnHand: 0 },
         });
       }
 

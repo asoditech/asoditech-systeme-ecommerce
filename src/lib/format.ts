@@ -32,3 +32,8 @@ export function formatDateTime(date: Date | string): string {
 export function formatOrderNumber(orderNumber: number, prefix = "CMD"): string {
   return `${prefix}-${orderNumber.toString().padStart(6, "0")}`;
 }
+
+/** Stock transfer reference, e.g. "TR-000123" (Phase 32b). */
+export function formatTransferNumber(transferNumber: number): string {
+  return `TR-${transferNumber.toString().padStart(6, "0")}`;
+}

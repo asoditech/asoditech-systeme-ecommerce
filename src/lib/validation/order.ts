@@ -71,6 +71,10 @@ export const orderItemInputSchema = z
 
 export const createOrderSchema = z.object({
   customerId: z.string().min(1, "Le client est requis."),
+  // Optional operator override of the fulfilment warehouse (Phase 32b).
+  // Omitted / null → createOrderAction uses getDefaultWarehouseId(). When
+  // present it must be an existing active warehouse (validated server-side).
+  fulfillmentWarehouseId: z.string().min(1).nullish().or(z.literal("")),
   paymentMethod: paymentMethodSchema,
   shippingCost: z.coerce.number().min(0).default(0),
   discountTotal: z.coerce.number().min(0).default(0),

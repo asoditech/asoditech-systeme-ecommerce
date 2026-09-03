@@ -184,6 +184,116 @@ describe("createOrderAction", () => {
   });
 });
 
+describe("createOrderAction — fulfilment warehouse (Phase 32b)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  const orderInput = (customerId: string, productId: string, extra: Record<string, unknown> = {}) => ({
+    customerId,
+    paymentMethod: "PAIEMENT_LIVRAISON" as const,
+    shippingCost: 0,
+    discountTotal: 0,
+    currency: "MAD",
+    notes: "",
+    internalNotes: "",
+    shippingAddressLine1: "",
+    shippingAddressLine2: "",
+    shippingCity: "",
+    shippingRegion: "",
+    shippingCountry: "",
+    shippingPhone: "",
+    items: [{ productId, quantity: 2, unitPrice: 100, discount: 0 }],
+    ...extra,
+  });
+
+  it("O1/O8 — defaults to getDefaultWarehouseId(), reserves there, and records it in the audit metadata", async () => {
+    const { customer, product, warehouse } = await seedOrderable();
+    await loginAsTestUser({ role: "SALES" });
+    const r = await createOrderAction(orderInput(customer.id, product.id));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: r.data.id } });
+    expect(order.fulfillmentWarehouseId).toBe(warehouse.id);
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { warehouseId: warehouse.id, productId: product.id } });
+    expect(item.quantityReserved).toBe(2);
+
+    const audit = await prisma.auditEvent.findFirstOrThrow({ where: { action: "order.created", entityId: r.data.id } });
+    expect(audit.newValue).toMatchObject({ fulfillmentWarehouseId: warehouse.id });
+  });
+
+  it("O2 — an explicit active second warehouse reserves/fulfils there; the default is untouched", async () => {
+    const { customer, product, warehouse } = await seedOrderable();
+    const second = await prisma.warehouse.create({ data: { name: "Dépôt Sud", type: "ENTREPOT" } });
+    await prisma.inventoryItem.create({ data: { warehouseId: second.id, productId: product.id, quantityOnHand: 30 } });
+
+    await loginAsTestUser({ role: "SALES" });
+    const r = await createOrderAction(orderInput(customer.id, product.id, { fulfillmentWarehouseId: second.id }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+
+    const secondItem = await prisma.inventoryItem.findFirstOrThrow({ where: { warehouseId: second.id, productId: product.id } });
+    const defaultItem = await prisma.inventoryItem.findFirstOrThrow({ where: { warehouseId: warehouse.id, productId: product.id } });
+    expect(secondItem.quantityReserved).toBe(2);
+    expect(defaultItem.quantityReserved).toBe(0);
+  });
+
+  it("O2 — an explicit active MAGASIN is accepted for an internal order", async () => {
+    const { customer, product } = await seedOrderable();
+    const shop = await prisma.warehouse.create({ data: { name: "Magasin Centre", type: "MAGASIN" } });
+    await prisma.inventoryItem.create({ data: { warehouseId: shop.id, productId: product.id, quantityOnHand: 12 } });
+    await loginAsTestUser({ role: "SALES" });
+    const r = await createOrderAction(orderInput(customer.id, product.id, { fulfillmentWarehouseId: shop.id }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: r.data.id } });
+    expect(order.fulfillmentWarehouseId).toBe(shop.id);
+  });
+
+  it("O3 — an inactive explicit warehouse is rejected and no order is created", async () => {
+    const { customer, product } = await seedOrderable();
+    const inactive = await prisma.warehouse.create({ data: { name: "Retiré", type: "ENTREPOT", isActive: false } });
+    await loginAsTestUser({ role: "SALES" });
+    const r = await createOrderAction(orderInput(customer.id, product.id, { fulfillmentWarehouseId: inactive.id }));
+    expect(r).toMatchObject({ ok: false });
+    expect(await prisma.order.count()).toBe(0);
+  });
+
+  it("O4 — a non-existent explicit warehouse is rejected", async () => {
+    const { customer, product } = await seedOrderable();
+    await loginAsTestUser({ role: "SALES" });
+    const r = await createOrderAction(orderInput(customer.id, product.id, { fulfillmentWarehouseId: "does-not-exist" }));
+    expect(r).toMatchObject({ ok: false });
+    expect(await prisma.order.count()).toBe(0);
+  });
+
+  it("O5 — a historical order with fulfillmentWarehouseId null falls back to the compat resolution", async () => {
+    const { customer, product, warehouse } = await seedOrderable();
+    const order = await prisma.order.create({
+      data: {
+        customerId: customer.id,
+        subtotal: 200,
+        total: 200,
+        fulfillmentWarehouseId: null,
+        items: { create: [{ productId: product.id, nameSnapshot: product.name, skuSnapshot: product.sku, unitPrice: 100, quantity: 2, total: 200 }] },
+      },
+      include: { items: true },
+    });
+    const lines = order.items.map((i) => ({ productId: i.productId, variationId: i.variationId, quantity: i.quantity }));
+    const { reserveStockForOrder } = await import("@/lib/inventory");
+    await prisma.$transaction((tx) => reserveStockForOrder(tx, order.id, lines, null));
+
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { warehouseId: warehouse.id, productId: product.id } });
+    expect(item.quantityReserved).toBe(2);
+  });
+});
+
 describe("updateOrderStatusAction — state machine", () => {
   beforeEach(async () => {
     await resetDb();

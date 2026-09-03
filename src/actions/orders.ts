@@ -9,6 +9,7 @@ import {
   releaseStockForOrder,
   fulfillStockForOrder,
   returnStockForOrder,
+  getDefaultWarehouseId,
   InsufficientStockError,
 } from "@/lib/inventory";
 import {
@@ -99,6 +100,27 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
     return actionError("Client introuvable.");
   }
 
+  // Fulfilment warehouse (Phase 32b — see docs/adr/0020-stock-transfers.md).
+  // A client-supplied override is validated (must exist and be active — an
+  // operator may legitimately fulfil from an active MAGASIN for a walk-in
+  // order); the default is trusted verbatim. `null` (broken deployment
+  // with no default warehouse) is stored as-is and the pre-32b
+  // compatibility resolution then applies.
+  const overrideWarehouseId =
+    parsed.data.fulfillmentWarehouseId && parsed.data.fulfillmentWarehouseId.length > 0
+      ? parsed.data.fulfillmentWarehouseId
+      : null;
+  let fulfillmentWarehouseId: string | null;
+  if (overrideWarehouseId) {
+    const warehouse = await prisma.warehouse.findUnique({ where: { id: overrideWarehouseId } });
+    if (!warehouse || !warehouse.isActive) {
+      return actionError("Entrepôt de préparation invalide.");
+    }
+    fulfillmentWarehouseId = warehouse.id;
+  } else {
+    fulfillmentWarehouseId = await getDefaultWarehouseId();
+  }
+
   // Resolve product/variation snapshots server-side — never trust client-supplied prices/names.
   const resolvedItems: Prisma.OrderItemCreateManyOrderInput[] = [];
   for (const item of parsed.data.items) {
@@ -178,6 +200,7 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
         shippingRegion: normalizeOptional(parsed.data.shippingRegion),
         shippingCountry: normalizeOptional(parsed.data.shippingCountry),
         shippingPhone: normalizeOptional(parsed.data.shippingPhone),
+        fulfillmentWarehouseId,
         createdById: user.id,
         items: { create: resolvedItems },
       },
@@ -199,7 +222,7 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
     action: "order.created",
     entityType: "Order",
     entityId: order.id,
-    newValue: { total: total.toString(), customerId: customer.id },
+    newValue: { total: total.toString(), customerId: customer.id, fulfillmentWarehouseId },
   });
 
   await notifyNewOrder(

@@ -4,6 +4,8 @@ import {
   applyStockMovement,
   availableStock,
   availableStockTotal,
+  ensureInventoryItem,
+  getDefaultWarehouseId,
   InsufficientStockError,
   reserveStockForOrder,
   fulfillStockForOrder,
@@ -323,5 +325,114 @@ describe("order stock helpers still resolve the default warehouse (Phase 32a)", 
     await prisma.$transaction((tx) => releaseStockForOrder(tx, order.id, lines, null));
     const row = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
     expect(row).toMatchObject({ quantityOnHand: 10, quantityReserved: 0 });
+  });
+
+  it("honours the order's explicit fulfillmentWarehouseId, leaving the default warehouse untouched", async () => {
+    const { product, warehouses } = await seedProductInWarehouses([
+      { name: "Entrepôt principal", isDefault: true, qty: 10 },
+      { name: "Boutique", qty: 8 },
+    ]);
+    const order = await prisma.order.create({
+      data: {
+        customerId: (await prisma.customer.create({ data: { fullName: "C" } })).id,
+        subtotal: 10,
+        total: 10,
+        fulfillmentWarehouseId: warehouses["Boutique"].id,
+      },
+    });
+    const lines = [{ productId: product.id, variationId: null, quantity: 3 }];
+    await prisma.$transaction((tx) => reserveStockForOrder(tx, order.id, lines, null));
+    await prisma.$transaction((tx) => fulfillStockForOrder(tx, order.id, lines, null));
+
+    const def = await prisma.inventoryItem.findFirstOrThrow({ where: { warehouseId: warehouses["Entrepôt principal"].id } });
+    const shop = await prisma.inventoryItem.findFirstOrThrow({ where: { warehouseId: warehouses["Boutique"].id } });
+    expect(def).toMatchObject({ quantityOnHand: 10, quantityReserved: 0 });
+    expect(shop.quantityOnHand).toBe(5);
+    const movements = await prisma.inventoryMovement.findMany({ where: { orderId: order.id } });
+    expect(movements.every((m) => m.warehouseId === warehouses["Boutique"].id)).toBe(true);
+  });
+});
+
+describe("getDefaultWarehouseId (Phase 32b)", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+  afterEach(async () => {
+    await resetDb();
+  });
+
+  it("returns the default warehouse's id, null when none, and is tx-aware", async () => {
+    expect(await getDefaultWarehouseId()).toBeNull();
+
+    await prisma.warehouse.create({ data: { name: "Autre", isDefault: false } });
+    expect(await getDefaultWarehouseId()).toBeNull();
+
+    const def = await prisma.warehouse.create({ data: { name: "Principal", isDefault: true } });
+    expect(await getDefaultWarehouseId()).toBe(def.id);
+
+    const inTx = await prisma.$transaction((tx) => getDefaultWarehouseId(tx));
+    expect(inTx).toBe(def.id);
+  });
+});
+
+describe("ensureInventoryItem (Phase 32b)", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+  afterEach(async () => {
+    await resetDb();
+  });
+
+  async function seed() {
+    const warehouse = await prisma.warehouse.create({ data: { name: "Dest", isDefault: true } });
+    const product = await prisma.product.create({
+      data: { name: "P", sku: `S-${Math.random()}`, price: 10, status: "ACTIF" },
+    });
+    const variation = await prisma.productVariation.create({
+      data: { productId: product.id, sku: `V-${Math.random()}`, attributes: { Taille: "M" } },
+    });
+    return { warehouse, product, variation };
+  }
+
+  it("creates a missing row with zero quantities, then returns the existing row unchanged", async () => {
+    const { warehouse, product } = await seed();
+
+    const created = await prisma.$transaction((tx) =>
+      ensureInventoryItem(tx, { warehouseId: warehouse.id, productId: product.id })
+    );
+    expect(created).toMatchObject({ quantityOnHand: 0, quantityReserved: 0, productId: product.id });
+
+    await prisma.inventoryItem.update({ where: { id: created.id }, data: { quantityOnHand: 12 } });
+    const again = await prisma.$transaction((tx) =>
+      ensureInventoryItem(tx, { warehouseId: warehouse.id, productId: product.id })
+    );
+    expect(again.id).toBe(created.id);
+    expect(again.quantityOnHand).toBe(12); // untouched
+    expect(await prisma.inventoryItem.count({ where: { warehouseId: warehouse.id, productId: product.id } })).toBe(1);
+  });
+
+  it("variationId wins when both refs are supplied; throws when neither is given", async () => {
+    const { warehouse, product, variation } = await seed();
+    const row = await prisma.$transaction((tx) =>
+      ensureInventoryItem(tx, { warehouseId: warehouse.id, productId: product.id, variationId: variation.id })
+    );
+    expect(row.variationId).toBe(variation.id);
+    expect(row.productId).toBeNull();
+
+    await expect(
+      prisma.$transaction((tx) => ensureInventoryItem(tx, { warehouseId: warehouse.id }))
+    ).rejects.toThrow(/productId or a variationId/);
+  });
+
+  it("concurrent calls for the same pair produce exactly one row", async () => {
+    const { warehouse, product } = await seed();
+    const results = await Promise.all([
+      prisma.$transaction((tx) => ensureInventoryItem(tx, { warehouseId: warehouse.id, productId: product.id })),
+      prisma.$transaction((tx) => ensureInventoryItem(tx, { warehouseId: warehouse.id, productId: product.id })),
+      prisma.$transaction((tx) => ensureInventoryItem(tx, { warehouseId: warehouse.id, productId: product.id })),
+    ]);
+    const ids = new Set(results.map((r) => r.id));
+    expect(ids.size).toBe(1);
+    expect(await prisma.inventoryItem.count({ where: { warehouseId: warehouse.id, productId: product.id } })).toBe(1);
   });
 });

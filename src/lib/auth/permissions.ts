@@ -23,6 +23,12 @@ export const PERMISSIONS = [
   "products.edit",
   "inventory.view",
   "inventory.adjust",
+  // Create / edit / dispatch / receive / cancel stock transfers between
+  // locations (Phase 32b — docs/adr/0020-stock-transfers.md). Held by the
+  // WAREHOUSE role: moving stock between locations is operational work,
+  // unlike warehouses.manage (adding/retiring a location). Viewing the
+  // transfer list/detail uses inventory.view.
+  "inventory.transfer",
   // Create / rename / (de)activate stock locations. Deliberately NOT held
   // by the WAREHOUSE role — adjusting stock in a location is operational;
   // adding or retiring a location is an org-structure decision. See
@@ -73,6 +79,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     "products.edit",
     "inventory.view",
     "inventory.adjust",
+    "inventory.transfer",
     "warehouses.manage",
     "delivery.view",
     "delivery.manage",
@@ -100,6 +107,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     "products.view",
     "inventory.view",
     "inventory.adjust",
+    "inventory.transfer",
     "delivery.view",
   ],
   DELIVERY: ["dashboard.view", "orders.view", "delivery.view", "delivery.manage"],

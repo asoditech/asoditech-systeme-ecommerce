@@ -60,6 +60,9 @@ model User {
   syncRunsTriggered  SyncRun[]           @relation("SyncRunTriggeredBy")
   auditEvents        AuditEvent[]        @relation("AuditActorUser")
   notifications      Notification[]
+  stockTransfersCreated    StockTransfer[] @relation("StockTransferCreatedBy")
+  stockTransfersDispatched StockTransfer[] @relation("StockTransferDispatchedBy")
+  stockTransfersReceived   StockTransfer[] @relation("StockTransferReceivedBy")
 
   @@index([role])
   @@map("users")
@@ -210,6 +213,7 @@ model Product {
   variations     ProductVariation[]
   inventoryItems InventoryItem[]
   orderItems     OrderItem[]
+  transferLines  StockTransferLine[]
 
   @@index([categoryId])
   @@index([status])
@@ -247,6 +251,7 @@ model ProductVariation {
   product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
   inventoryItems InventoryItem[]
   orderItems     OrderItem[]
+  transferLines  StockTransferLine[]
 
   @@index([productId])
   @@index([source, externalId])
@@ -293,6 +298,10 @@ model Warehouse {
 
   createdBy      User?           @relation("WarehouseCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   inventoryItems InventoryItem[]
+  movements       InventoryMovement[]
+  fulfilledOrders Order[]            @relation("OrderFulfillmentWarehouse")
+  transfersOut    StockTransfer[]    @relation("StockTransferSource")
+  transfersIn     StockTransfer[]    @relation("StockTransferDestination")
 
   @@index([source, externalId])
   @@index([isActive])
@@ -348,27 +357,127 @@ enum InventoryMovementType {
   AJUSTEMENT_NEGATIF
   RESERVATION
   LIBERATION
+  // Stock leaving a source warehouse on a StockTransfer dispatch, and
+  // arriving at the destination on receive (Phase 32b — see
+  // docs/adr/0020-stock-transfers.md). Both carry `stockTransferId`.
+  TRANSFERT_SORTIE
+  TRANSFERT_ENTREE
 }
 
 model InventoryMovement {
   id              String                @id @default(cuid())
   inventoryItemId String
+  // The location whose stock this movement changed — always the
+  // `InventoryItem.warehouseId` of the row it was applied to (Phase 32b),
+  // persisted so per-location ledger queries never re-join. NOT NULL:
+  // every movement has always been applied to an InventoryItem
+  // (`inventoryItemId` NOT NULL, onDelete Cascade → no orphan possible),
+  // so the one-time backfill from `inventory_items.warehouseId` was total.
+  warehouseId     String
   type            InventoryMovementType
   quantity        Int
   reason          String?
   orderId         String?
+  // Set on the two TRANSFERT_* movements a StockTransfer produces; null
+  // for every other movement type. `SetNull` so an admin cleanup of a
+  // transfer would not cascade its ledger rows.
+  stockTransferId String?
   performedById   String?
   createdAt       DateTime              @default(now())
 
-  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
-  order         Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  performedBy   User?         @relation("MovementPerformedBy", fields: [performedById], references: [id], onDelete: SetNull)
+  inventoryItem InventoryItem  @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  warehouse     Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  order         Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  stockTransfer StockTransfer? @relation(fields: [stockTransferId], references: [id], onDelete: SetNull)
+  performedBy   User?          @relation("MovementPerformedBy", fields: [performedById], references: [id], onDelete: SetNull)
 
   @@index([inventoryItemId])
   @@index([createdAt])
   // Movement history for one item, newest first — the per-item ledger view.
   @@index([inventoryItemId, createdAt])
+  // Movements at one location over time — the per-warehouse ledger view.
+  @@index([warehouseId, createdAt])
+  @@index([stockTransferId])
   @@map("inventory_movements")
+}
+
+// ---------------------------------------------------------------------------
+// Stock transfers — Phase 32b (docs/adr/0020-stock-transfers.md).
+// Move units between two InventoryItem locations through an explicit,
+// auditable lifecycle. No reservation, no split fulfilment, no in-transit
+// stock bucket: dispatch removes the sent quantity from the source
+// (TRANSFERT_SORTIE), receive adds the received quantity to the
+// destination (TRANSFERT_ENTREE); a shortfall shows only as the delta
+// between the two movements.
+// ---------------------------------------------------------------------------
+
+enum TransferStatus {
+  BROUILLON
+  EN_TRANSIT
+  RECU
+  ANNULE
+}
+
+model StockTransfer {
+  id                     String         @id @default(cuid())
+  // Sequential, collision-free; displayed "TR-000123" (formatTransferNumber).
+  // Same pattern as Order.orderNumber.
+  transferNumber         Int            @unique @default(autoincrement())
+  sourceWarehouseId      String
+  destinationWarehouseId String
+  status                 TransferStatus @default(BROUILLON)
+  notes                  String?
+  createdById            String?
+  dispatchedById         String?
+  dispatchedAt           DateTime?
+  receivedById           String?
+  receivedAt             DateTime?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
+  // A warehouse with transfer history can't be deleted (it also holds
+  // InventoryItem rows — onDelete: Restrict there too).
+  source       Warehouse           @relation("StockTransferSource", fields: [sourceWarehouseId], references: [id], onDelete: Restrict)
+  destination  Warehouse           @relation("StockTransferDestination", fields: [destinationWarehouseId], references: [id], onDelete: Restrict)
+  createdBy    User?               @relation("StockTransferCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  dispatchedBy User?               @relation("StockTransferDispatchedBy", fields: [dispatchedById], references: [id], onDelete: SetNull)
+  receivedBy   User?               @relation("StockTransferReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
+  lines        StockTransferLine[]
+  movements    InventoryMovement[]
+
+  // DB-enforced (raw-SQL migration): source and destination must differ.
+  @@index([status])
+  @@index([sourceWarehouseId])
+  @@index([destinationWarehouseId])
+  @@index([createdAt])
+  @@map("stock_transfers")
+}
+
+// One product/variation line on a transfer. Exactly one of
+// productId/variationId is set at the application level (createStockTransfer
+// validates it) — NOT a DB CHECK, because `onDelete: SetNull` on the
+// catalogue FKs would make an XOR CHECK fail the moment a product is
+// deleted. Mirrors OrderItem exactly. A line whose catalogue record is
+// later deleted (both refs null) is safely skipped on receive.
+//
+// DB-enforced (raw-SQL migration): quantitySent > 0, and quantityReceived
+// is either NULL or between 0 and quantitySent inclusive.
+model StockTransferLine {
+  id               String  @id @default(cuid())
+  stockTransferId  String
+  productId        String?
+  variationId      String?
+  quantitySent     Int
+  quantityReceived Int?
+
+  stockTransfer StockTransfer     @relation(fields: [stockTransferId], references: [id], onDelete: Cascade)
+  product       Product?          @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variation     ProductVariation? @relation(fields: [variationId], references: [id], onDelete: SetNull)
+
+  @@index([stockTransferId])
+  @@index([productId])
+  @@index([variationId])
+  @@map("stock_transfer_lines")
 }
 
 // ---------------------------------------------------------------------------
@@ -442,20 +551,31 @@ model Order {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  createdById String?
-  createdBy   User?               @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  customer    Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  items       OrderItem[]
-  refunds     Refund[]
-  shipments   Shipment[]
-  movements   InventoryMovement[]
-  campaign    MarketingCampaign?  @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  campaignId  String?
+  // The warehouse this order's stock movements target (Phase 32b — see
+  // docs/adr/0020-stock-transfers.md). Set at creation to
+  // getDefaultWarehouseId() or an operator-selected active warehouse.
+  // Null only for pre-32b orders (and a deployment with no default
+  // warehouse) → resolveOrderStockWarehouseId's pre-32b compat fallback
+  // applies. `SetNull` matches campaignId/createdById; the
+  // InventoryMovement rows carry the authoritative per-movement warehouse.
+  fulfillmentWarehouseId String?
+
+  createdById          String?
+  createdBy            User?               @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  customer             Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  fulfillmentWarehouse Warehouse?          @relation("OrderFulfillmentWarehouse", fields: [fulfillmentWarehouseId], references: [id], onDelete: SetNull)
+  items                OrderItem[]
+  refunds              Refund[]
+  shipments            Shipment[]
+  movements            InventoryMovement[]
+  campaign             MarketingCampaign?  @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  campaignId           String?
 
   @@index([customerId])
   @@index([status])
   @@index([paymentStatus])
   @@index([createdAt])
+  @@index([fulfillmentWarehouseId])
   // Prevents a duplicate Order under a genuine race between the order
   // webhook and a concurrent manual sync both importing the same
   // WooCommerce order for the first time (Postgres allows multiple NULLs
