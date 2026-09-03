@@ -210,8 +210,8 @@ export async function syncShopifyOrdersAction(): Promise<ActionResult<{ summary:
   }
 
   // Bound the import to orders created since the last successful ORDERS
-  // sync (or the last 30 days on a first run) — see
-  // docs/adr/0011-shopify-integration.md. Deliberately NOT
+  // sync (or the first-run lookback in resolveOrdersSyncSince on a first
+  // run) — see docs/adr/0011-shopify-integration.md. Deliberately NOT
   // integration.lastSyncAt: that field is shared across every resource
   // (products/locations/stock too) and gets bumped by whichever synced
   // most recently — see resolveOrdersSyncSince's own doc comment.

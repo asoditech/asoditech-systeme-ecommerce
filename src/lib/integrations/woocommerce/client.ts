@@ -153,9 +153,17 @@ export class WooCommerceClient {
     return { items: parsed.data, meta: { totalPages: Number.isFinite(totalPages) ? totalPages : 1, total } };
   }
 
-  /** Real authenticated request — the only thing allowed to mark a connection CONNECTE. */
+  /**
+   * Real authenticated request — the only thing allowed to mark a
+   * connection CONNECTE. Confirms connectivity + credentials only: an
+   * authenticated `/orders` call has to come back as a JSON array. It
+   * deliberately does NOT validate the shape of each order — a live
+   * store's historical orders routinely carry plugin-specific field
+   * quirks that the order-by-order import tolerates (skips + counts), and
+   * those must not make the whole connection report as broken.
+   */
   async testConnection(): Promise<void> {
-    await this.requestPage(z.array(wcOrderSchema.partial()), "/orders", 1);
+    await this.requestPage(z.array(z.unknown()), "/orders", 1);
   }
 
   async *listAllProducts(): AsyncGenerator<WcProduct[]> {
@@ -186,12 +194,25 @@ export class WooCommerceClient {
     }
   }
 
-  /** `after` is an ISO-8601 timestamp — WooCommerce's documented `after` query param for orders. */
-  async *listAllOrders(after?: string): AsyncGenerator<WcOrder[]> {
+  /**
+   * `after` is an ISO-8601 timestamp — WooCommerce's documented `after`
+   * query param for orders. Each page is parsed order-by-order: a single
+   * order the schema can't read (a plugin-specific field shape, a value
+   * WooCommerce returned in an unexpected type) is reported back as
+   * `unparsable` and left out, instead of failing the whole import.
+   */
+  async *listAllOrders(after?: string): AsyncGenerator<{ orders: WcOrder[]; unparsable: number }> {
     const path = after ? `/orders?after=${encodeURIComponent(after)}` : "/orders";
     for (let page = 1; page <= MAX_PAGES; page++) {
-      const { items, meta } = await this.requestPage(z.array(wcOrderSchema), path, page);
-      yield items;
+      const { items, meta } = await this.requestPage(z.array(z.unknown()), path, page);
+      const orders: WcOrder[] = [];
+      let unparsable = 0;
+      for (const item of items) {
+        const parsed = wcOrderSchema.safeParse(item);
+        if (parsed.success) orders.push(parsed.data);
+        else unparsable++;
+      }
+      yield { orders, unparsable };
       if (page >= meta.totalPages) return;
     }
   }

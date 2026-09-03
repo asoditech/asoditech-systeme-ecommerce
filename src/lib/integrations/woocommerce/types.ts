@@ -13,10 +13,16 @@ import { z } from "zod";
  * during Phase 20 rather than assumed from memory.
  */
 
+// WooCommerce core returns money as decimal strings ("19.99"), but tax,
+// currency and multi-vendor plugins are inconsistent — some emit real
+// numbers, some emit null or "". Accept string | number | null, treat
+// empty/null/non-finite as 0, and never fail an order over a price field.
 const wcMoneyString = z
-  .string()
-  .trim()
-  .transform((v) => (v === "" ? 0 : Number(v)))
+  .union([z.string(), z.number(), z.null()])
+  .transform((v) => {
+    const n = typeof v === "number" ? v : Number(String(v ?? "").trim());
+    return Number.isFinite(n) ? n : 0;
+  })
   .pipe(z.number());
 
 export const wcProductCategoryRefSchema = z.object({

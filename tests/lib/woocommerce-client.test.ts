@@ -182,7 +182,65 @@ describe("WooCommerceClient", () => {
     expect(capturedPath).toBe("/wp-json/wc/v3/products/10/variations/20");
     expect(capturedBody).toMatchObject({ stock_quantity: 5 });
   });
+
+  it("testConnection() does not fail over a real store's quirky order field shapes", async () => {
+    // A live store whose plugins return money as numbers and attach extra
+    // blocks — the strict order schema would reject this, but a connection
+    // check must not.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse([{ id: 42, total: 199.9, meta_data: [{ key: "x", value: { nested: true } }] }], {
+          headers: { "x-wp-totalpages": "1" },
+        })
+      )
+    );
+    const client = new WooCommerceClient("https://boutique.example", { consumerKey: "a", consumerSecret: "b" });
+    await expect(client.testConnection()).resolves.toBeUndefined();
+  });
+
+  it("listAllOrders() yields the readable orders and counts the unreadable ones instead of throwing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          [
+            baseOrder(1, { total: "50.00" }),
+            baseOrder(2, { total: 75 }), // money as a number — must still parse
+            { id: 3, garbage: true }, // unreadable — missing required fields
+          ],
+          { headers: { "x-wp-totalpages": "1" } }
+        )
+      )
+    );
+    const client = new WooCommerceClient("https://boutique.example", { consumerKey: "a", consumerSecret: "b" });
+
+    const seen: number[] = [];
+    let unreadable = 0;
+    for await (const { orders, unparsable } of client.listAllOrders()) {
+      for (const o of orders) seen.push(o.id);
+      unreadable += unparsable;
+    }
+    expect(seen).toEqual([1, 2]);
+    expect(unreadable).toBe(1);
+  });
 });
+
+function baseOrder(id: number, extra: Record<string, unknown> = {}) {
+  return {
+    id,
+    number: String(id),
+    status: "processing",
+    currency: "MAD",
+    date_created: "2026-01-01T00:00:00",
+    customer_id: 0,
+    total: "0.00",
+    billing: {},
+    shipping: {},
+    line_items: [],
+    ...extra,
+  };
+}
 
 function baseProduct(id: number) {
   return {

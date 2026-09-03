@@ -1,7 +1,11 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+// First-run lookback: a client who has just connected their existing store
+// expects their recent trading history to come in, not only the last
+// month. Subsequent runs are bounded by the last successful ORDERS sync,
+// so this window only ever applies once per integration.
+const FIRST_SYNC_LOOKBACK_MS = 365 * 24 * 60 * 60 * 1000;
 
 /**
  * The `since` bound for an incremental orders import (WooCommerce
@@ -15,9 +19,9 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
  * before "Synchroniser les commandes", `lastSyncAt` was already bumped to
  * "now" by the products/categories sync moments earlier — so the orders
  * import window silently collapsed to a few seconds instead of the
- * intended "since the last successful ORDERS sync, or 30 days on a first
- * run", and reported `SUCCES` with 0 items imported no matter how many
- * real orders existed on the store.
+ * intended "since the last successful ORDERS sync, or the first-run
+ * lookback below on a first run", and reported `SUCCES` with 0 items
+ * imported no matter how many real orders existed on the store.
  *
  * Fixed by deriving `since` from the last successful (or partially
  * successful — those still imported real orders) `SyncRun` row scoped to
@@ -31,5 +35,5 @@ export async function resolveOrdersSyncSince(integrationId: string): Promise<Dat
     orderBy: { startedAt: "desc" },
     select: { startedAt: true },
   });
-  return lastOrdersSync?.startedAt ?? new Date(Date.now() - THIRTY_DAYS_MS);
+  return lastOrdersSync?.startedAt ?? new Date(Date.now() - FIRST_SYNC_LOOKBACK_MS);
 }

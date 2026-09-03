@@ -285,8 +285,10 @@ export async function syncOrders(
 ): Promise<SyncSummary> {
   const summary = emptySyncSummary();
 
-  for await (const page of client.listAllOrders(since?.toISOString())) {
-    for (const wc of page) {
+  let unreadable = 0;
+  for await (const { orders, unparsable } of client.listAllOrders(since?.toISOString())) {
+    unreadable += unparsable;
+    for (const wc of orders) {
       try {
         const { outcome, reason } = await importOrder(wc, actor);
         summary[outcome]++;
@@ -296,6 +298,13 @@ export async function syncOrders(
         summary.failed++;
       }
     }
+  }
+  if (unreadable > 0) {
+    summary.failed += unreadable;
+    recordNote(
+      summary,
+      `${unreadable} commande(s) ignorée(s) : format WooCommerce non reconnu.`
+    );
   }
 
   return summary;

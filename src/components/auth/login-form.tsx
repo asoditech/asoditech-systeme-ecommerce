@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState, useEffect } from "react";
 import { loginAction } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,15 +8,16 @@ import { Label } from "@/components/ui/label";
 import { FieldError } from "@/components/ui/field";
 import { useLoginTransition } from "@/components/preloader/login-transition-provider";
 
-// On success `loginAction` calls `redirect()`, and React keeps this
-// transition pending until the destination route has actually committed —
-// so `isPending` returning to false with the URL unchanged means the
-// attempt settled locally (validation error, wrong credentials, or a
-// thrown exception) rather than navigated. This grace window just lets a
-// same-tick redirect's URL update land first before we draw that
-// conclusion; it never decides the preloader's minimum or maximum time on
-// screen, only which outcome to report.
-const SETTLE_GRACE_MS = 80;
+// The entry preloader is only for a login that is going to succeed. A
+// rejected e-mail/password returns an error result and flips `isPending`
+// back to false without navigating; a success keeps the action pending
+// through the redirect and the destination render. So we arm a delay when
+// a submission starts and only begin the transition if the attempt is
+// still in flight past it — comfortably longer than a rejected credential
+// takes to come back (it still pays the bcrypt cost). If a slow failure
+// does slip past the delay, the returned error tears the transition
+// straight back down before its intro is visible.
+const BEGIN_TRANSITION_DELAY_MS = 1000;
 
 // TODO: replace with ASODITECH's real WhatsApp number, phone number and
 // support email once provided — these are placeholders.
@@ -62,24 +63,21 @@ const CONTACT_LINKS = [
 
 export function LoginForm() {
   const [state, formAction, isPending] = useActionState(loginAction, undefined);
-  const { beginLoginTransition, resolveLoginTransition } = useLoginTransition();
-  const wasPendingRef = useRef(false);
+  const { beginLoginTransition, cancelLoginTransition } = useLoginTransition();
 
+  // Arm the transition only while a submission is genuinely still running;
+  // a fast rejection clears the timer before it fires.
   useEffect(() => {
-    if (isPending && !wasPendingRef.current) {
-      beginLoginTransition();
-      wasPendingRef.current = isPending;
-      return;
-    }
+    if (!isPending) return;
+    const armed = setTimeout(beginLoginTransition, BEGIN_TRANSITION_DELAY_MS);
+    return () => clearTimeout(armed);
+  }, [isPending, beginLoginTransition]);
 
-    if (!isPending && wasPendingRef.current) {
-      wasPendingRef.current = isPending;
-      const t = setTimeout(resolveLoginTransition, SETTLE_GRACE_MS);
-      return () => clearTimeout(t);
-    }
-
-    wasPendingRef.current = isPending;
-  }, [isPending, beginLoginTransition, resolveLoginTransition]);
+  // A returned error means the attempt did not navigate — never let the
+  // preloader linger, or appear at all if it had not started yet.
+  useEffect(() => {
+    if (state && !state.ok) cancelLoginTransition();
+  }, [state, cancelLoginTransition]);
 
   return (
     <div className="space-y-6">

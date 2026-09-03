@@ -5,10 +5,12 @@ import { usePathname } from "next/navigation";
 import Preloader from "./preloader";
 
 interface LoginTransitionContextValue {
-  /** Call the moment a login submission starts (e.g. `isPending` turns true). */
+  /** Call once a login is confirmed to still be in flight toward a successful navigation. */
   beginLoginTransition: () => void;
   /** Call once the login attempt has settled without a page navigation (error, thrown exception, etc.). */
   resolveLoginTransition: () => void;
+  /** Tear the transition down at once, no exit animation — used when a login comes back a failure. */
+  cancelLoginTransition: () => void;
 }
 
 const LoginTransitionContext = createContext<LoginTransitionContextValue | null>(null);
@@ -20,8 +22,11 @@ const LoginTransitionContext = createContext<LoginTransitionContextValue | null>
  *  - success: `usePathname()` changing away from the page that started the
  *    transition IS the app telling us the destination route has actually
  *    committed — no timer involved.
- *  - failure: `resolveLoginTransition()`, called by the login form once the
- *    server action has settled back to idle without a navigation.
+ *  - failure: `cancelLoginTransition()`, called by the login form the
+ *    moment the server action returns an error result. The form only calls
+ *    `beginLoginTransition()` once an attempt has stayed in flight long
+ *    enough that a rejected credential would already have come back, so a
+ *    failed login normally never starts the transition at all.
  */
 export function LoginTransitionProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -44,6 +49,12 @@ export function LoginTransitionProvider({ children }: { children: React.ReactNod
     setReady(true);
   }, []);
 
+  const cancelLoginTransition = useCallback(() => {
+    setActive(false);
+    setReady(false);
+    startPathRef.current = null;
+  }, []);
+
   // The authoritative "navigation actually landed" signal — fires once the
   // committed route differs from the one the transition started on.
   useEffect(() => {
@@ -59,7 +70,9 @@ export function LoginTransitionProvider({ children }: { children: React.ReactNod
   }, []);
 
   return (
-    <LoginTransitionContext.Provider value={{ beginLoginTransition, resolveLoginTransition }}>
+    <LoginTransitionContext.Provider
+      value={{ beginLoginTransition, resolveLoginTransition, cancelLoginTransition }}
+    >
       {children}
       {active && <Preloader key={instanceKey} ready={ready} onFinish={handleFinish} />}
     </LoginTransitionContext.Provider>

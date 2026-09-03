@@ -235,8 +235,8 @@ export async function syncWooCommerceOrdersAction(): Promise<ActionResult<{ summ
   }
 
   // Bound the import to orders created since the last successful ORDERS
-  // sync (or the last 30 days on a first run) rather than the store's
-  // entire order history every time — see
+  // sync (or the first-run lookback in resolveOrdersSyncSince on a first
+  // run) rather than the store's entire order history every time — see
   // docs/adr/0010-woocommerce-integration.md. Deliberately NOT
   // integration.lastSyncAt: that field is shared across every resource
   // (products/categories/stock too) and gets bumped by whichever synced
