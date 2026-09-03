@@ -191,6 +191,37 @@ describe("applyStockMovement — warehouse scoping", () => {
     const row = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
     expect(row.quantityReserved).toBe(0);
   });
+
+  it("persists stocktakeSessionId on the movement when given, and null otherwise (Phase 32c)", async () => {
+    const { product, warehouses } = await seedProductInWarehouses([{ name: "A", isDefault: true, qty: 10 }]);
+    const session = await prisma.stocktakeSession.create({
+      data: { warehouseId: warehouses["A"].id },
+    });
+
+    const withSession = await run({
+      warehouseId: warehouses["A"].id,
+      productId: product.id,
+      type: "INVENTAIRE",
+      quantity: 2,
+      onHandDelta: 2,
+      stocktakeSessionId: session.id,
+    });
+    expect(withSession.applied).toBe(true);
+    if (!withSession.applied) return;
+    const m1 = await prisma.inventoryMovement.findUniqueOrThrow({ where: { id: withSession.movementId } });
+    expect(m1).toMatchObject({ type: "INVENTAIRE", stocktakeSessionId: session.id, stockTransferId: null });
+
+    const withoutSession = await run({
+      warehouseId: warehouses["A"].id,
+      productId: product.id,
+      type: "AJUSTEMENT_POSITIF",
+      quantity: 1,
+      onHandDelta: 1,
+    });
+    if (!withoutSession.applied) return;
+    const m2 = await prisma.inventoryMovement.findUniqueOrThrow({ where: { id: withoutSession.movementId } });
+    expect(m2.stocktakeSessionId).toBeNull();
+  });
 });
 
 describe("applyStockMovement — concurrency & multi-warehouse (Phase 32a regression)", () => {

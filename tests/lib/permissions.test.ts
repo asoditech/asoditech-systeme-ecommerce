@@ -67,4 +67,19 @@ describe("RBAC permission matrix", () => {
       expect(hasPermission(role, "inventory.transfer")).toBe(false);
     }
   });
+
+  it("grants inventory.count to stock-counting roles only (Phase 32c)", () => {
+    for (const role of ["OWNER", "ADMIN", "MANAGER", "WAREHOUSE"] as const) {
+      expect(hasPermission(role, "inventory.count")).toBe(true);
+    }
+    for (const role of ["SALES", "DELIVERY", "SUPPORT", "ACCOUNTANT"] as const) {
+      expect(hasPermission(role, "inventory.count")).toBe(false);
+    }
+  });
+
+  it("keeps inventory.view as the read permission (every stocktake role also reads)", () => {
+    for (const role of ["OWNER", "ADMIN", "MANAGER", "WAREHOUSE"] as const) {
+      expect(hasPermission(role, "inventory.view")).toBe(true);
+    }
+  });
 });

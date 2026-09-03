@@ -37,3 +37,8 @@ export function formatOrderNumber(orderNumber: number, prefix = "CMD"): string {
 export function formatTransferNumber(transferNumber: number): string {
   return `TR-${transferNumber.toString().padStart(6, "0")}`;
 }
+
+/** Stocktake session reference, e.g. "INV-000123" (Phase 32c). */
+export function formatStocktakeNumber(sessionNumber: number): string {
+  return `INV-${sessionNumber.toString().padStart(6, "0")}`;
+}

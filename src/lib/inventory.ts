@@ -75,6 +75,10 @@ export interface ApplyStockMovementInput {
   /** Set on the two TRANSFERT_* movements a StockTransfer produces
    * (Phase 32b). Persisted verbatim on the InventoryMovement row. */
   stockTransferId?: string | null;
+  /** Set on the INVENTAIRE movement a stocktake finalization produces for
+   * a non-zero variance line (Phase 32c). Persisted verbatim on the
+   * InventoryMovement row; left null by every other caller. */
+  stocktakeSessionId?: string | null;
   performedById?: string | null;
   reason?: string | null;
 }
@@ -154,6 +158,7 @@ export async function applyStockMovement(
       quantity: input.quantity,
       orderId: input.orderId ?? null,
       stockTransferId: input.stockTransferId ?? null,
+      stocktakeSessionId: input.stocktakeSessionId ?? null,
       performedById: input.performedById ?? null,
       reason: input.reason ?? null,
     },

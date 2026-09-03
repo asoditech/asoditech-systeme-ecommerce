@@ -149,12 +149,19 @@ export const INVENTORY_MOVEMENT_TYPE_LABELS: Record<string, string> = {
   LIBERATION: "Libération",
   TRANSFERT_SORTIE: "Transfert — sortie",
   TRANSFERT_ENTREE: "Transfert — entrée",
+  INVENTAIRE: "Inventaire",
 };
 
 export const TRANSFER_STATUS_LABELS: Record<string, StatusMeta> = {
   BROUILLON: { label: "Brouillon", variant: "secondary" },
   EN_TRANSIT: { label: "En transit", variant: "default" },
   RECU: { label: "Reçu", variant: "default" },
+  ANNULE: { label: "Annulé", variant: "outline" },
+};
+
+export const STOCKTAKE_STATUS_LABELS: Record<string, StatusMeta> = {
+  EN_COURS: { label: "En cours", variant: "secondary" },
+  CLOTURE: { label: "Clôturé", variant: "default" },
   ANNULE: { label: "Annulé", variant: "outline" },
 };
 

@@ -29,6 +29,12 @@ export const PERMISSIONS = [
   // unlike warehouses.manage (adding/retiring a location). Viewing the
   // transfer list/detail uses inventory.view.
   "inventory.transfer",
+  // Create / count / finalize / cancel stocktake sessions (Phase 32c —
+  // docs/adr/0021-stocktaking.md). Held by the WAREHOUSE role for the same
+  // reason as inventory.adjust / inventory.transfer — counting is
+  // warehouse-floor work. Viewing the stocktake list/detail uses
+  // inventory.view.
+  "inventory.count",
   // Create / rename / (de)activate stock locations. Deliberately NOT held
   // by the WAREHOUSE role — adjusting stock in a location is operational;
   // adding or retiring a location is an org-structure decision. See
@@ -80,6 +86,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     "inventory.view",
     "inventory.adjust",
     "inventory.transfer",
+    "inventory.count",
     "warehouses.manage",
     "delivery.view",
     "delivery.manage",
@@ -108,6 +115,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     "inventory.view",
     "inventory.adjust",
     "inventory.transfer",
+    "inventory.count",
     "delivery.view",
   ],
   DELIVERY: ["dashboard.view", "orders.view", "delivery.view", "delivery.manage"],

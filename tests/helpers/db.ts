@@ -27,6 +27,8 @@ export async function resetDb() {
     prisma.refund.deleteMany(),
     prisma.orderItem.deleteMany(),
     prisma.order.deleteMany(),
+    prisma.stocktakeLine.deleteMany(),
+    prisma.stocktakeSession.deleteMany(),
     prisma.inventoryMovement.deleteMany(),
     prisma.stockTransferLine.deleteMany(),
     prisma.stockTransfer.deleteMany(),

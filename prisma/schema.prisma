@@ -63,6 +63,9 @@ model User {
   stockTransfersCreated    StockTransfer[] @relation("StockTransferCreatedBy")
   stockTransfersDispatched StockTransfer[] @relation("StockTransferDispatchedBy")
   stockTransfersReceived   StockTransfer[] @relation("StockTransferReceivedBy")
+  stocktakesStarted        StocktakeSession[] @relation("StocktakeStartedBy")
+  stocktakesClosed         StocktakeSession[] @relation("StocktakeClosedBy")
+  stocktakesCounted        StocktakeLine[]    @relation("StocktakeCountedBy")
 
   @@index([role])
   @@map("users")
@@ -302,6 +305,7 @@ model Warehouse {
   fulfilledOrders Order[]            @relation("OrderFulfillmentWarehouse")
   transfersOut    StockTransfer[]    @relation("StockTransferSource")
   transfersIn     StockTransfer[]    @relation("StockTransferDestination")
+  stocktakeSessions StocktakeSession[]
 
   @@index([source, externalId])
   @@index([isActive])
@@ -336,10 +340,11 @@ model InventoryItem {
   externalId       String?
   updatedAt        DateTime @updatedAt
 
-  warehouse Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  product   Product?            @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variation ProductVariation?   @relation(fields: [variationId], references: [id], onDelete: Cascade)
-  movements InventoryMovement[]
+  warehouse      Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  product        Product?            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variation      ProductVariation?   @relation(fields: [variationId], references: [id], onDelete: Cascade)
+  movements      InventoryMovement[]
+  stocktakeLines StocktakeLine[]
 
   @@unique([warehouseId, productId])
   @@unique([warehouseId, variationId])
@@ -362,6 +367,11 @@ enum InventoryMovementType {
   // docs/adr/0020-stock-transfers.md). Both carry `stockTransferId`.
   TRANSFERT_SORTIE
   TRANSFERT_ENTREE
+  // Reconciliation of a physical stock count against the system quantity
+  // at stocktake finalization (Phase 32c — see
+  // docs/adr/0021-stocktaking.md). Carries `stocktakeSessionId`; the
+  // signed variance drives on-hand, and only non-zero variances create a row.
+  INVENTAIRE
 }
 
 model InventoryMovement {
@@ -382,14 +392,21 @@ model InventoryMovement {
   // for every other movement type. `SetNull` so an admin cleanup of a
   // transfer would not cascade its ledger rows.
   stockTransferId String?
+  // Set on the INVENTAIRE movement a stocktake finalization produces for a
+  // non-zero variance line (Phase 32c). `SetNull` for the same reason.
+  stocktakeSessionId String?
   performedById   String?
   createdAt       DateTime              @default(now())
 
-  inventoryItem InventoryItem  @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
-  warehouse     Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  order         Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  stockTransfer StockTransfer? @relation(fields: [stockTransferId], references: [id], onDelete: SetNull)
-  performedBy   User?          @relation("MovementPerformedBy", fields: [performedById], references: [id], onDelete: SetNull)
+  inventoryItem InventoryItem     @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  warehouse     Warehouse         @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  order         Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  stockTransfer StockTransfer?    @relation(fields: [stockTransferId], references: [id], onDelete: SetNull)
+  stocktakeSession StocktakeSession? @relation(fields: [stocktakeSessionId], references: [id], onDelete: SetNull)
+  // Inverse of StocktakeLine.appliedMovement — at most one stocktake line
+  // binds a given movement (StocktakeLine.appliedMovementId is @unique).
+  stocktakeLine StocktakeLine?    @relation("StocktakeLineMovement")
+  performedBy   User?             @relation("MovementPerformedBy", fields: [performedById], references: [id], onDelete: SetNull)
 
   @@index([inventoryItemId])
   @@index([createdAt])
@@ -398,6 +415,7 @@ model InventoryMovement {
   // Movements at one location over time — the per-warehouse ledger view.
   @@index([warehouseId, createdAt])
   @@index([stockTransferId])
+  @@index([stocktakeSessionId])
   @@map("inventory_movements")
 }
 
@@ -478,6 +496,95 @@ model StockTransferLine {
   @@index([productId])
   @@index([variationId])
   @@map("stock_transfer_lines")
+}
+
+// ---------------------------------------------------------------------------
+// Stocktaking — Phase 32c (docs/adr/0021-stocktaking.md).
+// Physical stock count for ONE warehouse per session. Counting NEVER
+// freezes inventory: updateStocktakeCountsAction writes only StocktakeLine
+// columns; InventoryItem.quantityOnHand is untouched until finalization,
+// which applies the SIGNED VARIANCE per line through the canonical
+// applyStockMovement primitive (never an absolute set). A counted line
+// whose current on-hand no longer matches the snapshot taken at count time
+// is STALE and blocks finalization until recounted.
+// ---------------------------------------------------------------------------
+
+enum StocktakeStatus {
+  EN_COURS
+  CLOTURE
+  ANNULE
+}
+
+model StocktakeSession {
+  id            String          @id @default(cuid())
+  // Sequential, collision-free; displayed "INV-000123"
+  // (formatStocktakeNumber). Same pattern as Order.orderNumber.
+  sessionNumber Int             @unique @default(autoincrement())
+  warehouseId   String
+  status        StocktakeStatus @default(EN_COURS)
+  notes         String?
+  startedById   String?
+  closedById    String?
+  closedAt      DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  // A warehouse with stocktake history can't be deleted (it also holds
+  // InventoryItem rows — onDelete: Restrict there too).
+  warehouse Warehouse          @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  startedBy User?              @relation("StocktakeStartedBy", fields: [startedById], references: [id], onDelete: SetNull)
+  closedBy  User?              @relation("StocktakeClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  lines     StocktakeLine[]
+  movements InventoryMovement[]
+
+  // DB-enforced (raw-SQL migration): a PARTIAL unique index on
+  // (warehouseId) WHERE status = 'EN_COURS' — at most one open session per
+  // warehouse at a time.
+  @@index([status])
+  @@index([warehouseId])
+  @@index([createdAt])
+  @@map("stocktake_sessions")
+}
+
+// One line per (session, InventoryItem), snapshotted at session creation
+// for every InventoryItem in the warehouse (including zero on-hand rows).
+//
+// State is derived, not a status enum:
+//   - countedQuantity IS NULL    → not yet counted (skipped at finalize)
+//   - isStale = true             → counted, but on-hand moved since; blocks finalize
+//   - appliedAt IS NOT NULL      → processed at finalize (movement, or zero-variance no-op)
+//
+// `systemQuantityAtCount` is the on-hand value AT THE MOMENT OF COUNTING
+// (re-captured on every recount). `isStale` is a UI hint only — finalize
+// always re-verifies against the LOCKED current quantity, never this flag.
+//
+// DB-enforced (raw-SQL migration): countedQuantity IS NULL OR countedQuantity >= 0.
+model StocktakeLine {
+  id                    String    @id @default(cuid())
+  stocktakeSessionId    String
+  inventoryItemId       String
+  systemQuantityAtCount Int
+  countedQuantity       Int?
+  countedAt             DateTime?
+  countedById           String?
+  isStale               Boolean   @default(false)
+  appliedAt             DateTime?
+  appliedMovementId     String?   @unique
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  stocktakeSession StocktakeSession @relation(fields: [stocktakeSessionId], references: [id], onDelete: Cascade)
+  // Cascade — matches InventoryMovement.inventoryItemId: a deleted
+  // product/variation takes its whole stock history (movements + stocktake
+  // lines) with it.
+  inventoryItem   InventoryItem      @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  countedBy       User?              @relation("StocktakeCountedBy", fields: [countedById], references: [id], onDelete: SetNull)
+  appliedMovement InventoryMovement? @relation("StocktakeLineMovement", fields: [appliedMovementId], references: [id], onDelete: SetNull)
+
+  @@unique([stocktakeSessionId, inventoryItemId])
+  @@index([stocktakeSessionId])
+  @@index([inventoryItemId])
+  @@map("stocktake_lines")
 }
 
 // ---------------------------------------------------------------------------
