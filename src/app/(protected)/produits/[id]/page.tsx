@@ -31,6 +31,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { getProductDetail, getProductSalesStats, listCategories } from "@/lib/queries/products";
+import { availableStock } from "@/lib/inventory";
 import { resolveExternalProductEditUrl } from "@/lib/integrations/shared";
 import { formatCurrency } from "@/lib/format";
 import { PRODUCT_STATUS_LABELS, RECORD_SOURCE_LABELS } from "@/lib/status-labels";
@@ -350,9 +351,10 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Entrepôt</TableHead>
-                    <TableHead>Disponible</TableHead>
+                    <TableHead>Emplacement</TableHead>
+                    <TableHead>Stock physique</TableHead>
                     <TableHead>Réservé</TableHead>
+                    <TableHead>Disponible</TableHead>
                     <TableHead>Endommagé</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -362,6 +364,7 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
                       <TableCell className="font-medium">{i.warehouse.name}</TableCell>
                       <TableCell>{i.quantityOnHand}</TableCell>
                       <TableCell>{i.quantityReserved}</TableCell>
+                      <TableCell>{availableStock(i)}</TableCell>
                       <TableCell>{i.quantityDamaged}</TableCell>
                     </TableRow>
                   ))}

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { availableStockTotal } from "@/lib/inventory";
 import type { WooCommerceClient } from "../client";
 import { emptySyncSummary, recordNote, type SyncSummary } from "./types";
 
@@ -40,7 +41,7 @@ export async function pushStockToWooCommerce(client: WooCommerceClient): Promise
           continue;
         }
         const wcVariationId = Number(variation.externalId);
-        const sellable = sellableQuantity(variation.inventoryItems);
+        const sellable = availableStockTotal(variation.inventoryItems);
         if (sellable == null) {
           summary.skipped++;
           continue;
@@ -56,7 +57,7 @@ export async function pushStockToWooCommerce(client: WooCommerceClient): Promise
       continue;
     }
 
-    const sellable = sellableQuantity(product.inventoryItems);
+    const sellable = availableStockTotal(product.inventoryItems);
     if (sellable == null) {
       summary.skipped++;
       continue;
@@ -71,11 +72,4 @@ export async function pushStockToWooCommerce(client: WooCommerceClient): Promise
   }
 
   return summary;
-}
-
-function sellableQuantity(items: { quantityOnHand: number; quantityReserved: number }[]): number | null {
-  if (items.length === 0) return null;
-  const onHand = items.reduce((sum, i) => sum + i.quantityOnHand, 0);
-  const reserved = items.reduce((sum, i) => sum + i.quantityReserved, 0);
-  return Math.max(0, onHand - reserved);
 }

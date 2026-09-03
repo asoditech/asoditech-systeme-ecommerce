@@ -10,6 +10,7 @@ import {
   Users,
   Package,
   Boxes,
+  Warehouse,
   Truck,
   LineChart,
   Wallet,
@@ -52,6 +53,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/produits", label: "Produits", icon: Package, permission: "products.view" },
       { href: "/stock", label: "Stock", icon: Boxes, permission: "inventory.view" },
+      { href: "/entrepots", label: "Emplacements", icon: Warehouse, permission: "inventory.view" },
     ],
   },
   {

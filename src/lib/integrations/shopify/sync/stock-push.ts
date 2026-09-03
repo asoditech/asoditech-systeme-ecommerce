@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { availableStock } from "@/lib/inventory";
 import type { ShopifyClient } from "../client";
 import { emptySyncSummary, recordNote, type SyncSummary } from "@/lib/integrations/shared";
 
@@ -52,7 +53,7 @@ export async function pushStockToShopify(client: ShopifyClient): Promise<SyncSum
     entries.push({
       inventoryItemId: item.externalId,
       locationId: warehouseExternalId.get(item.warehouseId)!,
-      quantity: Math.max(0, item.quantityOnHand - item.quantityReserved),
+      quantity: availableStock(item),
     });
   }
 

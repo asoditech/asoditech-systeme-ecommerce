@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listInventoryItems } from "@/lib/queries/inventory";
+import { availableStock } from "@/lib/inventory";
 
 export const metadata = { title: "Stock — ASODITECH Gestion E-commerce" };
 
@@ -58,9 +59,10 @@ export default async function StockPage({
             <TableHeader>
               <TableRow>
                 <TableHead>Produit</TableHead>
-                <TableHead>Entrepôt</TableHead>
-                <TableHead>Disponible</TableHead>
+                <TableHead>Emplacement</TableHead>
+                <TableHead>Stock physique</TableHead>
                 <TableHead>Réservé</TableHead>
+                <TableHead>Disponible</TableHead>
                 <TableHead>Endommagé</TableHead>
                 {canAdjust && <TableHead />}
               </TableRow>
@@ -86,6 +88,7 @@ export default async function StockPage({
                     <TableCell className="text-muted-foreground">{i.warehouse.name}</TableCell>
                     <TableCell className={isLow ? "font-medium text-destructive" : ""}>{i.quantityOnHand}</TableCell>
                     <TableCell>{i.quantityReserved}</TableCell>
+                    <TableCell>{availableStock(i)}</TableCell>
                     <TableCell>{i.quantityDamaged}</TableCell>
                     {canAdjust && (
                       <TableCell>

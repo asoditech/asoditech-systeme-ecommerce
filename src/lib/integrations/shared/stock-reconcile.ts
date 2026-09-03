@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { recordAuditEvent } from "@/lib/audit";
+import { applyStockMovement } from "@/lib/inventory";
 import { actorAuditFields, actorPerformedById, type SyncActor } from "./actor";
 import { checkAndNotifyLowStock } from "@/lib/notifications";
 import type { RecordSource } from "@prisma/client";
@@ -57,32 +58,34 @@ export async function reconcileStockFromProvider(params: {
     await prisma.inventoryItem.update({ where: { id: existing.id }, data: { externalId: externalItemId } });
   }
 
-  const delta = externalQuantity - existing.quantityOnHand;
+  // Target never goes below 0 — same clamp the first-sight init path uses.
+  const delta = Math.max(0, externalQuantity) - existing.quantityOnHand;
   if (delta === 0) return "unchanged";
 
   await prisma.$transaction(async (tx) => {
-    const updated = await tx.inventoryItem.update({
-      where: { id: existing.id },
-      data: { quantityOnHand: { increment: delta } },
+    // Same canonical stock primitive as manual adjustments and the order
+    // lifecycle (Phase 32a) — warehouse-scoped, cache + ledger in one
+    // transaction. The InventoryItem is re-resolved by (warehouseId,
+    // product|variation) inside the transaction.
+    const result = await applyStockMovement(tx, {
+      warehouseId,
+      productId: productId ?? null,
+      variationId: variationId ?? null,
+      type: delta > 0 ? "AJUSTEMENT_POSITIF" : "AJUSTEMENT_NEGATIF",
+      quantity: Math.abs(delta),
+      onHandDelta: delta,
+      reason: `Synchronisation ${source} (import du stock)`,
+      performedById: actorPerformedById(actor),
     });
-
-    await tx.inventoryMovement.create({
-      data: {
-        inventoryItemId: existing.id,
-        type: delta > 0 ? "AJUSTEMENT_POSITIF" : "AJUSTEMENT_NEGATIF",
-        quantity: Math.abs(delta),
-        reason: `Synchronisation ${source} (import du stock)`,
-        performedById: actorPerformedById(actor),
-      },
-    });
+    if (!result.applied) return; // row vanished between the read above and here — nothing to reconcile
 
     await recordAuditEvent({
       ...actorAuditFields(actor),
       action: "inventory.reconciled",
       entityType: "InventoryItem",
-      entityId: existing.id,
+      entityId: result.item.id,
       previousValue: { quantityOnHand: existing.quantityOnHand },
-      newValue: { quantityOnHand: updated.quantityOnHand },
+      newValue: { quantityOnHand: result.item.quantityOnHand },
       metadata: { source },
     });
   });

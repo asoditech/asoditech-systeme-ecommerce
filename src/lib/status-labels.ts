@@ -149,6 +149,11 @@ export const INVENTORY_MOVEMENT_TYPE_LABELS: Record<string, string> = {
   LIBERATION: "Libération",
 };
 
+export const WAREHOUSE_TYPE_LABELS: Record<string, string> = {
+  ENTREPOT: "Entrepôt",
+  MAGASIN: "Magasin",
+};
+
 export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   STOCK_FAIBLE: "Stock faible",
   RUPTURE_STOCK: "Rupture de stock",

@@ -52,6 +52,7 @@ model User {
   customersCreated   Customer[]          @relation("CustomerCreatedBy")
   ordersCreated      Order[]             @relation("OrderCreatedBy")
   productsCreated    Product[]           @relation("ProductCreatedBy")
+  warehousesCreated  Warehouse[]         @relation("WarehouseCreatedBy")
   inventoryMovements InventoryMovement[] @relation("MovementPerformedBy")
   expensesRecorded   Expense[]           @relation("ExpenseRecordedBy")
   shipmentsUpdated   Shipment[]          @relation("ShipmentUpdatedBy")
@@ -256,10 +257,28 @@ model ProductVariation {
 // Inventory — see docs/adr/0005-inventory-and-sync.md
 // ---------------------------------------------------------------------------
 
+// A physical stock location. `type` distinguishes a back-office warehouse
+// (ENTREPOT) from a retail store (MAGASIN) — both hold stock through the
+// same per-`(warehouse, product|variation)` InventoryItem rows, so this is
+// the ONE location entity (no separate Store/Location model — see
+// docs/adr/0019-inventory-foundation.md, Phase 32a). `isActive` lets a
+// location be retired without deleting its inventory history
+// (`InventoryItem.warehouse` is onDelete: Restrict).
+enum WarehouseType {
+  ENTREPOT
+  MAGASIN
+}
+
 model Warehouse {
-  id        String   @id @default(cuid())
+  id        String        @id @default(cuid())
   name      String
-  isDefault Boolean  @default(false)
+  isDefault Boolean       @default(false)
+  type      WarehouseType @default(ENTREPOT)
+  // A retired location keeps its InventoryItem history but can no longer
+  // receive new stock-in movements (manual adjustments) — enforced
+  // server-side. The `isDefault` warehouse can never be deactivated.
+  isActive  Boolean       @default(true)
+  address   String?
   // Set when this warehouse represents a real Shopify Location — see
   // docs/adr/0011-shopify-integration.md. Shopify tracks inventory
   // per-location; mapping each Location to its own Warehouse (rather than
@@ -267,13 +286,16 @@ model Warehouse {
   // InventoryItem model represent it faithfully, unlike WooCommerce (which
   // has no location concept and only ever uses the single default
   // warehouse).
-  source     RecordSource @default(INTERNE)
-  externalId String?
-  createdAt DateTime @default(now())
+  source      RecordSource @default(INTERNE)
+  externalId  String?
+  createdAt   DateTime     @default(now())
+  createdById String?
 
+  createdBy      User?           @relation("WarehouseCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   inventoryItems InventoryItem[]
 
   @@index([source, externalId])
+  @@index([isActive])
   @@map("warehouses")
 }
 
@@ -344,6 +366,8 @@ model InventoryMovement {
 
   @@index([inventoryItemId])
   @@index([createdAt])
+  // Movement history for one item, newest first — the per-item ledger view.
+  @@index([inventoryItemId, createdAt])
   @@map("inventory_movements")
 }
 

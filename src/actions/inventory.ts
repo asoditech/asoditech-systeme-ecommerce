@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
 import { checkAndNotifyLowStock } from "@/lib/notifications";
+import { applyStockMovement, InsufficientStockError } from "@/lib/inventory";
 import { inventoryAdjustmentSchema } from "@/lib/validation/inventory";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import type { InventoryItem } from "@prisma/client";
@@ -15,8 +16,6 @@ import type { InventoryItem } from "@prisma/client";
  * distinct movement types so history reads correctly.
  */
 const POSITIVE_TYPES = new Set(["AJUSTEMENT_POSITIF", "RETOUR", "RECEPTION"]);
-
-class NegativeStockError extends Error {}
 
 export async function adjustInventoryAction(formData: FormData): Promise<ActionResult<InventoryItem>> {
   const user = await requirePermissionForAction("inventory.adjust");
@@ -33,53 +32,53 @@ export async function adjustInventoryAction(formData: FormData): Promise<ActionR
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
 
+  // Never trust the client's warehouseId — resolve and validate it here.
+  const warehouse = await prisma.warehouse.findUnique({ where: { id: parsed.data.warehouseId } });
+  if (!warehouse) return actionError("Entrepôt introuvable.");
+  if (!warehouse.isActive) {
+    return actionError("Cet entrepôt est désactivé. Réactivez-le pour ajuster son stock.");
+  }
+
   const item = parsed.data.variationId
-    ? await prisma.inventoryItem.findFirst({ where: { variationId: parsed.data.variationId, warehouseId: parsed.data.warehouseId } })
-    : await prisma.inventoryItem.findFirst({ where: { productId: parsed.data.productId, warehouseId: parsed.data.warehouseId } });
+    ? await prisma.inventoryItem.findUnique({
+        where: { warehouseId_variationId: { warehouseId: warehouse.id, variationId: parsed.data.variationId } },
+      })
+    : await prisma.inventoryItem.findUnique({
+        where: { warehouseId_productId: { warehouseId: warehouse.id, productId: parsed.data.productId! } },
+      });
 
   if (!item) {
     return actionError("Aucun enregistrement de stock trouvé pour ce produit dans cet entrepôt.");
   }
 
-  const delta = POSITIVE_TYPES.has(parsed.data.type) ? parsed.data.quantity : -parsed.data.quantity;
+  const isPositive = POSITIVE_TYPES.has(parsed.data.type);
   const previousQuantityOnHand = item.quantityOnHand;
 
-  // The negative-stock check is done AFTER applying the increment inside
-  // the transaction, not against `item.quantityOnHand` read above — that
-  // read can be stale under concurrent adjustments (two requests both
-  // reading 3 in stock, both requesting -3, both passing a pre-check, both
-  // applying, landing on -3). Postgres locks the row for the `UPDATE`, so
-  // the second transaction's increment is applied against the first
-  // transaction's already-committed result; checking the post-update value
-  // here is what actually prevents negative stock under concurrency, not
-  // just a nicety. Found during the A–G audit; see
-  // docs/adr/0005-inventory-and-sync.md.
-  let updated;
+  let updated: InventoryItem;
   try {
     updated = await prisma.$transaction(async (tx) => {
-      const result = await tx.inventoryItem.update({
-        where: { id: item.id },
-        data: {
-          quantityOnHand: { increment: delta },
-          ...(parsed.data.type === "ENDOMMAGE" ? { quantityDamaged: { increment: parsed.data.quantity } } : {}),
-        },
+      const result = await applyStockMovement(tx, {
+        warehouseId: warehouse.id,
+        productId: item.productId,
+        variationId: item.variationId,
+        type: parsed.data.type,
+        quantity: parsed.data.quantity,
+        onHandDelta: isPositive ? parsed.data.quantity : -parsed.data.quantity,
+        damagedDelta: parsed.data.type === "ENDOMMAGE" ? parsed.data.quantity : 0,
+        performedById: user.id,
+        reason: parsed.data.reason,
       });
-      if (result.quantityOnHand < 0) {
-        throw new NegativeStockError("Cet ajustement rendrait le stock négatif.");
+      // The item is guaranteed to exist (checked above, same transaction
+      // scope for the mutation), so `applied` is always true here.
+      if (!result.applied) {
+        throw new Error("inventory item disappeared mid-adjustment");
       }
-      await tx.inventoryMovement.create({
-        data: {
-          inventoryItemId: item.id,
-          type: parsed.data.type,
-          quantity: parsed.data.quantity,
-          reason: parsed.data.reason,
-          performedById: user.id,
-        },
-      });
-      return result;
+      return result.item;
     });
   } catch (error) {
-    if (error instanceof NegativeStockError) return actionError(error.message);
+    if (error instanceof InsufficientStockError) {
+      return actionError("Cet ajustement rendrait le stock négatif.");
+    }
     throw error;
   }
 
@@ -91,7 +90,7 @@ export async function adjustInventoryAction(formData: FormData): Promise<ActionR
     entityId: item.id,
     previousValue: { quantityOnHand: previousQuantityOnHand },
     newValue: { quantityOnHand: updated.quantityOnHand },
-    metadata: { type: parsed.data.type, reason: parsed.data.reason },
+    metadata: { type: parsed.data.type, reason: parsed.data.reason, warehouseId: warehouse.id },
   });
 
   if (updated.quantityOnHand < previousQuantityOnHand) {

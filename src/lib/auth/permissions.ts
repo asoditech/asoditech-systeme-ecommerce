@@ -23,6 +23,11 @@ export const PERMISSIONS = [
   "products.edit",
   "inventory.view",
   "inventory.adjust",
+  // Create / rename / (de)activate stock locations. Deliberately NOT held
+  // by the WAREHOUSE role — adjusting stock in a location is operational;
+  // adding or retiring a location is an org-structure decision. See
+  // docs/adr/0019-inventory-foundation.md.
+  "warehouses.manage",
   "delivery.view",
   "delivery.manage",
   "finance.view",
@@ -68,6 +73,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     "products.edit",
     "inventory.view",
     "inventory.adjust",
+    "warehouses.manage",
     "delivery.view",
     "delivery.manage",
     "finance.view",

@@ -39,6 +39,15 @@ describe("RBAC permission matrix", () => {
     expect(hasPermission("SUPPORT", "inventory.adjust")).toBe(false);
   });
 
+  it("grants warehouses.manage above the stock-operator level (Phase 32a — not WAREHOUSE)", () => {
+    expect(hasPermission("WAREHOUSE", "warehouses.manage")).toBe(false);
+    expect(hasPermission("MANAGER", "warehouses.manage")).toBe(true);
+    expect(hasPermission("OWNER", "warehouses.manage")).toBe(true);
+    expect(hasPermission("ADMIN", "warehouses.manage")).toBe(true);
+    expect(hasPermission("SALES", "warehouses.manage")).toBe(false);
+    expect(hasPermission("DELIVERY", "warehouses.manage")).toBe(false);
+  });
+
   it("grants every role dashboard.view", () => {
     for (const role of Object.keys(ROLE_PERMISSIONS) as Array<keyof typeof ROLE_PERMISSIONS>) {
       expect(hasPermission(role, "dashboard.view")).toBe(true);

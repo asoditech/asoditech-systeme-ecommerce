@@ -216,6 +216,64 @@ describe("updateOrderStatusAction — state machine", () => {
     return { orderId: created.data.id, product };
   }
 
+  // Phase 32a regression: an order line for a variation carries BOTH the
+  // parent productId and the variationId (createOrderAction snapshots them
+  // together). The canonical stock primitive must target the variation's
+  // InventoryItem row and not choke on "both ids present".
+  it("reserves / fulfills / returns stock on the VARIATION row for a variation order line", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { warehouse, customer } = await seedOrderable();
+    const parent = await prisma.product.create({
+      data: { name: "Robe", sku: `ROBE-${Math.random()}`, price: 200, cost: 80, status: "ACTIF" },
+    });
+    const variation = await prisma.productVariation.create({
+      data: { productId: parent.id, sku: `ROBE-V-${Math.random()}`, attributes: { Couleur: "Rouge", Taille: "M" } },
+    });
+    const varItem = await prisma.inventoryItem.create({
+      data: { warehouseId: warehouse.id, variationId: variation.id, quantityOnHand: 12 },
+    });
+
+    const created = await createOrderAction({
+      customerId: customer.id,
+      paymentMethod: "PAIEMENT_LIVRAISON",
+      shippingCost: 0,
+      discountTotal: 0,
+      currency: "MAD",
+      notes: "",
+      internalNotes: "",
+      shippingAddressLine1: "",
+      shippingAddressLine2: "",
+      shippingCity: "",
+      shippingRegion: "",
+      shippingCountry: "",
+      shippingPhone: "",
+      items: [{ variationId: variation.id, quantity: 3, unitPrice: 200, discount: 0 }],
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const orderId = created.data.id;
+
+    let row = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: varItem.id } });
+    expect(row).toMatchObject({ quantityOnHand: 12, quantityReserved: 3 });
+
+    await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
+    await updateOrderStatusAction(formData({ id: orderId, status: "EN_PREPARATION" }));
+    const shipped = await updateOrderStatusAction(formData({ id: orderId, status: "EXPEDIEE" }));
+    expect(shipped.ok).toBe(true);
+    row = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: varItem.id } });
+    expect(row).toMatchObject({ quantityOnHand: 9, quantityReserved: 0 });
+
+    const returned = await updateOrderStatusAction(formData({ id: orderId, status: "RETOUR" }));
+    expect(returned.ok).toBe(true);
+    row = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: varItem.id } });
+    expect(row.quantityOnHand).toBe(12);
+
+    // the parent product never got an InventoryItem or a movement
+    expect(await prisma.inventoryItem.count({ where: { productId: parent.id } })).toBe(0);
+    const movements = await prisma.inventoryMovement.findMany({ where: { inventoryItemId: varItem.id } });
+    expect(movements.map((m) => m.type).sort()).toEqual(["RESERVATION", "RETOUR", "VENTE"]);
+  });
+
   it("rejects an invalid transition (NOUVELLE -> LIVREE)", async () => {
     await loginAsTestUser({ role: "MANAGER" });
     const { orderId } = await createTestOrder();
