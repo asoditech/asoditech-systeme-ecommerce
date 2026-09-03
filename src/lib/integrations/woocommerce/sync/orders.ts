@@ -6,6 +6,7 @@ import { canTransitionOrderStatus } from "@/lib/validation/order";
 import { mapCustomerFieldsFromOrder, mapOrderFields, mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
 import type { WcOrder } from "../types";
 import { actorAuditFields, actorPerformedById, type SyncActor } from "./actor";
+import { isRecentlyPlaced } from "../../shared/order-recency";
 import { notifyNewOrder } from "@/lib/notifications";
 import { emptySyncSummary, recordNote, type SyncSummary } from "./types";
 import type { Prisma, OrderStatus } from "@prisma/client";
@@ -189,11 +190,17 @@ async function createImportedOrder(
     metadata: { source: "WOOCOMMERCE", externalId: order.externalId },
   });
 
-  const customer = await prisma.customer.findUniqueOrThrow({ where: { id: customerId }, select: { fullName: true } });
-  await notifyNewOrder(
-    { id: order.id, orderNumber: order.orderNumber, total: fields.total, currency: fields.currency, customerName: customer.fullName, source: "WOOCOMMERCE" },
-    actorPerformedById(actor)
-  );
+  // A webhook order.created is a real-time event — always alert. A manual
+  // "Synchroniser les commandes" only alerts for an order actually placed
+  // in the last couple of days, so a first-time history import doesn't
+  // fan out hundreds of "nouvelle commande" notifications at once.
+  if (actor.type === "INTEGRATION" || isRecentlyPlaced(wc.date_created)) {
+    const customer = await prisma.customer.findUniqueOrThrow({ where: { id: customerId }, select: { fullName: true } });
+    await notifyNewOrder(
+      { id: order.id, orderNumber: order.orderNumber, total: fields.total, currency: fields.currency, customerName: customer.fullName, source: "WOOCOMMERCE" },
+      actorPerformedById(actor)
+    );
+  }
 
   return { outcome: "imported" };
 }

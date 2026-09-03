@@ -1,39 +1,33 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import type { RecordSource } from "@prisma/client";
 
-// First-run lookback: a client who has just connected their existing store
-// expects their recent trading history to come in, not only the last
-// month. Subsequent runs are bounded by the last successful ORDERS sync,
-// so this window only ever applies once per integration.
-const FIRST_SYNC_LOOKBACK_MS = 365 * 24 * 60 * 60 * 1000;
+// Once a source has any imported order, later syncs use a rolling window
+// rather than re-scanning the whole history each click. Kept deliberately
+// wide (~18 months) so that even a first import that timed out partway
+// still has its older pages picked up by the next run. The first sync for
+// a source has no floor at all — a just-connected store brings its whole
+// history in, bounded only by MAX_PAGES in each provider's client.
+const INCREMENTAL_WINDOW_MS = 550 * 24 * 60 * 60 * 1000;
 
 /**
  * The `since` bound for an incremental orders import (WooCommerce
  * `syncWooCommerceOrdersAction`, Shopify `syncShopifyOrdersAction`).
  *
- * Phase 29 E2E audit fix: this used to read `Integration.lastSyncAt`, but
- * that field is a single, non-resource-scoped timestamp overwritten by
- * *every* successful sync of *any* resource on the integration (products,
- * categories, stock push — see `runSync` in `actions/woocommerce.ts` /
- * `actions/shopify.ts`). Because "Synchroniser les produits" is always run
- * before "Synchroniser les commandes", `lastSyncAt` was already bumped to
- * "now" by the products/categories sync moments earlier — so the orders
- * import window silently collapsed to a few seconds instead of the
- * intended "since the last successful ORDERS sync, or the first-run
- * lookback below on a first run", and reported `SUCCES` with 0 items
- * imported no matter how many real orders existed on the store.
+ * Derived from whether we already hold any order from this source, NOT
+ * from a SyncRun / `lastSyncAt` timestamp. Earlier revisions keyed off a
+ * wall-clock sync timestamp and compared it against order *creation*
+ * dates — so a store whose most recent order predated the first sync run
+ * imported 0 orders yet reported SUCCES, and once that empty run existed
+ * the cursor stayed stuck at "now" and every later run also imported 0.
+ * Keying off "do we hold any order from this source yet" removes that
+ * whole failure mode: the first run is unbounded, later runs use a
+ * rolling window that always contains any newly placed order.
  *
- * Fixed by deriving `since` from the last successful (or partially
- * successful — those still imported real orders) `SyncRun` row scoped to
- * `resource: "COMMANDES"` on this integration, instead of the shared
- * `lastSyncAt` field. No schema change needed — `SyncRun` already records
- * this per-resource.
+ * `undefined` means "no lower bound" — the provider client then lists the
+ * full order history (still capped by its own MAX_PAGES).
  */
-export async function resolveOrdersSyncSince(integrationId: string): Promise<Date> {
-  const lastOrdersSync = await prisma.syncRun.findFirst({
-    where: { integrationId, resource: "COMMANDES", status: { in: ["SUCCES", "PARTIEL"] } },
-    orderBy: { startedAt: "desc" },
-    select: { startedAt: true },
-  });
-  return lastOrdersSync?.startedAt ?? new Date(Date.now() - FIRST_SYNC_LOOKBACK_MS);
+export async function resolveOrdersSyncSince(source: RecordSource): Promise<Date | undefined> {
+  const alreadyImported = await prisma.order.count({ where: { source } });
+  return alreadyImported > 0 ? new Date(Date.now() - INCREMENTAL_WINDOW_MS) : undefined;
 }

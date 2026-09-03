@@ -6,7 +6,7 @@ import { canTransitionOrderStatus } from "@/lib/validation/order";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
 import type { ShopifyOrder } from "../types";
-import { actorAuditFields, actorPerformedById, emptySyncSummary, recordNote, type SyncActor, type SyncSummary } from "@/lib/integrations/shared";
+import { actorAuditFields, actorPerformedById, emptySyncSummary, isRecentlyPlaced, recordNote, type SyncActor, type SyncSummary } from "@/lib/integrations/shared";
 import { notifyNewOrder } from "@/lib/notifications";
 import type { Prisma, OrderStatus } from "@prisma/client";
 
@@ -195,18 +195,24 @@ async function createImportedOrder(
     metadata: { source: "SHOPIFY", externalId: createdOrder.externalId },
   });
 
-  const customer = await prisma.customer.findUniqueOrThrow({ where: { id: customerId }, select: { fullName: true } });
-  await notifyNewOrder(
-    {
-      id: createdOrder.id,
-      orderNumber: createdOrder.orderNumber,
-      total: fields.total,
-      currency: fields.currency,
-      customerName: customer.fullName,
-      source: "SHOPIFY",
-    },
-    actorPerformedById(actor)
-  );
+  // A webhook order.created is a real-time event — always alert. A manual
+  // "Synchroniser les commandes" only alerts for an order actually placed
+  // in the last couple of days, so a first-time history import doesn't
+  // fan out hundreds of "nouvelle commande" notifications at once.
+  if (actor.type === "INTEGRATION" || isRecentlyPlaced(order.createdAt)) {
+    const customer = await prisma.customer.findUniqueOrThrow({ where: { id: customerId }, select: { fullName: true } });
+    await notifyNewOrder(
+      {
+        id: createdOrder.id,
+        orderNumber: createdOrder.orderNumber,
+        total: fields.total,
+        currency: fields.currency,
+        customerName: customer.fullName,
+        source: "SHOPIFY",
+      },
+      actorPerformedById(actor)
+    );
+  }
 
   return { outcome: "imported" };
 }

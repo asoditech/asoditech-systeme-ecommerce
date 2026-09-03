@@ -234,14 +234,11 @@ export async function syncWooCommerceOrdersAction(): Promise<ActionResult<{ summ
     return actionError(friendlyError(error));
   }
 
-  // Bound the import to orders created since the last successful ORDERS
-  // sync (or the first-run lookback in resolveOrdersSyncSince on a first
-  // run) rather than the store's entire order history every time — see
-  // docs/adr/0010-woocommerce-integration.md. Deliberately NOT
-  // integration.lastSyncAt: that field is shared across every resource
-  // (products/categories/stock too) and gets bumped by whichever synced
-  // most recently — see resolveOrdersSyncSince's own doc comment.
-  const since = await resolveOrdersSyncSince(integration.id);
+  // First WooCommerce sync (no orders held yet) pulls the whole history;
+  // later syncs use a rolling window. Keyed off held orders, not a sync
+  // timestamp — see resolveOrdersSyncSince's doc comment and
+  // docs/adr/0010-woocommerce-integration.md.
+  const since = await resolveOrdersSyncSince("WOOCOMMERCE");
 
   return runSync(user, integration.id, "COMMANDES", "IMPORT", () =>
     syncOrders(client, { type: "USER", userId: user.id }, since)

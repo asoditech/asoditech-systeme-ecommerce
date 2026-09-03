@@ -209,13 +209,11 @@ export async function syncShopifyOrdersAction(): Promise<ActionResult<{ summary:
     return actionError(friendlyError(error));
   }
 
-  // Bound the import to orders created since the last successful ORDERS
-  // sync (or the first-run lookback in resolveOrdersSyncSince on a first
-  // run) — see docs/adr/0011-shopify-integration.md. Deliberately NOT
-  // integration.lastSyncAt: that field is shared across every resource
-  // (products/locations/stock too) and gets bumped by whichever synced
-  // most recently — see resolveOrdersSyncSince's own doc comment.
-  const since = await resolveOrdersSyncSince(integration.id);
+  // First Shopify sync (no orders held yet) pulls the whole history;
+  // later syncs use a rolling window. Keyed off held orders, not a sync
+  // timestamp — see resolveOrdersSyncSince's doc comment and
+  // docs/adr/0011-shopify-integration.md.
+  const since = await resolveOrdersSyncSince("SHOPIFY");
 
   return runSync(user, integration.id, "COMMANDES", "IMPORT", () => syncOrders(client, { type: "USER", userId: user.id }, since));
 }

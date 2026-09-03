@@ -44,10 +44,9 @@ async function seedDefaultWarehouse() {
 }
 
 /**
- * syncWooCommerceOrdersAction bounds its import to orders created after the
- * integration's lastSyncAt (see src/actions/woocommerce.ts) — which the
- * preceding product sync in these tests already advances to "now". Order
- * fixtures must date_created safely after that, not a fixed past date.
+ * A first orders sync (no WooCommerce order held yet) is unbounded, so a
+ * fixture's date_created no longer has to sit after any cursor. Kept for
+ * the fixtures written before that change — any valid ISO date works now.
  */
 function futureIso(minutesFromNow = 5): string {
   return new Date(Date.now() + minutesFromNow * 60_000).toISOString();
@@ -415,23 +414,50 @@ describe("WooCommerce integration", () => {
       expect(order.customer.fullName).toBe("Amine Tazi");
       expect(order.customer.source).toBe("WOOCOMMERCE");
 
-      // docs/adr/0016-notifications.md — an imported order notifies exactly
-      // like a manually-created one, tagged with its WooCommerce source.
+      // docs/adr/0016-notifications.md — a recently-placed imported order
+      // notifies exactly like a manually-created one (fixture date is
+      // `futureIso()`), tagged with its WooCommerce source.
       const notification = await prisma.notification.findFirstOrThrow({ where: { userId: teammate.id } });
       expect(notification.type).toBe("NOUVELLE_COMMANDE");
       expect(notification.message).toContain("Amine Tazi");
       expect(notification.message).toContain("WooCommerce");
     });
 
+    it("does not fan out a notification for a months-old order (history backfill)", async () => {
+      await seedProductWithCost();
+      const teammate = await createTestUser({ role: "SALES" });
+      state.orders = [
+        {
+          id: 9600,
+          number: "9600",
+          status: "completed",
+          date_created: new Date(Date.now() - 90 * 24 * 60 * 60_000).toISOString(),
+          customer_id: 0,
+          total: "200.00",
+          billing: { first_name: "Ancien", last_name: "Client", email: "ancien@example.com", city: "Fès", country: "MA", address_1: "1 Rue A" },
+          shipping: {},
+          line_items: [{ id: 1, name: "Thé vert", product_id: 501, sku: "THE-VERT", quantity: 1, price: "200.00", subtotal: "200.00", total: "200.00" }],
+        },
+      ];
+
+      const result = await syncWooCommerceOrdersAction();
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.summary.imported).toBe(1);
+
+      const order = await prisma.order.findFirst({ where: { source: "WOOCOMMERCE", externalId: "9600" } });
+      expect(order).not.toBeNull();
+      const notification = await prisma.notification.findFirst({ where: { userId: teammate.id } });
+      expect(notification).toBeNull();
+    });
+
     /**
-     * Phase 29 E2E audit — Integration.lastSyncAt is a single field shared
-     * across every resource, bumped to "now" by the preceding products
-     * sync in seedProductWithCost(). Before the fix, syncWooCommerceOrdersAction
-     * used that shared timestamp as its `since` bound, so a real order
-     * placed minutes earlier — well within the intended 30-day window —
-     * was silently excluded (itemsImported: 0, status still "SUCCES").
-     * Reproduced live against a real WooCommerce store with 298 real
-     * orders before being fixed.
+     * E2E audit regression — early revisions bounded the orders import by
+     * a wall-clock sync timestamp (Integration.lastSyncAt, then the last
+     * SyncRun.startedAt) and compared it against order *creation* dates,
+     * so a store whose orders predated the first sync run imported 0 and
+     * reported SUCCES. Reproduced live against a real WooCommerce store
+     * with 298 real orders. Now the first sync for a source is unbounded.
      */
     it("imports an order created before the preceding products sync, not just ones dated after it (audit fix)", async () => {
       await seedProductWithCost();

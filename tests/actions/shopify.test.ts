@@ -396,11 +396,11 @@ describe("Shopify integration", () => {
     });
 
     /**
-     * Phase 29 E2E audit — see the matching WooCommerce regression test in
-     * tests/actions/woocommerce.test.ts for the full root-cause writeup.
-     * Integration.lastSyncAt is shared across every resource; before the
-     * fix, an order placed before the preceding products sync (but well
-     * within the intended 30-day window) was silently excluded.
+     * E2E audit regression — see the matching WooCommerce test in
+     * tests/actions/woocommerce.test.ts for the full writeup. A wall-clock
+     * sync timestamp used as the `since` bound silently excluded orders
+     * created before the first sync run; the first sync for a source is
+     * unbounded now.
      */
     it("imports an order created before the preceding products sync, not just ones dated after it (audit fix)", async () => {
       await seedProductWithCost();
