@@ -33,14 +33,33 @@ export default async function CommandesPage({
   const user = await requirePermission("orders.view");
   const params = await searchParams;
   const page = Number(params.page) || 1;
+
+  // "Tous les statuts" / "Tous les paiements" submit the sentinel "all";
+  // only a real enum value is passed through to the query, otherwise
+  // Prisma rejects `status: "all"` and the whole page fails to load.
+  const statusFilter =
+    params.status && ORDER_STATUS_LABELS[params.status] ? (params.status as OrderStatus) : undefined;
+  const paymentStatusFilter =
+    params.paymentStatus && ORDER_PAYMENT_STATUS_LABELS[params.paymentStatus]
+      ? (params.paymentStatus as OrderPaymentStatus)
+      : undefined;
+
   const { orders, total, pageSize } = await listOrders({
     q: params.q,
-    status: (params.status as OrderStatus) || undefined,
-    paymentStatus: (params.paymentStatus as OrderPaymentStatus) || undefined,
+    status: statusFilter,
+    paymentStatus: paymentStatusFilter,
     dateFrom: params.dateFrom,
     dateTo: params.dateTo,
     page,
   });
+
+  const now = new Date();
+  const monthFrom = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString("en-CA");
+  const monthTo = new Date(now.getFullYear(), now.getMonth() + 1, 0).toLocaleDateString("en-CA");
+  const isThisMonth = params.dateFrom === monthFrom && params.dateTo === monthTo;
+  const hasActiveFilter = Boolean(
+    params.q || statusFilter || paymentStatusFilter || params.dateFrom || params.dateTo
+  );
 
   return (
     <div>
@@ -103,6 +122,17 @@ export default async function CommandesPage({
         <Button type="submit" variant="outline">
           Filtrer
         </Button>
+        <Button
+          variant={isThisMonth ? "default" : "ghost"}
+          render={<Link href={`/commandes?dateFrom=${monthFrom}&dateTo=${monthTo}`} />}
+        >
+          Ce mois-ci
+        </Button>
+        {hasActiveFilter ? (
+          <Button variant="ghost" render={<Link href="/commandes" />}>
+            Réinitialiser
+          </Button>
+        ) : null}
       </form>
 
       {orders.length === 0 ? (
@@ -148,7 +178,7 @@ export default async function CommandesPage({
             pageSize={pageSize}
             total={total}
             basePath="/commandes"
-            searchParams={{ q: params.q, status: params.status, paymentStatus: params.paymentStatus, dateFrom: params.dateFrom, dateTo: params.dateTo }}
+            searchParams={{ q: params.q, status: statusFilter, paymentStatus: paymentStatusFilter, dateFrom: params.dateFrom, dateTo: params.dateTo }}
           />
         </div>
       )}

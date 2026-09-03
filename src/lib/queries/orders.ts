@@ -17,8 +17,27 @@ export interface OrderListFilters {
   page?: number;
 }
 
+/** Parse a value from a query string into a Date, or undefined if it is
+ * missing or not a real date — never let `new Date("all")` reach Prisma. */
+function parseDate(value: string | undefined, endOfDay = false): Date | undefined {
+  if (!value) return undefined;
+  const d = new Date(endOfDay ? `${value}T23:59:59` : value);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+/** Parse a numeric filter, or undefined if missing / not a finite number. */
+function parseNumber(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 export async function listOrders(filters: OrderListFilters) {
   const page = Math.max(1, filters.page ?? 1);
+  const dateFrom = parseDate(filters.dateFrom);
+  const dateTo = parseDate(filters.dateTo, true);
+  const minTotal = parseNumber(filters.minTotal);
+  const maxTotal = parseNumber(filters.maxTotal);
   const where: Prisma.OrderWhereInput = {
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.paymentStatus ? { paymentStatus: filters.paymentStatus } : {}),
@@ -32,19 +51,19 @@ export async function listOrders(filters: OrderListFilters) {
           ],
         }
       : {}),
-    ...(filters.dateFrom || filters.dateTo
+    ...(dateFrom || dateTo
       ? {
           createdAt: {
-            ...(filters.dateFrom ? { gte: new Date(filters.dateFrom) } : {}),
-            ...(filters.dateTo ? { lte: new Date(filters.dateTo + "T23:59:59") } : {}),
+            ...(dateFrom ? { gte: dateFrom } : {}),
+            ...(dateTo ? { lte: dateTo } : {}),
           },
         }
       : {}),
-    ...(filters.minTotal || filters.maxTotal
+    ...(minTotal !== undefined || maxTotal !== undefined
       ? {
           total: {
-            ...(filters.minTotal ? { gte: Number(filters.minTotal) } : {}),
-            ...(filters.maxTotal ? { lte: Number(filters.maxTotal) } : {}),
+            ...(minTotal !== undefined ? { gte: minTotal } : {}),
+            ...(maxTotal !== undefined ? { lte: maxTotal } : {}),
           },
         }
       : {}),
