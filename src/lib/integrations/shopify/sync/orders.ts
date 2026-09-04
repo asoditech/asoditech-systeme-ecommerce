@@ -297,11 +297,16 @@ async function updateExistingOrder(
  * Bulk order import — the manual "Synchroniser les commandes" action.
  * Scans the store's whole order history every run, skips orders already
  * held (their live edits arrive via the orders/updated webhook, not
- * here), and creates at most MAX_IMPORTS_PER_RUN new ones before asking to
- * be re-run, so a large first backfill finishes over a few clicks without
- * any run outliving the serverless function limit.
+ * here), and does at most a bounded amount of real work — new imports
+ * (the expensive path: several queries each) and placedAt corrections on
+ * already-held orders (cheap: one field) each have their own, much
+ * smaller cap — before asking to be re-run. Keeping both caps low is
+ * deliberate: a serverless function has a hard wall-clock limit, and it
+ * is far better for every click to finish and show real progress than
+ * for a larger batch to occasionally run out of time and show nothing.
  */
-const MAX_IMPORTS_PER_RUN = 150;
+const MAX_IMPORTS_PER_RUN = 40;
+const MAX_PLACED_AT_FIXES_PER_RUN = 80;
 
 export async function syncOrders(
   client: import("../client").ShopifyClient,
@@ -309,6 +314,7 @@ export async function syncOrders(
 ): Promise<SyncSummary> {
   const summary = emptySyncSummary();
   let importedThisRun = 0;
+  let fixedThisRun = 0;
   let capped = false;
 
   for await (const page of client.listAllOrders()) {
@@ -326,15 +332,20 @@ export async function syncOrders(
     for (const order of page) {
       const existing = held.get(order.id);
       if (existing) {
-        if (existing.placedAt.getTime() === existing.createdAt.getTime()) {
-          await prisma.order.update({
-            where: { id: existing.id },
-            data: { placedAt: parseOrderPlacedAt(order.createdAt) },
-          });
-          summary.updated++;
-        } else {
+        if (existing.placedAt.getTime() !== existing.createdAt.getTime()) {
           summary.unchanged++;
+          continue;
         }
+        if (fixedThisRun >= MAX_PLACED_AT_FIXES_PER_RUN) {
+          capped = true;
+          break;
+        }
+        await prisma.order.update({
+          where: { id: existing.id },
+          data: { placedAt: parseOrderPlacedAt(order.createdAt) },
+        });
+        fixedThisRun++;
+        summary.updated++;
         continue;
       }
       if (importedThisRun >= MAX_IMPORTS_PER_RUN) {
@@ -356,7 +367,7 @@ export async function syncOrders(
   if (capped) {
     recordNote(
       summary,
-      `${MAX_IMPORTS_PER_RUN} commandes importées — relancez « Synchroniser les commandes » pour continuer l'historique.`
+      `Lot traité (max ${MAX_IMPORTS_PER_RUN} nouvelles, ${MAX_PLACED_AT_FIXES_PER_RUN} dates corrigées) — relancez « Synchroniser les commandes » pour continuer.`
     );
   }
 
