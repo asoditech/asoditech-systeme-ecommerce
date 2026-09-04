@@ -33,6 +33,27 @@ export function formatOrderNumber(orderNumber: number, prefix = "CMD"): string {
   return `${prefix}-${orderNumber.toString().padStart(6, "0")}`;
 }
 
+/**
+ * The order reference to actually show someone. A manually-created order
+ * has no external reference — the internal `CMD-000039` sequence is its
+ * only identity. An order imported from WooCommerce/Shopify already has a
+ * real, human-recognizable number from that store (`externalNumber` —
+ * WooCommerce's own "988467" or Shopify's "1042"); showing the *internal*
+ * sequence for those instead matches nothing the store admin or the
+ * customer ever sees. Falls back to the internal number if an imported
+ * order somehow lacks one.
+ */
+export function displayOrderNumber(order: {
+  orderNumber: number;
+  source: "INTERNE" | "WOOCOMMERCE" | "SHOPIFY";
+  externalNumber?: string | null;
+}): string {
+  if (order.source !== "INTERNE" && order.externalNumber) {
+    return `#${order.externalNumber}`;
+  }
+  return formatOrderNumber(order.orderNumber);
+}
+
 /** Stock transfer reference, e.g. "TR-000123" (Phase 32b). */
 export function formatTransferNumber(transferNumber: number): string {
   return `TR-${transferNumber.toString().padStart(6, "0")}`;

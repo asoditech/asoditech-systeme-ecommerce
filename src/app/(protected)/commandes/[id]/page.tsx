@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { getOrderDetail, getOrderAuditTimeline } from "@/lib/queries/orders";
-import { formatCurrency, formatDateTime, formatOrderNumber } from "@/lib/format";
+import { formatCurrency, formatDateTime, displayOrderNumber } from "@/lib/format";
 import {
   ORDER_STATUS_LABELS,
   ORDER_PAYMENT_STATUS_LABELS,
@@ -35,8 +35,8 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
   return (
     <div>
       <PageHeader
-        title={formatOrderNumber(order.orderNumber)}
-        breadcrumbs={[{ label: "Commandes", href: "/commandes" }, { label: formatOrderNumber(order.orderNumber) }]}
+        title={displayOrderNumber(order)}
+        breadcrumbs={[{ label: "Commandes", href: "/commandes" }, { label: displayOrderNumber(order) }]}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={order.status} labels={ORDER_STATUS_LABELS} />

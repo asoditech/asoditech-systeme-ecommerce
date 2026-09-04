@@ -20,12 +20,6 @@ export const DASHBOARD_PERIOD_LABELS: Record<DashboardPeriod, string> = {
   annee: "Cette année",
 };
 
-export const DASHBOARD_SOURCE_LABELS: Record<RecordSource, string> = {
-  INTERNE: "Interne",
-  WOOCOMMERCE: "WooCommerce",
-  SHOPIFY: "Shopify",
-};
-
 // An order that has sat NOUVELLE/CONFIRMEE for longer than this is treated
 // as history (e.g. a fulfilled store order imported from WooCommerce), not
 // something still waiting on the operator.
@@ -103,12 +97,9 @@ export async function getDashboardData(periodKey: DashboardPeriod = "mois", sour
   };
 }
 
-export type RevenueTrendRange = "mois" | "mois-dernier" | "3mois" | "annee" | "annee-derniere";
+export type RevenueTrendRange = "annee" | "annee-derniere";
 
 export const REVENUE_TREND_LABELS: Record<RevenueTrendRange, string> = {
-  mois: "Ce mois",
-  "mois-dernier": "Mois dernier",
-  "3mois": "3 derniers mois",
   annee: "Cette année",
   "annee-derniere": "Année dernière",
 };
@@ -119,55 +110,20 @@ interface TrendBucket {
   revenue: number;
 }
 
-function dayKey(d: Date): string {
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-}
-
-/** Monday of the week containing `d`. */
-function startOfWeek(d: Date): Date {
-  const copy = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const day = copy.getDay();
-  copy.setDate(copy.getDate() + ((day === 0 ? -6 : 1) - day));
-  return copy;
-}
-
 /**
- * Revenue trend for the dashboard chart, bucketed at whatever granularity
- * fits the requested range (days within a month, weeks across a quarter,
- * months across a year) — a `RecordSource` narrows it to one sales
- * channel, matching the dashboard's own source filter. Revenue is gross
- * order total of non-cancelled/failed orders, by placedAt.
+ * Monthly revenue trend for the dashboard chart, for the current year or
+ * the previous one — a `RecordSource` narrows it to one sales channel,
+ * matching the dashboard's own source filter. Revenue is gross order total
+ * of non-cancelled/failed orders, by placedAt.
  */
 export async function getRevenueTrend(
-  range: RevenueTrendRange = "3mois",
+  range: RevenueTrendRange = "annee",
   source?: RecordSource
 ): Promise<TrendBucket[]> {
   const now = new Date();
-  let from: Date;
-  let to: Date;
-  let granularity: "day" | "week" | "month";
-
-  if (range === "mois") {
-    from = new Date(now.getFullYear(), now.getMonth(), 1);
-    to = now;
-    granularity = "day";
-  } else if (range === "mois-dernier") {
-    from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    to = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
-    granularity = "day";
-  } else if (range === "annee") {
-    from = new Date(now.getFullYear(), 0, 1);
-    to = now;
-    granularity = "month";
-  } else if (range === "annee-derniere") {
-    from = new Date(now.getFullYear() - 1, 0, 1);
-    to = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59);
-    granularity = "month";
-  } else {
-    from = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-    to = now;
-    granularity = "week";
-  }
+  const year = range === "annee-derniere" ? now.getFullYear() - 1 : now.getFullYear();
+  const from = new Date(year, 0, 1);
+  const to = range === "annee-derniere" ? new Date(year, 11, 31, 23, 59, 59) : now;
 
   const orders = await prisma.order.findMany({
     where: {
@@ -179,32 +135,19 @@ export async function getRevenueTrend(
   });
 
   const buckets: TrendBucket[] = [];
-  if (granularity === "day") {
-    for (const d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
-      buckets.push({ key: dayKey(d), label: String(d.getDate()), revenue: 0 });
-    }
-  } else if (granularity === "week") {
-    for (const d = startOfWeek(from); d <= to; d.setDate(d.getDate() + 7)) {
-      buckets.push({ key: dayKey(d), label: `${d.getDate()}/${d.getMonth() + 1}`, revenue: 0 });
-    }
-  } else {
-    for (const d = new Date(from.getFullYear(), from.getMonth(), 1); d <= to; d.setMonth(d.getMonth() + 1)) {
-      buckets.push({
-        key: `${d.getFullYear()}-${d.getMonth()}`,
-        label: d.toLocaleDateString("fr-FR", { month: "short" }).replace(".", ""),
-        revenue: 0,
-      });
-    }
+  for (let month = 0; month < 12; month++) {
+    const d = new Date(year, month, 1);
+    if (d > to) break;
+    buckets.push({
+      key: `${year}-${month}`,
+      label: d.toLocaleDateString("fr-FR", { month: "short" }).replace(".", ""),
+      revenue: 0,
+    });
   }
 
   const byKey = new Map(buckets.map((b) => [b.key, b]));
   for (const o of orders) {
-    const key =
-      granularity === "day"
-        ? dayKey(o.placedAt)
-        : granularity === "week"
-          ? dayKey(startOfWeek(o.placedAt))
-          : `${o.placedAt.getFullYear()}-${o.placedAt.getMonth()}`;
+    const key = `${o.placedAt.getFullYear()}-${o.placedAt.getMonth()}`;
     const bucket = byKey.get(key);
     if (bucket) bucket.revenue += Number(o.total);
   }

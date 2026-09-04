@@ -26,9 +26,14 @@ function shortAmount(n: number): string {
  * (exactly what showed up as "numbers and month names, no chart").
  */
 export function RevenueTrendChart({ data }: { data: Bucket[] }) {
-  const max = Math.max(1, ...data.map((d) => d.revenue));
+  // `max` drives the axis label — the real peak, 0 when every month is
+  // empty. `heightBasis` is a separate, never-zero divisor used only for
+  // the bar-height math, so an all-zero month never divides by zero; using
+  // the same `Math.max(1, ...)` value for both used to leak into the axis
+  // label as a bogus "1 MAD" ceiling on an otherwise empty chart.
+  const max = Math.max(...data.map((d) => d.revenue), 0);
+  const heightBasis = Math.max(1, max);
   const currentKey = data[data.length - 1]?.key;
-  const dense = data.length > 15;
 
   return (
     <div>
@@ -41,7 +46,7 @@ export function RevenueTrendChart({ data }: { data: Bucket[] }) {
         <div className="absolute inset-x-0 top-0 border-t border-dashed border-border" aria-hidden />
         <div className="flex h-full items-end gap-1.5 overflow-x-auto pb-px">
           {data.map((d) => {
-            const barPx = Math.max(2, Math.round((d.revenue / max) * CHART_HEIGHT));
+            const barPx = Math.max(2, Math.round((d.revenue / heightBasis) * CHART_HEIGHT));
             const isCurrent = d.key === currentKey;
             return (
               <div
@@ -49,11 +54,7 @@ export function RevenueTrendChart({ data }: { data: Bucket[] }) {
                 className="group flex h-full min-w-[6px] flex-1 flex-col items-center justify-end"
                 title={`${d.label} : ${formatCurrency(d.revenue)}`}
               >
-                <span
-                  className={`mb-1 whitespace-nowrap text-[10px] tabular-nums text-muted-foreground transition-opacity ${
-                    dense ? "opacity-0 group-hover:opacity-100" : ""
-                  }`}
-                >
+                <span className="mb-1 whitespace-nowrap text-[10px] tabular-nums text-muted-foreground">
                   {shortAmount(d.revenue)}
                 </span>
                 <div
@@ -73,7 +74,7 @@ export function RevenueTrendChart({ data }: { data: Bucket[] }) {
             key={d.key}
             className={`flex-1 min-w-[6px] text-center text-[10px] capitalize ${
               d.key === currentKey ? "font-medium text-foreground" : "text-muted-foreground"
-            } ${dense && data.indexOf(d) % Math.ceil(data.length / 12) !== 0 ? "invisible" : ""}`}
+            }`}
           >
             {d.label}
           </span>

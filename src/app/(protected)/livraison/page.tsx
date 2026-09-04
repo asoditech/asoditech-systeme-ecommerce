@@ -28,7 +28,7 @@ import {
   listDeliveryManifests,
 } from "@/lib/queries/delivery";
 import { deleteShippingProviderAction } from "@/actions/delivery";
-import { formatCurrency, formatDate, formatDateTime, formatOrderNumber, formatPercent } from "@/lib/format";
+import { formatCurrency, formatDate, formatDateTime, displayOrderNumber, formatPercent } from "@/lib/format";
 import {
   SHIPMENT_STATUS_LABELS,
   SHIPPING_PROVIDER_TYPE_LABELS,
@@ -82,6 +82,8 @@ export default async function LivraisonPage() {
       trackingNumber: s.trackingNumber,
       orderId: s.orderId,
       orderNumber: s.order.orderNumber,
+      source: s.order.source,
+      externalNumber: s.order.externalNumber,
       customerName: s.order.customer.fullName,
       cityLabel: s.order.shippingCity ?? null,
       cost: s.cost !== null ? s.cost.toString() : null,
@@ -139,7 +141,7 @@ export default async function LivraisonPage() {
                     <TableRow key={s.id}>
                       <TableCell className="font-medium">
                         <Link href={`/commandes/${s.orderId}`} className="hover:underline">
-                          {formatOrderNumber(s.order.orderNumber)}
+                          {displayOrderNumber(s.order)}
                         </Link>
                       </TableCell>
                       <TableCell>{s.order.customer.fullName}</TableCell>
@@ -202,7 +204,7 @@ export default async function LivraisonPage() {
                       <TableRow key={o.id}>
                         <TableCell className="font-medium">
                           <Link href={`/commandes/${o.id}`} className="hover:underline">
-                            {formatOrderNumber(o.orderNumber)}
+                            {displayOrderNumber(o)}
                           </Link>
                         </TableCell>
                         <TableCell>{o.customer.fullName}</TableCell>

@@ -7,11 +7,16 @@ const PAGE_SIZE = 20;
 
 export type ProductSort = "recent" | "name" | "price-asc" | "price-desc";
 
+/** No `type` column exists on Product — "variable" is derived from having
+ * at least one variation, "simple" from having none. */
+export type ProductTypeFilter = "simple" | "variable";
+
 export interface ProductListFilters {
   q?: string;
   categoryId?: string;
   status?: ProductStatus;
   source?: RecordSource;
+  type?: ProductTypeFilter;
   sort?: ProductSort;
   page?: number;
 }
@@ -30,6 +35,11 @@ export async function listProducts(params: ProductListFilters) {
     ...(params.categoryId ? { categoryId: params.categoryId } : {}),
     ...(params.status ? { status: params.status } : {}),
     ...(params.source ? { source: params.source } : {}),
+    ...(params.type === "variable"
+      ? { variations: { some: {} } }
+      : params.type === "simple"
+        ? { variations: { none: {} } }
+        : {}),
   };
 
   const orderBy: Prisma.ProductOrderByWithRelationInput =

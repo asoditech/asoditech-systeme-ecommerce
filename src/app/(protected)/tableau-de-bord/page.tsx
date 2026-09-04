@@ -28,7 +28,7 @@ import {
   type DashboardPeriod,
   type RevenueTrendRange,
 } from "@/lib/queries/dashboard";
-import { formatCurrency, formatDate, formatDateTime, formatOrderNumber } from "@/lib/format";
+import { formatCurrency, formatDate, formatDateTime, displayOrderNumber } from "@/lib/format";
 import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
 
 export const metadata = { title: "Tableau de bord — ASODITECH Gestion E-commerce" };
@@ -70,7 +70,7 @@ export default async function TableauDeBordPage({
   const chartRange: RevenueTrendRange =
     params.graphique && REVENUE_TREND_LABELS[params.graphique as RevenueTrendRange]
       ? (params.graphique as RevenueTrendRange)
-      : "3mois";
+      : "annee";
 
   const [data, revenueTrend] = await Promise.all([
     getDashboardData(periodKey),
@@ -179,7 +179,7 @@ export default async function TableauDeBordPage({
                   key={key}
                   size="sm"
                   variant={key === chartRange ? "default" : "ghost"}
-                  render={<Link href={withParam(params, "graphique", key === "3mois" ? undefined : key)} />}
+                  render={<Link href={withParam(params, "graphique", key === "annee" ? undefined : key)} />}
                 >
                   {REVENUE_TREND_LABELS[key]}
                 </Button>
@@ -209,7 +209,7 @@ export default async function TableauDeBordPage({
                   {data.ordersRequiringAction.map((o) => (
                     <li key={o.id} className="flex items-center justify-between py-2.5 text-sm">
                       <Link href={`/commandes/${o.id}`} className="hover:underline">
-                        <span className="font-medium">{formatOrderNumber(o.orderNumber)}</span>{" "}
+                        <span className="font-medium">{displayOrderNumber(o)}</span>{" "}
                         <span className="text-muted-foreground">— {o.customer.fullName}</span>
                       </Link>
                       <StatusBadge status={o.status} labels={ORDER_STATUS_LABELS} />
@@ -237,7 +237,7 @@ export default async function TableauDeBordPage({
                   {data.failedShipments.map((s) => (
                     <li key={s.id} className="flex items-center justify-between py-2.5 text-sm">
                       <Link href={`/commandes/${s.orderId}`} className="hover:underline">
-                        <span className="font-medium">{formatOrderNumber(s.order.orderNumber)}</span>{" "}
+                        <span className="font-medium">{displayOrderNumber(s.order)}</span>{" "}
                         <span className="text-muted-foreground">— {s.order.customer.fullName}</span>
                       </Link>
                       <span className="text-xs text-muted-foreground">{formatDate(s.updatedAt)}</span>
@@ -265,7 +265,7 @@ export default async function TableauDeBordPage({
                   {data.recentOrders.map((o) => (
                     <li key={o.id} className="flex items-center justify-between py-2.5 text-sm">
                       <Link href={`/commandes/${o.id}`} className="hover:underline">
-                        <span className="font-medium">{formatOrderNumber(o.orderNumber)}</span>{" "}
+                        <span className="font-medium">{displayOrderNumber(o)}</span>{" "}
                         <span className="text-muted-foreground">— {o.customer.fullName}</span>
                       </Link>
                       <span>{formatCurrency(o.total.toString(), o.currency)}</span>

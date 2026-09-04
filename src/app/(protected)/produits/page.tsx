@@ -11,10 +11,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
-import { listProducts, listCategories, type ProductSort } from "@/lib/queries/products";
+import { listProducts, listCategories, type ProductSort, type ProductTypeFilter } from "@/lib/queries/products";
 import { formatCurrency } from "@/lib/format";
-import { PRODUCT_STATUS_LABELS, RECORD_SOURCE_LABELS } from "@/lib/status-labels";
-import type { ProductStatus, RecordSource } from "@prisma/client";
+import { PRODUCT_STATUS_LABELS } from "@/lib/status-labels";
+import type { ProductStatus } from "@prisma/client";
 
 export const metadata = { title: "Produits — ASODITECH Gestion E-commerce" };
 
@@ -25,6 +25,11 @@ const SORT_LABELS: Record<ProductSort, string> = {
   "price-desc": "Prix décroissant",
 };
 
+const PRODUCT_TYPE_LABELS: Record<ProductTypeFilter, string> = {
+  simple: "Simple",
+  variable: "Variante",
+};
+
 export default async function ProduitsPage({
   searchParams,
 }: {
@@ -32,7 +37,7 @@ export default async function ProduitsPage({
     q?: string;
     status?: string;
     categoryId?: string;
-    source?: string;
+    type?: string;
     sort?: string;
     page?: string;
   }>;
@@ -45,8 +50,10 @@ export default async function ProduitsPage({
 
   const statusFilter =
     params.status && PRODUCT_STATUS_LABELS[params.status] ? (params.status as ProductStatus) : undefined;
-  const sourceFilter =
-    params.source && RECORD_SOURCE_LABELS[params.source] ? (params.source as RecordSource) : undefined;
+  const typeFilter =
+    params.type && PRODUCT_TYPE_LABELS[params.type as ProductTypeFilter]
+      ? (params.type as ProductTypeFilter)
+      : undefined;
   const categoryFilter = categories.find((c) => c.id === params.categoryId)?.id;
   const sortFilter: ProductSort =
     params.sort === "name" || params.sort === "price-asc" || params.sort === "price-desc"
@@ -57,19 +64,19 @@ export default async function ProduitsPage({
     q: params.q,
     status: statusFilter,
     categoryId: categoryFilter,
-    source: sourceFilter,
+    type: typeFilter,
     sort: sortFilter,
     page,
   });
 
   const hasActiveFilter = Boolean(
-    params.q || statusFilter || sourceFilter || categoryFilter || params.sort
+    params.q || statusFilter || typeFilter || categoryFilter || params.sort
   );
   const paginationParams = {
     q: params.q,
     status: statusFilter,
     categoryId: categoryFilter,
-    source: sourceFilter,
+    type: typeFilter,
     sort: params.sort,
   };
 
@@ -122,15 +129,15 @@ export default async function ProduitsPage({
             ))}
           </SelectContent>
         </Select>
-        <Select name="source" defaultValue={params.source || "all"}>
+        <Select name="type" defaultValue={params.type || "all"}>
           <SelectTrigger className="w-40">
-            <SelectValue placeholder="Origine">
-              {sourceFilter ? RECORD_SOURCE_LABELS[sourceFilter] : "Toutes origines"}
+            <SelectValue placeholder="Type">
+              {typeFilter ? PRODUCT_TYPE_LABELS[typeFilter] : "Tous types"}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Toutes origines</SelectItem>
-            {Object.entries(RECORD_SOURCE_LABELS).map(([value, label]) => (
+            <SelectItem value="all">Tous types</SelectItem>
+            {Object.entries(PRODUCT_TYPE_LABELS).map(([value, label]) => (
               <SelectItem key={value} value={value}>
                 {label}
               </SelectItem>

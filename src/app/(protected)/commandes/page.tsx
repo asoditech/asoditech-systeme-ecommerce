@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listOrders } from "@/lib/queries/orders";
-import { formatCurrency, formatDate, formatOrderNumber } from "@/lib/format";
+import { formatCurrency, formatDate, displayOrderNumber } from "@/lib/format";
 import { ORDER_STATUS_LABELS, ORDER_PAYMENT_STATUS_LABELS } from "@/lib/status-labels";
 import type { OrderStatus, OrderPaymentStatus } from "@prisma/client";
 
@@ -27,6 +27,7 @@ export default async function CommandesPage({
     paymentStatus?: string;
     dateFrom?: string;
     dateTo?: string;
+    all?: string;
     page?: string;
   }>;
 }) {
@@ -44,22 +45,46 @@ export default async function CommandesPage({
       ? (params.paymentStatus as OrderPaymentStatus)
       : undefined;
 
+  const now = new Date();
+  const monthFrom = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString("en-CA");
+  const monthTo = new Date(now.getFullYear(), now.getMonth() + 1, 0).toLocaleDateString("en-CA");
+
+  // `all=1` is the explicit escape hatch out of the default month scope
+  // (see "Toutes les commandes" below) — without it, no date filter means
+  // "this month", not the whole order history.
+  const isAll = params.all === "1";
+  const effectiveDateFrom = params.dateFrom || (isAll ? undefined : monthFrom);
+  const effectiveDateTo = params.dateTo || (isAll ? undefined : monthTo);
+
   const { orders, total, pageSize } = await listOrders({
     q: params.q,
     status: statusFilter,
     paymentStatus: paymentStatusFilter,
-    dateFrom: params.dateFrom,
-    dateTo: params.dateTo,
+    dateFrom: effectiveDateFrom,
+    dateTo: effectiveDateTo,
     page,
   });
 
-  const now = new Date();
-  const monthFrom = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString("en-CA");
-  const monthTo = new Date(now.getFullYear(), now.getMonth() + 1, 0).toLocaleDateString("en-CA");
-  const isThisMonth = params.dateFrom === monthFrom && params.dateTo === monthTo;
+  const isThisMonth = effectiveDateFrom === monthFrom && effectiveDateTo === monthTo;
   const hasActiveFilter = Boolean(
-    params.q || statusFilter || paymentStatusFilter || params.dateFrom || params.dateTo
+    params.q || statusFilter || paymentStatusFilter || params.dateFrom || params.dateTo || isAll
   );
+
+  // Preserves q/status/paymentStatus while switching only the date scope.
+  function dateScopeHref(opts: { dateFrom?: string; dateTo?: string; all?: boolean }) {
+    const sp = new URLSearchParams();
+    if (params.q) sp.set("q", params.q);
+    if (statusFilter) sp.set("status", statusFilter);
+    if (paymentStatusFilter) sp.set("paymentStatus", paymentStatusFilter);
+    if (opts.all) {
+      sp.set("all", "1");
+    } else if (opts.dateFrom && opts.dateTo) {
+      sp.set("dateFrom", opts.dateFrom);
+      sp.set("dateTo", opts.dateTo);
+    }
+    const qs = sp.toString();
+    return qs ? `/commandes?${qs}` : "/commandes";
+  }
 
   return (
     <div>
@@ -117,16 +142,22 @@ export default async function CommandesPage({
             ))}
           </SelectContent>
         </Select>
-        <Input type="date" name="dateFrom" defaultValue={params.dateFrom} className="w-40" />
-        <Input type="date" name="dateTo" defaultValue={params.dateTo} className="w-40" />
+        <Input type="date" name="dateFrom" defaultValue={effectiveDateFrom} className="w-40" />
+        <Input type="date" name="dateTo" defaultValue={effectiveDateTo} className="w-40" />
         <Button type="submit" variant="outline">
           Filtrer
         </Button>
         <Button
           variant={isThisMonth ? "default" : "ghost"}
-          render={<Link href={`/commandes?dateFrom=${monthFrom}&dateTo=${monthTo}`} />}
+          render={<Link href={dateScopeHref({ dateFrom: monthFrom, dateTo: monthTo })} />}
         >
           Ce mois-ci
+        </Button>
+        <Button
+          variant={isAll ? "default" : "ghost"}
+          render={<Link href={dateScopeHref({ all: true })} />}
+        >
+          Toutes les commandes
         </Button>
         {hasActiveFilter ? (
           <Button variant="ghost" render={<Link href="/commandes" />}>
@@ -158,7 +189,7 @@ export default async function CommandesPage({
             <TableBody>
               {orders.map((o) => (
                 <ClickableTableRow key={o.id} href={`/commandes/${o.id}`}>
-                  <TableCell className="font-medium">{formatOrderNumber(o.orderNumber)}</TableCell>
+                  <TableCell className="font-medium">{displayOrderNumber(o)}</TableCell>
                   <TableCell>{o.customer.fullName}</TableCell>
                   <TableCell className="text-muted-foreground">{o._count.items}</TableCell>
                   <TableCell>{formatCurrency(o.total.toString(), o.currency)}</TableCell>
@@ -178,7 +209,14 @@ export default async function CommandesPage({
             pageSize={pageSize}
             total={total}
             basePath="/commandes"
-            searchParams={{ q: params.q, status: statusFilter, paymentStatus: paymentStatusFilter, dateFrom: params.dateFrom, dateTo: params.dateTo }}
+            searchParams={{
+              q: params.q,
+              status: statusFilter,
+              paymentStatus: paymentStatusFilter,
+              dateFrom: params.dateFrom,
+              dateTo: params.dateTo,
+              all: params.all,
+            }}
           />
         </div>
       )}

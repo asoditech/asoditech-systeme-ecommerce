@@ -8,13 +8,15 @@ import { generateDeliveryManifestAction } from "@/actions/delivery";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/empty-state";
-import { formatCurrency, formatOrderNumber } from "@/lib/format";
+import { formatCurrency, displayOrderNumber } from "@/lib/format";
 
 export interface ManifestableShipment {
   id: string;
   trackingNumber: string | null;
   orderId: string;
   orderNumber: number;
+  source: "INTERNE" | "WOOCOMMERCE" | "SHOPIFY";
+  externalNumber: string | null;
   customerName: string;
   cityLabel: string | null;
   cost: string | null;
@@ -137,9 +139,9 @@ export function ManifestBuilder({ shipments }: { shipments: ManifestableShipment
                   <Checkbox
                     checked={selected.has(s.id)}
                     onCheckedChange={() => toggle(s.id)}
-                    aria-label={`Sélectionner ${formatOrderNumber(s.orderNumber)}`}
+                    aria-label={`Sélectionner ${displayOrderNumber(s)}`}
                   />
-                  <span className="font-medium">{formatOrderNumber(s.orderNumber)}</span>
+                  <span className="font-medium">{displayOrderNumber(s)}</span>
                   <span className="text-muted-foreground">{s.customerName}</span>
                   {s.cityLabel && <span className="text-muted-foreground">· {s.cityLabel}</span>}
                   <span className="ml-auto font-mono text-xs text-muted-foreground">

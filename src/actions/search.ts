@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireUserForAction } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
-import { formatOrderNumber } from "@/lib/format";
+import { displayOrderNumber } from "@/lib/format";
 
 export interface QuickSearchResult {
   id: string;
@@ -77,7 +77,7 @@ export async function quickSearchAction(query: string): Promise<QuickSearchResul
       ...orders.map((o) => ({
         id: o.id,
         type: "order" as const,
-        title: formatOrderNumber(o.orderNumber),
+        title: displayOrderNumber(o),
         subtitle: o.customer.fullName,
         href: `/commandes/${o.id}`,
       }))

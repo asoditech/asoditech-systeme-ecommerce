@@ -16,7 +16,7 @@ import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { getCustomerDetail, getCustomerStats } from "@/lib/queries/customers";
 import { deleteCustomerAddressAction } from "@/actions/customers";
-import { formatCurrency, formatDate, formatOrderNumber } from "@/lib/format";
+import { formatCurrency, formatDate, displayOrderNumber } from "@/lib/format";
 import { ORDER_STATUS_LABELS, CUSTOMER_SEGMENT_LABELS } from "@/lib/status-labels";
 
 export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -86,7 +86,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
                 <TableBody>
                   {customer.orders.map((o) => (
                     <ClickableTableRow key={o.id} href={`/commandes/${o.id}`}>
-                      <TableCell className="font-medium">{formatOrderNumber(o.orderNumber)}</TableCell>
+                      <TableCell className="font-medium">{displayOrderNumber(o)}</TableCell>
                       <TableCell>
                         <StatusBadge status={o.status} labels={ORDER_STATUS_LABELS} />
                       </TableCell>
