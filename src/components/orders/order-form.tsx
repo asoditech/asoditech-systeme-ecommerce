@@ -4,7 +4,12 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus, Trash2, Search } from "lucide-react";
-import { createOrderAction, searchCustomersForOrderAction, searchProductsForOrderAction } from "@/actions/orders";
+import {
+  createOrderAction,
+  createCustomerForOrderAction,
+  searchCustomersForOrderAction,
+  searchProductsForOrderAction,
+} from "@/actions/orders";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,6 +51,12 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
   const [customerQuery, setCustomerQuery] = React.useState("");
   const [customerResults, setCustomerResults] = React.useState<Customer[]>([]);
   const [customerOpen, setCustomerOpen] = React.useState(false);
+  // Inline "create a new client" panel inside the customer popover.
+  const [newCustomerMode, setNewCustomerMode] = React.useState(false);
+  const [newCustName, setNewCustName] = React.useState("");
+  const [newCustPhone, setNewCustPhone] = React.useState("");
+  const [newCustCity, setNewCustCity] = React.useState("");
+  const [savingCustomer, setSavingCustomer] = React.useState(false);
 
   const [productQuery, setProductQuery] = React.useState("");
   const [productResults, setProductResults] = React.useState<ProductWithVariations[]>([]);
@@ -92,6 +103,40 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
     ]);
     setProductOpen(false);
     setProductQuery("");
+  }
+
+  function openNewCustomer() {
+    setNewCustName(customerQuery.trim());
+    setNewCustPhone("");
+    setNewCustCity("");
+    setNewCustomerMode(true);
+  }
+
+  function submitNewCustomer() {
+    if (newCustName.trim().length < 2) {
+      toast.error("Le nom du client est requis.");
+      return;
+    }
+    setSavingCustomer(true);
+    startTransition(async () => {
+      const result = await createCustomerForOrderAction({
+        fullName: newCustName.trim(),
+        phone: newCustPhone.trim() || undefined,
+        city: newCustCity.trim() || undefined,
+      });
+      setSavingCustomer(false);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      setCustomer(result.data);
+      if (result.data.city) setShippingCity(result.data.city);
+      if (result.data.phone) setShippingPhone(result.data.phone);
+      setNewCustomerMode(false);
+      setCustomerOpen(false);
+      setCustomerQuery("");
+      toast.success("Client créé.");
+    });
   }
 
   function updateItem(key: string, patch: Partial<LineItem>) {
@@ -158,7 +203,13 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
           <CardTitle>Client</CardTitle>
         </CardHeader>
         <CardContent>
-          <Popover open={customerOpen} onOpenChange={setCustomerOpen}>
+          <Popover
+            open={customerOpen}
+            onOpenChange={(open) => {
+              setCustomerOpen(open);
+              if (!open) setNewCustomerMode(false);
+            }}
+          >
             <PopoverTrigger
               render={<Button type="button" variant="outline" className="w-full justify-start" />}
             >
@@ -166,31 +217,60 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
               {customer ? customer.fullName : "Rechercher un client..."}
             </PopoverTrigger>
             <PopoverContent align="start" className="w-80 p-2">
-              <Input
-                placeholder="Nom ou téléphone..."
-                value={customerQuery}
-                onChange={(e) => setCustomerQuery(e.target.value)}
-                autoFocus
-              />
-              <div className="mt-2 max-h-56 overflow-y-auto">
-                {visibleCustomerResults.map((c) => (
+              {newCustomerMode ? (
+                <div className="space-y-2">
+                  <p className="px-1 text-sm font-medium">Nouveau client</p>
+                  <Input placeholder="Nom complet" value={newCustName} onChange={(e) => setNewCustName(e.target.value)} autoFocus />
+                  <Input placeholder="Téléphone (optionnel)" value={newCustPhone} onChange={(e) => setNewCustPhone(e.target.value)} />
+                  <Input placeholder="Ville (optionnel)" value={newCustCity} onChange={(e) => setNewCustCity(e.target.value)} />
+                  <div className="flex gap-2 pt-1">
+                    <Button type="button" size="sm" className="flex-1" disabled={savingCustomer} onClick={submitNewCustomer}>
+                      {savingCustomer ? "Création..." : "Créer et sélectionner"}
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setNewCustomerMode(false)}>
+                      Annuler
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <Input
+                    placeholder="Nom ou téléphone..."
+                    value={customerQuery}
+                    onChange={(e) => setCustomerQuery(e.target.value)}
+                    autoFocus
+                  />
+                  <div className="mt-2 max-h-56 overflow-y-auto">
+                    {visibleCustomerResults.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          setCustomer(c);
+                          setCustomerOpen(false);
+                        }}
+                        className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+                      >
+                        <span className="font-medium">{c.fullName}</span>
+                        <span className="text-xs text-muted-foreground">{c.phone ?? c.email ?? ""}</span>
+                      </button>
+                    ))}
+                    {customerQuery.trim().length >= 2 && visibleCustomerResults.length === 0 && (
+                      <p className="px-2 py-1.5 text-sm text-muted-foreground">Aucun client trouvé.</p>
+                    )}
+                  </div>
                   <button
-                    key={c.id}
                     type="button"
-                    onClick={() => {
-                      setCustomer(c);
-                      setCustomerOpen(false);
-                    }}
-                    className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+                    onClick={openNewCustomer}
+                    className="mt-1 flex w-full items-center gap-2 rounded-md border-t px-2 py-2 text-left text-sm font-medium text-primary hover:bg-muted"
                   >
-                    <span className="font-medium">{c.fullName}</span>
-                    <span className="text-xs text-muted-foreground">{c.phone ?? c.email ?? ""}</span>
+                    <Plus className="size-4" />
+                    {customerQuery.trim().length >= 2
+                      ? `Créer le client « ${customerQuery.trim()} »`
+                      : "Créer un nouveau client"}
                   </button>
-                ))}
-                {customerQuery.trim().length >= 2 && visibleCustomerResults.length === 0 && (
-                  <p className="px-2 py-1.5 text-sm text-muted-foreground">Aucun client trouvé.</p>
-                )}
-              </div>
+                </>
+              )}
             </PopoverContent>
           </Popover>
         </CardContent>

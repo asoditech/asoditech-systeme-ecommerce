@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
+import { RevenueTrendChart } from "@/components/dashboard/revenue-trend-chart";
 import { StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -144,6 +145,17 @@ export default async function TableauDeBordPage({
           />
         )}
       </div>
+
+      {canViewFinance && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Chiffre d&apos;affaires — 6 derniers mois</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RevenueTrendChart data={data.revenueTrend} />
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         {canViewOrders && (

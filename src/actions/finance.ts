@@ -53,6 +53,7 @@ export async function createExpenseAction(formData: FormData): Promise<ActionRes
   });
 
   revalidatePath("/finance");
+  revalidatePath("/depenses");
   return actionOk({ id: expense.id });
 }
 
@@ -103,6 +104,7 @@ export async function updateExpenseAction(formData: FormData): Promise<ActionRes
   });
 
   revalidatePath("/finance");
+  revalidatePath("/depenses");
   return actionOk({ id: expense.id });
 }
 
@@ -147,5 +149,6 @@ export async function createExpenseCategoryAction(formData: FormData): Promise<A
   });
 
   revalidatePath("/finance");
+  revalidatePath("/depenses");
   return actionOk(category);
 }

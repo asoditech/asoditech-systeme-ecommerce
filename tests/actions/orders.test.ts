@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import {
   createOrderAction,
+  createCustomerForOrderAction,
   updateOrderStatusAction,
   updateOrderPaymentStatusAction,
   cancelOrderAction,
@@ -41,6 +42,25 @@ describe("createOrderAction", () => {
   afterEach(async () => {
     await resetDb();
     mockCookieStore.clear();
+  });
+
+  it("createCustomerForOrderAction creates a customer inline for an orders.create user and audits it", async () => {
+    await loginAsTestUser({ role: "SALES" });
+    const result = await createCustomerForOrderAction({ fullName: "Nouveau Client", phone: "0612345678", city: "Casablanca" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.fullName).toBe("Nouveau Client");
+    expect(result.data.city).toBe("Casablanca");
+    const audit = await prisma.auditEvent.findFirst({ where: { action: "customer.created", entityId: result.data.id } });
+    expect(audit).not.toBeNull();
+  });
+
+  it("createCustomerForOrderAction rejects a caller without orders.create and a too-short name", async () => {
+    await loginAsTestUser({ role: "SUPPORT" });
+    await expect(createCustomerForOrderAction({ fullName: "X" })).rejects.toThrow(/non autorisé/i);
+    await loginAsTestUser({ role: "SALES" });
+    const bad = await createCustomerForOrderAction({ fullName: "X" });
+    expect(bad.ok).toBe(false);
   });
 
   it("rejects a caller without orders.create permission", async () => {

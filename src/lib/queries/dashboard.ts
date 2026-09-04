@@ -81,5 +81,34 @@ export async function getDashboardData(periodKey: DashboardPeriod = "mois") {
     newCustomersThisPeriod,
     recentAuditEvents,
     failedShipments,
+    revenueTrend: await getRevenueTrend(),
   };
+}
+
+/** Revenue per calendar month for the last `months` months (this one
+ * included), oldest first — powers the dashboard trend chart. Revenue is
+ * gross order total of non-cancelled/failed orders, by placedAt. */
+export async function getRevenueTrend(months = 6) {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+  const orders = await prisma.order.findMany({
+    where: { placedAt: { gte: start }, status: { notIn: ["ANNULEE", "ECHEC"] } },
+    select: { placedAt: true, total: true },
+  });
+
+  const buckets: { key: string; label: string; revenue: number }[] = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    buckets.push({
+      key: `${d.getFullYear()}-${d.getMonth()}`,
+      label: d.toLocaleDateString("fr-FR", { month: "short" }).replace(".", ""),
+      revenue: 0,
+    });
+  }
+  const byKey = new Map(buckets.map((b) => [b.key, b]));
+  for (const o of orders) {
+    const bucket = byKey.get(`${o.placedAt.getFullYear()}-${o.placedAt.getMonth()}`);
+    if (bucket) bucket.revenue += Number(o.total);
+  }
+  return buckets;
 }

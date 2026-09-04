@@ -9,69 +9,73 @@ import { usePathname, useSearchParams } from "next/navigation";
  * destination takes a moment to render.
  *
  * The App Router exposes no router events, so navigation *start* is caught
- * by patching `history.pushState` / `replaceState` (the technique
- * nextjs-toploader and @bprogress use) and *completion* by the committed
- * `pathname` + `searchParams` changing. Respects `prefers-reduced-motion`.
+ * by patching `history.pushState` — only real pushes; `replaceState` and
+ * `router.refresh()` are in-place updates that must not start the bar —
+ * and *completion* by the committed `pathname` + `searchParams` changing.
+ * A hard fallback finishes the bar after a few seconds so it can never
+ * stay stuck when a navigation resolves to the same URL. Respects
+ * `prefers-reduced-motion`.
  */
+const TRICKLE = [
+  { at: 120, to: 38 },
+  { at: 450, to: 65 },
+  { at: 1400, to: 84 },
+];
+const FALLBACK_MS = 7000;
+
 export function TopProgressBar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   // null = hidden; a number = current width percentage.
   const [width, setWidth] = useState<number | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  // True between a navigation starting and the route committing — guards
-  // the completion effect against firing on mount or on an unrelated
-  // re-render.
   const navigating = useRef(false);
+  // The route-change effect calls this to end an in-flight bar.
+  const finishRef = useRef<() => void>(() => {});
 
-  const clearTrickle = () => {
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
-  };
-
-  // --- navigation start ---
   useEffect(() => {
     const origPush = history.pushState;
-    const origReplace = history.replaceState;
+
+    const clearTimers = () => {
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
+    };
+
+    const finish = () => {
+      if (!navigating.current) return;
+      navigating.current = false;
+      clearTimers();
+      timers.current.push(setTimeout(() => setWidth(100), 0));
+      timers.current.push(setTimeout(() => setWidth(null), 260));
+    };
+    finishRef.current = finish;
 
     const begin = () => {
-      clearTrickle();
+      clearTimers();
       navigating.current = true;
       setWidth(8);
-      timers.current.push(setTimeout(() => setWidth(38), 120));
-      timers.current.push(setTimeout(() => setWidth(65), 450));
-      timers.current.push(setTimeout(() => setWidth(84), 1400));
+      for (const step of TRICKLE) {
+        timers.current.push(setTimeout(() => setWidth(step.to), step.at));
+      }
+      timers.current.push(setTimeout(finish, FALLBACK_MS));
     };
 
     history.pushState = function (...args: Parameters<typeof origPush>) {
       begin();
       return origPush.apply(this, args);
     };
-    history.replaceState = function (...args: Parameters<typeof origReplace>) {
-      begin();
-      return origReplace.apply(this, args);
-    };
     window.addEventListener("popstate", begin);
 
     return () => {
       history.pushState = origPush;
-      history.replaceState = origReplace;
       window.removeEventListener("popstate", begin);
-      clearTrickle();
+      clearTimers();
     };
   }, []);
 
-  // --- navigation committed → finish ---
+  // The committed route changed → end any in-flight bar.
   useEffect(() => {
-    if (!navigating.current) return;
-    navigating.current = false;
-    clearTrickle();
-    const fill = setTimeout(() => setWidth(100), 0);
-    const hide = setTimeout(() => setWidth(null), 260);
-    return () => {
-      clearTimeout(fill);
-      clearTimeout(hide);
-    };
+    finishRef.current();
   }, [pathname, searchParams]);
 
   if (width === null) return null;

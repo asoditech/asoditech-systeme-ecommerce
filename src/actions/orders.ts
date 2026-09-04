@@ -30,7 +30,8 @@ import {
   type CreateOrderInput,
 } from "@/lib/validation/order";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
-import type { Prisma } from "@prisma/client";
+import { z } from "zod";
+import type { Customer, Prisma } from "@prisma/client";
 import type { IdResult } from "@/actions/types";
 
 /** Thrown when a conditional status-transition update matches 0 rows — see updateOrderStatusAction. */
@@ -55,6 +56,53 @@ export async function searchCustomersForOrderAction(query: string) {
     },
     take: 8,
   });
+}
+
+const quickCustomerSchema = z.object({
+  fullName: z.string().trim().min(2, "Le nom du client est requis.").max(200),
+  phone: z.string().trim().max(30).optional(),
+  city: z.string().trim().max(120).optional(),
+});
+
+/**
+ * Create a customer inline from the "Nouvelle commande" form — an operator
+ * taking a phone order for a first-time customer. Gated by `orders.create`
+ * (not `customers.create`): adding the buyer is an inseparable part of
+ * recording their order, exactly as the channel importers create a
+ * customer as a side effect of importing an order.
+ */
+export async function createCustomerForOrderAction(input: {
+  fullName: string;
+  phone?: string;
+  city?: string;
+}): Promise<ActionResult<Customer>> {
+  const user = await requirePermissionForAction("orders.create");
+  const parsed = quickCustomerSchema.safeParse(input);
+  if (!parsed.success) {
+    return actionError(parsed.error.flatten().formErrors[0] ?? "Champs invalides.");
+  }
+
+  const customer = await prisma.customer.create({
+    data: {
+      fullName: parsed.data.fullName,
+      phone: normalizeOptional(parsed.data.phone),
+      city: normalizeOptional(parsed.data.city),
+      createdById: user.id,
+    },
+  });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "customer.created",
+    entityType: "Customer",
+    entityId: customer.id,
+    newValue: { fullName: customer.fullName },
+    metadata: { via: "order_form" },
+  });
+
+  revalidatePath("/clients");
+  return actionOk(customer);
 }
 
 export async function searchProductsForOrderAction(query: string) {

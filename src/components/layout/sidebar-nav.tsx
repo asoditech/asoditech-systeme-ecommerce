@@ -16,6 +16,7 @@ import {
   Truck,
   LineChart,
   Wallet,
+  Receipt,
   Megaphone,
   UserCog,
   ScrollText,
@@ -65,6 +66,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/analyses", label: "Analyses", icon: LineChart, permission: "analytics.view" },
       { href: "/finance", label: "Finance", icon: Wallet, permission: "finance.view" },
+      { href: "/depenses", label: "Dépenses", icon: Receipt, permission: "finance.view" },
       { href: "/marketing", label: "Marketing", icon: Megaphone, permission: "marketing.view" },
     ],
   },
