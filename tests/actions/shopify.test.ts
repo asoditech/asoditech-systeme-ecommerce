@@ -578,6 +578,49 @@ describe("Shopify integration", () => {
       const orders = await prisma.order.findMany({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/9100" } });
       expect(orders).toHaveLength(1);
     });
+
+    /**
+     * Matching WooCommerce's equivalent test: a backlog bigger than one
+     * run's MAX_IMPORTS_PER_RUN (15) reports hasMore and persists a
+     * resume cursor (Integration.config.ordersResumeCursor) so a second
+     * run continues instead of rescanning from the newest order.
+     */
+    it("a backlog bigger than one run's cap reports hasMore, persists a resume cursor, and a second run finishes it", async () => {
+      await seedProductWithCost();
+      state.orders = Array.from({ length: 20 }, (_, i) => ({
+        id: `gid://shopify/Order/97${String(i).padStart(2, "0")}`,
+        name: `#97${i}`,
+        createdAt: futureIso(5 + i),
+        displayFinancialStatus: "PENDING",
+        displayFulfillmentStatus: "UNFULFILLED",
+        email: `backlog${i}@example.com`,
+        shippingAddress: { firstName: "C", lastName: String(i), address1: "1 Rue X", city: "Rabat", country: "MA" },
+        total: 50,
+        subtotal: 50,
+        lineItems: [{ id: `gid://shopify/LineItem/9${i}`, title: "Thé vert", sku: "THE-VERT", quantity: 1, productId: "gid://shopify/Product/501", unitPrice: 50, discountedTotal: 50, originalTotal: 50 }],
+      }));
+
+      const first = await syncShopifyOrdersAction();
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      expect(first.data.summary.imported).toBe(15);
+      expect(first.data.summary.hasMore).toBe(true);
+
+      // All 20 fixtures fit on Shopify's first page (PAGE_SIZE 50), so
+      // capping mid-page resumes from the same (null / start) cursor —
+      // the resume point only becomes a real cursor once a page boundary
+      // is actually crossed. What matters is the second run picks up
+      // exactly the orders the first one didn't reach, not the cursor's
+      // literal value.
+      const second = await syncShopifyOrdersAction();
+      expect(second.ok).toBe(true);
+      if (!second.ok) return;
+      expect(second.data.summary.imported).toBe(5);
+      expect(second.data.summary.hasMore).toBeFalsy();
+
+      const total = await prisma.order.count({ where: { source: "SHOPIFY" } });
+      expect(total).toBe(20);
+    });
   });
 
   describe("disconnectIntegrationAction — Shopify", () => {

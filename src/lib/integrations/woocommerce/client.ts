@@ -195,16 +195,21 @@ export class WooCommerceClient {
   }
 
   /**
-   * `after` is an ISO-8601 timestamp — WooCommerce's documented `after`
-   * query param for orders. Each page is parsed order-by-order: a single
-   * order the schema can't read (a plugin-specific field shape, a value
-   * WooCommerce returned in an unexpected type) is reported back as
-   * `unparsable` and left out, instead of failing the whole import.
+   * `startPage` lets a caller resume a paged scan instead of always
+   * starting over at page 1 — see WooCommerce's `syncOrders`, which
+   * persists how far it got so a Vercel Hobby-tier function (a hard
+   * ~10s wall clock) doesn't have to re-fetch and re-skip every earlier
+   * page on every run just to reach the work still to do. Each page is
+   * parsed order-by-order: a single order the schema can't read (a
+   * plugin-specific field shape, a value WooCommerce returned in an
+   * unexpected type) is reported back as `unparsable` and left out,
+   * instead of failing the whole import.
    */
-  async *listAllOrders(after?: string): AsyncGenerator<{ orders: WcOrder[]; unparsable: number }> {
-    const path = after ? `/orders?after=${encodeURIComponent(after)}` : "/orders";
-    for (let page = 1; page <= MAX_PAGES; page++) {
-      const { items, meta } = await this.requestPage(z.array(z.unknown()), path, page);
+  async *listAllOrders(
+    startPage = 1
+  ): AsyncGenerator<{ orders: WcOrder[]; unparsable: number; page: number; totalPages: number }> {
+    for (let page = Math.max(1, startPage); page <= MAX_PAGES; page++) {
+      const { items, meta } = await this.requestPage(z.array(z.unknown()), "/orders", page);
       const orders: WcOrder[] = [];
       let unparsable = 0;
       for (const item of items) {
@@ -212,7 +217,7 @@ export class WooCommerceClient {
         if (parsed.success) orders.push(parsed.data);
         else unparsable++;
       }
-      yield { orders, unparsable };
+      yield { orders, unparsable, page, totalPages: meta.totalPages };
       if (page >= meta.totalPages) return;
     }
   }

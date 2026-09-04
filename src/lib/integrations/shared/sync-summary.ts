@@ -14,6 +14,11 @@ export interface SyncSummary {
   failed: number;
   /** Capped list of the first N failure/skip reasons, for the UI and SyncRun.errorSummary — never a raw external payload. */
   notes: string[];
+  /** True when this run stopped at its own work cap with more left to do
+   * (currently only the orders sync sets this) — the UI re-invokes the
+   * action automatically while it stays true, so a large backfill looks
+   * like one click even though it is really several short runs. */
+  hasMore?: boolean;
 }
 
 export function emptySyncSummary(): SyncSummary {

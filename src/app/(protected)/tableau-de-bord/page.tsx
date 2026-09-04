@@ -24,14 +24,12 @@ import {
   getDashboardData,
   getRevenueTrend,
   DASHBOARD_PERIOD_LABELS,
-  DASHBOARD_SOURCE_LABELS,
   REVENUE_TREND_LABELS,
   type DashboardPeriod,
   type RevenueTrendRange,
 } from "@/lib/queries/dashboard";
 import { formatCurrency, formatDate, formatDateTime, formatOrderNumber } from "@/lib/format";
 import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
-import type { RecordSource } from "@prisma/client";
 
 export const metadata = { title: "Tableau de bord — ASODITECH Gestion E-commerce" };
 
@@ -63,24 +61,20 @@ function trend(current: number, previous: number) {
 export default async function TableauDeBordPage({
   searchParams,
 }: {
-  searchParams: Promise<{ periode?: string; source?: string; graphique?: string }>;
+  searchParams: Promise<{ periode?: string; graphique?: string }>;
 }) {
   const user = await requireUser();
   const params = await searchParams;
   const periodKey: DashboardPeriod =
     params.periode === "trimestre" || params.periode === "annee" ? params.periode : "mois";
-  const sourceFilter: RecordSource | undefined =
-    params.source && DASHBOARD_SOURCE_LABELS[params.source as RecordSource]
-      ? (params.source as RecordSource)
-      : undefined;
   const chartRange: RevenueTrendRange =
     params.graphique && REVENUE_TREND_LABELS[params.graphique as RevenueTrendRange]
       ? (params.graphique as RevenueTrendRange)
       : "3mois";
 
   const [data, revenueTrend] = await Promise.all([
-    getDashboardData(periodKey, sourceFilter),
-    getRevenueTrend(chartRange, sourceFilter),
+    getDashboardData(periodKey),
+    getRevenueTrend(chartRange),
   ]);
   const suffix = PERIOD_SUFFIX[periodKey];
 
@@ -107,25 +101,6 @@ export default async function TableauDeBordPage({
                   render={<Link href={withParam(params, "periode", key === "mois" ? undefined : key)} />}
                 >
                   {DASHBOARD_PERIOD_LABELS[key]}
-                </Button>
-              ))}
-            </div>
-            <div className="flex gap-1 border-l pl-2">
-              <Button
-                size="sm"
-                variant={!sourceFilter ? "default" : "outline"}
-                render={<Link href={withParam(params, "source", undefined)} />}
-              >
-                Toutes sources
-              </Button>
-              {(Object.keys(DASHBOARD_SOURCE_LABELS) as RecordSource[]).map((key) => (
-                <Button
-                  key={key}
-                  size="sm"
-                  variant={sourceFilter === key ? "default" : "outline"}
-                  render={<Link href={withParam(params, "source", key)} />}
-                >
-                  {DASHBOARD_SOURCE_LABELS[key]}
                 </Button>
               ))}
             </div>

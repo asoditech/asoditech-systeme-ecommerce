@@ -222,24 +222,33 @@ export class ShopifyClient {
     }
   }
 
-  /** `after` bounds the search to orders created since that ISO-8601 timestamp (Shopify's `created_at:>=` search syntax). */
-  async *listAllOrders(after?: Date): AsyncGenerator<ShopifyOrder[]> {
-    const searchQuery = after ? `created_at:>='${after.toISOString()}'` : undefined;
-    let cursor: string | null = null;
+  /**
+   * `startCursor` resumes a paged scan from a previously-yielded
+   * `endCursor` instead of always starting at the newest order — see
+   * WooCommerce's equivalent `startPage` param and `syncOrders` for why.
+   * Each yielded page carries the cursor to resume *after* it, so a
+   * caller that stops partway through can persist exactly where to pick
+   * back up.
+   */
+  async *listAllOrders(
+    startCursor?: string | null
+  ): AsyncGenerator<{ orders: ShopifyOrder[]; endCursor: string | null; hasNextPage: boolean }> {
+    let cursor: string | null = startCursor ?? null;
     for (let page = 0; page < MAX_PAGES; page++) {
       const result: z.infer<typeof shopifyOrdersPageSchema> = await this.request(
         shopifyOrdersPageSchema,
-        `query Orders($cursor: String, $q: String) {
-           orders(first: ${PAGE_SIZE}, after: $cursor, query: $q, sortKey: CREATED_AT) {
+        `query Orders($cursor: String) {
+           orders(first: ${PAGE_SIZE}, after: $cursor, sortKey: CREATED_AT) {
              nodes { ${ORDER_FIELDS} }
              pageInfo { hasNextPage endCursor }
            }
          }`,
-        { cursor, q: searchQuery }
+        { cursor }
       );
-      yield result.orders.nodes;
+      const endCursor = result.orders.pageInfo.endCursor ?? null;
+      yield { orders: result.orders.nodes, endCursor, hasNextPage: result.orders.pageInfo.hasNextPage };
       if (!result.orders.pageInfo.hasNextPage) return;
-      cursor = result.orders.pageInfo.endCursor ?? null;
+      cursor = endCursor;
     }
   }
 

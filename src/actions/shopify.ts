@@ -208,12 +208,15 @@ export async function syncShopifyOrdersAction(): Promise<ActionResult<{ summary:
     return actionError(friendlyError(error));
   }
 
-  // syncOrders scans the whole history each run, skips orders already
-  // held, and imports at most MAX_IMPORTS_PER_RUN new ones before asking
-  // to be re-run — so a large first backfill completes over a few clicks
-  // without exceeding the function time limit. See
+  // syncOrders skips orders already held, imports at most a small number
+  // of new ones per run, and persists how far it got so the next run
+  // resumes there — sized for Vercel Hobby's ~10s limit. A large first
+  // backfill completes over several runs, which the client re-invokes
+  // automatically while summary.hasMore is true. See
   // docs/adr/0011-shopify-integration.md.
-  return runSync(user, integration.id, "COMMANDES", "IMPORT", () => syncOrders(client, { type: "USER", userId: user.id }));
+  return runSync(user, integration.id, "COMMANDES", "IMPORT", () =>
+    syncOrders(client, { type: "USER", userId: user.id }, integration.id)
+  );
 }
 
 export async function pushShopifyStockAction(): Promise<ActionResult<{ summary: SyncSummary }>> {

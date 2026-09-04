@@ -290,33 +290,51 @@ async function updateExistingOrder(
 
 /**
  * Bulk order import — the manual "Synchroniser les commandes" action.
- * Scans the store's whole order history every run, skips orders already
- * held (their live edits arrive via the order.updated webhook, not here),
- * and does at most a bounded amount of real work — new imports (the
- * expensive path: several queries each) and placedAt corrections on
- * already-held orders (cheap: one field) each have their own, much
- * smaller cap — before asking to be re-run. Keeping both caps low is
- * deliberate: a serverless function has a hard wall-clock limit, and it
- * is far better for every click to finish and show real progress than
- * for a larger batch to occasionally run out of time and show nothing.
+ * Skips orders already held (their live edits arrive via the
+ * order.updated webhook, not here), and does at most a bounded amount of
+ * real work — new imports (the expensive path: several queries each) and
+ * placedAt corrections on already-held orders (cheap: one field) each
+ * have their own, much smaller cap — before stopping. Both caps are sized
+ * for Vercel's Hobby tier (a hard ~10s wall clock): it is far better for
+ * every run to finish and show real progress than for a larger batch to
+ * occasionally run out of time and show nothing.
+ *
+ * Where it resumes: WooCommerce returns pages newest-first, so once the
+ * newest orders are already held, a run that always restarted at page 1
+ * would spend most of its time budget re-fetching and skipping those
+ * same early pages before ever reaching new work. The page it stopped on
+ * is persisted to `Integration.config.ordersResumePage`, so the next run
+ * picks up exactly where this one left off — pure API-pagination
+ * bookkeeping, unrelated to (and does not reintroduce) the wall-clock
+ * date cursor removed earlier. A run that reaches the last page resets
+ * the cursor to 1, so the next one re-checks from the newest orders.
  */
-const MAX_IMPORTS_PER_RUN = 40;
-const MAX_PLACED_AT_FIXES_PER_RUN = 80;
+const MAX_IMPORTS_PER_RUN = 15;
+const MAX_PLACED_AT_FIXES_PER_RUN = 40;
 
 export async function syncOrders(
   client: import("../client").WooCommerceClient,
-  actor: SyncActor
+  actor: SyncActor,
+  integrationId: string
 ): Promise<SyncSummary> {
   const summary = emptySyncSummary();
+
+  const integration = await prisma.integration.findUniqueOrThrow({ where: { id: integrationId } });
+  const config = (integration.config as Record<string, unknown> | null) ?? {};
+  const startPage =
+    typeof config.ordersResumePage === "number" && config.ordersResumePage > 0
+      ? Math.floor(config.ordersResumePage)
+      : 1;
 
   let unreadable = 0;
   let importedThisRun = 0;
   let fixedThisRun = 0;
   let capped = false;
+  let resumePage = 1;
 
-  for await (const { orders, unparsable } of client.listAllOrders()) {
+  for await (const { orders, unparsable, page, totalPages } of client.listAllOrders(startPage)) {
     unreadable += unparsable;
-    if (capped) break;
+    resumePage = page >= totalPages ? 1 : page + 1;
 
     // One query per page instead of one per order — which of these do we
     // already hold, and does the held row still have a placeholder
@@ -340,6 +358,7 @@ export async function syncOrders(
         }
         if (fixedThisRun >= MAX_PLACED_AT_FIXES_PER_RUN) {
           capped = true;
+          resumePage = page;
           break;
         }
         await prisma.order.update({
@@ -352,6 +371,7 @@ export async function syncOrders(
       }
       if (importedThisRun >= MAX_IMPORTS_PER_RUN) {
         capped = true;
+        resumePage = page;
         break;
       }
       try {
@@ -364,8 +384,15 @@ export async function syncOrders(
         summary.failed++;
       }
     }
+    if (capped) break;
   }
 
+  await prisma.integration.update({
+    where: { id: integrationId },
+    data: { config: { ...config, ordersResumePage: resumePage } },
+  });
+
+  summary.hasMore = capped;
   if (capped) {
     recordNote(
       summary,

@@ -13,8 +13,8 @@ import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listCustomers, type CustomerSort } from "@/lib/queries/customers";
 import { formatDate } from "@/lib/format";
-import { CUSTOMER_SEGMENT_LABELS, RECORD_SOURCE_LABELS } from "@/lib/status-labels";
-import type { CustomerSegment, RecordSource } from "@prisma/client";
+import { CUSTOMER_SEGMENT_LABELS } from "@/lib/status-labels";
+import type { CustomerSegment } from "@prisma/client";
 
 export const metadata = { title: "Clients — ASODITECH Gestion E-commerce" };
 
@@ -30,7 +30,6 @@ export default async function ClientsPage({
   searchParams: Promise<{
     q?: string;
     segment?: string;
-    source?: string;
     city?: string;
     sort?: string;
     page?: string;
@@ -44,27 +43,21 @@ export default async function ClientsPage({
     params.segment && CUSTOMER_SEGMENT_LABELS[params.segment]
       ? (params.segment as CustomerSegment)
       : undefined;
-  const sourceFilter =
-    params.source && RECORD_SOURCE_LABELS[params.source] ? (params.source as RecordSource) : undefined;
   const sortFilter: CustomerSort =
     params.sort === "name" || params.sort === "orders" ? params.sort : "recent";
 
   const { customers, total, pageSize } = await listCustomers({
     q: params.q,
     segment: segmentFilter,
-    source: sourceFilter,
     city: params.city,
     sort: sortFilter,
     page,
   });
 
-  const hasActiveFilter = Boolean(
-    params.q || segmentFilter || sourceFilter || params.city || params.sort
-  );
+  const hasActiveFilter = Boolean(params.q || segmentFilter || params.city || params.sort);
   const paginationParams = {
     q: params.q,
     segment: segmentFilter,
-    source: sourceFilter,
     city: params.city,
     sort: params.sort,
   };
@@ -96,21 +89,6 @@ export default async function ClientsPage({
           <SelectContent>
             <SelectItem value="all">Tous les segments</SelectItem>
             {Object.entries(CUSTOMER_SEGMENT_LABELS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select name="source" defaultValue={params.source || "all"}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Origine">
-              {sourceFilter ? RECORD_SOURCE_LABELS[sourceFilter] : "Toutes origines"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Toutes origines</SelectItem>
-            {Object.entries(RECORD_SOURCE_LABELS).map(([value, label]) => (
               <SelectItem key={value} value={value}>
                 {label}
               </SelectItem>

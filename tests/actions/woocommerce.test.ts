@@ -599,6 +599,50 @@ describe("WooCommerce integration", () => {
       expect(await prisma.order.count()).toBe(countBefore);
     });
 
+    /**
+     * A backlog bigger than one run's MAX_IMPORTS_PER_RUN (15) must be
+     * finished by the "Synchroniser les commandes" button re-invoking the
+     * action itself (summary.hasMore) rather than the operator having to
+     * click repeatedly — and a capped run must persist a resume point
+     * (Integration.config.ordersResumePage) so the next run continues
+     * instead of rescanning from the start.
+     */
+    it("a backlog bigger than one run's cap reports hasMore, persists a resume page, and a second run finishes it", async () => {
+      await seedProductWithCost();
+      state.orders = Array.from({ length: 20 }, (_, i) => ({
+        id: 9700 + i,
+        number: String(9700 + i),
+        status: "processing" as const,
+        date_created: futureIso(5 + i),
+        customer_id: 0,
+        total: "50.00",
+        billing: { first_name: "C", last_name: String(i), email: `backlog${i}@example.com`, city: "Rabat", country: "MA", address_1: "x" },
+        shipping: {},
+        line_items: [{ id: 1, name: "Thé vert", product_id: 501, sku: "THE-VERT", quantity: 1, price: "50.00", subtotal: "50.00", total: "50.00" }],
+      }));
+
+      const integration = await prisma.integration.findFirstOrThrow({ where: { provider: "WOOCOMMERCE" } });
+
+      const first = await syncWooCommerceOrdersAction();
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      expect(first.data.summary.imported).toBe(15);
+      expect(first.data.summary.hasMore).toBe(true);
+
+      const afterFirst = await prisma.integration.findUniqueOrThrow({ where: { id: integration.id } });
+      const configAfterFirst = afterFirst.config as { ordersResumePage?: number } | null;
+      expect(configAfterFirst?.ordersResumePage).toBe(1); // capped mid-page — resumes the same page, not the next one
+
+      const second = await syncWooCommerceOrdersAction();
+      expect(second.ok).toBe(true);
+      if (!second.ok) return;
+      expect(second.data.summary.imported).toBe(5);
+      expect(second.data.summary.hasMore).toBeFalsy();
+
+      const total = await prisma.order.count({ where: { source: "WOOCOMMERCE" } });
+      expect(total).toBe(20);
+    });
+
     it("prevents a duplicate order under a genuine race between two concurrent imports of the same new order", async () => {
       await seedProductWithCost();
       const wcOrder = {
