@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Inter } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeScript } from "@/components/theme-script";
 import { LoginTransitionProvider } from "@/components/preloader/login-transition-provider";
+import { TopProgressBar } from "@/components/top-progress-bar";
 import "./globals.css";
 
 const inter = Inter({
@@ -23,6 +25,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="antialiased" suppressHydrationWarning>
         <ThemeScript />
         <ThemeProvider>
+          <Suspense fallback={null}>
+            <TopProgressBar />
+          </Suspense>
           <LoginTransitionProvider>
             {children}
             <Toaster />

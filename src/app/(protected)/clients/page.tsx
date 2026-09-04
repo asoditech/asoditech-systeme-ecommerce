@@ -6,25 +6,68 @@ import { DataTablePagination } from "@/components/data-table-pagination";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
-import { listCustomers } from "@/lib/queries/customers";
+import { listCustomers, type CustomerSort } from "@/lib/queries/customers";
 import { formatDate } from "@/lib/format";
-import { CUSTOMER_SEGMENT_LABELS } from "@/lib/status-labels";
+import { CUSTOMER_SEGMENT_LABELS, RECORD_SOURCE_LABELS } from "@/lib/status-labels";
+import type { CustomerSegment, RecordSource } from "@prisma/client";
 
 export const metadata = { title: "Clients — ASODITECH Gestion E-commerce" };
+
+const SORT_LABELS: Record<CustomerSort, string> = {
+  recent: "Plus récents",
+  name: "Nom (A–Z)",
+  orders: "Nb de commandes",
+};
 
 export default async function ClientsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    segment?: string;
+    source?: string;
+    city?: string;
+    sort?: string;
+    page?: string;
+  }>;
 }) {
   const user = await requirePermission("customers.view");
   const params = await searchParams;
   const page = Number(params.page) || 1;
-  const { customers, total, pageSize } = await listCustomers({ q: params.q, page });
+
+  const segmentFilter =
+    params.segment && CUSTOMER_SEGMENT_LABELS[params.segment]
+      ? (params.segment as CustomerSegment)
+      : undefined;
+  const sourceFilter =
+    params.source && RECORD_SOURCE_LABELS[params.source] ? (params.source as RecordSource) : undefined;
+  const sortFilter: CustomerSort =
+    params.sort === "name" || params.sort === "orders" ? params.sort : "recent";
+
+  const { customers, total, pageSize } = await listCustomers({
+    q: params.q,
+    segment: segmentFilter,
+    source: sourceFilter,
+    city: params.city,
+    sort: sortFilter,
+    page,
+  });
+
+  const hasActiveFilter = Boolean(
+    params.q || segmentFilter || sourceFilter || params.city || params.sort
+  );
+  const paginationParams = {
+    q: params.q,
+    segment: segmentFilter,
+    source: sourceFilter,
+    city: params.city,
+    sort: params.sort,
+  };
 
   return (
     <div>
@@ -41,27 +84,76 @@ export default async function ClientsPage({
         }
       />
 
-      <form className="mb-4 flex gap-2" action="/clients">
-        <Input
-          name="q"
-          placeholder="Rechercher par nom, téléphone, e-mail..."
-          defaultValue={params.q}
-          className="max-w-sm"
-        />
+      <form className="mb-4 flex flex-wrap gap-2" action="/clients">
+        <Input name="q" placeholder="Nom, téléphone, e-mail..." defaultValue={params.q} className="max-w-56" />
+        <Input name="city" placeholder="Ville" defaultValue={params.city} className="w-36" />
+        <Select name="segment" defaultValue={params.segment || "all"}>
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="Segment">
+              {segmentFilter ? CUSTOMER_SEGMENT_LABELS[segmentFilter] : "Tous les segments"}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tous les segments</SelectItem>
+            {Object.entries(CUSTOMER_SEGMENT_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select name="source" defaultValue={params.source || "all"}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Origine">
+              {sourceFilter ? RECORD_SOURCE_LABELS[sourceFilter] : "Toutes origines"}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Toutes origines</SelectItem>
+            {Object.entries(RECORD_SOURCE_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select name="sort" defaultValue={sortFilter}>
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="Trier">{SORT_LABELS[sortFilter]}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(SORT_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button type="submit" variant="outline">
-          Rechercher
+          Filtrer
         </Button>
+        {hasActiveFilter ? (
+          <Button variant="ghost" render={<Link href="/clients" />}>
+            Réinitialiser
+          </Button>
+        ) : null}
       </form>
 
       {customers.length === 0 ? (
         <EmptyState
           icon={Users}
-          title={params.q ? "Aucun client ne correspond à votre recherche." : "Aucun client pour le moment."}
+          title={
+            hasActiveFilter
+              ? "Aucun client ne correspond à ces critères."
+              : "Aucun client pour le moment."
+          }
           description={
-            params.q ? undefined : "Ajoutez votre premier client pour commencer à suivre ses commandes."
+            hasActiveFilter
+              ? undefined
+              : "Ajoutez votre premier client pour commencer à suivre ses commandes."
           }
           action={
-            !params.q && hasPermission(user.role, "customers.create") ? (
+            !hasActiveFilter && hasPermission(user.role, "customers.create") ? (
               <Button render={<Link href="/clients/nouveau" />}>Ajouter un client</Button>
             ) : undefined
           }
@@ -103,7 +195,7 @@ export default async function ClientsPage({
             pageSize={pageSize}
             total={total}
             basePath="/clients"
-            searchParams={{ q: params.q }}
+            searchParams={paginationParams}
           />
         </div>
       )}

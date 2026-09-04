@@ -1,11 +1,22 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
-import type { Prisma, ProductStatus } from "@prisma/client";
+import type { Prisma, ProductStatus, RecordSource } from "@prisma/client";
 
 const PAGE_SIZE = 20;
 
-export async function listProducts(params: { q?: string; categoryId?: string; status?: string; page?: number }) {
+export type ProductSort = "recent" | "name" | "price-asc" | "price-desc";
+
+export interface ProductListFilters {
+  q?: string;
+  categoryId?: string;
+  status?: ProductStatus;
+  source?: RecordSource;
+  sort?: ProductSort;
+  page?: number;
+}
+
+export async function listProducts(params: ProductListFilters) {
   const page = Math.max(1, params.page ?? 1);
   const where: Prisma.ProductWhereInput = {
     ...(params.q
@@ -17,13 +28,23 @@ export async function listProducts(params: { q?: string; categoryId?: string; st
         }
       : {}),
     ...(params.categoryId ? { categoryId: params.categoryId } : {}),
-    ...(params.status ? { status: params.status as ProductStatus } : {}),
+    ...(params.status ? { status: params.status } : {}),
+    ...(params.source ? { source: params.source } : {}),
   };
+
+  const orderBy: Prisma.ProductOrderByWithRelationInput =
+    params.sort === "name"
+      ? { name: "asc" }
+      : params.sort === "price-asc"
+        ? { price: "asc" }
+        : params.sort === "price-desc"
+          ? { price: "desc" }
+          : { createdAt: "desc" };
 
   const [products, total] = await Promise.all([
     prisma.product.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy,
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       include: {

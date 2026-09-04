@@ -7,24 +7,71 @@ import { DataTablePagination } from "@/components/data-table-pagination";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
-import { listProducts } from "@/lib/queries/products";
+import { listProducts, listCategories, type ProductSort } from "@/lib/queries/products";
 import { formatCurrency } from "@/lib/format";
-import { PRODUCT_STATUS_LABELS } from "@/lib/status-labels";
+import { PRODUCT_STATUS_LABELS, RECORD_SOURCE_LABELS } from "@/lib/status-labels";
+import type { ProductStatus, RecordSource } from "@prisma/client";
 
 export const metadata = { title: "Produits — ASODITECH Gestion E-commerce" };
+
+const SORT_LABELS: Record<ProductSort, string> = {
+  recent: "Plus récents",
+  name: "Nom (A–Z)",
+  "price-asc": "Prix croissant",
+  "price-desc": "Prix décroissant",
+};
 
 export default async function ProduitsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    status?: string;
+    categoryId?: string;
+    source?: string;
+    sort?: string;
+    page?: string;
+  }>;
 }) {
   const user = await requirePermission("products.view");
   const params = await searchParams;
   const page = Number(params.page) || 1;
-  const { products, total, pageSize } = await listProducts({ q: params.q, page });
+
+  const categories = await listCategories();
+
+  const statusFilter =
+    params.status && PRODUCT_STATUS_LABELS[params.status] ? (params.status as ProductStatus) : undefined;
+  const sourceFilter =
+    params.source && RECORD_SOURCE_LABELS[params.source] ? (params.source as RecordSource) : undefined;
+  const categoryFilter = categories.find((c) => c.id === params.categoryId)?.id;
+  const sortFilter: ProductSort =
+    params.sort === "name" || params.sort === "price-asc" || params.sort === "price-desc"
+      ? params.sort
+      : "recent";
+
+  const { products, total, pageSize } = await listProducts({
+    q: params.q,
+    status: statusFilter,
+    categoryId: categoryFilter,
+    source: sourceFilter,
+    sort: sortFilter,
+    page,
+  });
+
+  const hasActiveFilter = Boolean(
+    params.q || statusFilter || sourceFilter || categoryFilter || params.sort
+  );
+  const paginationParams = {
+    q: params.q,
+    status: statusFilter,
+    categoryId: categoryFilter,
+    source: sourceFilter,
+    sort: params.sort,
+  };
 
   return (
     <div>
@@ -41,20 +88,88 @@ export default async function ProduitsPage({
         }
       />
 
-      <form className="mb-4 flex gap-2" action="/produits">
-        <Input name="q" placeholder="Rechercher par nom ou SKU..." defaultValue={params.q} className="max-w-sm" />
+      <form className="mb-4 flex flex-wrap gap-2" action="/produits">
+        <Input name="q" placeholder="Nom ou SKU..." defaultValue={params.q} className="max-w-56" />
+        <Select name="status" defaultValue={params.status || "all"}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Statut">
+              {statusFilter ? PRODUCT_STATUS_LABELS[statusFilter].label : "Tous les statuts"}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tous les statuts</SelectItem>
+            {Object.entries(PRODUCT_STATUS_LABELS).map(([value, meta]) => (
+              <SelectItem key={value} value={value}>
+                {meta.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select name="categoryId" defaultValue={categoryFilter ?? "all"}>
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="Catégorie">
+              {categoryFilter
+                ? (categories.find((c) => c.id === categoryFilter)?.name ?? "Catégorie")
+                : "Toutes catégories"}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Toutes catégories</SelectItem>
+            {categories.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select name="source" defaultValue={params.source || "all"}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Origine">
+              {sourceFilter ? RECORD_SOURCE_LABELS[sourceFilter] : "Toutes origines"}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Toutes origines</SelectItem>
+            {Object.entries(RECORD_SOURCE_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select name="sort" defaultValue={sortFilter}>
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="Trier">{SORT_LABELS[sortFilter]}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(SORT_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button type="submit" variant="outline">
-          Rechercher
+          Filtrer
         </Button>
+        {hasActiveFilter ? (
+          <Button variant="ghost" render={<Link href="/produits" />}>
+            Réinitialiser
+          </Button>
+        ) : null}
       </form>
 
       {products.length === 0 ? (
         <EmptyState
           icon={Package}
-          title={params.q ? "Aucun produit ne correspond à votre recherche." : "Aucun produit pour le moment."}
-          description={!params.q ? "Ajoutez votre premier produit pour commencer à vendre." : undefined}
+          title={
+            hasActiveFilter
+              ? "Aucun produit ne correspond à ces critères."
+              : "Aucun produit pour le moment."
+          }
+          description={hasActiveFilter ? undefined : "Ajoutez votre premier produit pour commencer à vendre."}
           action={
-            !params.q && hasPermission(user.role, "products.create") ? (
+            !hasActiveFilter && hasPermission(user.role, "products.create") ? (
               <Button render={<Link href="/produits/nouveau" />}>Ajouter un produit</Button>
             ) : undefined
           }
@@ -111,7 +226,7 @@ export default async function ProduitsPage({
             pageSize={pageSize}
             total={total}
             basePath="/produits"
-            searchParams={{ q: params.q }}
+            searchParams={paginationParams}
           />
         </div>
       )}

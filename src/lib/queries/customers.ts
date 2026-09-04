@@ -1,27 +1,50 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, CustomerSegment, RecordSource } from "@prisma/client";
 
 const PAGE_SIZE = 20;
 
-export async function listCustomers(params: { q?: string; page?: number }) {
+export type CustomerSort = "recent" | "name" | "orders";
+
+export interface CustomerListFilters {
+  q?: string;
+  segment?: CustomerSegment;
+  source?: RecordSource;
+  city?: string;
+  sort?: CustomerSort;
+  page?: number;
+}
+
+export async function listCustomers(params: CustomerListFilters) {
   const page = Math.max(1, params.page ?? 1);
-  const where: Prisma.CustomerWhereInput = params.q
-    ? {
-        OR: [
-          { fullName: { contains: params.q, mode: "insensitive" } },
-          { phone: { contains: params.q, mode: "insensitive" } },
-          { whatsapp: { contains: params.q, mode: "insensitive" } },
-          { email: { contains: params.q, mode: "insensitive" } },
-        ],
-      }
-    : {};
+  const where: Prisma.CustomerWhereInput = {
+    ...(params.q
+      ? {
+          OR: [
+            { fullName: { contains: params.q, mode: "insensitive" } },
+            { phone: { contains: params.q, mode: "insensitive" } },
+            { whatsapp: { contains: params.q, mode: "insensitive" } },
+            { email: { contains: params.q, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+    ...(params.segment ? { segment: params.segment } : {}),
+    ...(params.source ? { source: params.source } : {}),
+    ...(params.city ? { city: { contains: params.city, mode: "insensitive" } } : {}),
+  };
+
+  const orderBy: Prisma.CustomerOrderByWithRelationInput =
+    params.sort === "name"
+      ? { fullName: "asc" }
+      : params.sort === "orders"
+        ? { orders: { _count: "desc" } }
+        : { createdAt: "desc" };
 
   const [customers, total] = await Promise.all([
     prisma.customer.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy,
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       include: { _count: { select: { orders: true } } },
