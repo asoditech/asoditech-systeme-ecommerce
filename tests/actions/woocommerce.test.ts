@@ -44,9 +44,9 @@ async function seedDefaultWarehouse() {
 }
 
 /**
- * A first orders sync (no WooCommerce order held yet) is unbounded, so a
- * fixture's date_created no longer has to sit after any cursor. Kept for
- * the fixtures written before that change — any valid ISO date works now.
+ * The bulk orders sync scans the whole store history, so a fixture's
+ * date_created no longer has to sit after any cursor. Kept for the
+ * fixtures written before that change — any valid ISO date works now.
  */
 function futureIso(minutesFromNow = 5): string {
   return new Date(Date.now() + minutesFromNow * 60_000).toISOString();
@@ -457,7 +457,7 @@ describe("WooCommerce integration", () => {
      * SyncRun.startedAt) and compared it against order *creation* dates,
      * so a store whose orders predated the first sync run imported 0 and
      * reported SUCCES. Reproduced live against a real WooCommerce store
-     * with 298 real orders. Now the first sync for a source is unbounded.
+     * with 298 real orders. Now the bulk sync scans the whole store history.
      */
     it("imports an order created before the preceding products sync, not just ones dated after it (audit fix)", async () => {
       await seedProductWithCost();

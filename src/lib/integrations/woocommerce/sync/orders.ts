@@ -284,27 +284,67 @@ async function updateExistingOrder(
   return changedFields ? { outcome: "updated", reason: statusSkippedReason } : { outcome: "unchanged", reason: statusSkippedReason };
 }
 
-/** Bulk order import — used by the manual "Synchroniser les commandes" action. `since` bounds the WooCommerce `after` filter. */
+/**
+ * Bulk order import — the manual "Synchroniser les commandes" action.
+ * Scans the store's whole order history every run, skips orders already
+ * held (their live edits arrive via the order.updated webhook, not here),
+ * and creates at most MAX_IMPORTS_PER_RUN new ones before asking to be
+ * re-run. A large first backfill therefore finishes over a few clicks
+ * without any single run outliving the serverless function limit.
+ */
+const MAX_IMPORTS_PER_RUN = 150;
+
 export async function syncOrders(
   client: import("../client").WooCommerceClient,
-  actor: SyncActor,
-  since?: Date
+  actor: SyncActor
 ): Promise<SyncSummary> {
   const summary = emptySyncSummary();
 
   let unreadable = 0;
-  for await (const { orders, unparsable } of client.listAllOrders(since?.toISOString())) {
+  let importedThisRun = 0;
+  let capped = false;
+
+  for await (const { orders, unparsable } of client.listAllOrders()) {
     unreadable += unparsable;
+    if (capped) break;
+
+    // One query per page instead of one per order — which of these do we
+    // already hold?
+    const held = new Set(
+      (
+        await prisma.order.findMany({
+          where: { source: "WOOCOMMERCE", externalId: { in: orders.map((o) => String(o.id)) } },
+          select: { externalId: true },
+        })
+      ).map((r) => r.externalId)
+    );
+
     for (const wc of orders) {
+      if (held.has(String(wc.id))) {
+        summary.unchanged++;
+        continue;
+      }
+      if (importedThisRun >= MAX_IMPORTS_PER_RUN) {
+        capped = true;
+        break;
+      }
       try {
         const { outcome, reason } = await importOrder(wc, actor);
         summary[outcome]++;
+        if (outcome === "imported") importedThisRun++;
         if (reason) recordNote(summary, reason);
       } catch {
         recordNote(summary, `Commande WooCommerce #${wc.id} : échec d'importation.`);
         summary.failed++;
       }
     }
+  }
+
+  if (capped) {
+    recordNote(
+      summary,
+      `${MAX_IMPORTS_PER_RUN} commandes importées — relancez « Synchroniser les commandes » pour continuer l'historique.`
+    );
   }
   if (unreadable > 0) {
     summary.failed += unreadable;

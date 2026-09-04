@@ -12,7 +12,6 @@ import { generateWebhookSecret } from "@/lib/integrations/woocommerce/webhook-si
 import { syncCategories, syncProducts, syncOrders, pushStockToWooCommerce } from "@/lib/integrations/woocommerce/sync";
 import type { SyncSummary } from "@/lib/integrations/woocommerce/sync";
 import { notifyConnectionError, notifySyncFailure } from "@/lib/notifications";
-import { resolveOrdersSyncSince } from "@/lib/integrations/shared";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import type { SyncDirection, SyncRunStatus } from "@prisma/client";
 import type { CurrentUser } from "@/lib/auth/session";
@@ -234,14 +233,13 @@ export async function syncWooCommerceOrdersAction(): Promise<ActionResult<{ summ
     return actionError(friendlyError(error));
   }
 
-  // First WooCommerce sync (no orders held yet) pulls the whole history;
-  // later syncs use a rolling window. Keyed off held orders, not a sync
-  // timestamp — see resolveOrdersSyncSince's doc comment and
+  // syncOrders scans the whole history each run, skips orders already
+  // held, and imports at most MAX_IMPORTS_PER_RUN new ones before asking
+  // to be re-run — so a large first backfill completes over a few clicks
+  // without ever exceeding the function time limit. See
   // docs/adr/0010-woocommerce-integration.md.
-  const since = await resolveOrdersSyncSince("WOOCOMMERCE");
-
   return runSync(user, integration.id, "COMMANDES", "IMPORT", () =>
-    syncOrders(client, { type: "USER", userId: user.id }, since)
+    syncOrders(client, { type: "USER", userId: user.id })
   );
 }
 

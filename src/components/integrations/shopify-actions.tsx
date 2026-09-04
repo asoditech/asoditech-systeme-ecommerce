@@ -44,12 +44,20 @@ export function ShopifyActions({ canManage, hasCredentials }: { canManage: boole
   function run(name: string, action: () => Promise<{ ok: boolean; error?: string; data?: unknown }>) {
     setBusy(name);
     startTransition(async () => {
-      const result = await action();
-      setBusy(null);
-      if (!result.ok) {
-        toast.error(result.error ?? "Une erreur est survenue.");
+      try {
+        const result = await action();
+        if (!result.ok) {
+          toast.error(result.error ?? "Une erreur est survenue.");
+        }
+      } catch {
+        // A thrown action (timeout, aborted request, unexpected server
+        // error) must surface as a toast, not crash the whole page into
+        // the error boundary.
+        toast.error("L'opération a échoué ou expiré. Réessayez.");
+      } finally {
+        setBusy(null);
+        router.refresh();
       }
-      router.refresh();
     });
   }
 

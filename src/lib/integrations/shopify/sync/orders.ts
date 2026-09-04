@@ -289,25 +289,62 @@ async function updateExistingOrder(
   return changedFields ? { outcome: "updated", reason: statusSkippedReason } : { outcome: "unchanged", reason: statusSkippedReason };
 }
 
-/** Bulk order import — used by the manual "Synchroniser les commandes" action. `since` bounds the Shopify `created_at:>=` search filter. */
+/**
+ * Bulk order import — the manual "Synchroniser les commandes" action.
+ * Scans the store's whole order history every run, skips orders already
+ * held (their live edits arrive via the orders/updated webhook, not
+ * here), and creates at most MAX_IMPORTS_PER_RUN new ones before asking to
+ * be re-run, so a large first backfill finishes over a few clicks without
+ * any run outliving the serverless function limit.
+ */
+const MAX_IMPORTS_PER_RUN = 150;
+
 export async function syncOrders(
   client: import("../client").ShopifyClient,
-  actor: SyncActor,
-  since?: Date
+  actor: SyncActor
 ): Promise<SyncSummary> {
   const summary = emptySyncSummary();
+  let importedThisRun = 0;
+  let capped = false;
 
-  for await (const page of client.listAllOrders(since)) {
+  for await (const page of client.listAllOrders()) {
+    if (capped) break;
+
+    const held = new Set(
+      (
+        await prisma.order.findMany({
+          where: { source: "SHOPIFY", externalId: { in: page.map((o) => o.id) } },
+          select: { externalId: true },
+        })
+      ).map((r) => r.externalId)
+    );
+
     for (const order of page) {
+      if (held.has(order.id)) {
+        summary.unchanged++;
+        continue;
+      }
+      if (importedThisRun >= MAX_IMPORTS_PER_RUN) {
+        capped = true;
+        break;
+      }
       try {
         const { outcome, reason } = await importOrder(order, actor);
         summary[outcome]++;
+        if (outcome === "imported") importedThisRun++;
         if (reason) recordNote(summary, reason);
       } catch {
         recordNote(summary, `Commande Shopify ${order.name} : échec d'importation.`);
         summary.failed++;
       }
     }
+  }
+
+  if (capped) {
+    recordNote(
+      summary,
+      `${MAX_IMPORTS_PER_RUN} commandes importées — relancez « Synchroniser les commandes » pour continuer l'historique.`
+    );
   }
 
   return summary;

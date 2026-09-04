@@ -11,7 +11,6 @@ import { ShopifyError } from "@/lib/integrations/shopify/errors";
 import { syncLocations, syncProducts, syncOrders, pushStockToShopify } from "@/lib/integrations/shopify/sync";
 import type { SyncSummary } from "@/lib/integrations/shopify/sync";
 import { notifyConnectionError, notifySyncFailure } from "@/lib/notifications";
-import { resolveOrdersSyncSince } from "@/lib/integrations/shared";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import type { SyncDirection, SyncRunStatus } from "@prisma/client";
 import type { CurrentUser } from "@/lib/auth/session";
@@ -209,13 +208,12 @@ export async function syncShopifyOrdersAction(): Promise<ActionResult<{ summary:
     return actionError(friendlyError(error));
   }
 
-  // First Shopify sync (no orders held yet) pulls the whole history;
-  // later syncs use a rolling window. Keyed off held orders, not a sync
-  // timestamp — see resolveOrdersSyncSince's doc comment and
+  // syncOrders scans the whole history each run, skips orders already
+  // held, and imports at most MAX_IMPORTS_PER_RUN new ones before asking
+  // to be re-run — so a large first backfill completes over a few clicks
+  // without exceeding the function time limit. See
   // docs/adr/0011-shopify-integration.md.
-  const since = await resolveOrdersSyncSince("SHOPIFY");
-
-  return runSync(user, integration.id, "COMMANDES", "IMPORT", () => syncOrders(client, { type: "USER", userId: user.id }, since));
+  return runSync(user, integration.id, "COMMANDES", "IMPORT", () => syncOrders(client, { type: "USER", userId: user.id }));
 }
 
 export async function pushShopifyStockAction(): Promise<ActionResult<{ summary: SyncSummary }>> {

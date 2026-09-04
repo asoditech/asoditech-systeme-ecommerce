@@ -12,6 +12,11 @@ import type { IntegrationProvider } from "@prisma/client";
 
 export const metadata = { title: "Intégrations — ASODITECH Gestion E-commerce" };
 
+// The sync actions invoked from this page (products / orders import) do
+// real work against an external store — give their server function
+// headroom past the default limit. Vercel clamps this to the plan ceiling.
+export const maxDuration = 60;
+
 // Everything here is roadmap-only in this phase — no connection flow, no
 // credentials, nothing to configure yet. See
 // docs/adr/0004-integration-architecture.md. WooCommerce/Shopify (the two

@@ -6,5 +6,4 @@ export { assertPublicHost, isPrivateOrReservedIP, InvalidHostError } from "./pri
 export { recordWebhookEventOnce } from "./webhook-event";
 export { stripHtml } from "./html";
 export { getConnectedCommercePlatforms, resolveExternalProductEditUrl, type ConnectedCommercePlatform } from "./product-management-url";
-export { resolveOrdersSyncSince } from "./sync-cursor";
 export { isRecentlyPlaced } from "./order-recency";

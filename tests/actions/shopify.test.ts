@@ -399,8 +399,8 @@ describe("Shopify integration", () => {
      * E2E audit regression — see the matching WooCommerce test in
      * tests/actions/woocommerce.test.ts for the full writeup. A wall-clock
      * sync timestamp used as the `since` bound silently excluded orders
-     * created before the first sync run; the first sync for a source is
-     * unbounded now.
+     * created before the first sync run; the bulk sync scans the whole
+     * history now.
      */
     it("imports an order created before the preceding products sync, not just ones dated after it (audit fix)", async () => {
       await seedProductWithCost();
