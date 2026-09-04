@@ -10,6 +10,7 @@ import {
 } from "@/lib/queries/finance";
 import { getLowStockCount } from "@/lib/queries/inventory";
 import { getDeliveryStats } from "@/lib/queries/delivery";
+import type { RecordSource } from "@prisma/client";
 
 export type DashboardPeriod = "mois" | "trimestre" | "annee";
 
@@ -19,12 +20,18 @@ export const DASHBOARD_PERIOD_LABELS: Record<DashboardPeriod, string> = {
   annee: "Cette année",
 };
 
+export const DASHBOARD_SOURCE_LABELS: Record<RecordSource, string> = {
+  INTERNE: "Interne",
+  WOOCOMMERCE: "WooCommerce",
+  SHOPIFY: "Shopify",
+};
+
 // An order that has sat NOUVELLE/CONFIRMEE for longer than this is treated
 // as history (e.g. a fulfilled store order imported from WooCommerce), not
 // something still waiting on the operator.
 const ACTION_WINDOW_DAYS = 21;
 
-export async function getDashboardData(periodKey: DashboardPeriod = "mois") {
+export async function getDashboardData(periodKey: DashboardPeriod = "mois", source?: RecordSource) {
   const period =
     periodKey === "trimestre"
       ? currentQuarterRange()
@@ -45,18 +52,29 @@ export async function getDashboardData(periodKey: DashboardPeriod = "mois") {
     recentAuditEvents,
     failedShipments,
   ] = await Promise.all([
-    getFinanceSummary(period),
-    getFinanceSummary(previousPeriod),
+    getFinanceSummary(period, source),
+    getFinanceSummary(previousPeriod, source),
     getLowStockCount(),
     getDeliveryStats(),
     prisma.order.findMany({
-      where: { status: { in: ["NOUVELLE", "CONFIRMEE"] }, placedAt: { gte: actionCutoff } },
+      where: {
+        status: { in: ["NOUVELLE", "CONFIRMEE"] },
+        placedAt: { gte: actionCutoff },
+        ...(source ? { source } : {}),
+      },
       orderBy: { placedAt: "asc" },
       take: 6,
       include: { customer: true },
     }),
-    prisma.order.findMany({ orderBy: { placedAt: "desc" }, take: 6, include: { customer: true } }),
-    prisma.customer.count({ where: { createdAt: { gte: period.from, lte: period.to } } }),
+    prisma.order.findMany({
+      where: source ? { source } : {},
+      orderBy: { placedAt: "desc" },
+      take: 6,
+      include: { customer: true },
+    }),
+    prisma.customer.count({
+      where: { createdAt: { gte: period.from, lte: period.to }, ...(source ? { source } : {}) },
+    }),
     prisma.auditEvent.findMany({
       orderBy: { createdAt: "desc" },
       take: 8,
@@ -72,6 +90,7 @@ export async function getDashboardData(periodKey: DashboardPeriod = "mois") {
 
   return {
     periodKey,
+    source,
     finance,
     previousFinance,
     lowStockCount,
@@ -81,33 +100,112 @@ export async function getDashboardData(periodKey: DashboardPeriod = "mois") {
     newCustomersThisPeriod,
     recentAuditEvents,
     failedShipments,
-    revenueTrend: await getRevenueTrend(),
   };
 }
 
-/** Revenue per calendar month for the last `months` months (this one
- * included), oldest first — powers the dashboard trend chart. Revenue is
- * gross order total of non-cancelled/failed orders, by placedAt. */
-export async function getRevenueTrend(months = 6) {
+export type RevenueTrendRange = "mois" | "mois-dernier" | "3mois" | "annee" | "annee-derniere";
+
+export const REVENUE_TREND_LABELS: Record<RevenueTrendRange, string> = {
+  mois: "Ce mois",
+  "mois-dernier": "Mois dernier",
+  "3mois": "3 derniers mois",
+  annee: "Cette année",
+  "annee-derniere": "Année dernière",
+};
+
+interface TrendBucket {
+  key: string;
+  label: string;
+  revenue: number;
+}
+
+function dayKey(d: Date): string {
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+/** Monday of the week containing `d`. */
+function startOfWeek(d: Date): Date {
+  const copy = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = copy.getDay();
+  copy.setDate(copy.getDate() + ((day === 0 ? -6 : 1) - day));
+  return copy;
+}
+
+/**
+ * Revenue trend for the dashboard chart, bucketed at whatever granularity
+ * fits the requested range (days within a month, weeks across a quarter,
+ * months across a year) — a `RecordSource` narrows it to one sales
+ * channel, matching the dashboard's own source filter. Revenue is gross
+ * order total of non-cancelled/failed orders, by placedAt.
+ */
+export async function getRevenueTrend(
+  range: RevenueTrendRange = "3mois",
+  source?: RecordSource
+): Promise<TrendBucket[]> {
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+  let from: Date;
+  let to: Date;
+  let granularity: "day" | "week" | "month";
+
+  if (range === "mois") {
+    from = new Date(now.getFullYear(), now.getMonth(), 1);
+    to = now;
+    granularity = "day";
+  } else if (range === "mois-dernier") {
+    from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    to = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+    granularity = "day";
+  } else if (range === "annee") {
+    from = new Date(now.getFullYear(), 0, 1);
+    to = now;
+    granularity = "month";
+  } else if (range === "annee-derniere") {
+    from = new Date(now.getFullYear() - 1, 0, 1);
+    to = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59);
+    granularity = "month";
+  } else {
+    from = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    to = now;
+    granularity = "week";
+  }
+
   const orders = await prisma.order.findMany({
-    where: { placedAt: { gte: start }, status: { notIn: ["ANNULEE", "ECHEC"] } },
+    where: {
+      placedAt: { gte: from, lte: to },
+      status: { notIn: ["ANNULEE", "ECHEC"] },
+      ...(source ? { source } : {}),
+    },
     select: { placedAt: true, total: true },
   });
 
-  const buckets: { key: string; label: string; revenue: number }[] = [];
-  for (let i = months - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    buckets.push({
-      key: `${d.getFullYear()}-${d.getMonth()}`,
-      label: d.toLocaleDateString("fr-FR", { month: "short" }).replace(".", ""),
-      revenue: 0,
-    });
+  const buckets: TrendBucket[] = [];
+  if (granularity === "day") {
+    for (const d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
+      buckets.push({ key: dayKey(d), label: String(d.getDate()), revenue: 0 });
+    }
+  } else if (granularity === "week") {
+    for (const d = startOfWeek(from); d <= to; d.setDate(d.getDate() + 7)) {
+      buckets.push({ key: dayKey(d), label: `${d.getDate()}/${d.getMonth() + 1}`, revenue: 0 });
+    }
+  } else {
+    for (const d = new Date(from.getFullYear(), from.getMonth(), 1); d <= to; d.setMonth(d.getMonth() + 1)) {
+      buckets.push({
+        key: `${d.getFullYear()}-${d.getMonth()}`,
+        label: d.toLocaleDateString("fr-FR", { month: "short" }).replace(".", ""),
+        revenue: 0,
+      });
+    }
   }
+
   const byKey = new Map(buckets.map((b) => [b.key, b]));
   for (const o of orders) {
-    const bucket = byKey.get(`${o.placedAt.getFullYear()}-${o.placedAt.getMonth()}`);
+    const key =
+      granularity === "day"
+        ? dayKey(o.placedAt)
+        : granularity === "week"
+          ? dayKey(startOfWeek(o.placedAt))
+          : `${o.placedAt.getFullYear()}-${o.placedAt.getMonth()}`;
+    const bucket = byKey.get(key);
     if (bucket) bucket.revenue += Number(o.total);
   }
   return buckets;

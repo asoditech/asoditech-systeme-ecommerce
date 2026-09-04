@@ -22,11 +22,16 @@ import { requireUser } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import {
   getDashboardData,
+  getRevenueTrend,
   DASHBOARD_PERIOD_LABELS,
+  DASHBOARD_SOURCE_LABELS,
+  REVENUE_TREND_LABELS,
   type DashboardPeriod,
+  type RevenueTrendRange,
 } from "@/lib/queries/dashboard";
 import { formatCurrency, formatDate, formatDateTime, formatOrderNumber } from "@/lib/format";
 import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
+import type { RecordSource } from "@prisma/client";
 
 export const metadata = { title: "Tableau de bord — ASODITECH Gestion E-commerce" };
 
@@ -35,6 +40,16 @@ const PERIOD_SUFFIX: Record<DashboardPeriod, string> = {
   trimestre: "trim.",
   annee: "année",
 };
+
+function withParam(params: Record<string, string | undefined>, key: string, value: string | undefined) {
+  const next = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v && k !== key) next.set(k, v);
+  }
+  if (value) next.set(key, value);
+  const qs = next.toString();
+  return qs ? `/tableau-de-bord?${qs}` : "/tableau-de-bord";
+}
 
 function trend(current: number, previous: number) {
   if (previous === 0) return undefined;
@@ -48,13 +63,25 @@ function trend(current: number, previous: number) {
 export default async function TableauDeBordPage({
   searchParams,
 }: {
-  searchParams: Promise<{ periode?: string }>;
+  searchParams: Promise<{ periode?: string; source?: string; graphique?: string }>;
 }) {
   const user = await requireUser();
   const params = await searchParams;
   const periodKey: DashboardPeriod =
     params.periode === "trimestre" || params.periode === "annee" ? params.periode : "mois";
-  const data = await getDashboardData(periodKey);
+  const sourceFilter: RecordSource | undefined =
+    params.source && DASHBOARD_SOURCE_LABELS[params.source as RecordSource]
+      ? (params.source as RecordSource)
+      : undefined;
+  const chartRange: RevenueTrendRange =
+    params.graphique && REVENUE_TREND_LABELS[params.graphique as RevenueTrendRange]
+      ? (params.graphique as RevenueTrendRange)
+      : "3mois";
+
+  const [data, revenueTrend] = await Promise.all([
+    getDashboardData(periodKey, sourceFilter),
+    getRevenueTrend(chartRange, sourceFilter),
+  ]);
   const suffix = PERIOD_SUFFIX[periodKey];
 
   const canViewOrders = hasPermission(user.role, "orders.view");
@@ -70,17 +97,38 @@ export default async function TableauDeBordPage({
         title="Tableau de bord"
         description={`Bonjour ${user.name.split(" ")[0]}, voici l'état de votre activité.`}
         actions={
-          <div className="flex gap-1">
-            {(Object.keys(DASHBOARD_PERIOD_LABELS) as DashboardPeriod[]).map((key) => (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex gap-1">
+              {(Object.keys(DASHBOARD_PERIOD_LABELS) as DashboardPeriod[]).map((key) => (
+                <Button
+                  key={key}
+                  size="sm"
+                  variant={key === periodKey ? "default" : "outline"}
+                  render={<Link href={withParam(params, "periode", key === "mois" ? undefined : key)} />}
+                >
+                  {DASHBOARD_PERIOD_LABELS[key]}
+                </Button>
+              ))}
+            </div>
+            <div className="flex gap-1 border-l pl-2">
               <Button
-                key={key}
                 size="sm"
-                variant={key === periodKey ? "default" : "outline"}
-                render={<Link href={key === "mois" ? "/tableau-de-bord" : `/tableau-de-bord?periode=${key}`} />}
+                variant={!sourceFilter ? "default" : "outline"}
+                render={<Link href={withParam(params, "source", undefined)} />}
               >
-                {DASHBOARD_PERIOD_LABELS[key]}
+                Toutes sources
               </Button>
-            ))}
+              {(Object.keys(DASHBOARD_SOURCE_LABELS) as RecordSource[]).map((key) => (
+                <Button
+                  key={key}
+                  size="sm"
+                  variant={sourceFilter === key ? "default" : "outline"}
+                  render={<Link href={withParam(params, "source", key)} />}
+                >
+                  {DASHBOARD_SOURCE_LABELS[key]}
+                </Button>
+              ))}
+            </div>
           </div>
         }
       />
@@ -148,11 +196,23 @@ export default async function TableauDeBordPage({
 
       {canViewFinance && (
         <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>Chiffre d&apos;affaires — 6 derniers mois</CardTitle>
+          <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
+            <CardTitle>Chiffre d&apos;affaires — {REVENUE_TREND_LABELS[chartRange].toLowerCase()}</CardTitle>
+            <div className="flex flex-wrap gap-1">
+              {(Object.keys(REVENUE_TREND_LABELS) as RevenueTrendRange[]).map((key) => (
+                <Button
+                  key={key}
+                  size="sm"
+                  variant={key === chartRange ? "default" : "ghost"}
+                  render={<Link href={withParam(params, "graphique", key === "3mois" ? undefined : key)} />}
+                >
+                  {REVENUE_TREND_LABELS[key]}
+                </Button>
+              ))}
+            </div>
           </CardHeader>
           <CardContent>
-            <RevenueTrendChart data={data.revenueTrend} />
+            <RevenueTrendChart data={revenueTrend} />
           </CardContent>
         </Card>
       )}

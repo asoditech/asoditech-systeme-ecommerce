@@ -1,7 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
-import type { OrderStatus } from "@prisma/client";
+import type { OrderStatus, RecordSource } from "@prisma/client";
 
 const NON_REVENUE_STATUSES: OrderStatus[] = ["ANNULEE", "ECHEC"];
 
@@ -31,13 +31,14 @@ export interface PeriodRange {
  * profit is never computed here as a single fabricated number when the
  * inputs are incomplete.
  */
-export async function getFinanceSummary(period: PeriodRange) {
+export async function getFinanceSummary(period: PeriodRange, source?: RecordSource) {
   const orders = await prisma.order.findMany({
     where: {
       // Filter on when the customer placed the order, not when a sync run
       // imported the row — see the Order.placedAt schema comment.
       placedAt: { gte: period.from, lte: period.to },
       status: { notIn: NON_REVENUE_STATUSES },
+      ...(source ? { source } : {}),
     },
     include: { items: true, refunds: { where: { status: "COMPLETE" } } },
   });
@@ -99,25 +100,56 @@ export async function getFinanceSummary(period: PeriodRange) {
   };
 }
 
-export async function listExpenses(params: { categoryId?: string; dateFrom?: string; dateTo?: string; page?: number }) {
+export type ExpenseSort = "recent" | "amount-desc" | "amount-asc";
+
+function parseExpenseDate(value: string | undefined, endOfDay = false): Date | undefined {
+  if (!value) return undefined;
+  const d = new Date(endOfDay ? `${value}T23:59:59` : value);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+export async function listExpenses(params: {
+  q?: string;
+  categoryId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  sort?: ExpenseSort;
+  page?: number;
+}) {
   const PAGE_SIZE = 25;
   const page = Math.max(1, params.page ?? 1);
+  const dateFrom = parseExpenseDate(params.dateFrom);
+  const dateTo = parseExpenseDate(params.dateTo, true);
   const where = {
     ...(params.categoryId ? { categoryId: params.categoryId } : {}),
-    ...(params.dateFrom || params.dateTo
+    ...(params.q
+      ? {
+          OR: [
+            { description: { contains: params.q, mode: "insensitive" as const } },
+            { vendor: { contains: params.q, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+    ...(dateFrom || dateTo
       ? {
           date: {
-            ...(params.dateFrom ? { gte: new Date(params.dateFrom) } : {}),
-            ...(params.dateTo ? { lte: new Date(params.dateTo + "T23:59:59") } : {}),
+            ...(dateFrom ? { gte: dateFrom } : {}),
+            ...(dateTo ? { lte: dateTo } : {}),
           },
         }
       : {}),
   };
+  const orderBy =
+    params.sort === "amount-desc"
+      ? { amount: "desc" as const }
+      : params.sort === "amount-asc"
+        ? { amount: "asc" as const }
+        : { date: "desc" as const };
 
   const [expenses, total] = await Promise.all([
     prisma.expense.findMany({
       where,
-      orderBy: { date: "desc" },
+      orderBy,
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       include: { category: true, recordedBy: { select: { name: true } } },

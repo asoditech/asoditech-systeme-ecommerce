@@ -19,6 +19,7 @@ import {
   currentQuarterRange,
   currentYearRange,
   type PeriodRange,
+  type ExpenseSort,
 } from "@/lib/queries/finance";
 import { formatCurrency, formatDate } from "@/lib/format";
 
@@ -30,10 +31,24 @@ const PERIODS = [
   { key: "annee", label: "Cette année", range: currentYearRange },
 ] as const;
 
+const SORT_LABELS: Record<ExpenseSort, string> = {
+  recent: "Plus récentes",
+  "amount-desc": "Montant décroissant",
+  "amount-asc": "Montant croissant",
+};
+
 export default async function DepensesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ periode?: string; categoryId?: string; dateFrom?: string; dateTo?: string; page?: string }>;
+  searchParams: Promise<{
+    periode?: string;
+    q?: string;
+    categoryId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    sort?: string;
+    page?: string;
+  }>;
 }) {
   const user = await requirePermission("finance.view");
   const params = await searchParams;
@@ -45,18 +60,28 @@ export default async function DepensesPage({
 
   const categories = await listExpenseCategories();
   const categoryFilter = categories.find((c) => c.id === params.categoryId)?.id;
+  const sortFilter: ExpenseSort =
+    params.sort === "amount-desc" || params.sort === "amount-asc" ? params.sort : "recent";
+
+  const now = new Date();
+  const monthFrom = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString("en-CA");
+  const monthTo = new Date(now.getFullYear(), now.getMonth() + 1, 0).toLocaleDateString("en-CA");
+  const isThisMonth = params.dateFrom === monthFrom && params.dateTo === monthTo;
 
   const [summary, { expenses, total, pageSize }] = await Promise.all([
     getFinanceSummary(period),
     listExpenses({
+      q: params.q,
       categoryId: categoryFilter,
       dateFrom: params.dateFrom,
       dateTo: params.dateTo,
+      sort: sortFilter,
       page,
     }),
   ]);
 
-  const hasActiveFilter = Boolean(categoryFilter || params.dateFrom || params.dateTo);
+  const hasActiveFilter = Boolean(params.q || categoryFilter || params.dateFrom || params.dateTo || params.sort);
+  const periodSuffix = params.periode ? `?periode=${params.periode}` : "";
 
   return (
     <div>
@@ -101,6 +126,7 @@ export default async function DepensesPage({
 
       <form className="mb-4 flex flex-wrap gap-2" action="/depenses">
         {params.periode ? <input type="hidden" name="periode" value={params.periode} /> : null}
+        <Input name="q" placeholder="Description ou fournisseur..." defaultValue={params.q} className="max-w-56" />
         <Select name="categoryId" defaultValue={categoryFilter ?? "all"}>
           <SelectTrigger className="w-52">
             <SelectValue placeholder="Catégorie">
@@ -120,14 +146,29 @@ export default async function DepensesPage({
         </Select>
         <Input type="date" name="dateFrom" defaultValue={params.dateFrom} className="w-40" />
         <Input type="date" name="dateTo" defaultValue={params.dateTo} className="w-40" />
+        <Select name="sort" defaultValue={sortFilter}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Trier">{SORT_LABELS[sortFilter]}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(SORT_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button type="submit" variant="outline">
           Filtrer
         </Button>
+        <Button
+          variant={isThisMonth ? "default" : "ghost"}
+          render={<Link href={`/depenses${periodSuffix}${periodSuffix ? "&" : "?"}dateFrom=${monthFrom}&dateTo=${monthTo}`} />}
+        >
+          Ce mois-ci
+        </Button>
         {hasActiveFilter ? (
-          <Button
-            variant="ghost"
-            render={<Link href={params.periode ? `/depenses?periode=${params.periode}` : "/depenses"} />}
-          >
+          <Button variant="ghost" render={<Link href={params.periode ? `/depenses?periode=${params.periode}` : "/depenses"} />}>
             Réinitialiser
           </Button>
         ) : null}
@@ -175,9 +216,11 @@ export default async function DepensesPage({
             basePath="/depenses"
             searchParams={{
               periode: params.periode,
+              q: params.q,
               categoryId: categoryFilter,
               dateFrom: params.dateFrom,
               dateTo: params.dateTo,
+              sort: params.sort,
             }}
           />
         </div>

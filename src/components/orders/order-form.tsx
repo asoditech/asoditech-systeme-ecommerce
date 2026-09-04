@@ -72,9 +72,23 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
   const [shippingPhone, setShippingPhone] = React.useState("");
   const [isPending, startTransition] = React.useTransition();
 
+  // "Searching" is derived, not stored: true whenever the query is long
+  // enough but its results haven't landed yet — never set synchronously
+  // from the effect body (only from the debounced callback once results
+  // are in), so there's no render-triggers-effect-triggers-render loop.
+  const [customerSearchedFor, setCustomerSearchedFor] = React.useState("");
+  const [productSearchedFor, setProductSearchedFor] = React.useState("");
+  const customerSearching = customerQuery.trim().length >= 2 && customerSearchedFor !== customerQuery.trim();
+  const productSearching = productQuery.trim().length >= 2 && productSearchedFor !== productQuery.trim();
+
   React.useEffect(() => {
     if (customerQuery.trim().length < 2) return;
-    const t = setTimeout(async () => setCustomerResults(await searchCustomersForOrderAction(customerQuery)), 200);
+    const t = setTimeout(async () => {
+      const q = customerQuery.trim();
+      const results = await searchCustomersForOrderAction(customerQuery);
+      setCustomerResults(results);
+      setCustomerSearchedFor(q);
+    }, 120);
     return () => clearTimeout(t);
   }, [customerQuery]);
   // Query too short for a server round-trip — don't show stale results from a longer query.
@@ -82,7 +96,12 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
 
   React.useEffect(() => {
     if (productQuery.trim().length < 2) return;
-    const t = setTimeout(async () => setProductResults(await searchProductsForOrderAction(productQuery)), 200);
+    const t = setTimeout(async () => {
+      const q = productQuery.trim();
+      const results = await searchProductsForOrderAction(productQuery);
+      setProductResults(results);
+      setProductSearchedFor(q);
+    }, 120);
     return () => clearTimeout(t);
   }, [productQuery]);
   const visibleProductResults = productQuery.trim().length >= 2 ? productResults : [];
@@ -255,7 +274,10 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
                         <span className="text-xs text-muted-foreground">{c.phone ?? c.email ?? ""}</span>
                       </button>
                     ))}
-                    {customerQuery.trim().length >= 2 && visibleCustomerResults.length === 0 && (
+                    {customerSearching && (
+                      <p className="px-2 py-1.5 text-sm text-muted-foreground">Recherche...</p>
+                    )}
+                    {!customerSearching && customerQuery.trim().length >= 2 && visibleCustomerResults.length === 0 && (
                       <p className="px-2 py-1.5 text-sm text-muted-foreground">Aucun client trouvé.</p>
                     )}
                   </div>
@@ -325,7 +347,10 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
                     </button>
                   )
                 )}
-                {productQuery.trim().length >= 2 && visibleProductResults.length === 0 && (
+                {productSearching && (
+                  <p className="px-2 py-1.5 text-sm text-muted-foreground">Recherche...</p>
+                )}
+                {!productSearching && productQuery.trim().length >= 2 && visibleProductResults.length === 0 && (
                   <p className="px-2 py-1.5 text-sm text-muted-foreground">Aucun produit actif trouvé.</p>
                 )}
               </div>
