@@ -6,7 +6,7 @@ import { canTransitionOrderStatus } from "@/lib/validation/order";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
 import type { ShopifyOrder } from "../types";
-import { actorAuditFields, actorPerformedById, emptySyncSummary, isRecentlyPlaced, recordNote, type SyncActor, type SyncSummary } from "@/lib/integrations/shared";
+import { actorAuditFields, actorPerformedById, emptySyncSummary, isRecentlyPlaced, parseOrderPlacedAt, recordNote, type SyncActor, type SyncSummary } from "@/lib/integrations/shared";
 import { notifyNewOrder } from "@/lib/notifications";
 import type { Prisma, OrderStatus } from "@prisma/client";
 
@@ -163,6 +163,7 @@ async function createImportedOrder(
       source: "SHOPIFY",
       externalId: order.id,
       externalNumber: order.name,
+      placedAt: parseOrderPlacedAt(order.createdAt),
       subtotal: fields.subtotal,
       discountTotal: fields.discountTotal,
       shippingCost: fields.shippingCost,
@@ -238,12 +239,15 @@ async function updateExistingOrder(
       }
     }
 
+    const wantedPlacedAt = parseOrderPlacedAt(order.createdAt);
+    const placedAtChanged = existing.placedAt.getTime() !== wantedPlacedAt.getTime();
     const totalsChanged =
       Number(existing.total) !== fields.total || Number(existing.subtotal) !== fields.subtotal || Number(existing.shippingCost) !== fields.shippingCost;
-    if (totalsChanged || existing.notes !== fields.notes) {
+    if (totalsChanged || existing.notes !== fields.notes || placedAtChanged) {
       await tx.order.update({
         where: { id: orderId },
         data: {
+          placedAt: wantedPlacedAt,
           subtotal: fields.subtotal,
           discountTotal: fields.discountTotal,
           shippingCost: fields.shippingCost,
@@ -310,18 +314,27 @@ export async function syncOrders(
   for await (const page of client.listAllOrders()) {
     if (capped) break;
 
-    const held = new Set(
+    const held = new Map(
       (
         await prisma.order.findMany({
           where: { source: "SHOPIFY", externalId: { in: page.map((o) => o.id) } },
-          select: { externalId: true },
+          select: { id: true, externalId: true, placedAt: true, createdAt: true },
         })
-      ).map((r) => r.externalId)
+      ).map((r) => [r.externalId, r])
     );
 
     for (const order of page) {
-      if (held.has(order.id)) {
-        summary.unchanged++;
+      const existing = held.get(order.id);
+      if (existing) {
+        if (existing.placedAt.getTime() === existing.createdAt.getTime()) {
+          await prisma.order.update({
+            where: { id: existing.id },
+            data: { placedAt: parseOrderPlacedAt(order.createdAt) },
+          });
+          summary.updated++;
+        } else {
+          summary.unchanged++;
+        }
         continue;
       }
       if (importedThisRun >= MAX_IMPORTS_PER_RUN) {

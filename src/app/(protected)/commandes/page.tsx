@@ -168,7 +168,7 @@ export default async function CommandesPage({
                   <TableCell>
                     <StatusBadge status={o.paymentStatus} labels={ORDER_PAYMENT_STATUS_LABELS} />
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{formatDate(o.createdAt)}</TableCell>
+                  <TableCell className="text-muted-foreground">{formatDate(o.placedAt)}</TableCell>
                 </ClickableTableRow>
               ))}
             </TableBody>

@@ -68,8 +68,8 @@ export async function getCustomerStats(customerId: string) {
       _count: true,
       _avg: { total: true },
     }),
-    prisma.order.findFirst({ where: { customerId }, orderBy: { createdAt: "asc" }, select: { createdAt: true } }),
-    prisma.order.findFirst({ where: { customerId }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
+    prisma.order.findFirst({ where: { customerId }, orderBy: { placedAt: "asc" }, select: { placedAt: true } }),
+    prisma.order.findFirst({ where: { customerId }, orderBy: { placedAt: "desc" }, select: { placedAt: true } }),
     prisma.order.count({ where: { customerId, status: { in: ["RETOUR", "REMBOURSEE"] } } }),
     prisma.order.count({ where: { customerId, status: "ANNULEE" } }),
   ]);
@@ -78,8 +78,8 @@ export async function getCustomerStats(customerId: string) {
     totalSpent: aggregate._sum.total ?? null,
     ordersCount: aggregate._count,
     avgOrderValue: aggregate._avg.total ?? null,
-    firstOrderAt: firstOrder?.createdAt ?? null,
-    lastOrderAt: lastOrder?.createdAt ?? null,
+    firstOrderAt: firstOrder?.placedAt ?? null,
+    lastOrderAt: lastOrder?.placedAt ?? null,
     returnedOrders: returnedCount,
     cancelledOrders: cancelledCount,
   };

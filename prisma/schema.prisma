@@ -657,6 +657,12 @@ model Order {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  // When the customer actually placed the order — WooCommerce/Shopify
+  // `date_created` for an imported order, `now()` for a manual one.
+  // `createdAt` on an imported order is only when the sync ran, so it is
+  // useless for "orders this month" questions: dashboards, the finance
+  // period filter and the orders list all sort/filter on this instead.
+  placedAt  DateTime @default(now())
 
   // The warehouse this order's stock movements target (Phase 32b — see
   // docs/adr/0020-stock-transfers.md). Set at creation to
@@ -682,6 +688,7 @@ model Order {
   @@index([status])
   @@index([paymentStatus])
   @@index([createdAt])
+  @@index([placedAt])
   @@index([fulfillmentWarehouseId])
   // Prevents a duplicate Order under a genuine race between the order
   // webhook and a concurrent manual sync both importing the same

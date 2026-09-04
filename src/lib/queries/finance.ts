@@ -34,7 +34,9 @@ export interface PeriodRange {
 export async function getFinanceSummary(period: PeriodRange) {
   const orders = await prisma.order.findMany({
     where: {
-      createdAt: { gte: period.from, lte: period.to },
+      // Filter on when the customer placed the order, not when a sync run
+      // imported the row — see the Order.placedAt schema comment.
+      placedAt: { gte: period.from, lte: period.to },
       status: { notIn: NON_REVENUE_STATUSES },
     },
     include: { items: true, refunds: { where: { status: "COMPLETE" } } },
@@ -88,6 +90,12 @@ export async function getFinanceSummary(period: PeriodRange) {
     deliveryCostTotal,
     refundsTotal,
     netProfit,
+    // Average basket for the period, on gross order totals (not
+    // refund-netted) — null when there were no orders.
+    avgOrderValue: orders.length > 0 ? grossRevenue / orders.length : null,
+    // Everything the business spent in the period: recorded expenses plus
+    // what delivery cost.
+    chargesTotal: expensesTotal + deliveryCostTotal,
   };
 }
 

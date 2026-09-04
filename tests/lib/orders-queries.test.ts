@@ -43,9 +43,9 @@ describe("listOrders — hardening against filter-form query strings", () => {
     expect(result.total).toBe(1);
   });
 
-  it("still applies a real date range", async () => {
+  it("still applies a real date range (on placedAt, not import time)", async () => {
     const old = await seedOrder();
-    await prisma.order.update({ where: { id: old.id }, data: { createdAt: new Date("2020-01-01") } });
+    await prisma.order.update({ where: { id: old.id }, data: { placedAt: new Date("2020-01-01") } });
     await seedOrder();
 
     const thisYear = await listOrders({ dateFrom: `${new Date().getFullYear()}-01-01` });

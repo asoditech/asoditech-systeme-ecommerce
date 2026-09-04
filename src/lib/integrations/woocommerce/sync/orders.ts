@@ -6,7 +6,7 @@ import { canTransitionOrderStatus } from "@/lib/validation/order";
 import { mapCustomerFieldsFromOrder, mapOrderFields, mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
 import type { WcOrder } from "../types";
 import { actorAuditFields, actorPerformedById, type SyncActor } from "./actor";
-import { isRecentlyPlaced } from "../../shared/order-recency";
+import { isRecentlyPlaced, parseOrderPlacedAt } from "../../shared/order-recency";
 import { notifyNewOrder } from "@/lib/notifications";
 import { emptySyncSummary, recordNote, type SyncSummary } from "./types";
 import type { Prisma, OrderStatus } from "@prisma/client";
@@ -152,6 +152,7 @@ async function createImportedOrder(
       source: "WOOCOMMERCE",
       externalId: String(wc.id),
       externalNumber: wc.number,
+      placedAt: parseOrderPlacedAt(wc.date_created),
       subtotal: fields.subtotal,
       discountTotal: fields.discountTotal,
       shippingCost: fields.shippingCost,
@@ -229,14 +230,17 @@ async function updateExistingOrder(
       }
     }
 
+    const wantedPlacedAt = parseOrderPlacedAt(wc.date_created);
+    const placedAtChanged = existing.placedAt.getTime() !== wantedPlacedAt.getTime();
     const totalsChanged =
       Number(existing.total) !== fields.total ||
       Number(existing.subtotal) !== fields.subtotal ||
       Number(existing.shippingCost) !== fields.shippingCost;
-    if (totalsChanged || existing.notes !== fields.notes) {
+    if (totalsChanged || existing.notes !== fields.notes || placedAtChanged) {
       await tx.order.update({
         where: { id: orderId },
         data: {
+          placedAt: wantedPlacedAt,
           subtotal: fields.subtotal,
           discountTotal: fields.discountTotal,
           shippingCost: fields.shippingCost,
@@ -309,19 +313,30 @@ export async function syncOrders(
     if (capped) break;
 
     // One query per page instead of one per order — which of these do we
-    // already hold?
-    const held = new Set(
+    // already hold, and does the held row still have a placeholder
+    // placedAt (== createdAt, from the migration backfill) that a re-sync
+    // should correct to the real WooCommerce order date?
+    const held = new Map(
       (
         await prisma.order.findMany({
           where: { source: "WOOCOMMERCE", externalId: { in: orders.map((o) => String(o.id)) } },
-          select: { externalId: true },
+          select: { id: true, externalId: true, placedAt: true, createdAt: true },
         })
-      ).map((r) => r.externalId)
+      ).map((r) => [r.externalId, r])
     );
 
     for (const wc of orders) {
-      if (held.has(String(wc.id))) {
-        summary.unchanged++;
+      const existing = held.get(String(wc.id));
+      if (existing) {
+        if (existing.placedAt.getTime() === existing.createdAt.getTime()) {
+          await prisma.order.update({
+            where: { id: existing.id },
+            data: { placedAt: parseOrderPlacedAt(wc.date_created) },
+          });
+          summary.updated++;
+        } else {
+          summary.unchanged++;
+        }
         continue;
       }
       if (importedThisRun >= MAX_IMPORTS_PER_RUN) {

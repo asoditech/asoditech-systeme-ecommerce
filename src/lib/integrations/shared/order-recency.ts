@@ -16,3 +16,10 @@ export function isRecentlyPlaced(sourceCreatedAt: string): boolean {
   const placedAt = new Date(sourceCreatedAt).getTime();
   return !Number.isNaN(placedAt) && Date.now() - placedAt < NOTIFY_WINDOW_MS;
 }
+
+/** The provider's order-creation timestamp as a Date, falling back to
+ * "now" for an unparseable value — used to fill Order.placedAt. */
+export function parseOrderPlacedAt(sourceCreatedAt: string): Date {
+  const d = new Date(sourceCreatedAt);
+  return Number.isNaN(d.getTime()) ? new Date() : d;
+}

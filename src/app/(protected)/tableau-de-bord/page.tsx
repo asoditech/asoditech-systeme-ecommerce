@@ -1,5 +1,16 @@
 import Link from "next/link";
-import { ShoppingCart, Boxes, TriangleAlert, ArrowRight, Wallet, TrendingUp, Users, Truck } from "lucide-react";
+import {
+  ShoppingCart,
+  Boxes,
+  TriangleAlert,
+  ArrowRight,
+  Wallet,
+  TrendingUp,
+  Users,
+  Truck,
+  Receipt,
+  ShoppingBag,
+} from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
 import { StatusBadge } from "@/components/status-badge";
@@ -8,11 +19,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { requireUser } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
-import { getDashboardData } from "@/lib/queries/dashboard";
+import {
+  getDashboardData,
+  DASHBOARD_PERIOD_LABELS,
+  type DashboardPeriod,
+} from "@/lib/queries/dashboard";
 import { formatCurrency, formatDate, formatDateTime, formatOrderNumber } from "@/lib/format";
 import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
 
 export const metadata = { title: "Tableau de bord — ASODITECH Gestion E-commerce" };
+
+const PERIOD_SUFFIX: Record<DashboardPeriod, string> = {
+  mois: "mois",
+  trimestre: "trim.",
+  annee: "année",
+};
 
 function trend(current: number, previous: number) {
   if (previous === 0) return undefined;
@@ -23,9 +44,17 @@ function trend(current: number, previous: number) {
   };
 }
 
-export default async function TableauDeBordPage() {
+export default async function TableauDeBordPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ periode?: string }>;
+}) {
   const user = await requireUser();
-  const data = await getDashboardData();
+  const params = await searchParams;
+  const periodKey: DashboardPeriod =
+    params.periode === "trimestre" || params.periode === "annee" ? params.periode : "mois";
+  const data = await getDashboardData(periodKey);
+  const suffix = PERIOD_SUFFIX[periodKey];
 
   const canViewOrders = hasPermission(user.role, "orders.view");
   const canViewFinance = hasPermission(user.role, "finance.view");
@@ -36,33 +65,65 @@ export default async function TableauDeBordPage() {
 
   return (
     <div>
-      <PageHeader title="Tableau de bord" description={`Bonjour ${user.name.split(" ")[0]}, voici l'état de votre activité.`} />
+      <PageHeader
+        title="Tableau de bord"
+        description={`Bonjour ${user.name.split(" ")[0]}, voici l'état de votre activité.`}
+        actions={
+          <div className="flex gap-1">
+            {(Object.keys(DASHBOARD_PERIOD_LABELS) as DashboardPeriod[]).map((key) => (
+              <Button
+                key={key}
+                size="sm"
+                variant={key === periodKey ? "default" : "outline"}
+                render={<Link href={key === "mois" ? "/tableau-de-bord" : `/tableau-de-bord?periode=${key}`} />}
+              >
+                {DASHBOARD_PERIOD_LABELS[key]}
+              </Button>
+            ))}
+          </div>
+        }
+      />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {canViewFinance && (
           <>
             <KpiCard
-              label="Chiffre d'affaires (mois)"
+              label={`Chiffre d'affaires (${suffix})`}
               value={formatCurrency(data.finance.revenue)}
               trend={trend(data.finance.revenue, data.previousFinance.revenue)}
               icon={Wallet}
               tone="primary"
             />
             <KpiCard
-              label="Bénéfice net (mois)"
+              label={`Charges (${suffix})`}
+              value={formatCurrency(data.finance.chargesTotal)}
+              hint="Dépenses enregistrées + coût de livraison"
+              trend={trend(data.finance.chargesTotal, data.previousFinance.chargesTotal)}
+              icon={Receipt}
+              tone="warning"
+            />
+            <KpiCard
+              label={`Bénéfice net (${suffix})`}
               value={data.finance.netProfit !== null ? formatCurrency(data.finance.netProfit) : null}
               unavailableReason="Non calculable"
               hint={!data.finance.cogsComplete ? "Coût d'achat manquant sur certains produits" : undefined}
               icon={TrendingUp}
               tone="success"
             />
+            <KpiCard
+              label={`Panier moyen (${suffix})`}
+              value={data.finance.avgOrderValue !== null ? formatCurrency(data.finance.avgOrderValue) : null}
+              unavailableReason="Aucune commande"
+              icon={ShoppingBag}
+              tone="info"
+            />
           </>
         )}
         {canViewOrders && (
-          <KpiCard label="Commandes (mois)" value={String(data.finance.ordersCount)} icon={ShoppingCart} tone="violet" />
+          <KpiCard label={`Commandes (${suffix})`} value={String(data.finance.ordersCount)} icon={ShoppingCart} tone="violet" />
         )}
         {canViewCustomers && (
-          <KpiCard label="Nouveaux clients (mois)" value={String(data.newCustomersThisMonth)} icon={Users} tone="info" />
+          <KpiCard label={`Nouveaux clients (${suffix})`} value={String(data.newCustomersThisPeriod)} icon={Users} tone="info" />
         )}
         {canViewDelivery && (
           <KpiCard

@@ -53,7 +53,8 @@ export async function listOrders(filters: OrderListFilters) {
       : {}),
     ...(dateFrom || dateTo
       ? {
-          createdAt: {
+          // The customer-facing order date, not the sync import time.
+          placedAt: {
             ...(dateFrom ? { gte: dateFrom } : {}),
             ...(dateTo ? { lte: dateTo } : {}),
           },
@@ -72,7 +73,7 @@ export async function listOrders(filters: OrderListFilters) {
   const [orders, total] = await Promise.all([
     prisma.order.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: { placedAt: "desc" },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       include: { customer: true, _count: { select: { items: true } } },

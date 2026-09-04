@@ -157,7 +157,10 @@ describe("getFinanceSummary — data integrity", () => {
     // month; the refund below is processed "now" (a later period).
     const pastPeriodStart = new Date("2025-01-01");
     const pastPeriodEnd = new Date("2025-01-31T23:59:59");
-    await prisma.order.update({ where: { id: created.data.id }, data: { createdAt: new Date("2025-01-15") } });
+    await prisma.order.update({
+      where: { id: created.data.id },
+      data: { createdAt: new Date("2025-01-15"), placedAt: new Date("2025-01-15") },
+    });
 
     const refund = await createRefundAction(formData({ orderId: created.data.id, amount: "100" }));
     if (!refund.ok) throw new Error("setup failed");
