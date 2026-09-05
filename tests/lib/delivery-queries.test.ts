@@ -13,11 +13,13 @@ function formData(fields: Record<string, string>) {
   return fd;
 }
 
-async function seedConfirmedOrder() {
-  const warehouse = await prisma.warehouse.create({ data: { name: "Entrepôt", isDefault: true } });
+async function seedConfirmedOrder(opts: { customerName?: string } = {}) {
+  const warehouse =
+    (await prisma.warehouse.findFirst({ where: { isDefault: true } })) ??
+    (await prisma.warehouse.create({ data: { name: "Entrepôt", isDefault: true } }));
   const product = await prisma.product.create({ data: { name: "Coffret", sku: `SKU-${Math.random()}`, price: 100, status: "ACTIF" } });
   await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 10 } });
-  const customer = await prisma.customer.create({ data: { fullName: "Amine Tazi" } });
+  const customer = await prisma.customer.create({ data: { fullName: opts.customerName ?? "Amine Tazi" } });
   const created = await createOrderAction({
     customerId: customer.id,
     paymentMethod: "PAIEMENT_LIVRAISON",
@@ -61,7 +63,7 @@ describe("listOrdersAwaitingShipment", () => {
   it("includes a freshly confirmed order with no shipment yet", async () => {
     await loginAsTestUser({ role: "MANAGER" });
     const orderId = await seedConfirmedOrder();
-    const orders = await listOrdersAwaitingShipment();
+    const { orders } = await listOrdersAwaitingShipment();
     expect(orders.map((o) => o.id)).toContain(orderId);
   });
 
@@ -75,7 +77,7 @@ describe("listOrdersAwaitingShipment", () => {
       data: { orderId, providerId: provider.data.id, status: "ECHEC", failedReason: "Ville non résolue." },
     });
 
-    const orders = await listOrdersAwaitingShipment();
+    const { orders } = await listOrdersAwaitingShipment();
     expect(orders.map((o) => o.id)).toContain(orderId);
   });
 
@@ -89,7 +91,7 @@ describe("listOrdersAwaitingShipment", () => {
       data: { orderId, providerId: provider.data.id, status: "EN_ATTENTE", externalId: "ext-1" },
     });
 
-    const orders = await listOrdersAwaitingShipment();
+    const { orders } = await listOrdersAwaitingShipment();
     expect(orders.map((o) => o.id)).not.toContain(orderId);
   });
 
@@ -103,7 +105,7 @@ describe("listOrdersAwaitingShipment", () => {
       data: { orderId, providerId: provider.data.id, status: "EN_TRANSIT", externalId: "ext-2" },
     });
 
-    const orders = await listOrdersAwaitingShipment();
+    const { orders } = await listOrdersAwaitingShipment();
     expect(orders.map((o) => o.id)).not.toContain(orderId);
   });
 
@@ -112,8 +114,33 @@ describe("listOrdersAwaitingShipment", () => {
     const orderId = await seedConfirmedOrder();
     await prisma.order.update({ where: { id: orderId }, data: { status: "ECHEC" } });
 
-    const orders = await listOrdersAwaitingShipment();
+    const { orders } = await listOrdersAwaitingShipment();
     expect(orders.map((o) => o.id)).toContain(orderId);
+  });
+
+  it("returns the newest order first and paginates (a fresh order isn't buried behind a backlog)", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const older = await seedConfirmedOrder();
+    await prisma.order.update({ where: { id: older }, data: { placedAt: new Date("2026-01-01T00:00:00Z") } });
+    const newer = await seedConfirmedOrder();
+    await prisma.order.update({ where: { id: newer }, data: { placedAt: new Date("2026-09-01T00:00:00Z") } });
+
+    const firstPage = await listOrdersAwaitingShipment({ page: 1 });
+    expect(firstPage.orders[0]?.id).toBe(newer);
+    expect(firstPage.total).toBe(2);
+  });
+
+  it("filters by order number and by customer name", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    await seedConfirmedOrder({ customerName: "Fatima Zahra" });
+    const targetId = await seedConfirmedOrder({ customerName: "Youssef Bennani" });
+    const target = await prisma.order.findUniqueOrThrow({ where: { id: targetId } });
+
+    const byName = await listOrdersAwaitingShipment({ search: "bennani" });
+    expect(byName.orders.map((o) => o.id)).toEqual([targetId]);
+
+    const byNumber = await listOrdersAwaitingShipment({ search: String(target.orderNumber) });
+    expect(byNumber.orders.map((o) => o.id)).toEqual([targetId]);
   });
 });
 

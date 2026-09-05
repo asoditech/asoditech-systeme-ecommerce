@@ -13,12 +13,21 @@ export function DataTablePagination({
   total,
   basePath,
   searchParams,
+  pageParam = "page",
+  hash,
 }: {
   page: number;
   pageSize: number;
   total: number;
   basePath: string;
   searchParams?: Record<string, string | undefined>;
+  /** Query-string key for the page number. Override when two paginated
+   * tables live on the same route (e.g. the Livraison tabs) so their page
+   * cursors don't collide. */
+  pageParam?: string;
+  /** Optional `#fragment` appended to each link — keeps the browser on the
+   * right tab/section after a page change. */
+  hash?: string;
 }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -27,10 +36,10 @@ export function DataTablePagination({
   function hrefFor(targetPage: number) {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(searchParams ?? {})) {
-      if (value) params.set(key, value);
+      if (value && key !== pageParam) params.set(key, value);
     }
-    params.set("page", String(targetPage));
-    return `${basePath}?${params.toString()}`;
+    params.set(pageParam, String(targetPage));
+    return `${basePath}?${params.toString()}${hash ?? ""}`;
   }
 
   return (

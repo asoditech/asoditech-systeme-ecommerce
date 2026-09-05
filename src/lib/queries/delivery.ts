@@ -106,16 +106,39 @@ export async function listDeliveryManifests() {
  * the "À expédier" tab). Only a genuinely live shipment
  * (ACTIVE_SHIPMENT_STATUSES) with any provider excludes an order.
  */
-export async function listOrdersAwaitingShipment() {
-  return prisma.order.findMany({
-    where: {
-      status: { in: SHIPPABLE_ORDER_STATUSES },
-      shipments: { none: { status: { in: ACTIVE_SHIPMENT_STATUSES } } },
-    },
-    include: { customer: true },
-    orderBy: { createdAt: "asc" },
-    take: 25,
-  });
+export async function listOrdersAwaitingShipment(params: { page?: number; search?: string } = {}) {
+  const page = Math.max(1, params.page ?? 1);
+  const search = params.search?.trim();
+
+  const where: Prisma.OrderWhereInput = {
+    status: { in: SHIPPABLE_ORDER_STATUSES },
+    shipments: { none: { status: { in: ACTIVE_SHIPMENT_STATUSES } } },
+    ...(search
+      ? {
+          OR: [
+            { customer: { fullName: { contains: search, mode: "insensitive" } } },
+            { externalNumber: { contains: search, mode: "insensitive" } },
+            ...(/^\d+$/.test(search) ? [{ orderNumber: Number(search) }] : []),
+          ],
+        }
+      : {}),
+  };
+
+  const [orders, total] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      include: { customer: true },
+      // Newest first — a freshly confirmed order must appear at the top,
+      // not fall off the end of the list behind a backlog of imported
+      // orders. `placedAt` for consistency with the rest of the app.
+      orderBy: { placedAt: "desc" },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+    }),
+    prisma.order.count({ where }),
+  ]);
+
+  return { orders, total, page, pageSize: PAGE_SIZE };
 }
 
 /**

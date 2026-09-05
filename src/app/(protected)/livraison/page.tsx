@@ -16,6 +16,7 @@ import { LivraisonDateFilter } from "@/components/delivery/livraison-date-filter
 import { ConfirmActionButton } from "@/components/confirm-action-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DataTablePagination } from "@/components/data-table-pagination";
@@ -47,12 +48,24 @@ const TERMINAL_SHIPMENT_STATUSES = ["LIVRE", "ANNULE", "RETOURNE"];
 export default async function LivraisonPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; dateFrom?: string; dateTo?: string; page?: string }>;
+  searchParams: Promise<{
+    range?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    page?: string;
+    tab?: string;
+    aexp?: string;
+    aexpq?: string;
+  }>;
 }) {
   const user = await requirePermission("delivery.view");
   const canManage = hasPermission(user.role, "delivery.manage");
   const params = await searchParams;
   const page = Number(params.page) || 1;
+  const aexpPage = Number(params.aexp) || 1;
+  const aexpSearch = params.aexpq?.trim() || undefined;
+  const TABS = ["expeditions", "a-expedier", "bons-livraison", "prestataires", "documentation"];
+  const activeTab = params.tab && TABS.includes(params.tab) ? params.tab : "expeditions";
 
   const rangeParam: DateRangePreset =
     params.range && params.range in DATE_RANGE_PRESET_LABELS ? (params.range as DateRangePreset) : "all";
@@ -64,17 +77,24 @@ export default async function LivraisonPage({
     to: params.dateTo,
   });
 
-  const [stats, providers, shipmentsResult, awaitingShipment, connectors, manifestable, manifests] =
+  const [stats, providers, shipmentsResult, awaitingResult, connectors, manifestable, manifests] =
     await Promise.all([
       getDeliveryStats(dateFrom, dateTo),
       listShippingProviders(),
       listShipments({ dateFrom, dateTo, page }),
-      canManage ? listOrdersAwaitingShipment() : Promise.resolve([]),
+      canManage
+        ? listOrdersAwaitingShipment({ page: aexpPage, search: aexpSearch })
+        : Promise.resolve({ orders: [], total: 0, page: 1, pageSize: 25 }),
       listAvailableDeliveryConnectors(),
       canManage ? listManifestableShipments() : Promise.resolve([]),
       canManage ? listDeliveryManifests() : Promise.resolve([]),
     ]);
   const { shipments, total: shipmentsTotal, pageSize: shipmentsPageSize } = shipmentsResult;
+  const {
+    orders: awaitingShipment,
+    total: awaitingTotal,
+    pageSize: awaitingPageSize,
+  } = awaitingResult;
 
   // Only carriers whose registered adapter declares GENERATE_MANIFEST get
   // the Bons de livraison workflow at all.
@@ -132,10 +152,10 @@ export default async function LivraisonPage({
         />
       </div>
 
-      <Tabs defaultValue="expeditions">
+      <Tabs defaultValue={activeTab}>
         <TabsList>
           <TabsTrigger value="expeditions">Expéditions</TabsTrigger>
-          {canManage && <TabsTrigger value="a-expedier">À expédier ({awaitingShipment.length})</TabsTrigger>}
+          {canManage && <TabsTrigger value="a-expedier">À expédier ({awaitingTotal})</TabsTrigger>}
           {showManifestTab && (
             <TabsTrigger value="bons-livraison">Bons de livraison ({manifestableShipments.length})</TabsTrigger>
           )}
@@ -215,9 +235,37 @@ export default async function LivraisonPage({
         </TabsContent>
 
         {canManage && (
-          <TabsContent value="a-expedier">
+          <TabsContent value="a-expedier" className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Commandes confirmées ou en préparation sans expédition active — les plus récentes d&apos;abord.
+              Créez ici l&apos;expédition avant de passer la commande au statut « Expédiée ».
+            </p>
+            <form className="flex flex-wrap gap-2" action="/livraison">
+              <input type="hidden" name="tab" value="a-expedier" />
+              <Input
+                name="aexpq"
+                placeholder="N° de commande ou nom du client…"
+                defaultValue={params.aexpq}
+                className="max-w-64"
+              />
+              <Button type="submit" variant="outline">
+                Rechercher
+              </Button>
+              {aexpSearch && (
+                <Button type="button" variant="ghost" render={<Link href="/livraison?tab=a-expedier" />}>
+                  Réinitialiser
+                </Button>
+              )}
+            </form>
             {awaitingShipment.length === 0 ? (
-              <EmptyState icon={Package2} title="Aucune commande en attente d'expédition." />
+              <EmptyState
+                icon={Package2}
+                title={
+                  aexpSearch
+                    ? "Aucune commande à expédier ne correspond à cette recherche."
+                    : "Aucune commande en attente d'expédition."
+                }
+              />
             ) : (
               <div className="rounded-lg border">
                 <Table>
@@ -240,7 +288,7 @@ export default async function LivraisonPage({
                         </TableCell>
                         <TableCell>{o.customer.fullName}</TableCell>
                         <TableCell>{formatCurrency(o.total.toString(), o.currency)}</TableCell>
-                        <TableCell className="text-muted-foreground">{formatDate(o.createdAt)}</TableCell>
+                        <TableCell className="text-muted-foreground">{formatDate(o.placedAt)}</TableCell>
                         <TableCell>
                           <CreateShipmentDialog orderId={o.id} providers={shipmentProviderOptions} />
                         </TableCell>
@@ -248,6 +296,14 @@ export default async function LivraisonPage({
                     ))}
                   </TableBody>
                 </Table>
+                <DataTablePagination
+                  page={awaitingResult.page}
+                  pageSize={awaitingPageSize}
+                  total={awaitingTotal}
+                  basePath="/livraison"
+                  pageParam="aexp"
+                  searchParams={{ tab: "a-expedier", aexpq: params.aexpq }}
+                />
               </div>
             )}
           </TabsContent>
