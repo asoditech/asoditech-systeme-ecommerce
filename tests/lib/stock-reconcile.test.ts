@@ -111,7 +111,7 @@ describe("reconcileStockFromProvider", () => {
     expect(await prisma.notification.count()).toBe(0);
   });
 
-  it("excludes the triggering user from the low-stock notification", async () => {
+  it("notifies the triggering user too, not just their teammates (unlike every other notify* helper)", async () => {
     const actor = await createTestUser({ role: "WAREHOUSE" });
     const other = await createTestUser({ role: "WAREHOUSE" });
     await prisma.inventoryItem.create({ data: { warehouseId, productId, quantityOnHand: 20 } });
@@ -126,7 +126,7 @@ describe("reconcileStockFromProvider", () => {
 
     const recipientIds = (await prisma.notification.findMany()).map((n) => n.userId);
     expect(recipientIds).toContain(other.id);
-    expect(recipientIds).not.toContain(actor.id);
+    expect(recipientIds).toContain(actor.id);
   });
 
   it("tags externalItemId onto the row and keeps it fresh on re-sync", async () => {

@@ -234,10 +234,16 @@ export async function notifyConnectionError(
  * affected products/variations and notifies for any now at or below its
  * `lowStockThreshold` (RUPTURE_STOCK at ≤ 0, STOCK_FAIBLE otherwise).
  * Deduped per item per type per day. Best-effort; never throws.
+ *
+ * Deliberately never excludes the acting user (unlike every other
+ * notify* helper here) — "you just created this order" is redundant to
+ * tell its own creator, but "this is now low" is new information even to
+ * whoever's adjustment caused it (they may not know the threshold, or
+ * another location's stock), and a single-operator store would otherwise
+ * never see its own low-stock alerts at all.
  */
 export async function checkAndNotifyLowStock(
-  refs: { productIds?: (string | null | undefined)[]; variationIds?: (string | null | undefined)[] },
-  exceptUserId?: string | null
+  refs: { productIds?: (string | null | undefined)[]; variationIds?: (string | null | undefined)[] }
 ): Promise<void> {
   try {
     const productIds = [...new Set((refs.productIds ?? []).filter((v): v is string => !!v))];
@@ -282,7 +288,6 @@ export async function checkAndNotifyLowStock(
         entityId: item.id,
         dedupeKey: `${isRupture ? "rupture_stock" : "stock_faible"}:${item.id}:${today}`,
         recipientPermission: "inventory.view",
-        exceptUserId,
       });
     }
   } catch (error) {

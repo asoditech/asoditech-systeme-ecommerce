@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { MarkAllReadButton } from "@/components/notifications/mark-all-read-button";
+import { DismissNotificationButton } from "@/components/notifications/dismiss-notification-button";
 import { requireUser } from "@/lib/auth/guards";
 import { prisma } from "@/lib/prisma";
 import { formatDateTime } from "@/lib/format";
@@ -41,7 +42,10 @@ export default async function NotificationsPage() {
                 <p className="text-sm font-medium">{n.title}</p>
                 <p className="text-sm text-muted-foreground">{n.message}</p>
               </div>
-              <span className="shrink-0 text-xs text-muted-foreground">{formatDateTime(n.createdAt)}</span>
+              <div className="flex shrink-0 items-start gap-2">
+                <span className="text-xs text-muted-foreground">{formatDateTime(n.createdAt)}</span>
+                <DismissNotificationButton id={n.id} />
+              </div>
             </div>
           ))}
         </div>

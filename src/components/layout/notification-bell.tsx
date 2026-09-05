@@ -6,6 +6,7 @@ import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DismissNotificationButton } from "@/components/notifications/dismiss-notification-button";
 import { formatDateTime } from "@/lib/format";
 import { NOTIFICATION_TYPE_LABELS } from "@/lib/status-labels";
 import { markAllNotificationsReadAction, markNotificationReadAction } from "@/actions/notifications";
@@ -53,27 +54,32 @@ export function NotificationBell({
             <p className="p-4 text-center text-sm text-muted-foreground">Aucune notification.</p>
           ) : (
             items.map((n) => (
-              <button
-                key={n.id}
-                type="button"
-                onClick={async () => {
-                  if (!n.isRead) {
-                    await markNotificationReadAction(n.id);
-                    router.refresh();
-                  }
-                }}
-                className="flex w-full flex-col gap-0.5 border-b px-3 py-2.5 text-left last:border-b-0 hover:bg-muted"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    {NOTIFICATION_TYPE_LABELS[n.type] ?? n.type}
-                  </span>
-                  {!n.isRead && <Badge variant="default" className="h-1.5 w-1.5 rounded-full p-0" />}
-                </div>
-                <p className="text-sm font-medium">{n.title}</p>
-                <p className="text-xs text-muted-foreground">{n.message}</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">{formatDateTime(n.createdAt)}</p>
-              </button>
+              <div key={n.id} className="group relative border-b last:border-b-0">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!n.isRead) {
+                      await markNotificationReadAction(n.id);
+                      router.refresh();
+                    }
+                  }}
+                  className="flex w-full flex-col gap-0.5 px-3 py-2.5 pr-8 text-left hover:bg-muted"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {NOTIFICATION_TYPE_LABELS[n.type] ?? n.type}
+                    </span>
+                    {!n.isRead && <Badge variant="default" className="h-1.5 w-1.5 rounded-full p-0" />}
+                  </div>
+                  <p className="text-sm font-medium">{n.title}</p>
+                  <p className="text-xs text-muted-foreground">{n.message}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">{formatDateTime(n.createdAt)}</p>
+                </button>
+                <DismissNotificationButton
+                  id={n.id}
+                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100"
+                />
+              </div>
             ))
           )}
         </div>

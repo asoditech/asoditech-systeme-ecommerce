@@ -167,7 +167,12 @@ export function TransferForm({ warehouses, mode = "create", transfer }: Transfer
             ) : (
               <Select value={sourceId} onValueChange={(v) => v && setSourceId(v)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Choisir un entrepôt source" />
+                  <SelectValue placeholder="Choisir un entrepôt source">
+                    {(value: string) => {
+                      const w = activeWarehouses.find((x) => x.id === value);
+                      return w ? `${w.name} (${WAREHOUSE_TYPE_LABELS[w.type]})` : value;
+                    }}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {activeWarehouses.map((w) => (
@@ -186,7 +191,12 @@ export function TransferForm({ warehouses, mode = "create", transfer }: Transfer
             ) : (
               <Select value={destId} onValueChange={(v) => v && setDestId(v)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Choisir une destination" />
+                  <SelectValue placeholder="Choisir une destination">
+                    {(value: string) => {
+                      const w = activeWarehouses.find((x) => x.id === value);
+                      return w ? `${w.name} (${WAREHOUSE_TYPE_LABELS[w.type]})` : value;
+                    }}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {activeWarehouses

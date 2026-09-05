@@ -95,10 +95,7 @@ export async function adjustInventoryAction(formData: FormData): Promise<ActionR
   });
 
   if (updated.quantityOnHand < previousQuantityOnHand) {
-    await checkAndNotifyLowStock(
-      { productIds: [item.productId], variationIds: [item.variationId] },
-      user.id
-    );
+    await checkAndNotifyLowStock({ productIds: [item.productId], variationIds: [item.variationId] });
   }
 
   // Real-time half of the automatic sync (see docs/adr/0010 and 0011): a

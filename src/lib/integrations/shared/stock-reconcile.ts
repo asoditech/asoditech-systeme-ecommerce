@@ -119,7 +119,7 @@ export async function reconcileStockFromProvider(params: {
   // The provider's own count just moved us down — surface anything now low,
   // exactly as a manual downward adjustment does (src/actions/inventory.ts).
   if (delta < 0) {
-    await checkAndNotifyLowStock({ productIds: [productId], variationIds: [variationId] }, actorPerformedById(actor));
+    await checkAndNotifyLowStock({ productIds: [productId], variationIds: [variationId] });
   }
 
   return "reconciled";

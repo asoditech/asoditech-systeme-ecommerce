@@ -29,3 +29,18 @@ export async function markAllNotificationsReadAction(): Promise<ActionResult<und
   revalidatePath("/notifications");
   return actionOk(undefined);
 }
+
+/** Hides one notification from the bell/list — a per-user row with no
+ * other reference in the schema, so this is a real delete, not a soft
+ * "hidden" flag; nothing else in the app ever reads a deleted one back. */
+export async function dismissNotificationAction(id: string): Promise<ActionResult<undefined>> {
+  const user = await requireUserForAction();
+  if (!id) {
+    return actionError("Notification invalide.");
+  }
+
+  await prisma.notification.deleteMany({ where: { id, userId: user.id } });
+
+  revalidatePath("/notifications");
+  return actionOk(undefined);
+}

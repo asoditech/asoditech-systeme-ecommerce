@@ -292,4 +292,20 @@ describe("checkAndNotifyLowStock", () => {
     await expect(checkAndNotifyLowStock({})).resolves.toBeUndefined();
     expect(await prisma.notification.count()).toBe(0);
   });
+
+  /**
+   * Live-testing report: a single-operator store never saw its own
+   * low-stock alerts, because every other notify* helper excludes the
+   * acting user ("you just did this, no need to be told") and this one
+   * used to as well — but "this item is now low" is new information even
+   * to whoever's adjustment caused it, unlike a routine "you created
+   * this" event. checkAndNotifyLowStock takes no exceptUserId at all now.
+   */
+  it("notifies the acting user too, unlike every other notify* helper", async () => {
+    const actor = await createTestUser({ role: "WAREHOUSE" });
+    const { item } = await seedProduct(0);
+    await checkAndNotifyLowStock({ productIds: [item.productId] });
+    const notification = await prisma.notification.findFirstOrThrow();
+    expect(notification.userId).toBe(actor.id);
+  });
 });

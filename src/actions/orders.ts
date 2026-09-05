@@ -384,7 +384,7 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
     // EXPEDIEE, the one transition that can bring stock down).
     const refs = { productIds: lines.map((l) => l.productId), variationIds: lines.map((l) => l.variationId) };
     if (parsed.data.status === "EXPEDIEE") {
-      await checkAndNotifyLowStock(refs, user.id);
+      await checkAndNotifyLowStock(refs);
     }
     await pushStockAfterLocalChange(refs);
   }

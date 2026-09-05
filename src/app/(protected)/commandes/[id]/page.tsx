@@ -11,6 +11,7 @@ import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { getOrderDetail, getOrderAuditTimeline } from "@/lib/queries/orders";
 import { formatCurrency, formatDateTime, displayOrderNumber, displayOrderChannel } from "@/lib/format";
+import { humanizeAuditAction } from "@/lib/audit-labels";
 import {
   ORDER_STATUS_LABELS,
   ORDER_PAYMENT_STATUS_LABELS,
@@ -194,7 +195,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                     <li key={e.id} className="text-sm">
                       <p>
                         <span className="font-medium">{e.actorUser?.name ?? "Système"}</span>{" "}
-                        <span className="text-muted-foreground">— {e.action}</span>
+                        <span className="text-muted-foreground">— {humanizeAuditAction(e.action)}</span>
                       </p>
                       <p className="text-xs text-muted-foreground">{formatDateTime(e.createdAt)}</p>
                     </li>

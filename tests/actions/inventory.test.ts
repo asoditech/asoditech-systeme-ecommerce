@@ -148,7 +148,7 @@ describe("adjustInventoryAction", () => {
     ).rejects.toThrow();
   });
 
-  it("notifies inventory.view holders when an adjustment drops stock to/below the threshold (docs/adr/0016-notifications.md)", async () => {
+  it("notifies inventory.view holders when an adjustment drops stock to/below the threshold (docs/adr/0016-notifications.md), including the acting user", async () => {
     const { warehouse, product } = await seedInventoryItem(10); // default lowStockThreshold is 5
     const actor = await loginAsTestUser({ role: "WAREHOUSE" });
     const teammate = await createTestUser({ role: "MANAGER" }); // also holds inventory.view
@@ -162,7 +162,10 @@ describe("adjustInventoryAction", () => {
     expect(notifications.every((n) => n.type === "STOCK_FAIBLE")).toBe(true);
     const recipientIds = notifications.map((n) => n.userId);
     expect(recipientIds).toContain(teammate.id);
-    expect(recipientIds).not.toContain(actor.id);
+    // Unlike every other notify* helper, checkAndNotifyLowStock does NOT
+    // exclude the acting user — a single-operator store must still see
+    // its own low-stock alerts. See notifications.test.ts's own coverage.
+    expect(recipientIds).toContain(actor.id);
   });
 
   it("does not notify when the adjustment increases stock, even from a low starting point", async () => {
