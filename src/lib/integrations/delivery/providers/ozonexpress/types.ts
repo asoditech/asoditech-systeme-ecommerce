@@ -83,6 +83,12 @@ export const ozonExpressConfigSchema = z.object({
   cityIdByName: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
   citiesPath: z.string().trim().min(1).max(200).optional(),
   stockMode: z.enum(["ramassage", "stock"]).optional(),
+  // When the storefront (a WooCommerce/Shopify delivery plugin) already
+  // creates the OzonExpress parcel at checkout, set this so ASODITECH
+  // never creates a duplicate — the operator links the existing parcel by
+  // entering its tracking number via manual shipment creation. See
+  // createShipmentViaProvider's guard.
+  parcelsCreatedByStore: z.boolean().optional(),
   defaultParcelNature: z.string().trim().max(120).optional(),
   requestTimeoutMs: z.number().int().min(1000).max(60_000).optional(),
   baseUrl: z.string().url().optional(),

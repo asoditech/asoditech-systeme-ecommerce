@@ -129,3 +129,39 @@ export async function pushOrderPaymentToWooCommerce(orderId: string): Promise<vo
     console.error("pushOrderPaymentToWooCommerce() failed (non-fatal):", error);
   }
 }
+
+/** Local ASODITECH order status → the raw WooCommerce status slug to push. */
+const WOOCOMMERCE_STATUS_FOR: Partial<Record<string, string>> = {
+  LIVREE: "completed",
+  ANNULEE: "cancelled",
+  REMBOURSEE: "refunded",
+};
+
+/**
+ * After this app's own order status advances (a carrier confirms
+ * delivery, an order is cancelled, …), tells a linked WooCommerce store
+ * so the order there stops lagging behind — e.g. moves to `completed`
+ * once delivered rather than staying `processing`. Only the statuses in
+ * WOOCOMMERCE_STATUS_FOR are pushed; anything else is a no-op (the
+ * earlier lifecycle stages — nouvelle/confirmée/en préparation — don't
+ * map cleanly onto WooCommerce's own set and are left to the store).
+ *
+ * Best-effort and silent, same contract as the stock push. NEVER call
+ * from the order-import path (that's the store telling US its status).
+ */
+export async function pushOrderStatusToWooCommerce(orderId: string): Promise<void> {
+  try {
+    const order = await prisma.order.findUnique({ where: { id: orderId }, select: { source: true, externalId: true, status: true } });
+    if (!order || order.source !== "WOOCOMMERCE" || !order.externalId) return;
+    const wcStatus = WOOCOMMERCE_STATUS_FOR[order.status];
+    if (!wcStatus) return;
+    const externalOrderId = Number(order.externalId);
+    if (!Number.isFinite(externalOrderId)) return;
+
+    const loaded = await loadWooCommerceClient();
+    if (!loaded) return;
+    await loaded.client.updateOrderStatus(externalOrderId, wcStatus);
+  } catch (error) {
+    console.error("pushOrderStatusToWooCommerce() failed (non-fatal):", error);
+  }
+}

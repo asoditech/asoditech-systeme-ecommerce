@@ -630,6 +630,30 @@ describe("updateOrderPaymentStatusAction", () => {
     // No integration configured at all — this must not throw either.
   });
 
+  it("pushes the WooCommerce order status to « completed » when the order is marked LIVREE here", async () => {
+    const state = emptyFakeStore();
+    installFakeWooCommerceServer(state);
+    await prisma.integration.create({
+      data: {
+        provider: "WOOCOMMERCE",
+        status: "CONNECTE",
+        config: { siteUrl: FAKE_STORE_URL },
+        credentialsEncrypted: encryptSecret(JSON.stringify({ apiKey: FAKE_CONSUMER_KEY, apiSecret: FAKE_CONSUMER_SECRET })),
+      },
+    });
+    const customer = await prisma.customer.create({ data: { fullName: "Client WC" } });
+    const order = await prisma.order.create({
+      data: { customerId: customer.id, source: "WOOCOMMERCE", externalId: "8010", status: "EXPEDIEE", subtotal: 100, total: 100 },
+    });
+    await loginAsTestUser({ role: "MANAGER" });
+
+    const result = await updateOrderStatusAction(formData({ id: order.id, status: "LIVREE" }));
+    expect(result.ok).toBe(true);
+
+    expect(state.orderUpdates).toHaveLength(1);
+    expect(state.orderUpdates[0]).toMatchObject({ orderId: 8010, body: { status: "completed" } });
+  });
+
   it("rejects REMBOURSE as a direct target — only a completed Refund may set it (audit fix)", async () => {
     const { customer, product } = await seedOrderable();
     await loginAsTestUser({ role: "MANAGER" });

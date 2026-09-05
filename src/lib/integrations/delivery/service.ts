@@ -11,6 +11,7 @@ import { getDeliveryProvider, assertCapability } from "./registry";
 import {
   DeliveryProviderError,
   DeliveryUnsupportedCapabilityError,
+  DeliveryConfigError,
 } from "./errors";
 import type {
   DeliveryCredentials,
@@ -289,6 +290,19 @@ export async function createShipmentViaProvider(params: {
 
   const { row, adapter, credentials, config } = await loadApiProvider(params.providerId);
   assertCapability(adapter, "CREATE_SHIPMENT");
+
+  // Some deployments' storefronts already create the carrier parcel
+  // themselves at checkout (a WooCommerce/Shopify delivery-company
+  // plugin). When that's the case for this provider, this app must NOT
+  // create a second parcel — the operator links the existing one via the
+  // manual "Créer une expédition" flow (entering the tracking number the
+  // store's plugin generated). See docs/adr/0012.
+  if (config.parcelsCreatedByStore === true) {
+    throw new DeliveryConfigError(
+      "Ce prestataire est configuré pour que les colis soient créés automatiquement par la boutique. " +
+        "Utilisez « Créer une expédition » (saisie manuelle) et renseignez le numéro de suivi fourni par le transporteur."
+    );
+  }
 
   // Generic, provider-agnostic city resolution — see
   // docs/adr/0018-delivery-city-mapping.md. Runs before the local shipment

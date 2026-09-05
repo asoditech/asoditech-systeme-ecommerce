@@ -192,10 +192,15 @@ export function buildAddParcelForm(
     throw new DeliveryConfigError("Le montant à encaisser (COD) ne peut pas être négatif.");
   }
   const form: Record<string, string> = {
-    // Our local shipment id doubles as the custom tracking number so a
-    // retried create is idempotent on OzonExpress's side (it rejects a
-    // duplicate custom tracking number). See docs/adr/0013 ("Idempotency").
-    "tracking-number": input.localShipmentId,
+    // No custom `tracking-number` — OzonExpress assigns its own real
+    // "OZE…" number (per its API docs, the field is optional). Sending our
+    // internal cuid instead produced an unrecognisable value in the Suivi
+    // column and parcels that didn't surface in the OzonExpress dashboard.
+    // Concurrent-request duplication is already prevented locally by
+    // reserveShipmentSlot; the narrow "succeeded on OzonExpress but we
+    // crashed before saving the id" window is accepted (see
+    // docs/adr/0013 — this reverses the earlier idempotency-via-custom-
+    // tracking decision).
     "parcel-receiver": input.recipientName,
     "parcel-phone": normalizeMoroccanPhone(input.phone),
     // The generic city-mapping layer already resolved the OzonExpress city

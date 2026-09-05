@@ -20,6 +20,7 @@ import {
   deliveryCityMappingIdSchema,
 } from "@/lib/validation/delivery";
 import { localCityKey } from "@/lib/integrations/delivery/city-resolution";
+import { pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
 import { isForeignKeyConstraintError, isUniqueConstraintError } from "@/lib/prisma-errors";
 import { encryptSecret } from "@/lib/crypto";
 import { listDeliveryProviders } from "@/lib/integrations/delivery/registry";
@@ -249,6 +250,13 @@ export async function updateShipmentStatusAction(formData: FormData): Promise<Ac
   if (parsed.data.status === "ECHEC" && existing.status !== "ECHEC") {
     const ctx = await shipmentNotificationContext(existing.id);
     if (ctx) await notifyShipmentFailed(ctx, user.id);
+  }
+
+  // A shipment reaching LIVRE just advanced the order to LIVREE (inside
+  // applyShipmentStatusTransition) — tell a linked WooCommerce store so
+  // its order moves to "completed" too, instead of staying "processing".
+  if (parsed.data.status === "LIVRE") {
+    await pushOrderStatusToWooCommerce(existing.orderId);
   }
 
   revalidatePath("/livraison");
@@ -540,6 +548,11 @@ export async function syncShipmentStatusAction(formData: FormData): Promise<Acti
     if (result.newStatus === "ECHEC" && shipment.status !== "ECHEC") {
       const ctx = await shipmentNotificationContext(shipment.id);
       if (ctx) await notifyShipmentFailed(ctx, user.id);
+    }
+    // Carrier confirmed delivery → the order is now LIVREE; push that to
+    // a linked WooCommerce store (see updateShipmentStatusAction).
+    if (result.newStatus === "LIVRE") {
+      await pushOrderStatusToWooCommerce(shipment.orderId);
     }
   }
 

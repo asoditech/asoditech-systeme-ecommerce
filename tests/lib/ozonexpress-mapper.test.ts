@@ -178,7 +178,6 @@ describe("ozonexpress mapper — buildAddParcelForm", () => {
   it("builds the documented multipart fields", () => {
     const form = buildAddParcelForm(baseInput, config);
     expect(form).toMatchObject({
-      "tracking-number": "ship_local_1",
       "parcel-receiver": "Amine Tazi",
       "parcel-phone": "0612345678",
       "parcel-city": "1",
@@ -188,6 +187,10 @@ describe("ozonexpress mapper — buildAddParcelForm", () => {
       "parcel-nature": "Vêtements",
       "parcel-note": "Livrer le matin",
     });
+  });
+
+  it("does not send a custom tracking-number — OzonExpress assigns its own", () => {
+    expect(buildAddParcelForm(baseInput, config)["tracking-number"]).toBeUndefined();
   });
 
   it("sends parcel-price 0 for a prepaid order (0 COD is meaningful, not 'missing')", () => {

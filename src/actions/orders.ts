@@ -18,7 +18,7 @@ import {
   notifyPaymentProblem,
   checkAndNotifyLowStock,
 } from "@/lib/notifications";
-import { pushStockAfterLocalChange, pushOrderPaymentToWooCommerce } from "@/lib/integrations/shared/auto-push";
+import { pushStockAfterLocalChange, pushOrderPaymentToWooCommerce, pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
 import {
   createOrderSchema,
   updateOrderStatusSchema,
@@ -396,6 +396,12 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
     );
   }
 
+  // Delivered / cancelled here → tell a linked WooCommerce store so its
+  // order stops lagging (see pushOrderStatusToWooCommerce).
+  if (parsed.data.status === "LIVREE" || parsed.data.status === "ANNULEE") {
+    await pushOrderStatusToWooCommerce(order.id);
+  }
+
   revalidatePath("/commandes");
   revalidatePath(`/commandes/${order.id}`);
   return actionOk({ id: order.id });
@@ -515,11 +521,13 @@ export async function cancelOrderAction(formData: FormData): Promise<ActionResul
   });
 
   // Cancelling put the reserved/returned units back — a linked store's
-  // displayed stock needs to reflect that too, not just this app's own.
+  // displayed stock needs to reflect that too, not just this app's own —
+  // and its order should move to "cancelled".
   await pushStockAfterLocalChange({
     productIds: lines.map((l) => l.productId),
     variationIds: lines.map((l) => l.variationId),
   });
+  await pushOrderStatusToWooCommerce(order.id);
 
   revalidatePath("/commandes");
   revalidatePath(`/commandes/${order.id}`);

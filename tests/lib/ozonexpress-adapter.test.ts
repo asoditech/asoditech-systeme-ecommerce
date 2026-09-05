@@ -183,12 +183,14 @@ describe("ozonExpressAdapter (fixture)", () => {
       ).rejects.toBeInstanceOf(DeliveryMalformedResponseError);
     });
 
-    it("uses the local shipment id as the custom tracking number (idempotent retry)", async () => {
-      await ozonExpressAdapter.createShipment!(shipmentInput, credentials, config);
-      await expect(
-        ozonExpressAdapter.createShipment!(shipmentInput, credentials, config)
-      ).rejects.toThrow();
-      expect(state.parcels.size).toBe(1);
+    it("does not send a custom tracking number — OzonExpress assigns its own OZE… number", async () => {
+      const first = await ozonExpressAdapter.createShipment!(shipmentInput, credentials, config);
+      expect(first.trackingNumber).toMatch(/^OZE/);
+      // No adapter-level idempotency any more (see buildAddParcelForm's
+      // own comment): a second call is a distinct parcel. Duplicate
+      // prevention lives at the local reserveShipmentSlot layer instead.
+      const forms = state.seenAddParcelForms;
+      expect(forms.every((f) => f["tracking-number"] === undefined)).toBe(true);
     });
   });
 

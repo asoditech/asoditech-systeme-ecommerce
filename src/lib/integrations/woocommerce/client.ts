@@ -265,4 +265,21 @@ export class WooCommerceClient {
       throw errorForStatus(response.status);
     }
   }
+
+  /**
+   * System → WooCommerce order-status push. Sets the order's status to a
+   * raw WooCommerce status slug (`completed`, `cancelled`, …). Used when
+   * this app's own order lifecycle advances past what the store knows —
+   * e.g. a carrier confirms delivery here, so the WooCommerce order
+   * should move to `completed` too, not stay `processing`.
+   */
+  async updateOrderStatus(orderId: number, status: string): Promise<void> {
+    const response = await this.requestRaw(`/orders/${orderId}`, {
+      method: "PUT",
+      body: JSON.stringify({ status }),
+    });
+    if (!response.ok) {
+      throw errorForStatus(response.status);
+    }
+  }
 }

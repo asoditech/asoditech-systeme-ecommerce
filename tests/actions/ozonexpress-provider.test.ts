@@ -225,6 +225,27 @@ describe("OzonExpress connector — Server Action layer", () => {
       expect(blob).not.toContain(FAKE_OZ_API_KEY);
       expect(blob).not.toContain(FAKE_OZ_CUSTOMER_ID);
     });
+
+    it("refuses to create a parcel when the provider is set to « colis créés par la boutique » — no API call", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await seedApiProviderRow("OzonExpress (site)");
+      await configureDeliveryProviderApiAction(
+        formData({
+          providerId: provider.id,
+          providerKey: OZONEXPRESS_PROVIDER_KEY,
+          credentialsJson: CREDENTIALS_JSON,
+          configJson: JSON.stringify({ baseUrl: FAKE_OZ_BASE_URL, requestTimeoutMs: 1000, parcelsCreatedByStore: true }),
+        })
+      );
+      const orderId = await seedShippableOrder();
+
+      const result = await createShipmentViaProviderAction(formData({ orderId, providerId: provider.id }));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/créés automatiquement par la boutique/i);
+
+      expect(state.seenUrls.some((u) => u.includes("/add-parcel"))).toBe(false);
+      expect(await prisma.shipment.count({ where: { orderId } })).toBe(0);
+    });
   });
 
   describe("cancellation is exposed as unsupported (never a silent local-only cancel)", () => {

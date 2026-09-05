@@ -116,8 +116,16 @@ export class OzonExpressClient {
     }
 
     const url = `${this.baseHost}${this.pathPrefix}/${action}`;
-    const body = new FormData();
-    for (const [key, value] of Object.entries(form)) body.append(key, value);
+    // `add-delivery-note` (Bon de Livraison step 1) takes no fields at all
+    // — its documented curl has zero `-F` flags. Send a genuinely empty
+    // body there rather than an empty multipart envelope (a boundary with
+    // no parts), which some servers reject.
+    const hasFields = Object.keys(form).length > 0;
+    let body: FormData | undefined;
+    if (hasFields) {
+      body = new FormData();
+      for (const [key, value] of Object.entries(form)) body.append(key, value);
+    }
 
     let lastWasRetriable = false;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {

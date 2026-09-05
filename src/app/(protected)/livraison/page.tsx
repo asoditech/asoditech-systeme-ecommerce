@@ -11,10 +11,12 @@ import { ProviderConnectionStatus, ProviderConnectionControls } from "@/componen
 import { CityMappingDialog } from "@/components/delivery/city-mapping-dialog";
 import { ShipmentProviderControls } from "@/components/delivery/shipment-provider-controls";
 import { ManifestBuilder, type ManifestableShipment } from "@/components/delivery/manifest-builder";
+import { OzonExpressHelp } from "@/components/delivery/ozonexpress-help";
 import { ConfirmActionButton } from "@/components/confirm-action-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DataTablePagination } from "@/components/data-table-pagination";
@@ -53,8 +55,11 @@ export default async function LivraisonPage({
   const params = await searchParams;
   const page = Number(params.page) || 1;
 
-  const preset: DateRangePreset =
+  const selectedPreset: DateRangePreset =
     params.range && params.range in DATE_RANGE_PRESET_LABELS ? (params.range as DateRangePreset) : "all";
+  // Filling a date input alone is enough — no need to also switch the
+  // dropdown to "Période personnalisée".
+  const preset: DateRangePreset = params.dateFrom || params.dateTo ? "custom" : selectedPreset;
   const { from: dateFrom, to: dateTo } = resolveDateRangePreset(preset, new Date(), {
     from: params.dateFrom,
     to: params.dateTo,
@@ -113,28 +118,39 @@ export default async function LivraisonPage({
     <div>
       <PageHeader title="Livraison" description="Expéditions, prestataires et taux de livraison réussie." />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {(Object.keys(DATE_RANGE_PRESET_LABELS) as DateRangePreset[])
-          .filter((p) => p !== "custom")
-          .map((p) => (
-            <Button
-              key={p}
-              size="sm"
-              variant={preset === p ? "default" : "outline"}
-              render={<Link href={p === "all" ? "/livraison" : `/livraison?range=${p}`} />}
-            >
-              {DATE_RANGE_PRESET_LABELS[p]}
-            </Button>
-          ))}
-        <form className="flex flex-wrap items-center gap-2" action="/livraison">
-          <input type="hidden" name="range" value="custom" />
+      <form className="mb-4 flex flex-wrap items-end gap-2" action="/livraison">
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Période</label>
+          <Select name="range" defaultValue={selectedPreset}>
+            <SelectTrigger className="w-52">
+              <SelectValue>{DATE_RANGE_PRESET_LABELS[selectedPreset]}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(DATE_RANGE_PRESET_LABELS) as DateRangePreset[]).map((p) => (
+                <SelectItem key={p} value={p}>
+                  {DATE_RANGE_PRESET_LABELS[p]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Du (personnalisé)</label>
           <Input type="date" name="dateFrom" defaultValue={params.dateFrom} className="w-40" />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Au (personnalisé)</label>
           <Input type="date" name="dateTo" defaultValue={params.dateTo} className="w-40" />
-          <Button type="submit" size="sm" variant={preset === "custom" ? "default" : "outline"}>
-            {DATE_RANGE_PRESET_LABELS.custom}
+        </div>
+        <Button type="submit" variant="outline">
+          Filtrer
+        </Button>
+        {(preset !== "all" || params.range) && (
+          <Button variant="ghost" render={<Link href="/livraison" />}>
+            Réinitialiser
           </Button>
-        </form>
-      </div>
+        )}
+      </form>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Expéditions totales" value={String(stats.total)} icon={Truck} tone="primary" />
@@ -348,6 +364,7 @@ export default async function LivraisonPage({
         )}
 
         <TabsContent value="prestataires" className="space-y-4">
+          <OzonExpressHelp />
           {providers.length === 0 ? (
             <EmptyState icon={Truck} title="Aucun prestataire de livraison configuré." />
           ) : (
