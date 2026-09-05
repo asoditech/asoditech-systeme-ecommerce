@@ -245,4 +245,24 @@ export class WooCommerceClient {
       throw errorForStatus(response.status);
     }
   }
+
+  /**
+   * System → WooCommerce order-payment push (docs/adr/0010-woocommerce-integration.md
+   * addendum): `set_paid: true` is WooCommerce's own REST API field for
+   * marking an order paid — it runs the store's normal `payment_complete()`
+   * logic (advances status off pending/on-hold to processing/completed as
+   * appropriate for the order's contents, sets date_paid, reduces stock if
+   * not already reduced) rather than this app guessing which raw status
+   * string to force. Deliberately narrow: only ever called when this app's
+   * own payment status is set to PAYE for a WooCommerce-linked order.
+   */
+  async markOrderPaid(orderId: number): Promise<void> {
+    const response = await this.requestRaw(`/orders/${orderId}`, {
+      method: "PUT",
+      body: JSON.stringify({ set_paid: true }),
+    });
+    if (!response.ok) {
+      throw errorForStatus(response.status);
+    }
+  }
 }

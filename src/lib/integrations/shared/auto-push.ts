@@ -95,3 +95,37 @@ export async function pushStockAfterLocalChange(refs: StockChangeRefs): Promise<
     console.error("pushStockAfterLocalChange() failed (non-fatal):", error);
   }
 }
+
+/**
+ * After this app marks an order's payment status PAYE, tells a linked
+ * WooCommerce store the order is paid — via `set_paid: true`, WooCommerce's
+ * own REST field for running its normal payment-complete logic (advances
+ * status appropriately, sets date_paid) rather than this app guessing a
+ * raw status string. Without this, marking an order paid here left the
+ * WooCommerce order looking untouched, even though this app's own record
+ * was correct — a customer-facing inconsistency if the store also emails
+ * order-status updates or lets the customer view their order there.
+ *
+ * WooCommerce-only for now: Shopify's financial status is derived from
+ * actual recorded transactions and can't be set with a single field the
+ * same way — marking a Shopify order paid needs its own
+ * `orderMarkAsPaid` mutation, not implemented in this phase.
+ *
+ * Best-effort and silent: never throws, never blocks the caller's own
+ * action, and quietly no-ops for a non-WooCommerce order or an
+ * unconfigured/disconnected integration.
+ */
+export async function pushOrderPaymentToWooCommerce(orderId: string): Promise<void> {
+  try {
+    const order = await prisma.order.findUnique({ where: { id: orderId }, select: { source: true, externalId: true } });
+    if (!order || order.source !== "WOOCOMMERCE" || !order.externalId) return;
+    const externalOrderId = Number(order.externalId);
+    if (!Number.isFinite(externalOrderId)) return;
+
+    const loaded = await loadWooCommerceClient();
+    if (!loaded) return;
+    await loaded.client.markOrderPaid(externalOrderId);
+  } catch (error) {
+    console.error("pushOrderPaymentToWooCommerce() failed (non-fatal):", error);
+  }
+}

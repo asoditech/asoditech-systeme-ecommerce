@@ -64,7 +64,7 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
 
   const [items, setItems] = React.useState<LineItem[]>([]);
   const [paymentMethod, setPaymentMethod] = React.useState("PAIEMENT_LIVRAISON");
-  const [channel, setChannel] = React.useState("TELEPHONE");
+  const [channel, setChannel] = React.useState("WHATSAPP");
   const [shippingCost, setShippingCost] = React.useState("0");
   const [discountTotal, setDiscountTotal] = React.useState("0");
   const [notes, setNotes] = React.useState("");

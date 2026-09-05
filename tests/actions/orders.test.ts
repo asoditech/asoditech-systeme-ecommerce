@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
+import { encryptSecret } from "@/lib/crypto";
 import {
   createOrderAction,
   createCustomerForOrderAction,
@@ -13,6 +14,7 @@ import { createOrderSchema } from "@/lib/validation/order";
 import { resetDb } from "../helpers/db";
 import { loginAsTestUser, createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
+import { installFakeWooCommerceServer, emptyFakeStore, FAKE_STORE_URL, FAKE_CONSUMER_KEY, FAKE_CONSUMER_SECRET } from "../helpers/fake-woocommerce";
 
 function formData(fields: Record<string, string>) {
   const fd = new FormData();
@@ -119,7 +121,7 @@ describe("createOrderAction", () => {
     expect(item.quantityReserved).toBe(3);
   });
 
-  it("defaults channel to TELEPHONE when omitted, and persists an explicit choice", async () => {
+  it("defaults channel to WHATSAPP when omitted, and persists an explicit choice", async () => {
     const { customer, product } = await seedOrderable();
     await loginAsTestUser({ role: "SALES" });
 
@@ -131,20 +133,20 @@ describe("createOrderAction", () => {
     expect(defaulted.ok).toBe(true);
     if (defaulted.ok) {
       const order = await prisma.order.findUniqueOrThrow({ where: { id: defaulted.data.id } });
-      expect(order.channel).toBe("TELEPHONE");
+      expect(order.channel).toBe("WHATSAPP");
       expect(order.source).toBe("INTERNE");
     }
 
     const explicit = await createOrderAction({
       customerId: customer.id,
       paymentMethod: "PAIEMENT_LIVRAISON",
-      channel: "WHATSAPP",
+      channel: "TELEPHONE",
       items: [{ productId: product.id, quantity: 1, unitPrice: 100, discount: 0 }],
     });
     expect(explicit.ok).toBe(true);
     if (explicit.ok) {
       const order = await prisma.order.findUniqueOrThrow({ where: { id: explicit.data.id } });
-      expect(order.channel).toBe("WHATSAPP");
+      expect(order.channel).toBe("TELEPHONE");
     }
   });
 
@@ -549,6 +551,83 @@ describe("updateOrderPaymentStatusAction", () => {
   afterEach(async () => {
     await resetDb();
     mockCookieStore.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it("marks the order paid on WooCommerce when this app's own payment status becomes PAYE", async () => {
+    const state = emptyFakeStore();
+    installFakeWooCommerceServer(state);
+    await prisma.integration.create({
+      data: {
+        provider: "WOOCOMMERCE",
+        status: "CONNECTE",
+        config: { siteUrl: FAKE_STORE_URL },
+        credentialsEncrypted: encryptSecret(JSON.stringify({ apiKey: FAKE_CONSUMER_KEY, apiSecret: FAKE_CONSUMER_SECRET })),
+      },
+    });
+    const customer = await prisma.customer.create({ data: { fullName: "Client WC", phone: "0600000000" } });
+    const order = await prisma.order.create({
+      data: {
+        customerId: customer.id,
+        source: "WOOCOMMERCE",
+        externalId: "8001",
+        paymentStatus: "EN_ATTENTE",
+        subtotal: 100,
+        total: 100,
+      },
+    });
+    await loginAsTestUser({ role: "MANAGER" });
+
+    const result = await updateOrderPaymentStatusAction(formData({ id: order.id, paymentStatus: "PAYE" }));
+    expect(result.ok).toBe(true);
+
+    expect(state.orderUpdates).toHaveLength(1);
+    expect(state.orderUpdates[0]).toMatchObject({ orderId: 8001, body: { set_paid: true } });
+  });
+
+  it("does not call WooCommerce when the payment status is unchanged (already PAYE)", async () => {
+    const state = emptyFakeStore();
+    installFakeWooCommerceServer(state);
+    await prisma.integration.create({
+      data: {
+        provider: "WOOCOMMERCE",
+        status: "CONNECTE",
+        config: { siteUrl: FAKE_STORE_URL },
+        credentialsEncrypted: encryptSecret(JSON.stringify({ apiKey: FAKE_CONSUMER_KEY, apiSecret: FAKE_CONSUMER_SECRET })),
+      },
+    });
+    const customer = await prisma.customer.create({ data: { fullName: "Client WC", phone: "0600000001" } });
+    const order = await prisma.order.create({
+      data: {
+        customerId: customer.id,
+        source: "WOOCOMMERCE",
+        externalId: "8002",
+        paymentStatus: "PAYE",
+        subtotal: 100,
+        total: 100,
+      },
+    });
+    await loginAsTestUser({ role: "MANAGER" });
+
+    // Setting it to the same status it already has (e.g. a no-op re-save).
+    const result = await updateOrderPaymentStatusAction(formData({ id: order.id, paymentStatus: "PAYE" }));
+    expect(result.ok).toBe(true);
+    expect(state.orderUpdates).toHaveLength(0);
+  });
+
+  it("does not push anything for a purely internal order", async () => {
+    const { customer, product } = await seedOrderable();
+    await loginAsTestUser({ role: "MANAGER" });
+    const created = await createOrderAction({
+      customerId: customer.id,
+      paymentMethod: "PAIEMENT_LIVRAISON",
+      items: [{ productId: product.id, quantity: 1, unitPrice: 100, discount: 0 }],
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    const result = await updateOrderPaymentStatusAction(formData({ id: created.data.id, paymentStatus: "PAYE" }));
+    expect(result.ok).toBe(true);
+    // No integration configured at all — this must not throw either.
   });
 
   it("rejects REMBOURSE as a direct target — only a completed Refund may set it (audit fix)", async () => {

@@ -68,7 +68,7 @@ describe("listInventoryItems (DB-side filtering & pagination)", () => {
       { name: "ok-b", onHand: 100, threshold: 5 }, // not low
     ]);
 
-    const res = await listInventoryItems({ lowStockOnly: true });
+    const res = await listInventoryItems({ stockStatus: "low" });
     expect(res.total).toBe(3);
     const names = res.items.map((i) => i.product?.name).sort();
     expect(names).toEqual(["low-a", "low-b", "low-c"]);
@@ -79,7 +79,7 @@ describe("listInventoryItems (DB-side filtering & pagination)", () => {
       { name: "low-shirt", onHand: 1, threshold: 5 },
       { name: "low-pants", onHand: 1, threshold: 5 },
     ]);
-    const res = await listInventoryItems({ lowStockOnly: true, q: "shirt" });
+    const res = await listInventoryItems({ stockStatus: "low", q: "shirt" });
     expect(res.total).toBe(1);
     expect(res.items[0].product?.name).toBe("low-shirt");
   });
@@ -92,9 +92,44 @@ describe("listInventoryItems (DB-side filtering & pagination)", () => {
       });
       await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 1 } });
     }
-    const res = await listInventoryItems({ lowStockOnly: true, q: "ABC_123" });
+    const res = await listInventoryItems({ stockStatus: "low", q: "ABC_123" });
     expect(res.total).toBe(1);
     expect(res.items[0].product?.sku).toBe("ABC_123");
+  });
+
+  it("out-of-stock filter returns rows where available (on-hand minus reserved) is at or below zero", async () => {
+    const warehouse = await prisma.warehouse.create({ data: { name: "P2", isDefault: true } });
+    const zero = await prisma.product.create({ data: { name: "zero", sku: `Z-${Math.random()}`, price: 10, status: "ACTIF" } });
+    const reserved = await prisma.product.create({ data: { name: "reserved-out", sku: `R-${Math.random()}`, price: 10, status: "ACTIF" } });
+    const inStock = await prisma.product.create({ data: { name: "in-stock", sku: `I-${Math.random()}`, price: 10, status: "ACTIF" } });
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: zero.id, quantityOnHand: 0 } });
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: reserved.id, quantityOnHand: 5, quantityReserved: 5 } });
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: inStock.id, quantityOnHand: 5 } });
+
+    const res = await listInventoryItems({ stockStatus: "out" });
+    const names = res.items.map((i) => i.product?.name).sort();
+    expect(names).toEqual(["reserved-out", "zero"]);
+  });
+
+  it("filters by warehouse and by category, and sorts by quantity", async () => {
+    const w1 = await prisma.warehouse.create({ data: { name: "W1", isDefault: true } });
+    const w2 = await prisma.warehouse.create({ data: { name: "W2" } });
+    const category = await prisma.category.create({ data: { name: "Chaussures", slug: "chaussures" } });
+    const a = await prisma.product.create({ data: { name: "a", sku: `A-${Math.random()}`, price: 10, status: "ACTIF", categoryId: category.id } });
+    const b = await prisma.product.create({ data: { name: "b", sku: `B-${Math.random()}`, price: 10, status: "ACTIF" } });
+    await prisma.inventoryItem.create({ data: { warehouseId: w1.id, productId: a.id, quantityOnHand: 3 } });
+    await prisma.inventoryItem.create({ data: { warehouseId: w2.id, productId: b.id, quantityOnHand: 9 } });
+
+    const byWarehouse = await listInventoryItems({ warehouseId: w1.id });
+    expect(byWarehouse.items.map((i) => i.product?.name)).toEqual(["a"]);
+
+    const byCategory = await listInventoryItems({ categoryId: category.id });
+    expect(byCategory.items.map((i) => i.product?.name)).toEqual(["a"]);
+
+    const sortedAsc = await listInventoryItems({ sort: "quantity-asc" });
+    expect(sortedAsc.items.map((i) => i.quantityOnHand)).toEqual([3, 9]);
+    const sortedDesc = await listInventoryItems({ sort: "quantity-desc" });
+    expect(sortedDesc.items.map((i) => i.quantityOnHand)).toEqual([9, 3]);
   });
 });
 

@@ -18,7 +18,7 @@ import {
   notifyPaymentProblem,
   checkAndNotifyLowStock,
 } from "@/lib/notifications";
-import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
+import { pushStockAfterLocalChange, pushOrderPaymentToWooCommerce } from "@/lib/integrations/shared/auto-push";
 import {
   createOrderSchema,
   updateOrderStatusSchema,
@@ -444,6 +444,13 @@ export async function updateOrderPaymentStatusAction(formData: FormData): Promis
 
   if (order.paymentStatus === "ECHEC" && existing.paymentStatus !== "ECHEC") {
     await notifyPaymentProblem({ id: order.id, orderNumber: order.orderNumber }, user.id);
+  }
+
+  if (order.paymentStatus === "PAYE" && existing.paymentStatus !== "PAYE") {
+    // Tell a linked WooCommerce store this order is paid — otherwise it
+    // keeps showing "En attente de paiement" there even though this
+    // project already shows it as paid.
+    await pushOrderPaymentToWooCommerce(order.id);
   }
 
   revalidatePath(`/commandes/${order.id}`);

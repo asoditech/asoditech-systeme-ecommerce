@@ -80,7 +80,7 @@ export const createOrderSchema = z.object({
   // present it must be an existing active warehouse (validated server-side).
   fulfillmentWarehouseId: z.string().min(1).nullish().or(z.literal("")),
   paymentMethod: paymentMethodSchema,
-  channel: orderChannelSchema.default("TELEPHONE"),
+  channel: orderChannelSchema.default("WHATSAPP"),
   shippingCost: z.coerce.number().min(0).default(0),
   discountTotal: z.coerce.number().min(0).default(0),
   currency: z.string().length(3).default("MAD"),

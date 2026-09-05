@@ -89,6 +89,7 @@ export interface FakeStoreState {
   products: FakeProduct[];
   orders: FakeOrder[];
   stockUpdates: { path: string; body: unknown }[];
+  orderUpdates: { orderId: number; body: unknown }[];
 }
 
 function paginate<T>(items: T[], page: number, perPage: number): { items: T[]; totalPages: number } {
@@ -163,6 +164,12 @@ export function installFakeWooCommerceServer(state: FakeStoreState) {
         const order = state.orders.find((o) => o.id === Number(orderMatch[1]));
         return order ? jsonResponse(order) : jsonResponse({ message: "not found" }, 1, 404);
       }
+      if (orderMatch && method === "PUT") {
+        const orderId = Number(orderMatch[1]);
+        const body = init?.body ? JSON.parse(init.body as string) : {};
+        state.orderUpdates.push({ orderId, body });
+        return jsonResponse({ id: orderId });
+      }
 
       return jsonResponse({ message: "not found" }, 1, 404);
     })
@@ -170,5 +177,5 @@ export function installFakeWooCommerceServer(state: FakeStoreState) {
 }
 
 export function emptyFakeStore(): FakeStoreState {
-  return { categories: [], products: [], orders: [], stockUpdates: [] };
+  return { categories: [], products: [], orders: [], stockUpdates: [], orderUpdates: [] };
 }
