@@ -43,33 +43,27 @@ export function LivraisonDateFilter({
   }
 
   return (
-    <div className="mb-4 flex flex-wrap items-end gap-2">
-      <div className="space-y-1">
-        <label className="text-xs text-muted-foreground">Période</label>
-        <Select value={range} onValueChange={(v) => v && setRange(v as DateRangePreset)}>
-          <SelectTrigger className="w-52">
-            <SelectValue>{(value: string) => DATE_RANGE_PRESET_LABELS[value as DateRangePreset] ?? value}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {(Object.keys(DATE_RANGE_PRESET_LABELS) as DateRangePreset[]).map((p) => (
-              <SelectItem key={p} value={p}>
-                {DATE_RANGE_PRESET_LABELS[p]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+    <div className="mb-4 flex flex-wrap items-center gap-2">
+      <label className="text-xs text-muted-foreground">Période</label>
+      <Select value={range} onValueChange={(v) => v && setRange(v as DateRangePreset)}>
+        <SelectTrigger className="w-52">
+          <SelectValue>{(value: string) => DATE_RANGE_PRESET_LABELS[value as DateRangePreset] ?? value}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {(Object.keys(DATE_RANGE_PRESET_LABELS) as DateRangePreset[]).map((p) => (
+            <SelectItem key={p} value={p}>
+              {DATE_RANGE_PRESET_LABELS[p]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       {range === "custom" && (
         <>
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Du</label>
-            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Au</label>
-            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" />
-          </div>
+          <label className="ml-1 text-xs text-muted-foreground">Du</label>
+          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" />
+          <label className="ml-1 text-xs text-muted-foreground">Au</label>
+          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" />
         </>
       )}
 
