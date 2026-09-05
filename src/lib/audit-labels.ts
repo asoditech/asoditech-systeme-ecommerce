@@ -44,6 +44,8 @@ const AUDIT_ACTION_META: Record<string, AuditActionMeta> = {
   "customer.address.deleted": { label: "Adresse client supprimée", category: "clients" },
   "customer.created": { label: "Client créé", category: "clients" },
   "customer.updated": { label: "Client modifié", category: "clients" },
+  "customer.blacklisted": { label: "Client marqué indésirable", category: "clients" },
+  "customer.unblacklisted": { label: "Client retiré de la liste indésirable", category: "clients" },
   "delivery_city_mapping.created": { label: "Correspondance de ville créée", category: "livraison" },
   "delivery_city_mapping.deleted": { label: "Correspondance de ville supprimée", category: "livraison" },
   "delivery_city_mapping.updated": { label: "Correspondance de ville modifiée", category: "livraison" },

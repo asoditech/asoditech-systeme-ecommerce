@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { listOrdersAwaitingShipment } from "@/lib/queries/delivery";
+import { listOrdersAwaitingShipment, listShipments, getDeliveryStats } from "@/lib/queries/delivery";
 import { createOrderAction, updateOrderStatusAction } from "@/actions/orders";
 import { createShippingProviderAction } from "@/actions/delivery";
 import { resetDb } from "../helpers/db";
@@ -114,5 +114,64 @@ describe("listOrdersAwaitingShipment", () => {
 
     const orders = await listOrdersAwaitingShipment();
     expect(orders.map((o) => o.id)).toContain(orderId);
+  });
+});
+
+describe("listShipments / getDeliveryStats — date range filter", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  async function seedShipment(createdAt: Date, status: "EN_ATTENTE" | "LIVRE" | "ECHEC" = "EN_ATTENTE") {
+    const warehouse = await prisma.warehouse.create({ data: { name: `E-${Math.random()}`, isDefault: false } });
+    const product = await prisma.product.create({ data: { name: "P", sku: `SKU-${Math.random()}`, price: 10, status: "ACTIF" } });
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 10 } });
+    const customer = await prisma.customer.create({ data: { fullName: "Client" } });
+    const order = await prisma.order.create({
+      data: { customerId: customer.id, subtotal: 10, total: 10, fulfillmentWarehouseId: warehouse.id },
+    });
+    const provider = await prisma.shippingProvider.create({ data: { name: `Prov-${Math.random()}`, type: "MANUEL" } });
+    return prisma.shipment.create({
+      data: { orderId: order.id, providerId: provider.id, status, createdAt },
+    });
+  }
+
+  it("listShipments only returns shipments created within the given range", async () => {
+    await seedShipment(new Date("2026-01-05"));
+    const inRange = await seedShipment(new Date("2026-02-15"));
+    await seedShipment(new Date("2026-03-20"));
+
+    const { shipments, total } = await listShipments({
+      dateFrom: new Date("2026-02-01"),
+      dateTo: new Date("2026-02-28T23:59:59"),
+    });
+    expect(total).toBe(1);
+    expect(shipments.map((s) => s.id)).toEqual([inRange.id]);
+  });
+
+  it("getDeliveryStats scopes every count to the given range", async () => {
+    await seedShipment(new Date("2026-01-05"), "LIVRE"); // outside range
+    await seedShipment(new Date("2026-02-10"), "LIVRE"); // inside range
+    await seedShipment(new Date("2026-02-20"), "ECHEC"); // inside range
+
+    const stats = await getDeliveryStats(new Date("2026-02-01"), new Date("2026-02-28T23:59:59"));
+    expect(stats.total).toBe(2);
+    expect(stats.delivered).toBe(1);
+    expect(stats.failed).toBe(1);
+  });
+
+  it("with no range given, both queries see every shipment (matches the pre-filter default)", async () => {
+    await seedShipment(new Date("2020-01-01"));
+    await seedShipment(new Date("2030-01-01"));
+
+    const { total } = await listShipments({});
+    const stats = await getDeliveryStats();
+    expect(total).toBe(2);
+    expect(stats.total).toBe(2);
   });
 });

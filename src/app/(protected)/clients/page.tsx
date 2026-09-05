@@ -152,7 +152,14 @@ export default async function ClientsPage({
             <TableBody>
               {customers.map((c) => (
                 <ClickableTableRow key={c.id} href={`/clients/${c.id}`}>
-                  <TableCell className="font-medium">{c.fullName}</TableCell>
+                  <TableCell className="font-medium">
+                    {c.fullName}
+                    {c.isBlacklisted && (
+                      <Badge variant="destructive" className="ml-2">
+                        Indésirable
+                      </Badge>
+                    )}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{c.phone ?? c.email ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{c.city ?? "—"}</TableCell>
                   <TableCell>

@@ -12,6 +12,7 @@ describe("humanizeAuditAction", () => {
   it("returns the mapped French phrase for a known action code", () => {
     expect(humanizeAuditAction("integration.webhook_rejected")).toBe("Webhook rejeté (signature invalide)");
     expect(humanizeAuditAction("order.created")).toBe("Commande créée");
+    expect(humanizeAuditAction("customer.blacklisted")).toBe("Client marqué indésirable");
   });
 
   it("never shows the raw dotted/underscored code for an unmapped action — falls back to a prettified version", () => {

@@ -115,6 +115,14 @@ model Customer {
   // Manually assigned only — no automatic segmentation logic exists yet.
   // See docs/adr/0002-domain-model.md.
   segment   CustomerSegment?
+  // Staff-controlled flag (see docs/adr/0002-domain-model.md) — never set
+  // automatically by a threshold: the Clients page/order form surface how
+  // many orders a customer has cancelled so staff can decide, but only a
+  // human toggles this, to avoid locking out a customer who had a
+  // legitimate reason (e.g. a shipping delay, a genuine change of mind).
+  isBlacklisted    Boolean   @default(false)
+  blacklistedAt    DateTime?
+  blacklistReason  String?
   // Set only when this customer was created/matched from a WooCommerce
   // order import (see docs/adr/0010-woocommerce-integration.md). Deduped by
   // (source, externalId) when the order carries a real WC customer id, or

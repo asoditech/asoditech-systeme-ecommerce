@@ -18,6 +18,8 @@ export type AuditAction =
   | "user.status_changed"
   | "customer.created"
   | "customer.updated"
+  | "customer.blacklisted"
+  | "customer.unblacklisted"
   | "customer.address.created"
   | "customer.address.updated"
   | "customer.address.deleted"

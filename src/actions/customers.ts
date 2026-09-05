@@ -118,6 +118,50 @@ export async function updateCustomerAction(formData: FormData): Promise<ActionRe
   return actionOk(customer);
 }
 
+/**
+ * Manual only, by design (see the field's own doc comment in
+ * schema.prisma) — the Clients page/order form surface how many orders a
+ * customer has cancelled so staff can decide, but nothing here ever
+ * blacklists a customer automatically past a threshold.
+ */
+export async function setCustomerBlacklistAction(formData: FormData): Promise<ActionResult<Customer>> {
+  const user = await requirePermissionForAction("customers.edit");
+
+  const id = formData.get("id");
+  const blacklisted = formData.get("blacklisted") === "true";
+  const reason = normalizeOptional(formData.get("reason") as string | null);
+  if (typeof id !== "string" || !id) {
+    return actionError("Client invalide.");
+  }
+
+  const existing = await prisma.customer.findUnique({ where: { id } });
+  if (!existing) {
+    return actionError("Client introuvable.");
+  }
+
+  const customer = await prisma.customer.update({
+    where: { id },
+    data: blacklisted
+      ? { isBlacklisted: true, blacklistedAt: new Date(), blacklistReason: reason }
+      : { isBlacklisted: false, blacklistedAt: null, blacklistReason: null },
+  });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: blacklisted ? "customer.blacklisted" : "customer.unblacklisted",
+    entityType: "Customer",
+    entityId: customer.id,
+    previousValue: { isBlacklisted: existing.isBlacklisted },
+    newValue: { isBlacklisted: customer.isBlacklisted },
+    metadata: reason ? { reason } : undefined,
+  });
+
+  revalidatePath("/clients");
+  revalidatePath(`/clients/${customer.id}`);
+  return actionOk(customer);
+}
+
 export async function createCustomerAddressAction(
   formData: FormData
 ): Promise<ActionResult<CustomerAddress>> {

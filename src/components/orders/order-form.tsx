@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Trash2, Search } from "lucide-react";
+import { Plus, Trash2, Search, ShieldAlert } from "lucide-react";
 import {
   createOrderAction,
   createCustomerForOrderAction,
@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/format";
 import { PAYMENT_METHOD_LABELS, WAREHOUSE_TYPE_LABELS, ORDER_CHANNEL_LABELS } from "@/lib/status-labels";
 import type { Customer } from "@prisma/client";
@@ -272,7 +273,14 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
                         }}
                         className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
                       >
-                        <span className="font-medium">{c.fullName}</span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="font-medium">{c.fullName}</span>
+                          {c.isBlacklisted && (
+                            <Badge variant="destructive" className="h-4 px-1 text-[10px]">
+                              Indésirable
+                            </Badge>
+                          )}
+                        </span>
                         <span className="text-xs text-muted-foreground">{c.phone ?? c.email ?? ""}</span>
                       </button>
                     ))}
@@ -297,6 +305,16 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
               )}
             </PopoverContent>
           </Popover>
+          {customer?.isBlacklisted && (
+            <div className="mt-2 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              <ShieldAlert className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                Ce client est marqué comme indésirable.
+                {customer.blacklistReason ? ` Motif : ${customer.blacklistReason}` : ""} Vous pouvez tout de
+                même créer la commande si vous le souhaitez.
+              </span>
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -14,8 +14,10 @@ import { ManifestBuilder, type ManifestableShipment } from "@/components/deliver
 import { ConfirmActionButton } from "@/components/confirm-action-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DataTablePagination } from "@/components/data-table-pagination";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import {
@@ -35,25 +37,40 @@ import {
   DELIVERY_MANIFEST_STATUS_LABELS,
 } from "@/lib/status-labels";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
+import { resolveDateRangePreset, DATE_RANGE_PRESET_LABELS, type DateRangePreset } from "@/lib/date-range-presets";
 
 export const metadata = { title: "Livraison — ASODITECH Gestion E-commerce" };
 
 const TERMINAL_SHIPMENT_STATUSES = ["LIVRE", "ANNULE", "RETOURNE"];
 
-export default async function LivraisonPage() {
+export default async function LivraisonPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ range?: string; dateFrom?: string; dateTo?: string; page?: string }>;
+}) {
   const user = await requirePermission("delivery.view");
   const canManage = hasPermission(user.role, "delivery.manage");
+  const params = await searchParams;
+  const page = Number(params.page) || 1;
 
-  const [stats, providers, { shipments }, awaitingShipment, connectors, manifestable, manifests] =
+  const preset: DateRangePreset =
+    params.range && params.range in DATE_RANGE_PRESET_LABELS ? (params.range as DateRangePreset) : "all";
+  const { from: dateFrom, to: dateTo } = resolveDateRangePreset(preset, new Date(), {
+    from: params.dateFrom,
+    to: params.dateTo,
+  });
+
+  const [stats, providers, shipmentsResult, awaitingShipment, connectors, manifestable, manifests] =
     await Promise.all([
-      getDeliveryStats(),
+      getDeliveryStats(dateFrom, dateTo),
       listShippingProviders(),
-      listShipments({}),
+      listShipments({ dateFrom, dateTo, page }),
       canManage ? listOrdersAwaitingShipment() : Promise.resolve([]),
       listAvailableDeliveryConnectors(),
       canManage ? listManifestableShipments() : Promise.resolve([]),
       canManage ? listDeliveryManifests() : Promise.resolve([]),
     ]);
+  const { shipments, total: shipmentsTotal, pageSize: shipmentsPageSize } = shipmentsResult;
 
   // Only carriers whose registered adapter declares GENERATE_MANIFEST get
   // the Bons de livraison workflow at all.
@@ -95,6 +112,29 @@ export default async function LivraisonPage() {
   return (
     <div>
       <PageHeader title="Livraison" description="Expéditions, prestataires et taux de livraison réussie." />
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {(Object.keys(DATE_RANGE_PRESET_LABELS) as DateRangePreset[])
+          .filter((p) => p !== "custom")
+          .map((p) => (
+            <Button
+              key={p}
+              size="sm"
+              variant={preset === p ? "default" : "outline"}
+              render={<Link href={p === "all" ? "/livraison" : `/livraison?range=${p}`} />}
+            >
+              {DATE_RANGE_PRESET_LABELS[p]}
+            </Button>
+          ))}
+        <form className="flex flex-wrap items-center gap-2" action="/livraison">
+          <input type="hidden" name="range" value="custom" />
+          <Input type="date" name="dateFrom" defaultValue={params.dateFrom} className="w-40" />
+          <Input type="date" name="dateTo" defaultValue={params.dateTo} className="w-40" />
+          <Button type="submit" size="sm" variant={preset === "custom" ? "default" : "outline"}>
+            {DATE_RANGE_PRESET_LABELS.custom}
+          </Button>
+        </form>
+      </div>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Expéditions totales" value={String(stats.total)} icon={Truck} tone="primary" />
@@ -179,6 +219,13 @@ export default async function LivraisonPage() {
                   ))}
                 </TableBody>
               </Table>
+              <DataTablePagination
+                page={page}
+                pageSize={shipmentsPageSize}
+                total={shipmentsTotal}
+                basePath="/livraison"
+                searchParams={{ range: params.range, dateFrom: params.dateFrom, dateTo: params.dateTo }}
+              />
             </div>
           )}
         </TabsContent>

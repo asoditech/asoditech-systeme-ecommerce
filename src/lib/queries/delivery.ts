@@ -12,11 +12,25 @@ export async function listShippingProviders() {
   return prisma.shippingProvider.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { shipments: true } } } });
 }
 
-export async function listShipments(params: { status?: ShipmentStatus; providerId?: string; page?: number }) {
+export async function listShipments(params: {
+  status?: ShipmentStatus;
+  providerId?: string;
+  dateFrom?: Date;
+  dateTo?: Date;
+  page?: number;
+}) {
   const page = Math.max(1, params.page ?? 1);
   const where: Prisma.ShipmentWhereInput = {
     ...(params.status ? { status: params.status } : {}),
     ...(params.providerId ? { providerId: params.providerId } : {}),
+    ...(params.dateFrom || params.dateTo
+      ? {
+          createdAt: {
+            ...(params.dateFrom ? { gte: params.dateFrom } : {}),
+            ...(params.dateTo ? { lte: params.dateTo } : {}),
+          },
+        }
+      : {}),
   };
 
   const [shipments, total] = await Promise.all([
@@ -33,12 +47,17 @@ export async function listShipments(params: { status?: ShipmentStatus; providerI
   return { shipments, total, page, pageSize: PAGE_SIZE };
 }
 
-export async function getDeliveryStats() {
+export async function getDeliveryStats(dateFrom?: Date, dateTo?: Date) {
+  const dateFilter: Prisma.ShipmentWhereInput =
+    dateFrom || dateTo
+      ? { createdAt: { ...(dateFrom ? { gte: dateFrom } : {}), ...(dateTo ? { lte: dateTo } : {}) } }
+      : {};
+
   const [total, delivered, failed, inTransit] = await Promise.all([
-    prisma.shipment.count(),
-    prisma.shipment.count({ where: { status: "LIVRE" } }),
-    prisma.shipment.count({ where: { status: "ECHEC" } }),
-    prisma.shipment.count({ where: { status: "EN_TRANSIT" } }),
+    prisma.shipment.count({ where: dateFilter }),
+    prisma.shipment.count({ where: { ...dateFilter, status: "LIVRE" } }),
+    prisma.shipment.count({ where: { ...dateFilter, status: "ECHEC" } }),
+    prisma.shipment.count({ where: { ...dateFilter, status: "EN_TRANSIT" } }),
   ]);
   return {
     total,

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { MapPin, Plus, Wallet, ShoppingCart, Receipt, CalendarClock } from "lucide-react";
+import { MapPin, Plus, Wallet, ShoppingCart, Receipt, CalendarClock, ShieldAlert } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
@@ -7,6 +7,7 @@ import { KpiCard } from "@/components/kpi-card";
 import { ConfirmActionButton } from "@/components/confirm-action-button";
 import { CustomerForm } from "@/components/customers/customer-form";
 import { CustomerAddressForm } from "@/components/customers/customer-address-form";
+import { CustomerBlacklistControl } from "@/components/customers/blacklist-control";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -34,9 +35,44 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         title={customer.fullName}
         breadcrumbs={[{ label: "Clients", href: "/clients" }, { label: customer.fullName }]}
         actions={
-          customer.segment ? <Badge variant="secondary">{CUSTOMER_SEGMENT_LABELS[customer.segment]}</Badge> : undefined
+          <div className="flex items-center gap-2">
+            {customer.isBlacklisted && (
+              <Badge variant="destructive">
+                <ShieldAlert className="size-3.5" />
+                Indésirable
+              </Badge>
+            )}
+            {customer.segment && <Badge variant="secondary">{CUSTOMER_SEGMENT_LABELS[customer.segment]}</Badge>}
+          </div>
         }
       />
+
+      {canEdit && (customer.isBlacklisted || stats.cancelledOrders >= 2) && (
+        <div
+          className={
+            customer.isBlacklisted
+              ? "mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
+              : "mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/8 p-3 text-sm text-amber-700 dark:text-amber-400"
+          }
+        >
+          <div>
+            {customer.isBlacklisted ? (
+              <>
+                <p className="font-medium text-destructive">Ce client est marqué comme indésirable.</p>
+                {customer.blacklistReason && (
+                  <p className="text-muted-foreground">Motif : {customer.blacklistReason}</p>
+                )}
+              </>
+            ) : (
+              <p>
+                <span className="font-medium">{stats.cancelledOrders} commandes annulées.</span> Envisagez de
+                marquer ce client comme indésirable si ce comportement se répète.
+              </p>
+            )}
+          </div>
+          <CustomerBlacklistControl customerId={customer.id} isBlacklisted={customer.isBlacklisted} />
+        </div>
+      )}
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
@@ -142,9 +178,18 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         </TabsContent>
 
         {canEdit && (
-          <TabsContent value="infos">
+          <TabsContent value="infos" className="space-y-6">
             <div className="max-w-2xl">
               <CustomerForm customer={customer} />
+            </div>
+            <div className="max-w-2xl space-y-1.5 border-t pt-4">
+              <p className="text-sm font-medium">Liste indésirable</p>
+              <p className="text-sm text-muted-foreground">
+                {customer.isBlacklisted
+                  ? "Ce client est actuellement marqué comme indésirable."
+                  : `${stats.cancelledOrders} commande(s) annulée(s) au total. Toujours une décision manuelle — rien ici ne marque un client automatiquement.`}
+              </p>
+              <CustomerBlacklistControl customerId={customer.id} isBlacklisted={customer.isBlacklisted} />
             </div>
           </TabsContent>
         )}
