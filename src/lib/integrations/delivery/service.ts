@@ -4,7 +4,12 @@ import "./providers"; // populates the production registry — see providers/ind
 import { prisma } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/crypto";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
-import { applyShipmentStatusTransition, SHIPPABLE_ORDER_STATUSES, ACTIVE_SHIPMENT_STATUSES } from "@/lib/delivery";
+import {
+  applyShipmentStatusTransition,
+  buildParcelContentsSummary,
+  SHIPPABLE_ORDER_STATUSES,
+  ACTIVE_SHIPMENT_STATUSES,
+} from "@/lib/delivery";
 import { matchCityName } from "./city-match";
 import { resolveProviderCity, providerExposesCityCatalogue } from "./city-resolution";
 import { getDeliveryProvider, assertCapability } from "./registry";
@@ -83,7 +88,21 @@ export function friendlyDeliveryError(error: unknown): string {
 export async function reserveShipmentSlot(
   orderId: string,
   providerId: string,
-  data: Pick<Prisma.ShipmentUncheckedCreateInput, "updatedById" | "notes" | "trackingNumber" | "trackingUrl" | "cost">
+  data: Pick<
+    Prisma.ShipmentUncheckedCreateInput,
+    | "updatedById"
+    | "notes"
+    | "trackingNumber"
+    | "trackingUrl"
+    | "cost"
+    // The "link an existing carrier parcel" path (linkExistingShipmentAction)
+    // creates the row already carrying the provider's real id and last-known
+    // status — it isn't a fresh EN_ATTENTE slot waiting on an adapter call.
+    | "externalId"
+    | "status"
+    | "providerStatusRaw"
+    | "lastSyncedAt"
+  >
 ): Promise<Shipment> {
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`shipment-slot:${orderId}:${providerId}`}))`;
@@ -350,6 +369,12 @@ export async function createShipmentViaProvider(params: {
     notes: params.notes,
   });
 
+  const items = await prisma.orderItem.findMany({
+    where: { orderId: params.order.id },
+    select: { nameSnapshot: true, quantity: true, variation: { select: { attributes: true } } },
+  });
+  const parcelContents = buildParcelContentsSummary(items);
+
   const input: CreateShipmentAdapterInput = {
     localShipmentId: pending.id,
     orderNumber: String(params.order.orderNumber),
@@ -364,6 +389,7 @@ export async function createShipmentViaProvider(params: {
     codAmount: params.order.paymentMethod === "PAIEMENT_LIVRAISON" ? Number(params.order.total) : null,
     currency: params.order.currency,
     notes: params.notes,
+    parcelContents: parcelContents || null,
   };
 
   let result;

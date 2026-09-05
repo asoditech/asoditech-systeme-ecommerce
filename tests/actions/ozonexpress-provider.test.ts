@@ -5,6 +5,7 @@ import {
   configureDeliveryProviderApiAction,
   testDeliveryProviderConnectionAction,
   createShipmentViaProviderAction,
+  linkExistingShipmentAction,
   cancelShipmentAction,
   syncShipmentStatusAction,
   generateDeliveryManifestAction,
@@ -196,6 +197,18 @@ describe("OzonExpress connector — Server Action layer", () => {
       expect(addParcelCall).toBeTruthy();
     });
 
+    it("forwards the order's product list to OzonExpress as parcel-nature", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await configuredProvider();
+      const orderId = await seedShippableOrder();
+
+      const result = await createShipmentViaProviderAction(formData({ orderId, providerId: provider.id }));
+      expect(result.ok).toBe(true);
+
+      const form = state.seenAddParcelForms.at(-1)!;
+      expect(form["parcel-nature"]).toBe("1× Coffret");
+    });
+
     it("marks the shipment ECHEC and audits creation_failed when OzonExpress rejects the city", async () => {
       await loginAsTestUser({ role: "MANAGER" });
       const provider = await configuredProvider();
@@ -245,6 +258,56 @@ describe("OzonExpress connector — Server Action layer", () => {
 
       expect(state.seenUrls.some((u) => u.includes("/add-parcel"))).toBe(false);
       expect(await prisma.shipment.count({ where: { orderId } })).toBe(0);
+    });
+  });
+
+  describe("linkExistingShipmentAction — attach a parcel created in the portal", () => {
+    it("links the parcel, stores its real id, and pulls its current status from OzonExpress", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await configuredProvider();
+      const orderId = await seedShippableOrder();
+      state.parcels.set("WEB988442", { tracking: "WEB988442", status: "Ramassé", deliveredPrice: 33, codPrice: "0" });
+
+      const result = await linkExistingShipmentAction(
+        formData({ orderId, providerId: provider.id, trackingNumber: "WEB988442" })
+      );
+      expect(result.ok).toBe(true);
+
+      const shipment = await prisma.shipment.findFirstOrThrow({ where: { orderId } });
+      expect(shipment.externalId).toBe("WEB988442");
+      expect(shipment.trackingNumber).toBe("WEB988442");
+      expect(shipment.status).toBe("EN_TRANSIT"); // "Ramassé" → EN_TRANSIT
+      expect(shipment.providerStatusRaw).toBe("Ramassé");
+      expect(Number(shipment.cost)).toBe(33);
+      expect(shipment.lastSyncedAt).not.toBeNull();
+    });
+
+    it("fails without creating a row when the tracking number is unknown to OzonExpress", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await configuredProvider();
+      const orderId = await seedShippableOrder();
+
+      const result = await linkExistingShipmentAction(
+        formData({ orderId, providerId: provider.id, trackingNumber: "DOES-NOT-EXIST" })
+      );
+      expect(result.ok).toBe(false);
+      expect(await prisma.shipment.count({ where: { orderId } })).toBe(0);
+    });
+
+    it("rejects a second link for the same tracking number", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await configuredProvider();
+      const orderId = await seedShippableOrder();
+      state.parcels.set("OZE-DUP", { tracking: "OZE-DUP", status: "Nouveau Colis", deliveredPrice: 20, codPrice: "0" });
+
+      const first = await linkExistingShipmentAction(
+        formData({ orderId, providerId: provider.id, trackingNumber: "OZE-DUP" })
+      );
+      expect(first.ok).toBe(true);
+      const second = await linkExistingShipmentAction(
+        formData({ orderId, providerId: provider.id, trackingNumber: "OZE-DUP" })
+      );
+      expect(second.ok).toBe(false);
     });
   });
 

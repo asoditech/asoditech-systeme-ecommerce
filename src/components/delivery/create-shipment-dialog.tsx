@@ -36,7 +36,15 @@ export interface ShipmentProviderOption {
   connectionStatus: IntegrationStatus | null;
 }
 
-export function CreateShipmentDialog({ orderId, providers }: { orderId: string; providers: ShipmentProviderOption[] }) {
+export function CreateShipmentDialog({
+  orderId,
+  providers,
+  defaultNotes,
+}: {
+  orderId: string;
+  providers: ShipmentProviderOption[];
+  defaultNotes?: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [providerId, setProviderId] = useState<string | undefined>(undefined);
@@ -104,7 +112,8 @@ export function CreateShipmentDialog({ orderId, providers }: { orderId: string; 
               </p>
               <div className="space-y-1.5">
                 <Label htmlFor="notes">Notes</Label>
-                <Input id="notes" name="notes" />
+                <Input id="notes" name="notes" defaultValue={defaultNotes} />
+                <p className="text-xs text-muted-foreground">Pré-rempli avec les produits de la commande — modifiable.</p>
               </div>
             </>
           ) : (

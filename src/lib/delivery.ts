@@ -8,6 +8,37 @@ import { canTransitionShipmentStatus, type ShipmentStatusValue } from "@/lib/val
 /** Thrown when a conditional status-transition update matches 0 rows. */
 export class ShipmentConflictError extends Error {}
 
+/**
+ * A short, human-readable summary of an order's line items for a carrier's
+ * "contents / nature" field and for pre-filling the shipment notes — e.g.
+ * "2× Tablier Élégant (Rouge), 1× Tablier Élégant (Vert)". Uses the
+ * name/qty snapshot on the order item (so it's stable even if the product
+ * is edited later) plus the variation's attribute values when present.
+ * Returns "" for an order with no resolvable items — the caller then sends
+ * nothing rather than an empty string.
+ */
+export function buildParcelContentsSummary(
+  items: { nameSnapshot: string; quantity: number; variation?: { attributes: unknown } | null }[]
+): string {
+  const parts: string[] = [];
+  for (const item of items) {
+    const name = item.nameSnapshot?.trim();
+    if (!name || !Number.isFinite(item.quantity) || item.quantity <= 0) continue;
+    let label = `${item.quantity}× ${name}`;
+    const attrs = item.variation?.attributes;
+    if (attrs && typeof attrs === "object" && !Array.isArray(attrs)) {
+      const values = Object.values(attrs as Record<string, unknown>)
+        .filter((v): v is string | number => typeof v === "string" || typeof v === "number")
+        .map((v) => String(v).trim())
+        .filter(Boolean);
+      if (values.length > 0) label += ` (${values.join(", ")})`;
+    }
+    parts.push(label);
+  }
+  // OzonExpress's own field is not huge — keep it sane.
+  return parts.join(", ").slice(0, 500);
+}
+
 /** Order statuses a shipment may be created (or retried) against — see
  * docs/adr/0006-delivery-providers.md. Single source of truth, shared by
  * `createShipmentAction`/`createShipmentViaProviderAction`

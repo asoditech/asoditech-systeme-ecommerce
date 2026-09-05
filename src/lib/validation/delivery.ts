@@ -52,6 +52,16 @@ export const updateShipmentStatusSchema = z.object({
   failedReason: z.string().trim().max(1000).nullish().or(z.literal("")),
 });
 
+/** "Lier un colis existant" — attach a parcel already created in the
+ * carrier's own portal / by the storefront plugin to a local order, then
+ * pull its current status. API providers only. */
+export const linkExistingShipmentSchema = z.object({
+  orderId: z.string().min(1),
+  providerId: z.string().min(1, "Le prestataire de livraison est requis."),
+  trackingNumber: z.string().trim().min(1, "Le numéro de suivi est requis.").max(100),
+  notes: z.string().trim().max(2000).nullish().or(z.literal("")),
+});
+
 export type CreateShipmentInput = z.infer<typeof createShipmentSchema>;
 
 // --- API connector schemas (Phase 22) ---

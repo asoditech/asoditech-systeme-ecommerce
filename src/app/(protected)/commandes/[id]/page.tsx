@@ -10,6 +10,9 @@ import { Badge } from "@/components/ui/badge";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { getOrderDetail, getOrderAuditTimeline } from "@/lib/queries/orders";
+import { listShipmentProviderOptions } from "@/lib/queries/delivery";
+import { buildParcelContentsSummary } from "@/lib/delivery";
+import { LinkShipmentDialog } from "@/components/delivery/link-shipment-dialog";
 import { formatCurrency, formatDateTime, displayOrderNumber, displayOrderChannel } from "@/lib/format";
 import { humanizeAuditAction } from "@/lib/audit-labels";
 import {
@@ -31,7 +34,12 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
   const canEdit = hasPermission(user.role, "orders.edit");
   const canCancel = hasPermission(user.role, "orders.cancel");
   const canRefund = hasPermission(user.role, "orders.refund");
+  const canManageDelivery = hasPermission(user.role, "delivery.manage");
+  const deliveryProviders = canManageDelivery ? await listShipmentProviderOptions() : [];
+  const parcelContents = buildParcelContentsSummary(order.items);
   const refundedTotal = order.refunds.filter((r) => r.status === "COMPLETE").reduce((s, r) => s + Number(r.amount), 0);
+  const codAmount =
+    order.paymentMethod === "PAIEMENT_LIVRAISON" ? Number(order.total) - refundedTotal : null;
 
   return (
     <div>
@@ -152,32 +160,56 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
             </Card>
           )}
 
-          {order.shipments.length > 0 && (
+          {(order.shipments.length > 0 || canManageDelivery) && (
             <Card>
               <CardHeader>
                 <CardTitle>Livraison</CardTitle>
               </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Prestataire</TableHead>
-                      <TableHead>Suivi</TableHead>
-                      <TableHead>Statut</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {order.shipments.map((s) => (
-                      <TableRow key={s.id}>
-                        <TableCell>{s.provider.name}</TableCell>
-                        <TableCell className="text-muted-foreground">{s.trackingNumber ?? "—"}</TableCell>
-                        <TableCell>
-                          <StatusBadge status={s.status} labels={SHIPMENT_STATUS_LABELS} />
-                        </TableCell>
+              <CardContent className="space-y-4">
+                {order.shipments.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Prestataire</TableHead>
+                        <TableHead>Suivi</TableHead>
+                        <TableHead>Frais livraison</TableHead>
+                        <TableHead>Statut</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {order.shipments.map((s) => (
+                        <TableRow key={s.id}>
+                          <TableCell>{s.provider.name}</TableCell>
+                          <TableCell className="text-muted-foreground">{s.trackingNumber ?? "—"}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {s.cost !== null ? formatCurrency(s.cost.toString(), order.currency) : "—"}
+                            {s.providerStatusRaw ? (
+                              <span className="block text-xs">Transporteur : {s.providerStatusRaw}</span>
+                            ) : null}
+                          </TableCell>
+                          <TableCell>
+                            <StatusBadge status={s.status} labels={SHIPMENT_STATUS_LABELS} />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Aucune expédition enregistrée pour cette commande.</p>
+                )}
+                {codAmount !== null && (
+                  <p className="text-sm text-muted-foreground">
+                    À encaisser à la livraison (COD) :{" "}
+                    <span className="text-foreground">{formatCurrency(String(codAmount), order.currency)}</span>
+                  </p>
+                )}
+                {canManageDelivery && (
+                  <LinkShipmentDialog
+                    orderId={order.id}
+                    providers={deliveryProviders}
+                    defaultNotes={parcelContents || undefined}
+                  />
+                )}
               </CardContent>
             </Card>
           )}

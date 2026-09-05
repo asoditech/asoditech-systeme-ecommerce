@@ -10,7 +10,6 @@ import { ProviderForm } from "@/components/delivery/provider-form";
 import { ProviderConnectionStatus, ProviderConnectionControls } from "@/components/delivery/provider-connection";
 import { CityMappingDialog } from "@/components/delivery/city-mapping-dialog";
 import { ShipmentProviderControls } from "@/components/delivery/shipment-provider-controls";
-import { ManifestBuilder, type ManifestableShipment } from "@/components/delivery/manifest-builder";
 import { DeliveryDocs } from "@/components/delivery/delivery-docs";
 import { LivraisonDateFilter } from "@/components/delivery/livraison-date-filter";
 import { ConfirmActionButton } from "@/components/confirm-action-button";
@@ -28,7 +27,6 @@ import {
   getDeliveryStats,
   listOrdersAwaitingShipment,
   listAvailableDeliveryConnectors,
-  listManifestableShipments,
   listDeliveryManifests,
 } from "@/lib/queries/delivery";
 import { deleteShippingProviderAction } from "@/actions/delivery";
@@ -40,6 +38,7 @@ import {
 } from "@/lib/status-labels";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
 import { resolveDateRangePreset, DATE_RANGE_PRESET_LABELS, type DateRangePreset } from "@/lib/date-range-presets";
+import { buildParcelContentsSummary } from "@/lib/delivery";
 
 export const metadata = { title: "Livraison — ASODITECH Gestion E-commerce" };
 
@@ -77,7 +76,7 @@ export default async function LivraisonPage({
     to: params.dateTo,
   });
 
-  const [stats, providers, shipmentsResult, awaitingResult, connectors, manifestable, manifests] =
+  const [stats, providers, shipmentsResult, awaitingResult, connectors, manifests] =
     await Promise.all([
       getDeliveryStats(dateFrom, dateTo),
       listShippingProviders(),
@@ -86,7 +85,6 @@ export default async function LivraisonPage({
         ? listOrdersAwaitingShipment({ page: aexpPage, search: aexpSearch })
         : Promise.resolve({ orders: [], total: 0, page: 1, pageSize: 25 }),
       listAvailableDeliveryConnectors(),
-      canManage ? listManifestableShipments() : Promise.resolve([]),
       canManage ? listDeliveryManifests() : Promise.resolve([]),
     ]);
   const { shipments, total: shipmentsTotal, pageSize: shipmentsPageSize } = shipmentsResult;
@@ -116,23 +114,6 @@ export default async function LivraisonPage({
     connectionStatus: p.connectionStatus,
   }));
 
-  const manifestableShipments: ManifestableShipment[] = manifestable
-    .filter((s) => s.provider.providerKey && manifestCapableKeys.has(s.provider.providerKey))
-    .map((s) => ({
-      id: s.id,
-      trackingNumber: s.trackingNumber,
-      orderId: s.orderId,
-      orderNumber: s.order.orderNumber,
-      source: s.order.source,
-      externalNumber: s.order.externalNumber,
-      customerName: s.order.customer.fullName,
-      cityLabel: s.order.shippingCity ?? null,
-      cost: s.cost !== null ? s.cost.toString() : null,
-      currency: s.order.currency,
-      providerId: s.providerId,
-      providerName: s.provider.name,
-    }));
-
   return (
     <div>
       <PageHeader title="Livraison" description="Expéditions, prestataires et taux de livraison réussie." />
@@ -157,7 +138,7 @@ export default async function LivraisonPage({
           <TabsTrigger value="expeditions">Expéditions</TabsTrigger>
           {canManage && <TabsTrigger value="a-expedier">À expédier ({awaitingTotal})</TabsTrigger>}
           {showManifestTab && (
-            <TabsTrigger value="bons-livraison">Bons de livraison ({manifestableShipments.length})</TabsTrigger>
+            <TabsTrigger value="bons-livraison">Bons de livraison</TabsTrigger>
           )}
           <TabsTrigger value="prestataires">Prestataires</TabsTrigger>
           <TabsTrigger value="documentation">Documentation</TabsTrigger>
@@ -175,7 +156,8 @@ export default async function LivraisonPage({
                     <TableHead>Client</TableHead>
                     <TableHead>Prestataire</TableHead>
                     <TableHead>Suivi</TableHead>
-                    <TableHead>Coût</TableHead>
+                    <TableHead>Frais livraison</TableHead>
+                    <TableHead>À encaisser</TableHead>
                     <TableHead>Statut</TableHead>
                     {canManage && <TableHead />}
                   </TableRow>
@@ -201,6 +183,11 @@ export default async function LivraisonPage({
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {s.cost !== null ? formatCurrency(s.cost.toString(), s.order.currency) : "Non disponible"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {s.order.paymentMethod === "PAIEMENT_LIVRAISON"
+                          ? formatCurrency(s.order.total.toString(), s.order.currency)
+                          : "—"}
                       </TableCell>
                       <TableCell>
                         {canManage ? (
@@ -290,7 +277,11 @@ export default async function LivraisonPage({
                         <TableCell>{formatCurrency(o.total.toString(), o.currency)}</TableCell>
                         <TableCell className="text-muted-foreground">{formatDate(o.placedAt)}</TableCell>
                         <TableCell>
-                          <CreateShipmentDialog orderId={o.id} providers={shipmentProviderOptions} />
+                          <CreateShipmentDialog
+                            orderId={o.id}
+                            providers={shipmentProviderOptions}
+                            defaultNotes={buildParcelContentsSummary(o.items) || undefined}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}
@@ -312,20 +303,13 @@ export default async function LivraisonPage({
         {showManifestTab && (
           <TabsContent value="bons-livraison" className="space-y-8">
             <section className="space-y-3">
-              <div>
-                <h2 className="text-[15px] font-semibold">Regrouper des colis sur un bon de livraison</h2>
-                <p className="text-sm text-muted-foreground">
-                  Sélectionnez les colis « En attente » à remettre au transporteur, puis générez le bon
-                  de livraison. Le bordereau et les étiquettes s&apos;ouvrent sur le portail du transporteur.
-                </p>
-              </div>
-              <ManifestBuilder shipments={manifestableShipments} />
-            </section>
-
-            <section className="space-y-3">
               <h2 className="text-[15px] font-semibold">Bons de livraison</h2>
+              <p className="text-sm text-muted-foreground">
+                Les bons de livraison OzonExpress se créent dans le portail du transporteur. Cette liste
+                affiche ceux générés depuis ASODITECH, le cas échéant.
+              </p>
               {manifests.length === 0 ? (
-                <EmptyState icon={FileText} title="Aucun bon de livraison pour le moment." />
+                <EmptyState icon={FileText} title="Aucun bon de livraison généré depuis ASODITECH." />
               ) : (
                 <div className="rounded-lg border">
                   <Table>

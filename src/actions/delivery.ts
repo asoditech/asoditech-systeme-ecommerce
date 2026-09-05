@@ -11,6 +11,7 @@ import {
   updateShipmentStatusSchema,
   configureDeliveryProviderApiSchema,
   createShipmentViaProviderSchema,
+  linkExistingShipmentSchema,
   generateManifestSchema,
   providerIdSchema,
   shipmentIdSchema,
@@ -27,6 +28,7 @@ import { listDeliveryProviders } from "@/lib/integrations/delivery/registry";
 import {
   testProviderConnection,
   createShipmentViaProvider,
+  loadApiProvider,
   cancelShipmentViaProvider,
   syncShipmentStatus,
   generateManifestViaProvider,
@@ -424,6 +426,87 @@ export async function createShipmentViaProviderAction(formData: FormData): Promi
     });
     return actionError(message);
   }
+}
+
+/**
+ * "Lier un colis existant" — attach a parcel that was already created in
+ * the carrier's own portal (or by the storefront's delivery plugin) to a
+ * local order, and pull its current status right away. This app never
+ * learns about such parcels on its own (no carrier "list my parcels"
+ * endpoint), so this is the only way to see and track them here. API
+ * providers only; works whatever the order's status (it's reconciliation,
+ * not a workflow step).
+ */
+export async function linkExistingShipmentAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("delivery.manage");
+
+  const parsed = linkExistingShipmentSchema.safeParse({
+    orderId: formData.get("orderId"),
+    providerId: formData.get("providerId"),
+    trackingNumber: formData.get("trackingNumber"),
+    notes: formData.get("notes"),
+  });
+  if (!parsed.success) {
+    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+  const trackingNumber = parsed.data.trackingNumber.trim();
+
+  const order = await prisma.order.findUnique({ where: { id: parsed.data.orderId } });
+  if (!order) return actionError("Commande introuvable.");
+
+  let loaded;
+  try {
+    loaded = await loadApiProvider(parsed.data.providerId);
+  } catch (error) {
+    return actionError(friendlyDeliveryError(error));
+  }
+  const { adapter, credentials, config } = loaded;
+  if (!adapter.capabilities.includes("FETCH_STATUS") || !adapter.fetchStatus) {
+    return actionError("Ce connecteur ne permet pas de récupérer le statut d'un colis.");
+  }
+
+  // Pull the carrier's current status for this tracking number before
+  // creating anything — a bad number should fail here, not leave a row.
+  let fetched;
+  try {
+    fetched = await adapter.fetchStatus({ externalId: trackingNumber }, credentials, config);
+  } catch (error) {
+    return actionError(friendlyDeliveryError(error));
+  }
+  const mapped = adapter.mapStatus?.(fetched.rawStatus) ?? null;
+
+  let shipment;
+  try {
+    shipment = await reserveShipmentSlot(order.id, parsed.data.providerId, {
+      trackingNumber,
+      externalId: trackingNumber,
+      status: mapped ?? "EN_ATTENTE",
+      providerStatusRaw: fetched.rawStatus,
+      lastSyncedAt: new Date(),
+      trackingUrl: fetched.trackingUrl ?? null,
+      cost: fetched.cost ?? null,
+      notes: normalizeOptional(parsed.data.notes),
+      updatedById: user.id,
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return actionError("Ce numéro de suivi est déjà lié à une expédition, ou une expédition est déjà en cours pour cette commande.");
+    }
+    return actionError(friendlyDeliveryError(error));
+  }
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "shipment.created",
+    entityType: "Shipment",
+    entityId: shipment.id,
+    metadata: { orderId: order.id, providerId: parsed.data.providerId, externalId: trackingNumber, linked: true },
+  });
+
+  revalidatePath("/livraison");
+  revalidatePath(`/commandes/${order.id}`);
+  return actionOk({ id: shipment.id });
 }
 
 export async function cancelShipmentAction(formData: FormData): Promise<ActionResult<IdResult>> {

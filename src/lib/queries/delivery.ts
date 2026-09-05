@@ -12,6 +12,19 @@ export async function listShippingProviders() {
   return prisma.shippingProvider.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { shipments: true } } } });
 }
 
+/**
+ * Narrow, client-safe provider list (no credentials / raw config) — for
+ * the shipment dialogs on the order detail page. Same shape as
+ * `ShipmentProviderOption`.
+ */
+export async function listShipmentProviderOptions() {
+  return prisma.shippingProvider.findMany({
+    where: { isActive: true },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, type: true, connectionStatus: true },
+  });
+}
+
 export async function listShipments(params: {
   status?: ShipmentStatus;
   providerId?: string;
@@ -127,7 +140,10 @@ export async function listOrdersAwaitingShipment(params: { page?: number; search
   const [orders, total] = await Promise.all([
     prisma.order.findMany({
       where,
-      include: { customer: true },
+      include: {
+        customer: true,
+        items: { select: { nameSnapshot: true, quantity: true, variation: { select: { attributes: true } } } },
+      },
       // Newest first — a freshly confirmed order must appear at the top,
       // not fall off the end of the list behind a backlog of imported
       // orders. `placedAt` for consistency with the rest of the app.

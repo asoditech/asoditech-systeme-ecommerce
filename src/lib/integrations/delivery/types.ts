@@ -103,6 +103,12 @@ export interface CreateShipmentAdapterInput {
   codAmount: number | null;
   currency: string;
   notes: string | null;
+  /** Human-readable list of what's in the parcel, built from the order's
+   * line items (e.g. "2× Tablier (noir), 1× Tablier (rouge)"). The adapter
+   * maps this onto the carrier's own "contents / nature" field when it has
+   * one and the provider config doesn't pin a fixed value. Never required
+   * by any carrier — null/undefined when the order has no resolvable items. */
+  parcelContents?: string | null;
 }
 
 export interface CreateShipmentAdapterResult {

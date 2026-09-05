@@ -217,7 +217,11 @@ export function buildAddParcelForm(
     // 0 = ramassage (carrier pickup), 1 = stock (already in OZ warehouse).
     "parcel-stock": config.stockMode === "stock" ? "1" : "0",
   };
-  const nature = config.defaultParcelNature?.trim();
+  // OzonExpress "Produits / nature" column: a fixed value pinned in the
+  // connector config wins; otherwise the order's own line-item summary
+  // (so the delivery agent sees what's inside), mirroring how the store's
+  // own OzonExpress plugin fills that column.
+  const nature = config.defaultParcelNature?.trim() || input.parcelContents?.trim();
   if (nature) form["parcel-nature"] = nature;
   if (input.notes?.trim()) form["parcel-note"] = input.notes.trim();
   return form;
