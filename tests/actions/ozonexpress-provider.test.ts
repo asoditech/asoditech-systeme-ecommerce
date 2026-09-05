@@ -6,6 +6,7 @@ import {
   testDeliveryProviderConnectionAction,
   createShipmentViaProviderAction,
   linkExistingShipmentAction,
+  refreshShipmentStatusesAction,
   cancelShipmentAction,
   syncShipmentStatusAction,
   generateDeliveryManifestAction,
@@ -308,6 +309,37 @@ describe("OzonExpress connector — Server Action layer", () => {
         formData({ orderId, providerId: provider.id, trackingNumber: "OZE-DUP" })
       );
       expect(second.ok).toBe(false);
+    });
+  });
+
+  describe("refreshShipmentStatusesAction — bulk status poll", () => {
+    it("polls every open API shipment and applies the carrier's new status", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await configuredProvider();
+      const orderA = await seedShippableOrder();
+      const orderB = await seedShippableOrder();
+      state.parcels.set("OZE-A", { tracking: "OZE-A", status: "Nouveau Colis", deliveredPrice: 30, codPrice: "0" });
+      state.parcels.set("OZE-B", { tracking: "OZE-B", status: "Nouveau Colis", deliveredPrice: 30, codPrice: "0" });
+      await linkExistingShipmentAction(formData({ orderId: orderA, providerId: provider.id, trackingNumber: "OZE-A" }));
+      await linkExistingShipmentAction(formData({ orderId: orderB, providerId: provider.id, trackingNumber: "OZE-B" }));
+
+      // The carrier advances both parcels.
+      state.parcels.get("OZE-A")!.status = "Ramassé";
+      state.parcels.get("OZE-B")!.status = "Livré";
+
+      const result = await refreshShipmentStatusesAction();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.checked).toBe(2);
+        expect(result.data.updated).toBe(2);
+        expect(result.data.hasMore).toBe(false);
+      }
+
+      const a = await prisma.shipment.findFirstOrThrow({ where: { externalId: "OZE-A" } });
+      const b = await prisma.shipment.findFirstOrThrow({ where: { externalId: "OZE-B" } });
+      expect(a.status).toBe("EN_TRANSIT");
+      expect(b.status).toBe("LIVRE");
+      expect(b.providerStatusRaw).toBe("Livré");
     });
   });
 

@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/crypto";
 import { recordAuditEvent } from "@/lib/audit";
@@ -31,6 +32,26 @@ import { recordWebhookEventOnce } from "@/lib/integrations/shared";
  * persisted — see the WebhookEvent model.
  */
 const SUPPORTED_TOPICS = new Set(["order.created", "order.updated", "product.created", "product.updated"]);
+
+/** A webhook import writes straight to the DB but the Server-Component
+ * pages that read it are cached per-path — without this, a new store order
+ * only shows up here after a hard reload or a few minutes. Best-effort. */
+function revalidateAfterImport(kind: "order" | "product"): void {
+  try {
+    if (kind === "order") {
+      revalidatePath("/commandes");
+      revalidatePath("/tableau-de-bord");
+      revalidatePath("/livraison");
+      revalidatePath("/clients");
+    } else {
+      revalidatePath("/produits");
+      revalidatePath("/stock");
+      revalidatePath("/tableau-de-bord");
+    }
+  } catch {
+    // revalidatePath can throw outside a request scope in some runtimes — never fatal here.
+  }
+}
 
 export async function POST(request: Request): Promise<Response> {
   const rawBody = await request.text();
@@ -112,6 +133,7 @@ export async function POST(request: Request): Promise<Response> {
 
     try {
       await importProduct(loaded.client, parsed.data, { type: "INTEGRATION" });
+      revalidateAfterImport("product");
       const outcome = await recordWebhookEventOnce({
         integrationId: integration.id,
         provider: "WOOCOMMERCE",
@@ -145,6 +167,7 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     await importOrder(parsed.data, { type: "INTEGRATION" });
+    revalidateAfterImport("order");
     const outcome = await recordWebhookEventOnce({
       integrationId: integration.id,
       provider: "WOOCOMMERCE",

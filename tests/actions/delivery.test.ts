@@ -199,8 +199,23 @@ describe("updateShipmentStatusAction", () => {
     await loginAsTestUser({ role: "MANAGER" });
     const { shipmentId } = await createTestShipment();
 
+    // EN_ATTENTE -> LIVRE is allowed (the carrier is authoritative and we
+    // may never observe EN_TRANSIT). LIVRE is terminal, so re-opening it is
+    // not.
+    const delivered = await updateShipmentStatusAction(formData({ id: shipmentId, status: "LIVRE" }));
+    expect(delivered.ok).toBe(true);
+    const reopen = await updateShipmentStatusAction(formData({ id: shipmentId, status: "EN_TRANSIT" }));
+    expect(reopen.ok).toBe(false);
+  });
+
+  it("accepts EN_ATTENTE -> LIVRE directly and auto-advances the order", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { orderId, shipmentId } = await createTestShipment();
+
     const result = await updateShipmentStatusAction(formData({ id: shipmentId, status: "LIVRE" }));
-    expect(result.ok).toBe(false); // EN_ATTENTE -> LIVRE is not a valid direct transition
+    expect(result.ok).toBe(true);
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(order.status).toBe("LIVREE");
   });
 
   it("notifies delivery.view holders when a shipment fails (docs/adr/0016-notifications.md)", async () => {

@@ -23,6 +23,13 @@ export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
         orderBy: { startedAt: "desc" },
       })
     : [];
+  const lastWebhook = integration
+    ? await prisma.webhookEvent.findFirst({
+        where: { integrationId: integration.id },
+        orderBy: { receivedAt: "desc" },
+        select: { receivedAt: true, topic: true },
+      })
+    : null;
 
   const status = integration?.status ?? "DECONNECTE";
   const config = (integration?.config as { siteUrl?: string } | null) ?? null;
@@ -61,6 +68,15 @@ export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock className="size-3.5 shrink-0" />
             Dernière vérification : {formatDateTime(integration.lastConnectionCheckAt)}
+          </div>
+        )}
+
+        {hasCredentials && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Clock className="size-3.5 shrink-0" />
+            {lastWebhook
+              ? `Dernier webhook reçu : ${formatDateTime(lastWebhook.receivedAt)} (${lastWebhook.topic})`
+              : "Aucun webhook reçu — les commandes n'arrivent en temps réel que si les webhooks sont enregistrés dans WooCommerce."}
           </div>
         )}
 

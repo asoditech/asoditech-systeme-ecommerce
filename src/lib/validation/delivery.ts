@@ -22,11 +22,17 @@ export const shipmentStatusSchema = z.enum([
 ]);
 export type ShipmentStatusValue = z.infer<typeof shipmentStatusSchema>;
 
-/** See docs/adr/0006-delivery-providers.md. Terminal: LIVRE, ANNULE. */
+/**
+ * See docs/adr/0006-delivery-providers.md. Terminal: LIVRE, ANNULE,
+ * RETOURNE. EN_ATTENTE can go straight to a terminal outcome: the carrier
+ * is authoritative, and for a parcel created in its portal (or polled
+ * infrequently) we may never observe the EN_TRANSIT step before it reports
+ * "Livré" / "Retourné" / an échec.
+ */
 export const SHIPMENT_STATUS_TRANSITIONS: Record<ShipmentStatusValue, ShipmentStatusValue[]> = {
-  EN_ATTENTE: ["EN_TRANSIT", "ANNULE"],
+  EN_ATTENTE: ["EN_TRANSIT", "LIVRE", "ECHEC", "RETOURNE", "ANNULE"],
   EN_TRANSIT: ["LIVRE", "ECHEC", "RETOURNE"],
-  ECHEC: ["EN_TRANSIT", "RETOURNE", "ANNULE"],
+  ECHEC: ["EN_TRANSIT", "LIVRE", "RETOURNE", "ANNULE"],
   RETOURNE: [],
   LIVRE: [],
   ANNULE: [],

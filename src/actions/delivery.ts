@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
@@ -642,6 +643,84 @@ export async function syncShipmentStatusAction(formData: FormData): Promise<Acti
   revalidatePath("/livraison");
   revalidatePath(`/commandes/${shipment.orderId}`);
   return actionOk({ outcome: result.outcome });
+}
+
+/**
+ * Bulk "Rafraîchir les statuts" — polls the carrier for every non-terminal
+ * API shipment, oldest-checked first, a bounded batch per call (Vercel
+ * Hobby ~10s). The client button loops while `hasMore` is true. Each
+ * shipment goes through the exact same syncShipmentStatus pipeline as the
+ * single-row refresh, so the LIVRE → order → WooCommerce chain still fires.
+ */
+const REFRESH_STATUS_BATCH = 8;
+
+export async function refreshShipmentStatusesAction(): Promise<
+  ActionResult<{ checked: number; updated: number; failed: number; hasMore: boolean }>
+> {
+  const user = await requirePermissionForAction("delivery.manage");
+
+  const startedAt = new Date();
+  const eligibleWhere: Prisma.ShipmentWhereInput = {
+    externalId: { not: null },
+    status: { in: ["EN_ATTENTE", "EN_TRANSIT", "ECHEC"] },
+    provider: { type: "API" },
+  };
+
+  const batch = await prisma.shipment.findMany({
+    where: eligibleWhere,
+    include: { order: true },
+    // Nulls first in Postgres default asc ordering → never-synced shipments
+    // are picked up before ones already checked recently.
+    orderBy: { lastSyncedAt: "asc" },
+    take: REFRESH_STATUS_BATCH,
+  });
+
+  let updated = 0;
+  let failed = 0;
+  for (const shipment of batch) {
+    const result = await syncShipmentStatus({ shipment, order: shipment.order, updatedById: user.id });
+    if (result.outcome === "updated") {
+      updated++;
+      await recordAuditEvent({
+        actorType: "USER",
+        actorUserId: user.id,
+        action: "shipment.status_changed",
+        entityType: "Shipment",
+        entityId: shipment.id,
+        previousValue: { status: shipment.status },
+        newValue: { status: result.newStatus },
+        metadata: { source: "provider_sync_bulk" },
+      });
+      if (result.newStatus === "ECHEC" && shipment.status !== "ECHEC") {
+        const ctx = await shipmentNotificationContext(shipment.id);
+        if (ctx) await notifyShipmentFailed(ctx, user.id);
+      }
+      if (result.newStatus === "LIVRE") {
+        await pushOrderStatusToWooCommerce(shipment.orderId);
+      }
+    } else if (result.outcome === "error") {
+      failed++;
+      // syncShipmentStatus doesn't touch the row when the carrier fetch
+      // itself fails — stamp it so this shipment isn't retried on every
+      // loop iteration (which would never terminate).
+      await prisma.shipment.update({ where: { id: shipment.id }, data: { lastSyncedAt: new Date() } });
+    }
+  }
+
+  // Every shipment we synced now has lastSyncedAt >= startedAt, so anything
+  // still un-synced or last synced before this run began is work left.
+  const remaining =
+    batch.length < REFRESH_STATUS_BATCH
+      ? 0
+      : await prisma.shipment.count({
+          where: {
+            ...eligibleWhere,
+            OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lt: startedAt } }],
+          },
+        });
+
+  revalidatePath("/livraison");
+  return actionOk({ checked: batch.length, updated, failed, hasMore: remaining > 0 });
 }
 
 // --- Generic provider city mapping (Phase 31) ---

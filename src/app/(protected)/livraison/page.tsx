@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Truck, Package2, PackageCheck, PackageX, Percent, FileText, ExternalLink } from "lucide-react";
+import { Truck, Package2, PackageCheck, PackageX, Percent } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
@@ -10,6 +10,7 @@ import { ProviderForm } from "@/components/delivery/provider-form";
 import { ProviderConnectionStatus, ProviderConnectionControls } from "@/components/delivery/provider-connection";
 import { CityMappingDialog } from "@/components/delivery/city-mapping-dialog";
 import { ShipmentProviderControls } from "@/components/delivery/shipment-provider-controls";
+import { RefreshStatusesButton } from "@/components/delivery/refresh-statuses-button";
 import { DeliveryDocs } from "@/components/delivery/delivery-docs";
 import { LivraisonDateFilter } from "@/components/delivery/livraison-date-filter";
 import { ConfirmActionButton } from "@/components/confirm-action-button";
@@ -27,15 +28,10 @@ import {
   getDeliveryStats,
   listOrdersAwaitingShipment,
   listAvailableDeliveryConnectors,
-  listDeliveryManifests,
 } from "@/lib/queries/delivery";
 import { deleteShippingProviderAction } from "@/actions/delivery";
 import { formatCurrency, formatDate, formatDateTime, displayOrderNumber, formatPercent } from "@/lib/format";
-import {
-  SHIPMENT_STATUS_LABELS,
-  SHIPPING_PROVIDER_TYPE_LABELS,
-  DELIVERY_MANIFEST_STATUS_LABELS,
-} from "@/lib/status-labels";
+import { SHIPMENT_STATUS_LABELS, SHIPPING_PROVIDER_TYPE_LABELS } from "@/lib/status-labels";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
 import { resolveDateRangePreset, DATE_RANGE_PRESET_LABELS, type DateRangePreset } from "@/lib/date-range-presets";
 import { buildParcelContentsSummary } from "@/lib/delivery";
@@ -63,7 +59,7 @@ export default async function LivraisonPage({
   const page = Number(params.page) || 1;
   const aexpPage = Number(params.aexp) || 1;
   const aexpSearch = params.aexpq?.trim() || undefined;
-  const TABS = ["expeditions", "a-expedier", "bons-livraison", "prestataires", "documentation"];
+  const TABS = ["expeditions", "a-expedier", "prestataires", "documentation"];
   const activeTab = params.tab && TABS.includes(params.tab) ? params.tab : "expeditions";
 
   const rangeParam: DateRangePreset =
@@ -76,32 +72,22 @@ export default async function LivraisonPage({
     to: params.dateTo,
   });
 
-  const [stats, providers, shipmentsResult, awaitingResult, connectors, manifests] =
-    await Promise.all([
-      getDeliveryStats(dateFrom, dateTo),
-      listShippingProviders(),
-      listShipments({ dateFrom, dateTo, page }),
-      canManage
-        ? listOrdersAwaitingShipment({ page: aexpPage, search: aexpSearch })
-        : Promise.resolve({ orders: [], total: 0, page: 1, pageSize: 25 }),
-      listAvailableDeliveryConnectors(),
-      canManage ? listDeliveryManifests() : Promise.resolve([]),
-    ]);
+  const [stats, providers, shipmentsResult, awaitingResult, connectors] = await Promise.all([
+    getDeliveryStats(dateFrom, dateTo),
+    listShippingProviders(),
+    listShipments({ dateFrom, dateTo, page }),
+    canManage
+      ? listOrdersAwaitingShipment({ page: aexpPage, search: aexpSearch })
+      : Promise.resolve({ orders: [], total: 0, page: 1, pageSize: 25 }),
+    listAvailableDeliveryConnectors(),
+  ]);
   const { shipments, total: shipmentsTotal, pageSize: shipmentsPageSize } = shipmentsResult;
   const {
     orders: awaitingShipment,
     total: awaitingTotal,
     pageSize: awaitingPageSize,
   } = awaitingResult;
-
-  // Only carriers whose registered adapter declares GENERATE_MANIFEST get
-  // the Bons de livraison workflow at all.
-  const manifestCapableKeys = new Set(
-    connectors.filter((c) => c.capabilities.includes("GENERATE_MANIFEST")).map((c) => c.key)
-  );
-  const showManifestTab =
-    canManage &&
-    providers.some((p) => p.type === "API" && p.providerKey && manifestCapableKeys.has(p.providerKey));
+  const hasApiShipments = shipments.some((s) => s.externalId);
 
   // Deliberately narrowed before crossing into the Client Component below —
   // `providers` (the full ShippingProvider row) carries credentialsEncrypted
@@ -135,30 +121,35 @@ export default async function LivraisonPage({
 
       <Tabs defaultValue={activeTab}>
         <TabsList>
-          <TabsTrigger value="expeditions">Expéditions</TabsTrigger>
+          <TabsTrigger value="expeditions">Expéditions &amp; suivi</TabsTrigger>
           {canManage && <TabsTrigger value="a-expedier">À expédier ({awaitingTotal})</TabsTrigger>}
-          {showManifestTab && (
-            <TabsTrigger value="bons-livraison">Bons de livraison</TabsTrigger>
-          )}
           <TabsTrigger value="prestataires">Prestataires</TabsTrigger>
           <TabsTrigger value="documentation">Documentation</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="expeditions">
+        <TabsContent value="expeditions" className="space-y-3">
+          {canManage && hasApiShipments && (
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm text-muted-foreground">
+                « Statut transporteur » = le statut brut renvoyé par le transporteur (Livré, Retourné…).
+              </p>
+              <RefreshStatusesButton />
+            </div>
+          )}
           {shipments.length === 0 ? (
             <EmptyState icon={Truck} title="Aucune expédition pour le moment." />
           ) : (
             <div className="rounded-lg border">
-              <Table>
+              <Table className="text-[13px] [&_td]:px-2.5 [&_td]:py-2 [&_th]:px-2.5">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Commande</TableHead>
                     <TableHead>Client</TableHead>
-                    <TableHead>Prestataire</TableHead>
                     <TableHead>Suivi</TableHead>
-                    <TableHead>Frais livraison</TableHead>
-                    <TableHead>À encaisser</TableHead>
+                    <TableHead className="text-right">Frais</TableHead>
+                    <TableHead className="text-right">COD</TableHead>
                     <TableHead>Statut</TableHead>
+                    <TableHead>Statut transporteur</TableHead>
                     {canManage && <TableHead />}
                   </TableRow>
                 </TableHeader>
@@ -170,21 +161,25 @@ export default async function LivraisonPage({
                           {displayOrderNumber(s.order)}
                         </Link>
                       </TableCell>
-                      <TableCell>{s.order.customer.fullName}</TableCell>
-                      <TableCell className="text-muted-foreground">{s.provider.name}</TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {s.trackingUrl ? (
-                          <a href={s.trackingUrl} target="_blank" rel="noreferrer" className="hover:underline">
-                            {s.trackingNumber ?? "Suivre"}
-                          </a>
-                        ) : (
-                          (s.trackingNumber ?? "—")
-                        )}
+                      <TableCell>
+                        <span className="block max-w-[8rem] truncate">{s.order.customer.fullName}</span>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {s.cost !== null ? formatCurrency(s.cost.toString(), s.order.currency) : "Non disponible"}
+                        <span className="block max-w-[9rem] truncate font-mono text-xs">
+                          {s.trackingUrl ? (
+                            <a href={s.trackingUrl} target="_blank" rel="noreferrer" className="hover:underline">
+                              {s.trackingNumber ?? "Suivre"}
+                            </a>
+                          ) : (
+                            (s.trackingNumber ?? "—")
+                          )}
+                        </span>
+                        <span className="block text-[11px] text-muted-foreground/70">{s.provider.name}</span>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="text-right tabular-nums text-muted-foreground">
+                        {s.cost !== null ? formatCurrency(s.cost.toString(), s.order.currency) : "—"}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-muted-foreground">
                         {s.order.paymentMethod === "PAIEMENT_LIVRAISON"
                           ? formatCurrency(s.order.total.toString(), s.order.currency)
                           : "—"}
@@ -194,6 +189,20 @@ export default async function LivraisonPage({
                           <ShipmentStatusSelect shipmentId={s.id} currentStatus={s.status as ShipmentStatusValue} />
                         ) : (
                           <StatusBadge status={s.status} labels={SHIPMENT_STATUS_LABELS} />
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {s.providerStatusRaw ? (
+                          <>
+                            <span className="text-foreground">{s.providerStatusRaw}</span>
+                            {s.lastSyncedAt && (
+                              <span className="block text-[11px] text-muted-foreground/70">
+                                {formatDateTime(s.lastSyncedAt)}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          "—"
                         )}
                       </TableCell>
                       {canManage && (
@@ -297,77 +306,6 @@ export default async function LivraisonPage({
                 />
               </div>
             )}
-          </TabsContent>
-        )}
-
-        {showManifestTab && (
-          <TabsContent value="bons-livraison" className="space-y-8">
-            <section className="space-y-3">
-              <h2 className="text-[15px] font-semibold">Bons de livraison</h2>
-              <p className="text-sm text-muted-foreground">
-                Les bons de livraison OzonExpress se créent dans le portail du transporteur. Cette liste
-                affiche ceux générés depuis ASODITECH, le cas échéant.
-              </p>
-              {manifests.length === 0 ? (
-                <EmptyState icon={FileText} title="Aucun bon de livraison généré depuis ASODITECH." />
-              ) : (
-                <div className="rounded-lg border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Référence</TableHead>
-                        <TableHead>Prestataire</TableHead>
-                        <TableHead>Colis</TableHead>
-                        <TableHead>Statut</TableHead>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Documents</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {manifests.map((m) => {
-                        const documents = Array.isArray(m.documents)
-                          ? (m.documents as { label: string; url: string }[])
-                          : [];
-                        return (
-                          <TableRow key={m.id}>
-                            <TableCell className="font-mono text-xs">{m.externalRef ?? "—"}</TableCell>
-                            <TableCell className="text-muted-foreground">{m.provider.name}</TableCell>
-                            <TableCell>{m._count.shipments || m.parcelCount}</TableCell>
-                            <TableCell>
-                              <StatusBadge status={m.status} labels={DELIVERY_MANIFEST_STATUS_LABELS} />
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">{formatDateTime(m.createdAt)}</TableCell>
-                            <TableCell>
-                              {m.status === "ECHEC" ? (
-                                <span className="text-xs text-destructive">{m.failedReason ?? "Échec"}</span>
-                              ) : documents.length === 0 ? (
-                                <span className="text-xs text-muted-foreground">—</span>
-                              ) : (
-                                <div className="flex flex-wrap gap-1.5">
-                                  {documents.map((d) => (
-                                    <Button
-                                      key={d.url}
-                                      variant="outline"
-                                      size="xs"
-                                      render={
-                                        <a href={d.url} target="_blank" rel="noopener noreferrer" />
-                                      }
-                                    >
-                                      <ExternalLink className="size-3" />
-                                      {d.label}
-                                    </Button>
-                                  ))}
-                                </div>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </section>
           </TabsContent>
         )}
 

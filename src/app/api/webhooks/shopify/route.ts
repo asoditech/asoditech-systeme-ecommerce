@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/crypto";
 import { recordAuditEvent } from "@/lib/audit";
@@ -47,6 +48,26 @@ const SUPPORTED_TOPICS = new Set([
   "products/update",
   "inventory_levels/update",
 ]);
+
+/** Same rationale as the WooCommerce route — refresh the cached pages that
+ * read imported data so a new order/product shows up without a hard
+ * reload. Best-effort. */
+function revalidateAfterImport(kind: "order" | "product" | "stock"): void {
+  try {
+    if (kind === "order") {
+      revalidatePath("/commandes");
+      revalidatePath("/tableau-de-bord");
+      revalidatePath("/livraison");
+      revalidatePath("/clients");
+    } else {
+      revalidatePath("/produits");
+      revalidatePath("/stock");
+      revalidatePath("/tableau-de-bord");
+    }
+  } catch {
+    // never fatal
+  }
+}
 
 const orderEnvelopeSchema = z.object({
   id: z.number(),
@@ -153,6 +174,7 @@ export async function POST(request: Request): Promise<Response> {
           source: "SHOPIFY",
           externalItemId: inventoryItemGid,
         });
+        revalidateAfterImport("stock");
       }
       const outcome = await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: inventoryItemGid, status: "TRAITE" });
       if (outcome === "recorded") {
@@ -190,6 +212,7 @@ export async function POST(request: Request): Promise<Response> {
       }
 
       await importProduct(product, { type: "INTEGRATION" });
+      revalidateAfterImport("product");
       const outcome = await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: productGid, status: "TRAITE" });
       if (outcome === "recorded") {
         await recordAuditEvent({
@@ -227,6 +250,7 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     await importOrder(order, { type: "INTEGRATION" });
+    revalidateAfterImport("order");
     const outcome = await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: orderGid, status: "TRAITE" });
     if (outcome === "recorded") {
       await recordAuditEvent({
