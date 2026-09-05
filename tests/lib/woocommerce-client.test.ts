@@ -157,8 +157,8 @@ describe("WooCommerceClient", () => {
     const client = new WooCommerceClient("https://boutique.example", { consumerKey: "a", consumerSecret: "b" });
 
     const collected: number[] = [];
-    for await (const page of client.listAllProducts()) {
-      for (const p of page) collected.push(p.id);
+    for await (const { items } of client.listAllProducts()) {
+      for (const p of items) collected.push(p.id);
     }
     expect(collected).toEqual([1, 2, 3]);
   });

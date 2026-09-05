@@ -306,6 +306,55 @@ describe("WooCommerce integration", () => {
       expect(Number(after.cost)).toBe(20);
       expect(after.lowStockThreshold).toBe(3);
     });
+
+    /**
+     * Live-testing report: a newly added product still didn't show up on
+     * /produits even after clicking "Synchroniser les produits" — root
+     * cause was the same class of bug already fixed for orders (see
+     * syncOrders): an unbounded full-catalog pass has no persisted resume
+     * point, so a run that times out on Vercel Hobby always restarts from
+     * page 1, and a product sitting past wherever the scan always dies
+     * (a newly added one is typically last) could never be reached no
+     * matter how many times the button was clicked.
+     */
+    it("a catalog bigger than one run's cap reports hasMore, persists a resume page, and a second run finishes it", async () => {
+      state.products = Array.from({ length: 25 }, (_, i) => ({
+        id: 9800 + i,
+        name: `Produit ${i}`,
+        slug: `produit-${i}`,
+        sku: `CAT-${i}`,
+        status: "publish" as const,
+        type: "simple" as const,
+        regular_price: "10.00",
+        manage_stock: false,
+        stock_quantity: null,
+        categories: [],
+      }));
+
+      await loginAsTestUser({ role: "ADMIN" });
+      await connectFakeStore();
+      const integration = await prisma.integration.findFirstOrThrow({ where: { provider: "WOOCOMMERCE" } });
+
+      const first = await syncWooCommerceProductsAction();
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      expect(first.data.summary.imported).toBe(20);
+      expect(first.data.summary.hasMore).toBe(true);
+
+      const afterFirst = await prisma.integration.findUniqueOrThrow({ where: { id: integration.id } });
+      const configAfterFirst = afterFirst.config as { productsResumePage?: number; productsResumeOffset?: number } | null;
+      expect(configAfterFirst?.productsResumePage).toBe(1); // capped mid-page — resumes the same page, not the next one
+      expect(configAfterFirst?.productsResumeOffset).toBe(20); // ...and past the 20 items that page already handled
+
+      const second = await syncWooCommerceProductsAction();
+      expect(second.ok).toBe(true);
+      if (!second.ok) return;
+      expect(second.data.summary.imported).toBe(5);
+      expect(second.data.summary.hasMore).toBeFalsy();
+
+      const total = await prisma.product.count({ where: { source: "WOOCOMMERCE" } });
+      expect(total).toBe(25);
+    });
   });
 
   describe("pushWooCommerceStockAction", () => {
@@ -421,6 +470,93 @@ describe("WooCommerce integration", () => {
       expect(notification.type).toBe("NOUVELLE_COMMANDE");
       expect(notification.message).toContain("Amine Tazi");
       expect(notification.message).toContain("WooCommerce");
+    });
+
+    /**
+     * Live-testing report: the same guest checkout (no WooCommerce account,
+     * so customer_id is always 0) ordering twice under a slightly
+     * different email — or none at all — used to create a second Customer
+     * row every time, since only customer_id/email were matched. Reported
+     * as the same name/phone appearing repeatedly on the Clients page with
+     * the order count split across the duplicates.
+     */
+    it("matches a guest checkout by phone when there's no WooCommerce customer id or matching email, instead of duplicating the customer", async () => {
+      await seedProductWithCost();
+      state.orders = [
+        {
+          id: 9200,
+          number: "9200",
+          status: "processing",
+          date_created: futureIso(1),
+          customer_id: 0,
+          total: "50.00",
+          billing: { first_name: "Kawrche", last_name: "Karima", email: "kawrche1@example.com", phone: "0661234567", city: "Rabat", country: "MA", address_1: "1 Rue A" },
+          shipping: {},
+          line_items: [{ id: 1, name: "Thé vert", product_id: 501, sku: "THE-VERT", quantity: 1, price: "50.00", subtotal: "50.00", total: "50.00" }],
+        },
+        {
+          id: 9201,
+          number: "9201",
+          status: "processing",
+          date_created: futureIso(2),
+          customer_id: 0,
+          total: "50.00",
+          // No email this time — only the phone matches the earlier order.
+          billing: { first_name: "Kawrche", last_name: "Karima", phone: "0661234567", city: "Rabat", country: "MA", address_1: "1 Rue A" },
+          shipping: {},
+          line_items: [{ id: 1, name: "Thé vert", product_id: 501, sku: "THE-VERT", quantity: 1, price: "50.00", subtotal: "50.00", total: "50.00" }],
+        },
+      ];
+
+      const result = await syncWooCommerceOrdersAction();
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.summary.imported).toBe(2);
+
+      const customers = await prisma.customer.findMany({ where: { source: "WOOCOMMERCE", phone: "0661234567" } });
+      expect(customers).toHaveLength(1);
+      const orders = await prisma.order.findMany({ where: { customerId: customers[0].id } });
+      expect(orders).toHaveLength(2);
+    });
+
+    /**
+     * Live-testing report: a customer with one real order still showed
+     * "Aucune adresse enregistrée" — the shipping address only ever landed
+     * on the Order row, never copied into the customer's own address book.
+     */
+    it("copies the order's shipping address into the customer's address book on import", async () => {
+      await seedProductWithCost();
+      state.orders = [
+        {
+          id: 9210,
+          number: "9210",
+          status: "processing",
+          date_created: futureIso(1),
+          customer_id: 0,
+          total: "50.00",
+          billing: {
+            first_name: "Miriam",
+            last_name: "Gomez",
+            email: "miriam@example.com",
+            phone: "0661213988",
+            city: "Marrakech",
+            country: "MA",
+            address_1: "45 Avenue Mohammed V",
+          },
+          shipping: {},
+          line_items: [{ id: 1, name: "Thé vert", product_id: 501, sku: "THE-VERT", quantity: 1, price: "50.00", subtotal: "50.00", total: "50.00" }],
+        },
+      ];
+
+      const result = await syncWooCommerceOrdersAction();
+      expect(result.ok).toBe(true);
+
+      const customer = await prisma.customer.findFirstOrThrow({ where: { source: "WOOCOMMERCE", phone: "0661213988" } });
+      const addresses = await prisma.customerAddress.findMany({ where: { customerId: customer.id } });
+      expect(addresses).toHaveLength(1);
+      expect(addresses[0].addressLine1).toBe("45 Avenue Mohammed V");
+      expect(addresses[0].city).toBe("Marrakech");
+      expect(addresses[0].isDefault).toBe(true);
     });
 
     it("does not fan out a notification for a months-old order (history backfill)", async () => {

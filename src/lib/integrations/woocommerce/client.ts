@@ -166,10 +166,18 @@ export class WooCommerceClient {
     await this.requestPage(z.array(z.unknown()), "/orders", 1);
   }
 
-  async *listAllProducts(): AsyncGenerator<WcProduct[]> {
-    for (let page = 1; page <= MAX_PAGES; page++) {
+  /**
+   * `startPage` and the yielded `{ page, totalPages }` mirror
+   * `listAllOrders` — see its own doc comment and `syncProducts`'s for why
+   * a product catalog pass needs to resume from where a previous run left
+   * off rather than always rescanning from page 1.
+   */
+  async *listAllProducts(
+    startPage = 1
+  ): AsyncGenerator<{ items: WcProduct[]; page: number; totalPages: number }> {
+    for (let page = Math.max(1, startPage); page <= MAX_PAGES; page++) {
       const { items, meta } = await this.requestPage(z.array(wcProductSchema), "/products", page);
-      yield items;
+      yield { items, page, totalPages: meta.totalPages };
       if (page >= meta.totalPages) return;
     }
   }

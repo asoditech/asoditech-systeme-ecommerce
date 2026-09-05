@@ -196,7 +196,9 @@ export async function syncShopifyProductsAction(): Promise<ActionResult<{ summar
   });
   if (!locationsResult.ok) return locationsResult;
 
-  return runSync(user, integration.id, "PRODUITS", "IMPORT", () => syncProducts(client, locationIdMap, { type: "USER", userId: user.id }));
+  return runSync(user, integration.id, "PRODUITS", "IMPORT", () =>
+    syncProducts(client, locationIdMap, { type: "USER", userId: user.id }, integration.id)
+  );
 }
 
 export async function syncShopifyOrdersAction(): Promise<ActionResult<{ summary: SyncSummary }>> {

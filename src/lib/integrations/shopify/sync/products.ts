@@ -21,23 +21,100 @@ import { emptySyncSummary, recordNote, reconcileStockFromProvider, type SyncSumm
  * is mapped in this phase (categoryId stays null for Shopify-sourced
  * products) — a deliberate, documented decision, not silent data loss.
  * See the ADR's "deferred" section.
+ *
+ * Resumable and capped per run, for the same reason as `syncOrders` (see
+ * its own doc comment): Vercel Hobby's tight wall-clock budget can't
+ * guarantee a full catalog pass finishes in one call. Without a persisted
+ * resume point, a run that times out mid-catalog restarted from the start
+ * every single time — so a product sitting past wherever the scan always
+ * dies (a newly added one is usually last) could never be reached no
+ * matter how many times "Synchroniser les produits" was clicked.
+ *
+ * Unlike `syncOrders`, an "already synced" product can't be skipped for
+ * free on a resumed run: its stock still needs re-checking every single
+ * pass (that's the whole point of the pull half of the stock sync), even
+ * when its name/price/etc. haven't changed. Shopify also has no
+ * page-number pagination to resume "the next page" from — one GraphQL
+ * page can hold up to 50 products in a single response, well above the
+ * per-run cap. So resuming at just the page's cursor would re-fetch and
+ * restart from that same page's *first* item every time, making no
+ * forward progress past a page bigger than the cap.
+ * `Integration.config.productsResumeCursor`/`productsResumeOffset` track
+ * both the cursor AND the index within that refetched page this run
+ * stopped at, so the next run skips straight to the genuinely
+ * new/unchecked items in memory after re-fetching the same page.
  */
+const MAX_PRODUCTS_PER_RUN = 20;
+
 export async function syncProducts(
   client: ShopifyClient,
   locationIdMap: Map<string, string>,
-  actor: SyncActor
+  actor: SyncActor,
+  integrationId: string
 ): Promise<SyncSummary> {
   const summary = emptySyncSummary();
 
-  for await (const page of client.listAllProducts()) {
-    for (const product of page) {
+  const integration = await prisma.integration.findUniqueOrThrow({ where: { id: integrationId } });
+  const config = (integration.config as Record<string, unknown> | null) ?? {};
+  const startCursor = typeof config.productsResumeCursor === "string" ? config.productsResumeCursor : null;
+  const startOffset =
+    typeof config.productsResumeOffset === "number" && config.productsResumeOffset > 0
+      ? Math.floor(config.productsResumeOffset)
+      : 0;
+
+  let processedThisRun = 0;
+  let capped = false;
+  // The cursor `listAllProducts` was called with for whichever page is
+  // currently being iterated — i.e. what re-fetches that SAME page rather
+  // than the next one.
+  let cursorBeforePage = startCursor;
+  let resumeCursor: string | null = null;
+  let resumeOffset = 0;
+  let isFirstPageThisRun = true;
+
+  for await (const { items: pageItems, endCursor, hasNextPage } of client.listAllProducts(startCursor)) {
+    // The resume offset only applies to the very first page fetched this
+    // run — any later page within the same run is fetched fresh and
+    // starts at its own 0.
+    const applyOffset = isFirstPageThisRun && startOffset > 0;
+    const items = applyOffset ? pageItems.slice(startOffset) : pageItems;
+    let indexInPage = applyOffset ? startOffset : 0;
+    isFirstPageThisRun = false;
+
+    resumeCursor = hasNextPage ? endCursor : null;
+    resumeOffset = 0;
+
+    for (const product of items) {
+      if (processedThisRun >= MAX_PRODUCTS_PER_RUN) {
+        capped = true;
+        resumeCursor = cursorBeforePage;
+        resumeOffset = indexInPage;
+        break;
+      }
       try {
         await syncOneProduct(product, locationIdMap, actor, summary);
       } catch {
         recordNote(summary, `Produit Shopify ${product.title} : échec de synchronisation.`);
         summary.failed++;
       }
+      processedThisRun++;
+      indexInPage++;
     }
+    if (capped) break;
+    cursorBeforePage = endCursor;
+  }
+
+  await prisma.integration.update({
+    where: { id: integrationId },
+    data: { config: { ...config, productsResumeCursor: resumeCursor, productsResumeOffset: resumeOffset } },
+  });
+
+  summary.hasMore = capped;
+  if (capped) {
+    recordNote(
+      summary,
+      `Lot traité (max ${MAX_PRODUCTS_PER_RUN} produits) — relancez « Synchroniser les produits » pour continuer.`
+    );
   }
 
   return summary;

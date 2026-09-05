@@ -87,16 +87,27 @@ export function WooCommerceActions({ canManage, hasCredentials }: { canManage: b
     });
   }
 
-  function runOrdersSync() {
-    setBusy("orders");
-    const toastId = "woo-orders-sync";
+  // Shared by orders and products: both syncs are capped per call (sized
+  // for Vercel Hobby's ~10s function limit) and report `hasMore` when
+  // there's more of the backlog left. Rather than making the operator
+  // click the button over and over for a large catalog/backlog, it
+  // re-invokes the action itself while hasMore stays true, so one click
+  // looks like one sync even though it is really several short runs —
+  // with a safety cap so a bug can't spin forever.
+  function runLoopedSync(
+    busyKey: string,
+    toastId: string,
+    label: string,
+    action: () => Promise<{ ok: boolean; error?: string; data?: { summary: SyncSummary } }>
+  ) {
+    setBusy(busyKey);
     startTransition(async () => {
       const totals = { imported: 0, updated: 0, unchanged: 0, skipped: 0, failed: 0 };
-      toast.loading("Synchronisation des commandes...", { id: toastId });
+      toast.loading(`Synchronisation ${label}...`, { id: toastId });
       try {
         for (let i = 0; i < MAX_SYNC_ITERATIONS; i++) {
-          const result = await syncWooCommerceOrdersAction();
-          if (!result.ok) {
+          const result = await action();
+          if (!result.ok || !result.data) {
             toast.error(result.error ?? "Une erreur est survenue.", { id: toastId });
             return;
           }
@@ -111,9 +122,9 @@ export function WooCommerceActions({ canManage, hasCredentials }: { canManage: b
           await sleep(SYNC_ITERATION_GAP_MS);
         }
         if (totals.failed > 0) {
-          toast.warning(`Commandes : ${summaryText(totals)}.`, { id: toastId });
+          toast.warning(`${label} : ${summaryText(totals)}.`, { id: toastId });
         } else {
-          toast.success(`Commandes : ${summaryText(totals)}.`, { id: toastId });
+          toast.success(`${label} : ${summaryText(totals)}.`, { id: toastId });
         }
       } catch {
         toast.error("L'opération a échoué ou expiré. Réessayez.", { id: toastId });
@@ -122,6 +133,14 @@ export function WooCommerceActions({ canManage, hasCredentials }: { canManage: b
         router.refresh();
       }
     });
+  }
+
+  function runOrdersSync() {
+    runLoopedSync("orders", "woo-orders-sync", "Commandes", syncWooCommerceOrdersAction);
+  }
+
+  function runProductsSync() {
+    runLoopedSync("products", "woo-products-sync", "Produits", syncWooCommerceProductsAction);
   }
 
   return (
@@ -142,19 +161,7 @@ export function WooCommerceActions({ canManage, hasCredentials }: { canManage: b
         {busy === "test" ? "Test en cours..." : "Tester la connexion"}
       </Button>
 
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        disabled={isPending}
-        onClick={() =>
-          run("products", async () => {
-            const result = await syncWooCommerceProductsAction();
-            if (result.ok) summaryToast("Produits", result.data.summary);
-            return result;
-          })
-        }
-      >
+      <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={runProductsSync}>
         {busy === "products" ? "Synchronisation..." : "Synchroniser les produits"}
       </Button>
 

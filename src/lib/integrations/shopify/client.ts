@@ -190,8 +190,16 @@ export class ShopifyClient {
     }
   }
 
-  async *listAllProducts(): AsyncGenerator<ShopifyProduct[]> {
-    let cursor: string | null = null;
+  /**
+   * `startCursor` and the yielded `endCursor`/`hasNextPage` mirror
+   * `listAllOrders` — see its own doc comment and `syncProducts`'s for why
+   * a product catalog pass needs to resume from where a previous run left
+   * off rather than always rescanning from the start.
+   */
+  async *listAllProducts(
+    startCursor?: string | null
+  ): AsyncGenerator<{ items: ShopifyProduct[]; endCursor: string | null; hasNextPage: boolean }> {
+    let cursor: string | null = startCursor ?? null;
     for (let page = 0; page < MAX_PAGES; page++) {
       const result: z.infer<typeof shopifyProductsPageSchema> = await this.request(
         shopifyProductsPageSchema,
@@ -216,9 +224,10 @@ export class ShopifyClient {
          }`,
         { cursor }
       );
-      yield result.products.nodes;
+      const endCursor = result.products.pageInfo.endCursor ?? null;
+      yield { items: result.products.nodes, endCursor, hasNextPage: result.products.pageInfo.hasNextPage };
       if (!result.products.pageInfo.hasNextPage) return;
-      cursor = result.products.pageInfo.endCursor ?? null;
+      cursor = endCursor;
     }
   }
 

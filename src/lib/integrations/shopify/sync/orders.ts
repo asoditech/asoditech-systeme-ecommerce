@@ -6,7 +6,7 @@ import { canTransitionOrderStatus } from "@/lib/validation/order";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
 import type { ShopifyOrder } from "../types";
-import { actorAuditFields, actorPerformedById, emptySyncSummary, isRecentlyPlaced, parseOrderPlacedAt, recordNote, type SyncActor, type SyncSummary } from "@/lib/integrations/shared";
+import { actorAuditFields, actorPerformedById, emptySyncSummary, isRecentlyPlaced, parseOrderPlacedAt, recordNote, upsertCustomerAddressFromOrder, type SyncActor, type SyncSummary } from "@/lib/integrations/shared";
 import { notifyNewOrder } from "@/lib/notifications";
 import type { Prisma, OrderStatus } from "@prisma/client";
 
@@ -36,6 +36,20 @@ export async function importOrder(
   }
 
   const customerId = await resolveCustomerForOrder(order, actor);
+
+  // Copied into the customer's own address book (see
+  // upsertCustomerAddressFromOrder's doc comment) so their Clients page
+  // shows a real address instead of "Aucune adresse enregistrée".
+  const shippingSource = order.shippingAddress ?? order.billingAddress;
+  await upsertCustomerAddressFromOrder(customerId, {
+    addressLine1: shippingSource?.address1 ?? null,
+    addressLine2: shippingSource?.address2 ?? null,
+    city: shippingSource?.city ?? null,
+    region: shippingSource?.province ?? null,
+    country: shippingSource?.country ?? null,
+    phone: shippingSource?.phone ?? order.phone ?? null,
+  });
+
   const existing = await prisma.order.findFirst({ where: { source: "SHOPIFY", externalId: order.id } });
 
   if (existing) {
@@ -64,6 +78,45 @@ function fullName(first?: string | null, last?: string | null): string {
   return [first, last].filter(Boolean).join(" ").trim();
 }
 
+/**
+ * Match priority: Shopify customer id (a real account) → email → phone.
+ * Most orders on this store are guest checkouts (no linked Shopify
+ * customer), and a guest doesn't always fill in the same email twice —
+ * but the phone number is what's actually reliable across their orders.
+ * Without a phone fallback here, the same guest ordering twice created two
+ * separate Customer rows every time, which is what showed up as the same
+ * name/phone listed repeatedly on the Clients page with the order count
+ * split across the duplicates instead of totalled on one row.
+ */
+async function findExistingShopifyCustomer(
+  order: ShopifyOrder,
+  email: string | null,
+  phone: string | null
+): Promise<{ id: string; externalId: string | null } | null> {
+  if (order.customer) {
+    const byExternalId = await prisma.customer.findFirst({
+      where: { source: "SHOPIFY", externalId: order.customer.id },
+      select: { id: true, externalId: true },
+    });
+    if (byExternalId) return byExternalId;
+  }
+  if (email) {
+    const byEmail = await prisma.customer.findFirst({
+      where: { source: "SHOPIFY", email },
+      select: { id: true, externalId: true },
+    });
+    if (byEmail) return byEmail;
+  }
+  if (phone) {
+    const byPhone = await prisma.customer.findFirst({
+      where: { source: "SHOPIFY", phone },
+      select: { id: true, externalId: true },
+    });
+    if (byPhone) return byPhone;
+  }
+  return null;
+}
+
 async function resolveCustomerForOrder(order: ShopifyOrder, actor: SyncActor): Promise<string> {
   const email = order.customer?.email ?? order.email ?? null;
   const address = order.shippingAddress ?? order.billingAddress;
@@ -74,11 +127,7 @@ async function resolveCustomerForOrder(order: ShopifyOrder, actor: SyncActor): P
     `Client Shopify ${order.name}`;
   const phone = order.customer?.phone ?? order.phone ?? address?.phone ?? null;
 
-  const existing = order.customer
-    ? await prisma.customer.findFirst({ where: { source: "SHOPIFY", externalId: order.customer.id } })
-    : email
-      ? await prisma.customer.findFirst({ where: { source: "SHOPIFY", email } })
-      : null;
+  const existing = await findExistingShopifyCustomer(order, email, phone);
 
   const fields = {
     fullName: name,
@@ -90,7 +139,16 @@ async function resolveCustomerForOrder(order: ShopifyOrder, actor: SyncActor): P
   };
 
   if (existing) {
-    await prisma.customer.update({ where: { id: existing.id }, data: fields });
+    await prisma.customer.update({
+      where: { id: existing.id },
+      data: {
+        ...fields,
+        // Backfill the Shopify customer id once it's known (a guest's
+        // first orders matched by email/phone, then they register) —
+        // never overwrite one already recorded.
+        externalId: existing.externalId ?? order.customer?.id ?? existing.externalId,
+      },
+    });
     return existing.id;
   }
 

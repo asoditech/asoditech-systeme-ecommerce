@@ -220,7 +220,7 @@ export async function syncWooCommerceProductsAction(): Promise<ActionResult<{ su
   if (!categoriesResult.ok) return categoriesResult;
 
   return runSync(user, integration.id, "PRODUITS", "IMPORT", () =>
-    syncProducts(client, idMap, { type: "USER", userId: user.id })
+    syncProducts(client, idMap, { type: "USER", userId: user.id }, integration.id)
   );
 }
 

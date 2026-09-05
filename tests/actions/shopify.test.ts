@@ -272,6 +272,57 @@ describe("Shopify integration", () => {
       expect(Number(after.cost)).toBe(15);
       expect(after.lowStockThreshold).toBe(4);
     });
+
+    /**
+     * See the matching WooCommerce test for the full writeup: an unbounded
+     * full-catalog pass has no persisted resume point, so a run that times
+     * out on Vercel Hobby always restarts from the beginning and can
+     * permanently never reach a product added near the end of the catalog.
+     */
+    it("a catalog bigger than one run's cap reports hasMore, persists a resume cursor, and a second run finishes it", async () => {
+      state.locations = [{ id: "gid://shopify/Location/10", name: "Entrepôt", isActive: true }];
+      state.products = Array.from({ length: 25 }, (_, i) => ({
+        id: `gid://shopify/Product/${9800 + i}`,
+        title: `Produit ${i}`,
+        handle: `produit-${i}`,
+        status: "ACTIVE" as const,
+        variants: [
+          {
+            id: `gid://shopify/ProductVariant/${9800 + i}`,
+            title: "Default Title",
+            sku: `CAT-${i}`,
+            price: "10.00",
+            inventoryItemId: `gid://shopify/InventoryItem/${9800 + i}`,
+            tracked: false,
+            levels: [],
+          },
+        ],
+      }));
+
+      await loginAsTestUser({ role: "ADMIN" });
+      await connectFakeStore();
+      const integration = await prisma.integration.findFirstOrThrow({ where: { provider: "SHOPIFY" } });
+
+      const first = await syncShopifyProductsAction();
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      expect(first.data.summary.imported).toBe(20);
+      expect(first.data.summary.hasMore).toBe(true);
+
+      const afterFirst = await prisma.integration.findUniqueOrThrow({ where: { id: integration.id } });
+      const configAfterFirst = afterFirst.config as { productsResumeCursor?: string | null; productsResumeOffset?: number } | null;
+      expect(configAfterFirst?.productsResumeCursor ?? null).toBeNull(); // capped mid-page — resumes the same page, not the next one
+      expect(configAfterFirst?.productsResumeOffset).toBe(20); // ...and past the 20 items that page already handled
+
+      const second = await syncShopifyProductsAction();
+      expect(second.ok).toBe(true);
+      if (!second.ok) return;
+      expect(second.data.summary.imported).toBe(5);
+      expect(second.data.summary.hasMore).toBeFalsy();
+
+      const total = await prisma.product.count({ where: { source: "SHOPIFY" } });
+      expect(total).toBe(25);
+    });
   });
 
   describe("pushShopifyStockAction", () => {
@@ -393,6 +444,88 @@ describe("Shopify integration", () => {
       expect(notification.type).toBe("NOUVELLE_COMMANDE");
       expect(notification.message).toContain("Amine Tazi");
       expect(notification.message).toContain("Shopify");
+    });
+
+    /**
+     * Live-testing report — see the matching WooCommerce test for the full
+     * writeup: a guest checkout (no linked Shopify customer) ordering
+     * twice under a different or missing email used to create a second
+     * Customer row every time.
+     */
+    it("matches a guest checkout by phone when there's no Shopify customer or matching email, instead of duplicating the customer", async () => {
+      await seedProductWithCost();
+      state.orders = [
+        {
+          id: "gid://shopify/Order/9200",
+          name: "#9200",
+          createdAt: futureIso(1),
+          displayFinancialStatus: "PAID",
+          displayFulfillmentStatus: "UNFULFILLED",
+          customer: null,
+          email: "kawrche1@example.com",
+          shippingAddress: { firstName: "Kawrche", lastName: "Karima", address1: "1 Rue A", city: "Rabat", country: "MA", phone: "0661234567" },
+          total: 50,
+          subtotal: 50,
+          lineItems: [{ id: "gid://shopify/LineItem/1", title: "Thé vert", sku: "THE-VERT", quantity: 1, productId: "gid://shopify/Product/501", unitPrice: 50, discountedTotal: 50, originalTotal: 50 }],
+        },
+        {
+          id: "gid://shopify/Order/9201",
+          name: "#9201",
+          createdAt: futureIso(2),
+          displayFinancialStatus: "PAID",
+          displayFulfillmentStatus: "UNFULFILLED",
+          customer: null,
+          // No email this time — only the phone matches the earlier order.
+          shippingAddress: { firstName: "Kawrche", lastName: "Karima", address1: "1 Rue A", city: "Rabat", country: "MA", phone: "0661234567" },
+          total: 50,
+          subtotal: 50,
+          lineItems: [{ id: "gid://shopify/LineItem/1", title: "Thé vert", sku: "THE-VERT", quantity: 1, productId: "gid://shopify/Product/501", unitPrice: 50, discountedTotal: 50, originalTotal: 50 }],
+        },
+      ];
+
+      const result = await syncShopifyOrdersAction();
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.summary.imported).toBe(2);
+
+      const customers = await prisma.customer.findMany({ where: { source: "SHOPIFY", phone: "0661234567" } });
+      expect(customers).toHaveLength(1);
+      const orders = await prisma.order.findMany({ where: { customerId: customers[0].id } });
+      expect(orders).toHaveLength(2);
+    });
+
+    /**
+     * Live-testing report: a customer with one real order still showed
+     * "Aucune adresse enregistrée" — the shipping address only ever landed
+     * on the Order row, never copied into the customer's own address book.
+     */
+    it("copies the order's shipping address into the customer's address book on import", async () => {
+      await seedProductWithCost();
+      state.orders = [
+        {
+          id: "gid://shopify/Order/9210",
+          name: "#9210",
+          createdAt: futureIso(1),
+          displayFinancialStatus: "PAID",
+          displayFulfillmentStatus: "UNFULFILLED",
+          customer: null,
+          email: "miriam@example.com",
+          shippingAddress: { firstName: "Miriam", lastName: "Gomez", address1: "45 Avenue Mohammed V", city: "Marrakech", country: "MA", phone: "0661213988" },
+          total: 50,
+          subtotal: 50,
+          lineItems: [{ id: "gid://shopify/LineItem/1", title: "Thé vert", sku: "THE-VERT", quantity: 1, productId: "gid://shopify/Product/501", unitPrice: 50, discountedTotal: 50, originalTotal: 50 }],
+        },
+      ];
+
+      const result = await syncShopifyOrdersAction();
+      expect(result.ok).toBe(true);
+
+      const customer = await prisma.customer.findFirstOrThrow({ where: { source: "SHOPIFY", phone: "0661213988" } });
+      const addresses = await prisma.customerAddress.findMany({ where: { customerId: customer.id } });
+      expect(addresses).toHaveLength(1);
+      expect(addresses[0].addressLine1).toBe("45 Avenue Mohammed V");
+      expect(addresses[0].city).toBe("Marrakech");
+      expect(addresses[0].isDefault).toBe(true);
     });
 
     /**

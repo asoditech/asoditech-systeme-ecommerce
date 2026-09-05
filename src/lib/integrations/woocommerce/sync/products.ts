@@ -21,24 +21,99 @@ import type { SyncActor } from "./actor";
  * schema has a single `categoryId` FK, so only the first WooCommerce
  * category (if any) is used — a deliberate, documented simplification, not
  * a silent data loss (the rest are simply not representable in this phase).
+ *
+ * Resumable and capped per run, for the same reason as `syncOrders` (see
+ * its own doc comment): Vercel Hobby's tight wall-clock budget can't
+ * guarantee a full catalog pass finishes in one call, and a variable
+ * product costs an *extra* paginated request for its variations on top of
+ * the product itself. Without a persisted resume point, a run that times
+ * out mid-catalog restarted from page 1 every single time — so a product
+ * sitting past wherever the scan always dies (a newly added one is
+ * usually on the last page) could never be reached no matter how many
+ * times "Synchroniser les produits" was clicked.
+ *
+ * Unlike `syncOrders`, an "already synced" product can't be skipped for
+ * free on a resumed run: its stock still needs re-checking every single
+ * pass (that's the whole point of the pull half of the stock sync — see
+ * `reconcileStockFromWooCommerce` below), even when its name/price/etc.
+ * haven't changed. So resuming at just "the same page number" would
+ * reprocess that page's already-handled leading items until the cap,
+ * making no forward progress ever on a page bigger than the cap. Instead,
+ * `Integration.config.productsResumePage`/`productsResumeOffset` track
+ * both the page AND the index within it this run stopped at, so the next
+ * run picks up genuinely new/unchecked items on a re-fetch of that same
+ * page instead of starting over from its first item.
  */
+const MAX_PRODUCTS_PER_RUN = 20;
+
 export async function syncProducts(
   client: WooCommerceClient,
   categoryIdMap: Map<number, string>,
-  actor: SyncActor
+  actor: SyncActor,
+  integrationId: string
 ): Promise<SyncSummary> {
   const summary = emptySyncSummary();
   const warehouse = await prisma.warehouse.findFirst({ where: { isDefault: true } });
 
-  for await (const page of client.listAllProducts()) {
-    for (const wc of page) {
+  const integration = await prisma.integration.findUniqueOrThrow({ where: { id: integrationId } });
+  const config = (integration.config as Record<string, unknown> | null) ?? {};
+  const startPage =
+    typeof config.productsResumePage === "number" && config.productsResumePage > 0
+      ? Math.floor(config.productsResumePage)
+      : 1;
+  const startOffset =
+    typeof config.productsResumeOffset === "number" && config.productsResumeOffset > 0
+      ? Math.floor(config.productsResumeOffset)
+      : 0;
+
+  let processedThisRun = 0;
+  let capped = false;
+  let resumePage = 1;
+  let resumeOffset = 0;
+  let isFirstPageThisRun = true;
+
+  for await (const { items: pageItems, page, totalPages } of client.listAllProducts(startPage)) {
+    // The resume offset only applies to the very first page fetched this
+    // run (wherever the previous run's cap actually stopped) — any later
+    // page within the same run is fetched fresh and starts at its own 0.
+    const applyOffset = isFirstPageThisRun && startOffset > 0;
+    const items = applyOffset ? pageItems.slice(startOffset) : pageItems;
+    let indexInPage = applyOffset ? startOffset : 0;
+    isFirstPageThisRun = false;
+
+    resumePage = page >= totalPages ? 1 : page + 1;
+    resumeOffset = 0;
+
+    for (const wc of items) {
+      if (processedThisRun >= MAX_PRODUCTS_PER_RUN) {
+        capped = true;
+        resumePage = page;
+        resumeOffset = indexInPage;
+        break;
+      }
       try {
         await syncOneProduct(client, wc, categoryIdMap, warehouse?.id ?? null, actor, summary);
       } catch {
         recordNote(summary, `Produit WooCommerce #${wc.id} (${wc.sku || wc.name}) : échec de synchronisation.`);
         summary.failed++;
       }
+      processedThisRun++;
+      indexInPage++;
     }
+    if (capped) break;
+  }
+
+  await prisma.integration.update({
+    where: { id: integrationId },
+    data: { config: { ...config, productsResumePage: resumePage, productsResumeOffset: resumeOffset } },
+  });
+
+  summary.hasMore = capped;
+  if (capped) {
+    recordNote(
+      summary,
+      `Lot traité (max ${MAX_PRODUCTS_PER_RUN} produits) — relancez « Synchroniser les produits » pour continuer.`
+    );
   }
 
   return summary;

@@ -7,3 +7,4 @@ export { recordWebhookEventOnce } from "./webhook-event";
 export { stripHtml } from "./html";
 export { getConnectedCommercePlatforms, resolveExternalProductEditUrl, type ConnectedCommercePlatform } from "./product-management-url";
 export { isRecentlyPlaced, parseOrderPlacedAt } from "./order-recency";
+export { upsertCustomerAddressFromOrder, type ImportedShippingAddress } from "./customer-address";

@@ -75,16 +75,24 @@ export function ShopifyActions({ canManage, hasCredentials }: { canManage: boole
     });
   }
 
-  function runOrdersSync() {
-    setBusy("orders");
-    const toastId = "shopify-orders-sync";
+  // Shared by orders and products: both syncs are capped per call and
+  // report `hasMore` while their backlog/catalog isn't finished, so the
+  // button re-invokes the action itself instead of making the operator
+  // click repeatedly for a large one.
+  function runLoopedSync(
+    busyKey: string,
+    toastId: string,
+    label: string,
+    action: () => Promise<{ ok: boolean; error?: string; data?: { summary: SyncSummary } }>
+  ) {
+    setBusy(busyKey);
     startTransition(async () => {
       const totals = { imported: 0, updated: 0, unchanged: 0, skipped: 0, failed: 0 };
-      toast.loading("Synchronisation des commandes...", { id: toastId });
+      toast.loading(`Synchronisation ${label}...`, { id: toastId });
       try {
         for (let i = 0; i < MAX_SYNC_ITERATIONS; i++) {
-          const result = await syncShopifyOrdersAction();
-          if (!result.ok) {
+          const result = await action();
+          if (!result.ok || !result.data) {
             toast.error(result.error ?? "Une erreur est survenue.", { id: toastId });
             return;
           }
@@ -99,9 +107,9 @@ export function ShopifyActions({ canManage, hasCredentials }: { canManage: boole
           await sleep(SYNC_ITERATION_GAP_MS);
         }
         if (totals.failed > 0) {
-          toast.warning(`Commandes : ${summaryText(totals)}.`, { id: toastId });
+          toast.warning(`${label} : ${summaryText(totals)}.`, { id: toastId });
         } else {
-          toast.success(`Commandes : ${summaryText(totals)}.`, { id: toastId });
+          toast.success(`${label} : ${summaryText(totals)}.`, { id: toastId });
         }
       } catch {
         toast.error("L'opération a échoué ou expiré. Réessayez.", { id: toastId });
@@ -110,6 +118,14 @@ export function ShopifyActions({ canManage, hasCredentials }: { canManage: boole
         router.refresh();
       }
     });
+  }
+
+  function runOrdersSync() {
+    runLoopedSync("orders", "shopify-orders-sync", "Commandes", syncShopifyOrdersAction);
+  }
+
+  function runProductsSync() {
+    runLoopedSync("products", "shopify-products-sync", "Produits", syncShopifyProductsAction);
   }
 
   return (
@@ -131,19 +147,7 @@ export function ShopifyActions({ canManage, hasCredentials }: { canManage: boole
           {busy === "test" ? "Test en cours..." : "Tester la connexion"}
         </Button>
 
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={isPending}
-          onClick={() =>
-            run("products", async () => {
-              const result = await syncShopifyProductsAction();
-              if (result.ok) summaryToast("Produits", result.data.summary);
-              return result;
-            })
-          }
-        >
+        <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={runProductsSync}>
           {busy === "products" ? "Synchronisation..." : "Synchroniser les produits"}
         </Button>
 

@@ -4,9 +4,11 @@ import { prisma } from "@/lib/prisma";
 import { recordAuditEvent } from "@/lib/audit";
 import { canTransitionOrderStatus } from "@/lib/validation/order";
 import { mapCustomerFieldsFromOrder, mapOrderFields, mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
+import type { MappedCustomerFields } from "../mapper";
 import type { WcOrder } from "../types";
 import { actorAuditFields, actorPerformedById, type SyncActor } from "./actor";
 import { isRecentlyPlaced, parseOrderPlacedAt } from "../../shared/order-recency";
+import { upsertCustomerAddressFromOrder } from "../../shared/customer-address";
 import { notifyNewOrder } from "@/lib/notifications";
 import { emptySyncSummary, recordNote, type SyncSummary } from "./types";
 import type { Prisma, OrderStatus } from "@prisma/client";
@@ -43,6 +45,21 @@ export async function importOrder(
   }
 
   const customerId = await resolveCustomerForOrder(wc, actor);
+
+  // Same shipping-falls-back-to-billing rule as mapOrderFields' own order
+  // snapshot — copied into the customer's own address book (see
+  // upsertCustomerAddressFromOrder's doc comment) so their Clients page
+  // shows a real address instead of "Aucune adresse enregistrée".
+  const shippingSource = wc.shipping.address_1 ? wc.shipping : wc.billing;
+  await upsertCustomerAddressFromOrder(customerId, {
+    addressLine1: shippingSource.address_1?.trim() || null,
+    addressLine2: shippingSource.address_2?.trim() || null,
+    city: shippingSource.city?.trim() || null,
+    region: shippingSource.state?.trim() || null,
+    country: shippingSource.country?.trim() || null,
+    phone: wc.billing.phone?.trim() || null,
+  });
+
   const externalId = String(wc.id);
   const existing = await prisma.order.findFirst({ where: { source: "WOOCOMMERCE", externalId } });
 
@@ -68,15 +85,48 @@ export async function importOrder(
   }
 }
 
+/**
+ * Match priority: WooCommerce customer id (a real account) → email → phone.
+ * Most orders on this store are guest checkouts (customer_id 0), and a
+ * guest doesn't always fill in the same email twice (or leaves it blank)
+ * — but the phone number is what's actually reliable across their orders.
+ * Without a phone fallback here, the same guest ordering twice created two
+ * separate Customer rows every time, which is what showed up as the same
+ * name/phone listed repeatedly on the Clients page with the order count
+ * split across the duplicates instead of totalled on one row.
+ */
+async function findExistingWooCommerceCustomer(
+  wc: WcOrder,
+  fields: MappedCustomerFields
+): Promise<{ id: string; externalId: string | null } | null> {
+  if (wc.customer_id > 0) {
+    const byExternalId = await prisma.customer.findFirst({
+      where: { source: "WOOCOMMERCE", externalId: String(wc.customer_id) },
+      select: { id: true, externalId: true },
+    });
+    if (byExternalId) return byExternalId;
+  }
+  if (fields.email) {
+    const byEmail = await prisma.customer.findFirst({
+      where: { source: "WOOCOMMERCE", email: fields.email },
+      select: { id: true, externalId: true },
+    });
+    if (byEmail) return byEmail;
+  }
+  if (fields.phone) {
+    const byPhone = await prisma.customer.findFirst({
+      where: { source: "WOOCOMMERCE", phone: fields.phone },
+      select: { id: true, externalId: true },
+    });
+    if (byPhone) return byPhone;
+  }
+  return null;
+}
+
 async function resolveCustomerForOrder(wc: WcOrder, actor: SyncActor): Promise<string> {
   const fields = mapCustomerFieldsFromOrder(wc);
 
-  const existing =
-    wc.customer_id > 0
-      ? await prisma.customer.findFirst({ where: { source: "WOOCOMMERCE", externalId: String(wc.customer_id) } })
-      : fields.email
-        ? await prisma.customer.findFirst({ where: { source: "WOOCOMMERCE", email: fields.email } })
-        : null;
+  const existing = await findExistingWooCommerceCustomer(wc, fields);
 
   if (existing) {
     await prisma.customer.update({
@@ -88,6 +138,10 @@ async function resolveCustomerForOrder(wc: WcOrder, actor: SyncActor): Promise<s
         city: fields.city,
         region: fields.region,
         country: fields.country,
+        // Backfill the WooCommerce account id once it's known (a guest's
+        // first orders matched by email/phone, then they register) —
+        // never overwrite one already recorded.
+        externalId: existing.externalId ?? (wc.customer_id > 0 ? String(wc.customer_id) : existing.externalId),
       },
     });
     return existing.id;
