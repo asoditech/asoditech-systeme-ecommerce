@@ -51,6 +51,10 @@ export const paymentMethodSchema = z.enum([
   "AUTRE",
 ]);
 
+/** Where a manually-created order actually came from — see OrderChannel's
+ * own doc comment in schema.prisma. */
+export const orderChannelSchema = z.enum(["TELEPHONE", "WHATSAPP", "INSTAGRAM", "FACEBOOK", "SITE_WEB", "AUTRE"]);
+
 export const orderItemInputSchema = z
   .object({
     productId: z.string().min(1).nullish(),
@@ -76,6 +80,7 @@ export const createOrderSchema = z.object({
   // present it must be an existing active warehouse (validated server-side).
   fulfillmentWarehouseId: z.string().min(1).nullish().or(z.literal("")),
   paymentMethod: paymentMethodSchema,
+  channel: orderChannelSchema.default("TELEPHONE"),
   shippingCost: z.coerce.number().min(0).default(0),
   discountTotal: z.coerce.number().min(0).default(0),
   currency: z.string().length(3).default("MAD"),
@@ -145,4 +150,10 @@ export const updateRefundStatusSchema = z.object({
   status: refundStatusSchema,
 });
 
-export type CreateOrderInput = z.infer<typeof createOrderSchema>;
+// The input (pre-parse) type, not z.infer's output type — `channel` (like
+// shippingCost/discountTotal/currency) has a `.default()`, so it's
+// optional for a caller to supply even though createOrderAction's parsed
+// result always has it set. Using the output type here would force every
+// caller (the order form, every test that builds a minimal valid order)
+// to pass it explicitly just to satisfy the type, for no behavioral gain.
+export type CreateOrderInput = z.input<typeof createOrderSchema>;

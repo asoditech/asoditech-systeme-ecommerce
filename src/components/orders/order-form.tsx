@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatCurrency } from "@/lib/format";
-import { PAYMENT_METHOD_LABELS, WAREHOUSE_TYPE_LABELS } from "@/lib/status-labels";
+import { PAYMENT_METHOD_LABELS, WAREHOUSE_TYPE_LABELS, ORDER_CHANNEL_LABELS } from "@/lib/status-labels";
 import type { Customer } from "@prisma/client";
 
 interface SelectableWarehouse {
@@ -64,6 +64,7 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
 
   const [items, setItems] = React.useState<LineItem[]>([]);
   const [paymentMethod, setPaymentMethod] = React.useState("PAIEMENT_LIVRAISON");
+  const [channel, setChannel] = React.useState("TELEPHONE");
   const [shippingCost, setShippingCost] = React.useState("0");
   const [discountTotal, setDiscountTotal] = React.useState("0");
   const [notes, setNotes] = React.useState("");
@@ -185,6 +186,7 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
         customerId: customer.id,
         fulfillmentWarehouseId: warehouses.length > 1 && fulfillmentWarehouseId ? fulfillmentWarehouseId : null,
         paymentMethod: paymentMethod as CreateOrderInputMethod,
+        channel: channel as CreateOrderInputChannel,
         shippingCost: Number(shippingCost || 0),
         discountTotal: Number(discountTotal || 0),
         currency: "MAD",
@@ -440,6 +442,21 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5">
+              <Label>Canal de la commande</Label>
+              <Select value={channel} onValueChange={(v) => v && setChannel(v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue>{(value: string) => ORDER_CHANNEL_LABELS[value] ?? value}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(ORDER_CHANNEL_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             {warehouses.length > 1 && (
               <div className="space-y-1.5">
                 <Label>Entrepôt de préparation</Label>
@@ -529,3 +546,4 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
 }
 
 type CreateOrderInputMethod = "PAIEMENT_LIVRAISON" | "VIREMENT_BANCAIRE" | "CARTE_BANCAIRE" | "MOBILE_MONEY" | "AUTRE";
+type CreateOrderInputChannel = "TELEPHONE" | "WHATSAPP" | "INSTAGRAM" | "FACEBOOK" | "SITE_WEB" | "AUTRE";

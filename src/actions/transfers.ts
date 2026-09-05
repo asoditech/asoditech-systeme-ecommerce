@@ -22,7 +22,19 @@ import {
   type ReceiveStockTransferInput,
 } from "@/lib/validation/transfer";
 import { listStockAtWarehouse } from "@/lib/queries/transfers";
+import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
+
+/** The affected product/variation refs for a transfer's own lines — a
+ * transfer's lines don't change across dispatch/receive, so this is safe
+ * to read fresh right after either action commits. */
+async function transferStockRefs(transferId: string) {
+  const lines = await prisma.stockTransferLine.findMany({
+    where: { stockTransferId: transferId },
+    select: { productId: true, variationId: true },
+  });
+  return { productIds: lines.map((l) => l.productId), variationIds: lines.map((l) => l.variationId) };
+}
 
 function normalizeOptional(value: string | null | undefined): string | null {
   return value && value.trim().length > 0 ? value.trim() : null;
@@ -182,6 +194,10 @@ export async function dispatchStockTransferAction(input: { id: string }): Promis
     metadata: { transferNumber: result.transferNumber },
   });
 
+  // Dispatch just reduced the source warehouse's on-hand stock — a
+  // linked store needs to hear about that too.
+  await pushStockAfterLocalChange(await transferStockRefs(parsed.data.id));
+
   revalidatePath("/transferts");
   revalidatePath(`/transferts/${parsed.data.id}`);
   revalidatePath("/stock");
@@ -216,6 +232,10 @@ export async function receiveStockTransferAction(
     entityId: parsed.data.id,
     metadata: { transferNumber: result.transferNumber, hasShortfall: result.hasShortfall },
   });
+
+  // Receiving just increased the destination warehouse's on-hand stock —
+  // a linked store needs to hear about that too.
+  await pushStockAfterLocalChange(await transferStockRefs(parsed.data.id));
 
   revalidatePath("/transferts");
   revalidatePath(`/transferts/${parsed.data.id}`);

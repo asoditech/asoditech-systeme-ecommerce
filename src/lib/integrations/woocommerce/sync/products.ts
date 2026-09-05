@@ -122,13 +122,20 @@ export async function syncProducts(
 async function syncOneProduct(
   client: WooCommerceClient,
   wc: WcProduct,
-  categoryIdMap: Map<number, string>,
+  categoryIdMap: Map<number, string> | null,
   warehouseId: string | null,
   actor: SyncActor,
   summary: SyncSummary
 ): Promise<void> {
   const fields = mapProductFields(wc);
-  const categoryId = wc.categories[0] ? (categoryIdMap.get(wc.categories[0].id) ?? null) : null;
+  // The bulk sync passes a pre-built map (one query for the whole
+  // catalog); a single-item webhook import has no map worth building for
+  // one product, so it resolves the one category it needs directly.
+  const categoryId = wc.categories[0]
+    ? categoryIdMap
+      ? (categoryIdMap.get(wc.categories[0].id) ?? null)
+      : ((await prisma.category.findFirst({ where: { source: "WOOCOMMERCE", externalId: String(wc.categories[0].id) } }))?.id ?? null)
+    : null;
   const externalId = String(wc.id);
 
   const existing = await prisma.product.findFirst({ where: { source: "WOOCOMMERCE", externalId } });
@@ -281,4 +288,32 @@ async function syncOneVariation(
   }
 
   return outcome;
+}
+
+/**
+ * Single-product counterpart to `syncProducts`, for the product.created/
+ * product.updated webhook path (see docs/adr/0010-woocommerce-integration.md
+ * addendum): imports/updates and reconciles stock for exactly one product
+ * (and its variations, if any) — the same `syncOneProduct` the bulk sync
+ * uses, just without a pre-built category map (see its own doc comment)
+ * and resolving the default warehouse itself. Real-time product/stock
+ * sync layered on top of the resumable bulk sync as a safety net for a
+ * missed or never-configured webhook, not a replacement for it.
+ */
+export async function importProduct(
+  client: WooCommerceClient,
+  wc: WcProduct,
+  actor: SyncActor
+): Promise<{ outcome: "imported" | "updated" | "unchanged" | "failed" }> {
+  const warehouse = await prisma.warehouse.findFirst({ where: { isDefault: true } });
+  const summary = emptySyncSummary();
+  try {
+    await syncOneProduct(client, wc, null, warehouse?.id ?? null, actor, summary);
+  } catch {
+    return { outcome: "failed" };
+  }
+  if (summary.imported > 0) return { outcome: "imported" };
+  if (summary.updated > 0) return { outcome: "updated" };
+  if (summary.failed > 0) return { outcome: "failed" };
+  return { outcome: "unchanged" };
 }

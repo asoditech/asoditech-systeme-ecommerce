@@ -192,8 +192,11 @@ export function ShopifyActions({ canManage, hasCredentials }: { canManage: boole
           <p>
             Dans Shopify (application personnalisée → Configuration API → Webhooks, ou Notifications), créez
             des abonnements webhook vers l&apos;URL ci-dessous pour les sujets « Commande créée », « Commande
-            mise à jour », « Commande annulée » et « Remboursement créé ». Le secret de signature est le
-            « Client secret » de l&apos;application — celui saisi comme secret API lors de la configuration.
+            mise à jour », « Commande annulée », « Remboursement créé », « Produit créé », « Produit mis à
+            jour » et « Niveaux de stock mis à jour ». Les quatre premiers importent les commandes en temps
+            réel ; les trois derniers synchronisent produits et stock dès qu&apos;ils changent sur la boutique,
+            sans attendre un clic sur « Synchroniser les produits ». Le secret de signature est le « Client
+            secret » de l&apos;application — celui saisi comme secret API lors de la configuration.
           </p>
           <code className="block break-all rounded bg-background p-2">
             {typeof window !== "undefined" ? `${window.location.origin}/api/webhooks/shopify` : "/api/webhooks/shopify"}

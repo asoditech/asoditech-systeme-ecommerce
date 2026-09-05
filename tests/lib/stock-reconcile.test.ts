@@ -152,4 +152,75 @@ describe("reconcileStockFromProvider", () => {
     const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId } });
     expect(item.externalId).toBe("gid://shopify/InventoryItem/2");
   });
+
+  describe("echo-loop guard (lastPushedQuantity)", () => {
+    it("treats an inbound quantity matching this app's own recent push as unchanged — no movement, on-hand untouched", async () => {
+      await prisma.inventoryItem.create({
+        data: { warehouseId, productId, quantityOnHand: 10, quantityReserved: 3, lastPushedQuantity: 7, lastPushedAt: new Date() },
+      });
+
+      // This app pushed sellable stock (10 - 3 reserved = 7); the store's
+      // webhook now echoes that exact number back. Reconciling it as a
+      // genuine change would apply 7 as the new *on-hand* quantity,
+      // silently discarding the 3 reserved units.
+      const outcome = await reconcileStockFromProvider({
+        productId,
+        warehouseId,
+        externalQuantity: 7,
+        actor: { type: "INTEGRATION" },
+        source: "WOOCOMMERCE",
+      });
+      expect(outcome).toBe("unchanged");
+
+      const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId } });
+      expect(item.quantityOnHand).toBe(10);
+      expect(item.quantityReserved).toBe(3);
+      expect(await prisma.inventoryMovement.count()).toBe(0);
+    });
+
+    it("still reconciles a genuine external change even when it happens to equal an old push, once the echo window has passed", async () => {
+      await prisma.inventoryItem.create({
+        data: {
+          warehouseId,
+          productId,
+          quantityOnHand: 10,
+          quantityReserved: 3,
+          lastPushedQuantity: 7,
+          lastPushedAt: new Date(Date.now() - 24 * 60 * 60 * 1000), // a full day ago
+        },
+      });
+
+      const outcome = await reconcileStockFromProvider({
+        productId,
+        warehouseId,
+        externalQuantity: 7,
+        actor: { type: "INTEGRATION" },
+        source: "WOOCOMMERCE",
+      });
+      expect(outcome).toBe("reconciled");
+
+      const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId } });
+      expect(item.quantityOnHand).toBe(7);
+    });
+
+    it("reconciles normally when the inbound quantity differs from the last pushed one", async () => {
+      await prisma.inventoryItem.create({
+        data: { warehouseId, productId, quantityOnHand: 10, quantityReserved: 3, lastPushedQuantity: 7, lastPushedAt: new Date() },
+      });
+
+      // A genuine independent change on the store side (e.g. a manual
+      // admin edit), not this app's own echo.
+      const outcome = await reconcileStockFromProvider({
+        productId,
+        warehouseId,
+        externalQuantity: 4,
+        actor: { type: "INTEGRATION" },
+        source: "WOOCOMMERCE",
+      });
+      expect(outcome).toBe("reconciled");
+
+      const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId } });
+      expect(item.quantityOnHand).toBe(4);
+    });
+  });
 });

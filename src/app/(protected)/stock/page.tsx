@@ -78,7 +78,13 @@ export default async function StockPage({
                 return (
                   <TableRow key={i.id}>
                     <TableCell className="font-medium">
-                      {label}
+                      {product ? (
+                        <Link href={`/produits/${product.id}`} className="hover:underline">
+                          {label}
+                        </Link>
+                      ) : (
+                        label
+                      )}
                       {isLow && (
                         <Badge variant="destructive" className="ml-2">
                           Stock faible

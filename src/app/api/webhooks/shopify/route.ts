@@ -5,8 +5,8 @@ import { recordAuditEvent } from "@/lib/audit";
 import { verifyShopifyWebhookSignature } from "@/lib/integrations/shopify/webhook-signature";
 import { validateShopDomain } from "@/lib/integrations/shopify/ssrf";
 import { ShopifyClient } from "@/lib/integrations/shopify/client";
-import { importOrder } from "@/lib/integrations/shopify/sync";
-import { recordWebhookEventOnce } from "@/lib/integrations/shared";
+import { importOrder, importProduct } from "@/lib/integrations/shopify/sync";
+import { recordWebhookEventOnce, reconcileStockFromProvider } from "@/lib/integrations/shared";
 
 /**
  * Shopify webhook receiver — mirrors the WooCommerce webhook route's
@@ -22,26 +22,43 @@ import { recordWebhookEventOnce } from "@/lib/integrations/shared";
  *    responses the client and sync engine use everywhere else. Rather
  *    than build and maintain a second, parallel REST-shaped mapping
  *    surface (doubling the risk of the two silently drifting apart), this
- *    handler uses the webhook purely as a trigger: it verifies the
- *    delivery, reads just enough of the body to identify the order
- *    (`id`, or `order_id` for the refunds/create topic), then re-fetches
- *    that order via GraphQL and runs it through the exact same
- *    `importOrder` pipeline the bulk sync uses. This guarantees the
- *    webhook path can never map an order differently than a manual sync
- *    would.
+ *    handler uses the webhook purely as a trigger: for an order or a
+ *    product it reads just enough of the body to identify the resource,
+ *    then re-fetches it via GraphQL and runs it through the exact same
+ *    `importOrder`/`importProduct` pipeline the bulk sync uses. This
+ *    guarantees the webhook path can never map something differently than
+ *    a manual sync would.
  *
  * Supported topics: orders/create, orders/updated, orders/cancelled,
- * refunds/create — all four resolve to "(re-)import this order's current
- * state", which importOrder already handles idempotently and correctly
- * for a cancellation or a refund. products/update and inventory-level
- * webhooks are deliberately not implemented in this phase — see the ADR's
- * "deferred" section.
+ * refunds/create (real-time order import); products/create, products/
+ * update (real-time product import); inventory_levels/update (real-time
+ * stock — the one topic handled directly from the webhook body itself,
+ * with no re-fetch: Shopify already gives inventory_item_id/location_id/
+ * available, exactly what `reconcileStockFromProvider` needs). All three
+ * groups are a safety net layered on top of the resumable bulk sync for a
+ * missed or never-configured webhook, not a replacement for it.
  */
-const SUPPORTED_TOPICS = new Set(["orders/create", "orders/updated", "orders/cancelled", "refunds/create"]);
+const SUPPORTED_TOPICS = new Set([
+  "orders/create",
+  "orders/updated",
+  "orders/cancelled",
+  "refunds/create",
+  "products/create",
+  "products/update",
+  "inventory_levels/update",
+]);
 
-const webhookEnvelopeSchema = z.object({
+const orderEnvelopeSchema = z.object({
   id: z.number(),
   order_id: z.number().optional(),
+});
+
+const productEnvelopeSchema = z.object({ id: z.number() });
+
+const inventoryLevelEnvelopeSchema = z.object({
+  inventory_item_id: z.number(),
+  location_id: z.number(),
+  available: z.number(),
 });
 
 export async function POST(request: Request): Promise<Response> {
@@ -87,7 +104,8 @@ export async function POST(request: Request): Promise<Response> {
   // Replay protection: a captured-and-resent request reuses the exact
   // same delivery id and signature. A legitimate Shopify retry of a
   // genuinely failed delivery gets a NEW delivery id — that case is safe
-  // regardless, since order import is idempotent by (source, externalId).
+  // regardless, since order/product import and stock reconciliation are
+  // all idempotent.
   const alreadySeen = await prisma.webhookEvent.findUnique({
     where: { integrationId_deliveryId: { integrationId: integration.id, deliveryId } },
   });
@@ -108,7 +126,88 @@ export async function POST(request: Request): Promise<Response> {
     return new Response(null, { status: 400 });
   }
 
-  const parsed = webhookEnvelopeSchema.safeParse(payload);
+  if (topic === "inventory_levels/update") {
+    const parsed = inventoryLevelEnvelopeSchema.safeParse(payload);
+    if (!parsed.success) {
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, status: "ECHEC" });
+      return new Response(null, { status: 400 });
+    }
+    const inventoryItemGid = `gid://shopify/InventoryItem/${parsed.data.inventory_item_id}`;
+    const locationGid = `gid://shopify/Location/${parsed.data.location_id}`;
+
+    try {
+      const [item, warehouse] = await Promise.all([
+        prisma.inventoryItem.findFirst({ where: { externalId: inventoryItemGid } }),
+        prisma.warehouse.findFirst({ where: { source: "SHOPIFY", externalId: locationGid } }),
+      ]);
+      // Nothing local yet maps this inventory item/location — the bulk
+      // "Synchroniser les produits" sync is what first establishes that
+      // mapping; there's nothing this webhook alone can reconcile against.
+      if (item && warehouse && (item.productId || item.variationId)) {
+        await reconcileStockFromProvider({
+          productId: item.productId ?? undefined,
+          variationId: item.variationId ?? undefined,
+          warehouseId: warehouse.id,
+          externalQuantity: parsed.data.available,
+          actor: { type: "INTEGRATION" },
+          source: "SHOPIFY",
+          externalItemId: inventoryItemGid,
+        });
+      }
+      const outcome = await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: inventoryItemGid, status: "TRAITE" });
+      if (outcome === "recorded") {
+        await recordAuditEvent({
+          actorType: "INTEGRATION",
+          action: "integration.webhook_received",
+          entityType: "Integration",
+          entityId: integration.id,
+          metadata: { provider: "SHOPIFY", topic, inventoryItemExternalId: inventoryItemGid },
+        });
+      }
+    } catch {
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: inventoryItemGid, status: "ECHEC" });
+      return new Response(null, { status: 500 });
+    }
+    return new Response(null, { status: 200 });
+  }
+
+  if (topic === "products/create" || topic === "products/update") {
+    const parsed = productEnvelopeSchema.safeParse(payload);
+    if (!parsed.success) {
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, status: "ECHEC" });
+      return new Response(null, { status: 400 });
+    }
+    const productGid = `gid://shopify/Product/${parsed.data.id}`;
+
+    try {
+      const shopDomain = await validateShopDomain(config.shopDomain);
+      const client = new ShopifyClient(shopDomain, apiKey);
+      const product = await client.getProduct(productGid);
+
+      if (!product) {
+        await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: productGid, status: "ECHEC" });
+        return new Response(null, { status: 200 });
+      }
+
+      await importProduct(product, { type: "INTEGRATION" });
+      const outcome = await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: productGid, status: "TRAITE" });
+      if (outcome === "recorded") {
+        await recordAuditEvent({
+          actorType: "INTEGRATION",
+          action: "integration.webhook_received",
+          entityType: "Integration",
+          entityId: integration.id,
+          metadata: { provider: "SHOPIFY", topic, productExternalId: productGid },
+        });
+      }
+    } catch {
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: productGid, status: "ECHEC" });
+      return new Response(null, { status: 500 });
+    }
+    return new Response(null, { status: 200 });
+  }
+
+  const parsed = orderEnvelopeSchema.safeParse(payload);
   const orderNumericId = topic === "refunds/create" ? parsed.data?.order_id : parsed.data?.id;
   if (!parsed.success || !orderNumericId) {
     await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, status: "ECHEC" });

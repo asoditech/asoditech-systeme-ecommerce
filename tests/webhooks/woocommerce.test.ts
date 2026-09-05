@@ -57,6 +57,22 @@ function orderPayload(overrides: Record<string, unknown> = {}) {
   });
 }
 
+function productPayload(overrides: Record<string, unknown> = {}) {
+  return JSON.stringify({
+    id: 5001,
+    name: "Produit webhook",
+    slug: "produit-webhook",
+    sku: "WEBHOOK-SKU",
+    status: "publish",
+    type: "simple",
+    regular_price: "42.00",
+    manage_stock: true,
+    stock_quantity: 8,
+    categories: [],
+    ...overrides,
+  });
+}
+
 function request(body: string, headers: Record<string, string>): Request {
   return new Request("https://app.example/api/webhooks/woocommerce", {
     method: "POST",
@@ -211,5 +227,65 @@ describe("POST /api/webhooks/woocommerce", () => {
     expect(response.status).toBe(200);
     const order = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
     expect(order.status).toBe("LIVREE");
+  });
+
+  describe("product.created / product.updated (real-time product + stock sync)", () => {
+    it("imports a new product from a product.created delivery, reconciling its stock", async () => {
+      await seedIntegration();
+      await prisma.warehouse.create({ data: { id: "wh-default", name: "Entrepôt principal", isDefault: true } });
+      const body = productPayload();
+      const response = await POST(
+        request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "product.created", "x-wc-webhook-delivery-id": "p1" })
+      );
+      expect(response.status).toBe(200);
+
+      const product = await prisma.product.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "5001" } });
+      expect(product.sku).toBe("WEBHOOK-SKU");
+      expect(Number(product.price)).toBe(42);
+
+      const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+      expect(item.quantityOnHand).toBe(8);
+
+      const event = await prisma.webhookEvent.findFirstOrThrow({ where: { deliveryId: "p1" } });
+      expect(event.status).toBe("TRAITE");
+    });
+
+    it("updates an existing product's stock from a product.updated delivery — the real-time counterpart to re-running Synchroniser les produits", async () => {
+      await seedIntegration();
+      await prisma.warehouse.create({ data: { id: "wh-default", name: "Entrepôt principal", isDefault: true } });
+      const created = await POST(
+        request(productPayload(), {
+          "x-wc-webhook-signature": sign(productPayload()),
+          "x-wc-webhook-topic": "product.created",
+          "x-wc-webhook-delivery-id": "p2",
+        })
+      );
+      expect(created.status).toBe(200);
+
+      // A real order on the store just sold 3 units — WooCommerce's own
+      // product.updated webhook fires with the new stock_quantity.
+      const updateBody = productPayload({ stock_quantity: 5 });
+      const response = await POST(
+        request(updateBody, {
+          "x-wc-webhook-signature": sign(updateBody),
+          "x-wc-webhook-topic": "product.updated",
+          "x-wc-webhook-delivery-id": "p3",
+        })
+      );
+      expect(response.status).toBe(200);
+
+      const product = await prisma.product.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "5001" } });
+      const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+      expect(item.quantityOnHand).toBe(5);
+    });
+
+    it("rejects a well-formed JSON body that doesn't match the expected product shape", async () => {
+      await seedIntegration();
+      const body = JSON.stringify({ not: "a product" });
+      const response = await POST(
+        request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "product.created", "x-wc-webhook-delivery-id": "p4" })
+      );
+      expect(response.status).toBe(400);
+    });
   });
 });

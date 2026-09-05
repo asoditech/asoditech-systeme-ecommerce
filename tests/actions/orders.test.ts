@@ -119,6 +119,35 @@ describe("createOrderAction", () => {
     expect(item.quantityReserved).toBe(3);
   });
 
+  it("defaults channel to TELEPHONE when omitted, and persists an explicit choice", async () => {
+    const { customer, product } = await seedOrderable();
+    await loginAsTestUser({ role: "SALES" });
+
+    const defaulted = await createOrderAction({
+      customerId: customer.id,
+      paymentMethod: "PAIEMENT_LIVRAISON",
+      items: [{ productId: product.id, quantity: 1, unitPrice: 100, discount: 0 }],
+    });
+    expect(defaulted.ok).toBe(true);
+    if (defaulted.ok) {
+      const order = await prisma.order.findUniqueOrThrow({ where: { id: defaulted.data.id } });
+      expect(order.channel).toBe("TELEPHONE");
+      expect(order.source).toBe("INTERNE");
+    }
+
+    const explicit = await createOrderAction({
+      customerId: customer.id,
+      paymentMethod: "PAIEMENT_LIVRAISON",
+      channel: "WHATSAPP",
+      items: [{ productId: product.id, quantity: 1, unitPrice: 100, discount: 0 }],
+    });
+    expect(explicit.ok).toBe(true);
+    if (explicit.ok) {
+      const order = await prisma.order.findUniqueOrThrow({ where: { id: explicit.data.id } });
+      expect(order.channel).toBe("WHATSAPP");
+    }
+  });
+
   it("nets out both per-item and order-level discounts from the total (audit fix)", async () => {
     const { customer, product } = await seedOrderable();
     await loginAsTestUser({ role: "SALES" });

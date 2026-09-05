@@ -33,6 +33,17 @@ export const PAYMENT_METHOD_LABELS: Record<string, string> = {
   AUTRE: "Autre",
 };
 
+/** Where a manually-created (source=INTERNE) order came from — see
+ * OrderChannel's own doc comment in schema.prisma. */
+export const ORDER_CHANNEL_LABELS: Record<string, string> = {
+  TELEPHONE: "Téléphone",
+  WHATSAPP: "WhatsApp",
+  INSTAGRAM: "Instagram",
+  FACEBOOK: "Facebook",
+  SITE_WEB: "Site web",
+  AUTRE: "Autre",
+};
+
 export const PRODUCT_STATUS_LABELS: Record<string, StatusMeta> = {
   ACTIF: { label: "Actif", variant: "default" },
   BROUILLON: { label: "Brouillon", variant: "secondary" },

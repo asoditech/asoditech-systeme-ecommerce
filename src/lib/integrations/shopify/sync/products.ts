@@ -289,3 +289,36 @@ async function reconcileVariantStock(
     });
   }
 }
+
+/**
+ * Single-product counterpart to `syncProducts`, for the products/create,
+ * products/update, and (indirectly) inventory_levels/update webhook path
+ * — imports/updates and reconciles stock for exactly one product (and its
+ * variants), the same `syncOneProduct` the bulk sync uses. The location
+ * map is built directly from already-synced Warehouse rows rather than a
+ * live `syncLocations()` call — a single-product import has no reason to
+ * re-fetch every location from Shopify. Real-time product/stock sync
+ * layered on top of the resumable bulk sync as a safety net for a missed
+ * or never-configured webhook, not a replacement for it.
+ */
+export async function importProduct(
+  product: ShopifyProduct,
+  actor: SyncActor
+): Promise<{ outcome: "imported" | "updated" | "unchanged" | "failed" }> {
+  const warehouses = await prisma.warehouse.findMany({
+    where: { source: "SHOPIFY", externalId: { not: null } },
+    select: { id: true, externalId: true },
+  });
+  const locationIdMap = new Map(warehouses.map((w) => [w.externalId!, w.id]));
+
+  const summary = emptySyncSummary();
+  try {
+    await syncOneProduct(product, locationIdMap, actor, summary);
+  } catch {
+    return { outcome: "failed" };
+  }
+  if (summary.imported > 0) return { outcome: "imported" };
+  if (summary.updated > 0) return { outcome: "updated" };
+  if (summary.failed > 0) return { outcome: "failed" };
+  return { outcome: "unchanged" };
+}

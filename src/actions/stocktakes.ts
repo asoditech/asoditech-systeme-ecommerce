@@ -21,6 +21,7 @@ import {
   type UpdateStocktakeCountsInput,
 } from "@/lib/validation/stocktake";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
+import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
 
 function normalizeOptional(value: string | null | undefined): string | null {
@@ -204,6 +205,19 @@ export async function finalizeStocktakeSessionAction(
       movementCount: result.movementIds.length,
     },
   });
+
+  // Closing the count just applied whatever variance it found — push the
+  // affected products'/variations' new sellable stock to a linked store.
+  if (result.movementIds.length > 0) {
+    const movements = await prisma.inventoryMovement.findMany({
+      where: { id: { in: result.movementIds } },
+      select: { inventoryItem: { select: { productId: true, variationId: true } } },
+    });
+    await pushStockAfterLocalChange({
+      productIds: movements.map((m) => m.inventoryItem.productId),
+      variationIds: movements.map((m) => m.inventoryItem.variationId),
+    });
+  }
 
   revalidatePath("/inventaires");
   revalidatePath(`/inventaires/${parsed.data.id}`);

@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listOrders } from "@/lib/queries/orders";
-import { formatCurrency, formatDate, displayOrderNumber } from "@/lib/format";
+import { formatCurrency, formatDate, displayOrderNumber, displayOrderChannel } from "@/lib/format";
 import { ORDER_STATUS_LABELS, ORDER_PAYMENT_STATUS_LABELS } from "@/lib/status-labels";
 import type { OrderStatus, OrderPaymentStatus } from "@prisma/client";
 
@@ -183,6 +183,7 @@ export default async function CommandesPage({
                 <TableHead>Total</TableHead>
                 <TableHead>Statut</TableHead>
                 <TableHead>Paiement</TableHead>
+                <TableHead>Canal</TableHead>
                 <TableHead>Date</TableHead>
               </TableRow>
             </TableHeader>
@@ -199,6 +200,7 @@ export default async function CommandesPage({
                   <TableCell>
                     <StatusBadge status={o.paymentStatus} labels={ORDER_PAYMENT_STATUS_LABELS} />
                   </TableCell>
+                  <TableCell className="text-muted-foreground">{displayOrderChannel(o)}</TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(o.placedAt)}</TableCell>
                 </ClickableTableRow>
               ))}

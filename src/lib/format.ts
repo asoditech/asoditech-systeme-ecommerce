@@ -1,3 +1,5 @@
+import { RECORD_SOURCE_LABELS, ORDER_CHANNEL_LABELS } from "@/lib/status-labels";
+
 export function formatCurrency(amount: number | string, currency: string = "MAD"): string {
   const value = typeof amount === "string" ? Number(amount) : amount;
   try {
@@ -52,6 +54,20 @@ export function displayOrderNumber(order: {
     return `#${order.externalNumber}`;
   }
   return formatOrderNumber(order.orderNumber);
+}
+
+/**
+ * Where an order came from, for display — a WooCommerce/Shopify-imported
+ * order derives it from `source` itself (the store IS the channel); a
+ * manually-created order shows its own `channel` (Téléphone, WhatsApp,
+ * …), or "Autre" for one entered before this field existed.
+ */
+export function displayOrderChannel(order: {
+  source: "INTERNE" | "WOOCOMMERCE" | "SHOPIFY";
+  channel?: string | null;
+}): string {
+  if (order.source !== "INTERNE") return RECORD_SOURCE_LABELS[order.source];
+  return (order.channel && ORDER_CHANNEL_LABELS[order.channel]) || ORDER_CHANNEL_LABELS.AUTRE;
 }
 
 /** Stock transfer reference, e.g. "TR-000123" (Phase 32b). */

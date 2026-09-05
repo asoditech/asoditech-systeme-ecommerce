@@ -62,6 +62,7 @@ export async function pushStockToShopify(client: ShopifyClient): Promise<SyncSum
     try {
       await client.setInventoryQuantities(batch);
       summary.updated += batch.length;
+      await recordPushedQuantities(batch);
     } catch {
       recordNote(summary, `Lot de stock Shopify (${batch.length} article(s)) : échec de l'envoi.`);
       summary.failed += batch.length;
@@ -69,4 +70,65 @@ export async function pushStockToShopify(client: ShopifyClient): Promise<SyncSum
   }
 
   return summary;
+}
+
+/** Stamps the echo-loop guard (see reconcileStockFromProvider) on every
+ * InventoryItem row just pushed. Best-effort: a failure here must not
+ * fail the push itself, which already happened. */
+async function recordPushedQuantities(
+  entries: { inventoryItemId: string; locationId: string; quantity: number }[]
+): Promise<void> {
+  try {
+    await Promise.all(
+      entries.map((e) =>
+        prisma.inventoryItem.updateMany({
+          where: { externalId: e.inventoryItemId },
+          data: { lastPushedQuantity: e.quantity, lastPushedAt: new Date() },
+        })
+      )
+    );
+  } catch (error) {
+    console.error("recordPushedQuantities() failed (non-fatal):", error);
+  }
+}
+
+/**
+ * Single-owner counterpart to `pushStockToShopify`, for the automatic
+ * push after a local stock change (see pushStockAfterLocalChange) — every
+ * Shopify-linked (product|variation, location) row for one product or
+ * variation, recomputed fresh from the database. Unlike WooCommerce,
+ * Shopify has no single collapsed number to push, so this pushes each
+ * linked location's own current sellable quantity, batched in one
+ * mutation call. Returns whether anything was actually pushed —
+ * best-effort, never throws.
+ */
+export async function pushStockForShopifyOwner(
+  client: ShopifyClient,
+  owner: { productId?: string; variationId?: string }
+): Promise<boolean> {
+  if (!owner.variationId && !owner.productId) return false;
+  try {
+    const items = await prisma.inventoryItem.findMany({
+      where: {
+        ...(owner.variationId ? { variationId: owner.variationId } : { productId: owner.productId! }),
+        externalId: { not: null },
+        warehouse: { source: "SHOPIFY", externalId: { not: null } },
+      },
+      include: { warehouse: { select: { externalId: true } } },
+    });
+    if (items.length === 0) return false;
+
+    const entries = items.map((item) => ({
+      inventoryItemId: item.externalId!,
+      locationId: item.warehouse.externalId!,
+      quantity: availableStock(item),
+    }));
+
+    await client.setInventoryQuantities(entries);
+    await recordPushedQuantities(entries);
+    return true;
+  } catch (error) {
+    console.error("pushStockForShopifyOwner() failed (non-fatal):", error);
+    return false;
+  }
 }

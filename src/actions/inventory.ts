@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
 import { checkAndNotifyLowStock } from "@/lib/notifications";
+import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
 import { applyStockMovement, InsufficientStockError } from "@/lib/inventory";
 import { inventoryAdjustmentSchema } from "@/lib/validation/inventory";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
@@ -99,6 +100,13 @@ export async function adjustInventoryAction(formData: FormData): Promise<ActionR
       user.id
     );
   }
+
+  // Real-time half of the automatic sync (see docs/adr/0010 and 0011): a
+  // manual adjustment on a WooCommerce/Shopify-linked product pushes its
+  // new sellable stock back to the store immediately, instead of only
+  // once someone next clicks "Pousser le stock". Silently no-ops for an
+  // INTERNE item or an unconnected integration.
+  await pushStockAfterLocalChange({ productIds: [item.productId], variationIds: [item.variationId] });
 
   revalidatePath("/stock");
   revalidatePath("/produits");

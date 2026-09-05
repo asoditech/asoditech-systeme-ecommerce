@@ -12,6 +12,7 @@ import {
 import {
   shopifyLocationsPageSchema,
   shopifyProductsPageSchema,
+  shopifyProductSchema,
   shopifyOrdersPageSchema,
   shopifyOrderSchema,
   shopifyInventorySetQuantitiesResultSchema,
@@ -59,6 +60,21 @@ const PAGE_SIZE = 50;
 const INVENTORY_LEVELS_PER_VARIANT = 10;
 /** Safety ceiling on pages fetched per sync run — not a business limit. */
 const MAX_PAGES = 200;
+
+const PRODUCT_FIELDS = `
+  id title handle status descriptionHtml
+  variants(first: 100) {
+    nodes {
+      id title sku price
+      inventoryItem {
+        id tracked
+        inventoryLevels(first: ${INVENTORY_LEVELS_PER_VARIANT}) {
+          nodes { location { id } quantities(names: ["available"]) { name quantity } }
+        }
+      }
+    }
+  }
+`;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -205,20 +221,7 @@ export class ShopifyClient {
         shopifyProductsPageSchema,
         `query Products($cursor: String) {
            products(first: ${PAGE_SIZE}, after: $cursor) {
-             nodes {
-               id title handle status descriptionHtml
-               variants(first: 100) {
-                 nodes {
-                   id title sku price
-                   inventoryItem {
-                     id tracked
-                     inventoryLevels(first: ${INVENTORY_LEVELS_PER_VARIANT}) {
-                       nodes { location { id } quantities(names: ["available"]) { name quantity } }
-                     }
-                   }
-                 }
-               }
-             }
+             nodes { ${PRODUCT_FIELDS} }
              pageInfo { hasNextPage endCursor }
            }
          }`,
@@ -229,6 +232,23 @@ export class ShopifyClient {
       if (!result.products.pageInfo.hasNextPage) return;
       cursor = endCursor;
     }
+  }
+
+  /**
+   * Fetches a single product by its gid — used by the products/create
+   * and products/update webhook handlers, which receive only enough of a
+   * REST-shaped payload to identify the product (see `getOrder`'s own
+   * doc comment for why the webhook body itself is never mapped
+   * directly). Returns `null` if the product no longer exists (e.g. a
+   * delayed webhook for a product deleted right after).
+   */
+  async getProduct(gid: string): Promise<ShopifyProduct | null> {
+    const result = await this.request(
+      z.object({ product: shopifyProductSchema.nullable() }),
+      `query GetProduct($id: ID!) { product(id: $id) { ${PRODUCT_FIELDS} } }`,
+      { id: gid }
+    );
+    return result.product;
   }
 
   /**

@@ -4,10 +4,9 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
-import { decryptSecret } from "@/lib/crypto";
-import { validateShopDomain, InvalidShopDomainError } from "@/lib/integrations/shopify/ssrf";
-import { ShopifyClient } from "@/lib/integrations/shopify/client";
+import { InvalidShopDomainError } from "@/lib/integrations/shopify/ssrf";
 import { ShopifyError } from "@/lib/integrations/shopify/errors";
+import { loadShopifyClient as loadShopifyClientOrNull } from "@/lib/integrations/shopify/client-loader";
 import { syncLocations, syncProducts, syncOrders, pushStockToShopify } from "@/lib/integrations/shopify/sync";
 import type { SyncSummary } from "@/lib/integrations/shopify/sync";
 import { notifyConnectionError, notifySyncFailure } from "@/lib/notifications";
@@ -15,31 +14,20 @@ import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import type { SyncDirection, SyncRunStatus } from "@prisma/client";
 import type { CurrentUser } from "@/lib/auth/session";
 
-interface StoredCredentials {
-  apiKey?: string; // Admin API access token
-  apiSecret?: string; // webhook signing secret (the custom app's own client secret, provided by the operator — Shopify generates it, this system never does)
-}
-
 class NotConfiguredError extends Error {}
 
-async function loadShopifyClient(): Promise<{ integration: NonNullable<Awaited<ReturnType<typeof prisma.integration.findUnique>>>; client: ShopifyClient }> {
-  const integration = await prisma.integration.findUnique({ where: { provider: "SHOPIFY" } });
-  if (!integration || !integration.credentialsEncrypted) {
-    throw new NotConfiguredError("Aucune connexion Shopify configurée.");
+/**
+ * Thin action-layer wrapper over the shared, non-throwing loader — this
+ * call site wants "not configured" to surface as a friendly actionError,
+ * unlike the automatic webhook/stock-push paths that share the same
+ * underlying loader and just silently no-op instead.
+ */
+async function loadShopifyClient() {
+  const result = await loadShopifyClientOrNull();
+  if (!result) {
+    throw new NotConfiguredError("Aucune connexion Shopify configurée ou identifiants incomplets.");
   }
-  const config = (integration.config as { shopDomain?: string } | null) ?? {};
-  if (!config.shopDomain) {
-    throw new NotConfiguredError("Aucun domaine de boutique Shopify configuré.");
-  }
-
-  const credentials: StoredCredentials = JSON.parse(decryptSecret(integration.credentialsEncrypted));
-  if (!credentials.apiKey) {
-    throw new NotConfiguredError("Jeton d'accès Shopify manquant.");
-  }
-
-  const shopDomain = await validateShopDomain(config.shopDomain);
-  const client = new ShopifyClient(shopDomain, credentials.apiKey);
-  return { integration, client };
+  return result;
 }
 
 function friendlyError(error: unknown): string {

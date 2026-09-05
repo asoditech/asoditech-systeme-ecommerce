@@ -132,6 +132,34 @@ function serializeOrder(o: FakeOrder) {
   };
 }
 
+function serializeProduct(p: FakeProduct) {
+  return {
+    id: p.id,
+    title: p.title,
+    handle: p.handle,
+    status: p.status,
+    descriptionHtml: p.descriptionHtml ?? null,
+    variants: {
+      nodes: p.variants.map((v) => ({
+        id: v.id,
+        title: v.title,
+        sku: v.sku,
+        price: v.price,
+        inventoryItem: {
+          id: v.inventoryItemId,
+          tracked: v.tracked,
+          inventoryLevels: {
+            nodes: v.levels.map((lvl) => ({
+              location: { id: lvl.locationId },
+              quantities: [{ name: "available", quantity: lvl.available }],
+            })),
+          },
+        },
+      })),
+    },
+  };
+}
+
 export function installFakeShopifyServer(state: FakeShopifyState) {
   vi.stubGlobal(
     "fetch",
@@ -165,34 +193,15 @@ export function installFakeShopifyServer(state: FakeShopifyState) {
       if (query.includes("query Products")) {
         return jsonResponse({
           products: {
-            nodes: state.products.map((p) => ({
-              id: p.id,
-              title: p.title,
-              handle: p.handle,
-              status: p.status,
-              descriptionHtml: p.descriptionHtml ?? null,
-              variants: {
-                nodes: p.variants.map((v) => ({
-                  id: v.id,
-                  title: v.title,
-                  sku: v.sku,
-                  price: v.price,
-                  inventoryItem: {
-                    id: v.inventoryItemId,
-                    tracked: v.tracked,
-                    inventoryLevels: {
-                      nodes: v.levels.map((lvl) => ({
-                        location: { id: lvl.locationId },
-                        quantities: [{ name: "available", quantity: lvl.available }],
-                      })),
-                    },
-                  },
-                })),
-              },
-            })),
+            nodes: state.products.map(serializeProduct),
             pageInfo: { hasNextPage: false, endCursor: null },
           },
         });
+      }
+
+      if (query.includes("query GetProduct")) {
+        const product = state.products.find((p) => p.id === variables.id);
+        return jsonResponse({ product: product ? serializeProduct(product) : null });
       }
 
       if (query.includes("query Orders")) {

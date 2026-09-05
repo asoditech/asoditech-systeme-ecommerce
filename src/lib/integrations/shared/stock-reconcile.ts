@@ -8,6 +8,15 @@ import { checkAndNotifyLowStock } from "@/lib/notifications";
 import type { RecordSource } from "@prisma/client";
 
 /**
+ * How long after this app's own stock push a matching inbound quantity is
+ * treated as that push echoing back, rather than a genuine independent
+ * change on the store side (see `lastPushedQuantity` on InventoryItem).
+ * Generous on purpose — Vercel Hobby's own sync delays plus the store's
+ * webhook latency mean an echo can arrive well after the push itself.
+ */
+const PUSH_ECHO_WINDOW_MS = 10 * 60 * 1000;
+
+/**
  * Provider → System stock reconciliation (the "pull" half of any
  * bidirectional inventory sync). Extracted during Phase 21 from the
  * WooCommerce integration (Phase 20) — the logic itself has no
@@ -25,6 +34,15 @@ import type { RecordSource } from "@prisma/client";
  * `inventory.reconciled` audit event — the difference is always recorded,
  * never silently overwritten. If the two already agree, nothing is
  * written at all (no phantom movement merely because a read happened).
+ *
+ * Echo-loop guard: if this app itself pushed a stock number to this exact
+ * item recently (`lastPushedQuantity`/`lastPushedAt` — see
+ * pushStockAfterLocalChange) and the incoming `externalQuantity` matches
+ * it, this call is almost certainly that push echoing back through the
+ * store's own webhook/API rather than an independent external change —
+ * reconciling it would apply the store's *sellable* number (on-hand minus
+ * reserved) as if it were the new raw on-hand quantity, silently losing
+ * whatever was reserved. Treated as "unchanged" instead: nothing written.
  */
 export async function reconcileStockFromProvider(params: {
   productId?: string;
@@ -59,7 +77,15 @@ export async function reconcileStockFromProvider(params: {
   }
 
   // Target never goes below 0 — same clamp the first-sight init path uses.
-  const delta = Math.max(0, externalQuantity) - existing.quantityOnHand;
+  const clampedExternal = Math.max(0, externalQuantity);
+
+  const isOwnPushEcho =
+    existing.lastPushedQuantity === clampedExternal &&
+    existing.lastPushedAt !== null &&
+    Date.now() - existing.lastPushedAt.getTime() < PUSH_ECHO_WINDOW_MS;
+  if (isOwnPushEcho) return "unchanged";
+
+  const delta = clampedExternal - existing.quantityOnHand;
   if (delta === 0) return "unchanged";
 
   await prisma.$transaction(async (tx) => {

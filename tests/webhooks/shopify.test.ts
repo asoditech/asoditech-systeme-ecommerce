@@ -155,7 +155,7 @@ describe("POST /api/webhooks/shopify", () => {
   it("acknowledges (200) but ignores an unsupported topic without importing anything", async () => {
     await seedIntegration();
     const body = orderCreatePayload();
-    const response = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "products/update", "x-shopify-webhook-id": "d5" }));
+    const response = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "customers/create", "x-shopify-webhook-id": "d5" }));
     expect(response.status).toBe(200);
 
     const order = await prisma.order.findFirst({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/7001" } });
@@ -204,6 +204,106 @@ describe("POST /api/webhooks/shopify", () => {
     expect(order.paymentStatus).toBe("REMBOURSE");
     const refund = await prisma.refund.findFirstOrThrow({ where: { orderId: order.id } });
     expect(Number(refund.amount)).toBe(50);
+  });
+
+  describe("products/create, products/update, inventory_levels/update (real-time product + stock sync)", () => {
+    beforeEach(() => {
+      state.products = [
+        {
+          id: "gid://shopify/Product/9001",
+          title: "Produit webhook",
+          handle: "produit-webhook",
+          status: "ACTIVE",
+          variants: [
+            {
+              id: "gid://shopify/ProductVariant/9001",
+              title: "Default Title",
+              sku: "WEBHOOK-SKU",
+              price: "42.00",
+              inventoryItemId: "gid://shopify/InventoryItem/9001",
+              tracked: true,
+              levels: [{ locationId: "gid://shopify/Location/1", available: 8 }],
+            },
+          ],
+        },
+      ];
+    });
+
+    function productPayload(overrides: Record<string, unknown> = {}) {
+      return JSON.stringify({ id: 9001, ...overrides });
+    }
+
+    it("imports a new product from a products/create delivery, reconciling its stock", async () => {
+      await seedIntegration();
+      const body = productPayload();
+      const response = await POST(
+        request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "products/create", "x-shopify-webhook-id": "pd1" })
+      );
+      expect(response.status).toBe(200);
+
+      const product = await prisma.product.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Product/9001" } });
+      expect(product.sku).toBe("WEBHOOK-SKU");
+      expect(Number(product.price)).toBe(42);
+
+      const event = await prisma.webhookEvent.findFirstOrThrow({ where: { deliveryId: "pd1" } });
+      expect(event.status).toBe("TRAITE");
+    });
+
+    it("updates an existing product's name from a products/update delivery", async () => {
+      await seedIntegration();
+      await POST(
+        request(productPayload(), { "x-shopify-hmac-sha256": sign(productPayload()), "x-shopify-topic": "products/create", "x-shopify-webhook-id": "pd2" })
+      );
+
+      state.products[0].title = "Produit renommé";
+      const body = productPayload();
+      const response = await POST(
+        request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "products/update", "x-shopify-webhook-id": "pd3" })
+      );
+      expect(response.status).toBe(200);
+
+      const product = await prisma.product.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Product/9001" } });
+      expect(product.name).toBe("Produit renommé");
+    });
+
+    it("reconciles stock directly from an inventory_levels/update delivery, without a GraphQL re-fetch", async () => {
+      await seedIntegration();
+      await prisma.warehouse.create({
+        data: { name: "Entrepôt Shopify", source: "SHOPIFY", externalId: "gid://shopify/Location/1" },
+      });
+      // The product/variant must already be known locally (via the bulk
+      // sync or a products/create webhook) before an inventory-only
+      // webhook can be attributed to it.
+      await POST(
+        request(productPayload(), { "x-shopify-hmac-sha256": sign(productPayload()), "x-shopify-topic": "products/create", "x-shopify-webhook-id": "pd4" })
+      );
+      const product = await prisma.product.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Product/9001" } });
+      const before = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+      expect(before.quantityOnHand).toBe(8);
+
+      // A real order on the store just sold 3 units.
+      const body = JSON.stringify({ inventory_item_id: 9001, location_id: 1, available: 5 });
+      const response = await POST(
+        request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "inventory_levels/update", "x-shopify-webhook-id": "pd5" })
+      );
+      expect(response.status).toBe(200);
+
+      const after = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+      expect(after.quantityOnHand).toBe(5);
+
+      const event = await prisma.webhookEvent.findFirstOrThrow({ where: { deliveryId: "pd5" } });
+      expect(event.status).toBe("TRAITE");
+    });
+
+    it("acknowledges an inventory_levels/update delivery for a not-yet-known item without crashing or writing anything", async () => {
+      await seedIntegration();
+      const body = JSON.stringify({ inventory_item_id: 999999, location_id: 1, available: 5 });
+      const response = await POST(
+        request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "inventory_levels/update", "x-shopify-webhook-id": "pd6" })
+      );
+      expect(response.status).toBe(200);
+      expect(await prisma.inventoryItem.count()).toBe(0);
+    });
   });
 
   it("does not persist the raw webhook payload or any order content — only id/topic/status metadata", async () => {

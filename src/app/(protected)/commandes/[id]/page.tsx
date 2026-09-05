@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { getOrderDetail, getOrderAuditTimeline } from "@/lib/queries/orders";
-import { formatCurrency, formatDateTime, displayOrderNumber } from "@/lib/format";
+import { formatCurrency, formatDateTime, displayOrderNumber, displayOrderChannel } from "@/lib/format";
 import {
   ORDER_STATUS_LABELS,
   ORDER_PAYMENT_STATUS_LABELS,
@@ -214,6 +214,9 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
               <p className="font-medium">{order.customer.fullName}</p>
               {order.customer.phone && <p className="text-muted-foreground">{order.customer.phone}</p>}
               {order.customer.email && <p className="text-muted-foreground">{order.customer.email}</p>}
+              <p className="border-t pt-2 text-muted-foreground">
+                Canal : <span className="text-foreground">{displayOrderChannel(order)}</span>
+              </p>
             </CardContent>
           </Card>
 

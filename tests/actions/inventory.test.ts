@@ -1,9 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
+import { encryptSecret } from "@/lib/crypto";
 import { adjustInventoryAction } from "@/actions/inventory";
 import { resetDb } from "../helpers/db";
 import { loginAsTestUser, createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
+import { installFakeWooCommerceServer, emptyFakeStore, FAKE_STORE_URL, FAKE_CONSUMER_KEY, FAKE_CONSUMER_SECRET } from "../helpers/fake-woocommerce";
 
 function formData(fields: Record<string, string>) {
   const fd = new FormData();
@@ -28,6 +30,7 @@ describe("adjustInventoryAction", () => {
   afterEach(async () => {
     await resetDb();
     mockCookieStore.clear();
+    vi.unstubAllGlobals();
   });
 
   it("rejects a caller without inventory.adjust permission", async () => {
@@ -172,5 +175,66 @@ describe("adjustInventoryAction", () => {
     );
 
     expect(await prisma.notification.count()).toBe(0);
+  });
+
+  describe("automatic stock push to a linked store", () => {
+    async function seedWooCommerceIntegration() {
+      const state = emptyFakeStore();
+      installFakeWooCommerceServer(state);
+      await prisma.integration.create({
+        data: {
+          provider: "WOOCOMMERCE",
+          status: "CONNECTE",
+          config: { siteUrl: FAKE_STORE_URL },
+          credentialsEncrypted: encryptSecret(JSON.stringify({ apiKey: FAKE_CONSUMER_KEY, apiSecret: FAKE_CONSUMER_SECRET })),
+        },
+      });
+      return state;
+    }
+
+    it("pushes the new sellable stock to WooCommerce right after a manual adjustment on a linked product", async () => {
+      const state = await seedWooCommerceIntegration();
+      const warehouse = await prisma.warehouse.create({ data: { name: "Entrepôt principal", isDefault: true } });
+      const product = await prisma.product.create({
+        data: { name: "Thé vert", sku: "SKU-WC-PUSH", price: 50, trackInventory: true, source: "WOOCOMMERCE", externalId: "501" },
+      });
+      const item = await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 10 } });
+      await loginAsTestUser({ role: "WAREHOUSE" });
+
+      const result = await adjustInventoryAction(
+        formData({ productId: product.id, warehouseId: warehouse.id, type: "AJUSTEMENT_NEGATIF", quantity: "3", reason: "Casse" })
+      );
+      expect(result.ok).toBe(true);
+
+      expect(state.stockUpdates).toHaveLength(1);
+      expect(state.stockUpdates[0].body).toMatchObject({ stock_quantity: 7 });
+
+      const updated = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+      expect(updated.lastPushedQuantity).toBe(7);
+      expect(updated.lastPushedAt).not.toBeNull();
+    });
+
+    it("does not push anything for a purely internal (never-synced) product", async () => {
+      const state = await seedWooCommerceIntegration();
+      const { warehouse, product } = await seedInventoryItem(10);
+      await loginAsTestUser({ role: "WAREHOUSE" });
+
+      const result = await adjustInventoryAction(
+        formData({ productId: product.id, warehouseId: warehouse.id, type: "AJUSTEMENT_NEGATIF", quantity: "3", reason: "Casse" })
+      );
+      expect(result.ok).toBe(true);
+      expect(state.stockUpdates).toHaveLength(0);
+    });
+
+    it("still succeeds the adjustment when no integration is configured at all", async () => {
+      const { warehouse, product } = await seedInventoryItem(10);
+      await prisma.product.update({ where: { id: product.id }, data: { source: "WOOCOMMERCE", externalId: "999" } });
+      await loginAsTestUser({ role: "WAREHOUSE" });
+
+      const result = await adjustInventoryAction(
+        formData({ productId: product.id, warehouseId: warehouse.id, type: "AJUSTEMENT_NEGATIF", quantity: "3", reason: "Casse" })
+      );
+      expect(result.ok).toBe(true);
+    });
   });
 });

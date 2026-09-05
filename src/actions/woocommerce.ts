@@ -5,10 +5,10 @@ import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
-import { validateStoreUrl, InvalidStoreUrlError } from "@/lib/integrations/woocommerce/ssrf";
-import { WooCommerceClient } from "@/lib/integrations/woocommerce/client";
+import { InvalidStoreUrlError } from "@/lib/integrations/woocommerce/ssrf";
 import { WooCommerceError } from "@/lib/integrations/woocommerce/errors";
 import { generateWebhookSecret } from "@/lib/integrations/woocommerce/webhook-signature";
+import { loadWooCommerceClient as loadWooCommerceClientOrNull } from "@/lib/integrations/woocommerce/client-loader";
 import { syncCategories, syncProducts, syncOrders, pushStockToWooCommerce } from "@/lib/integrations/woocommerce/sync";
 import type { SyncSummary } from "@/lib/integrations/woocommerce/sync";
 import { notifyConnectionError, notifySyncFailure } from "@/lib/notifications";
@@ -25,33 +25,17 @@ interface StoredCredentials {
 class NotConfiguredError extends Error {}
 
 /**
- * Loads the single WooCommerce Integration row, decrypts its credentials,
- * re-validates the store URL (DNS can change between save time and now —
- * see docs/adr/0010-woocommerce-integration.md), and builds a client.
- * Throws NotConfiguredError (turned into a friendly actionError by every
- * caller) if nothing is configured yet.
+ * Thin action-layer wrapper over the shared, non-throwing loader — this
+ * call site wants "not configured" to surface as a friendly actionError,
+ * unlike the automatic webhook/stock-push paths that share the same
+ * underlying loader and just silently no-op instead.
  */
-async function loadWooCommerceClient(): Promise<{ integration: NonNullable<Awaited<ReturnType<typeof prisma.integration.findUnique>>>; client: WooCommerceClient; credentials: StoredCredentials }> {
-  const integration = await prisma.integration.findUnique({ where: { provider: "WOOCOMMERCE" } });
-  if (!integration || !integration.credentialsEncrypted) {
-    throw new NotConfiguredError("Aucune connexion WooCommerce configurée.");
+async function loadWooCommerceClient() {
+  const result = await loadWooCommerceClientOrNull();
+  if (!result) {
+    throw new NotConfiguredError("Aucune connexion WooCommerce configurée ou identifiants incomplets.");
   }
-  const config = (integration.config as { siteUrl?: string } | null) ?? {};
-  if (!config.siteUrl) {
-    throw new NotConfiguredError("Aucune URL de boutique WooCommerce configurée.");
-  }
-
-  const credentials: StoredCredentials = JSON.parse(decryptSecret(integration.credentialsEncrypted));
-  if (!credentials.apiKey || !credentials.apiSecret) {
-    throw new NotConfiguredError("Identifiants WooCommerce incomplets.");
-  }
-
-  const storeUrl = await validateStoreUrl(config.siteUrl);
-  const client = new WooCommerceClient(storeUrl, {
-    consumerKey: credentials.apiKey,
-    consumerSecret: credentials.apiSecret,
-  });
-  return { integration, client, credentials };
+  return result;
 }
 
 function friendlyError(error: unknown): string {

@@ -18,6 +18,7 @@ import {
   notifyPaymentProblem,
   checkAndNotifyLowStock,
 } from "@/lib/notifications";
+import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
 import {
   createOrderSchema,
   updateOrderStatusSchema,
@@ -235,6 +236,7 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
       data: {
         customerId: parsed.data.customerId,
         paymentMethod: parsed.data.paymentMethod,
+        channel: parsed.data.channel,
         shippingCost: parsed.data.shippingCost,
         discountTotal: parsed.data.discountTotal,
         subtotal,
@@ -374,13 +376,19 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
     metadata: parsed.data.note ? { note: parsed.data.note } : undefined,
   });
 
-  if (parsed.data.status === "EXPEDIEE") {
-    // Fulfillment just reduced on-hand stock — surface anything now low.
-    await checkAndNotifyLowStock(
-      { productIds: lines.map((l) => l.productId), variationIds: lines.map((l) => l.variationId) },
-      user.id
-    );
-  } else if (parsed.data.status === "RETOUR") {
+  if (parsed.data.status === "EXPEDIEE" || parsed.data.status === "ANNULEE" || parsed.data.status === "RETOUR") {
+    // Every one of these three transitions actually moved stock (a
+    // fulfillment decrement, or a cancellation/return restock/release
+    // above) — push the new sellable number to a linked store right
+    // away, and surface anything now low (only ever reachable on
+    // EXPEDIEE, the one transition that can bring stock down).
+    const refs = { productIds: lines.map((l) => l.productId), variationIds: lines.map((l) => l.variationId) };
+    if (parsed.data.status === "EXPEDIEE") {
+      await checkAndNotifyLowStock(refs, user.id);
+    }
+    await pushStockAfterLocalChange(refs);
+  }
+  if (parsed.data.status === "RETOUR") {
     const customer = await prisma.customer.findUnique({ where: { id: existing.customerId }, select: { fullName: true } });
     await notifyOrderReturned(
       { id: order.id, orderNumber: order.orderNumber, customerName: customer?.fullName ?? "Client" },
@@ -497,6 +505,13 @@ export async function cancelOrderAction(formData: FormData): Promise<ActionResul
     previousValue: { status: existing.status },
     newValue: { status: "ANNULEE" },
     metadata: parsed.data.reason ? { reason: parsed.data.reason } : undefined,
+  });
+
+  // Cancelling put the reserved/returned units back — a linked store's
+  // displayed stock needs to reflect that too, not just this app's own.
+  await pushStockAfterLocalChange({
+    productIds: lines.map((l) => l.productId),
+    variationIds: lines.map((l) => l.variationId),
   });
 
   revalidatePath("/commandes");
