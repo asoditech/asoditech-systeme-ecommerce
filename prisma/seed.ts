@@ -1,11 +1,11 @@
 /**
  * Bootstraps the minimum needed to log into and operate a fresh
- * environment: one OWNER account, a default warehouse, the standard expense
- * categories, and the business settings singleton row. This is NOT
- * demo/fixture data — it creates zero customers, products, orders, or
- * financial history. An empty dashboard after seeding is correct, not a bug
- * (see docs/adr/0002-domain-model.md and the project brief's "Data
- * Integrity Principle").
+ * environment: the single bootstrap tenant, one OWNER account, a default
+ * warehouse, the standard expense categories, and the business settings
+ * singleton row. This is NOT demo/fixture data — it creates zero customers,
+ * products, orders, or financial history. An empty dashboard after seeding
+ * is correct, not a bug (see docs/adr/0002-domain-model.md and the project
+ * brief's "Data Integrity Principle").
  *
  * Usage: pnpm db:seed
  * Override the default local credentials with SEED_OWNER_EMAIL /
@@ -33,6 +33,15 @@ async function main() {
   const email = process.env.SEED_OWNER_EMAIL ?? "owner@asoditech.local";
   const password = process.env.SEED_OWNER_PASSWORD ?? "change-me-immediately";
   const passwordHash = await bcrypt.hash(password, 12);
+
+  // Phase 1 multi-tenant foundation (docs/adr/0023-multi-tenant-foundation.md):
+  // the single bootstrap tenant that owns everything. Every `tenantId` column
+  // defaults to "default", so nothing below has to reference it explicitly yet.
+  await prisma.tenant.upsert({
+    where: { id: "default" },
+    update: {},
+    create: { id: "default", name: "ASODITECH", slug: "default" },
+  });
 
   const owner = await prisma.user.upsert({
     where: { email },

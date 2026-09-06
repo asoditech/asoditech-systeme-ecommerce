@@ -1,8 +1,14 @@
 // ASODITECH E-commerce Management System — core domain schema.
-// See docs/adr/ for the reasoning behind these boundaries. This system is
-// deployed as one standalone Instance per client (see docs/adr/0002), so
-// there is no tenantId column anywhere here — isolation is at the
-// deployment/database level, not the row level.
+// See docs/adr/ for the reasoning behind these boundaries.
+//
+// Multi-tenancy — Phase 1 foundation (see docs/adr/0023-multi-tenant-foundation.md).
+// Every business/data model now carries a `tenantId` FK to `Tenant`, and a
+// single bootstrap tenant (`id = "default"`) owns all existing data. This is
+// ONLY the column + backfill: there is deliberately NO tenant context,
+// middleware, query scoping, RLS, or provisioning yet — `tenantId` defaults to
+// "default" so nothing at runtime has changed. The historical per-deployment
+// isolation model (docs/adr/0002) still stands until later phases wire real
+// row-level isolation on top of this column.
 
 generator client {
   provider = "prisma-client-js"
@@ -15,6 +21,67 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Tenant — Phase 1 multi-tenant foundation (docs/adr/0023-multi-tenant-foundation.md)
+// ---------------------------------------------------------------------------
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+// One workspace / client company. Phase 1 seeds exactly one row with the
+// fixed id "default" (the same well-known-singleton pattern as
+// BusinessSettings.id = "singleton"), and every tenant-scoped column
+// defaults to it — so this table exists and is wired, but no code reads it
+// yet. Later phases add tenant resolution, query scoping and provisioning.
+model Tenant {
+  id        String       @id @default("default")
+  name      String
+  slug      String       @unique
+  status    TenantStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  users                 User[]
+  customers             Customer[]
+  customerAddresses     CustomerAddress[]
+  categories            Category[]
+  products              Product[]
+  productImages         ProductImage[]
+  productVariations     ProductVariation[]
+  warehouses            Warehouse[]
+  inventoryItems        InventoryItem[]
+  inventoryMovements    InventoryMovement[]
+  stockTransfers        StockTransfer[]
+  stockTransferLines    StockTransferLine[]
+  stocktakeSessions     StocktakeSession[]
+  stocktakeLines        StocktakeLine[]
+  orders                Order[]
+  orderItems            OrderItem[]
+  refunds               Refund[]
+  commissionAgents      CommissionAgent[]
+  commissionEntries     CommissionEntry[]
+  commissionStatements  CommissionStatement[]
+  shippingProviders     ShippingProvider[]
+  deliveryCityMappings  DeliveryCityMapping[]
+  shipments             Shipment[]
+  deliveryManifests     DeliveryManifest[]
+  shipmentWebhookEvents ShipmentWebhookEvent[]
+  expenseCategories     ExpenseCategory[]
+  expenses              Expense[]
+  marketingChannels     MarketingChannel[]
+  marketingCampaigns    MarketingCampaign[]
+  integrations          Integration[]
+  syncRuns              SyncRun[]
+  webhookEvents         WebhookEvent[]
+  notifications         Notification[]
+  businessSettings      BusinessSettings[]
+  auditEvents           AuditEvent[]
+
+  @@map("tenants")
 }
 
 // ---------------------------------------------------------------------------
@@ -39,6 +106,7 @@ enum UserStatus {
 
 model User {
   id           String     @id @default(cuid())
+  tenantId     String     @default("default")
   email        String     @unique
   name         String
   passwordHash String
@@ -48,6 +116,7 @@ model User {
   updatedAt    DateTime   @updatedAt
   lastLoginAt  DateTime?
 
+  tenant                     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   sessions                   Session[]
   customersCreated           Customer[]            @relation("CustomerCreatedBy")
   ordersCreated              Order[]               @relation("OrderCreatedBy")
@@ -71,6 +140,7 @@ model User {
   commissionStatementsPaid   CommissionStatement[] @relation("CommissionStatementPaidBy")
 
   @@index([role])
+  @@index([tenantId])
   @@map("users")
 }
 
@@ -106,6 +176,7 @@ enum CustomerSegment {
 
 model Customer {
   id              String           @id @default(cuid())
+  tenantId        String           @default("default")
   fullName        String
   phone           String?
   whatsapp        String?
@@ -136,17 +207,20 @@ model Customer {
   updatedAt       DateTime         @updatedAt
 
   createdById String?
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   createdBy   User?             @relation("CustomerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   addresses   CustomerAddress[]
   orders      Order[]
 
   @@index([createdAt])
   @@index([source, externalId])
+  @@index([tenantId])
   @@map("customers")
 }
 
 model CustomerAddress {
   id           String   @id @default(cuid())
+  tenantId     String   @default("default")
   customerId   String
   label        String?
   addressLine1 String
@@ -160,8 +234,10 @@ model CustomerAddress {
   updatedAt    DateTime @updatedAt
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([customerId])
+  @@index([tenantId])
   @@map("customer_addresses")
 }
 
@@ -200,6 +276,7 @@ enum OrderChannel {
 
 model Category {
   id          String       @id @default(cuid())
+  tenantId    String       @default("default")
   name        String
   slug        String       @unique
   description String?
@@ -212,13 +289,16 @@ model Category {
   parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
   children Category[] @relation("CategoryTree")
   products Product[]
+  tenant   Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([source, externalId])
+  @@index([tenantId])
   @@map("categories")
 }
 
 model Product {
   id                String        @id @default(cuid())
+  tenantId          String        @default("default")
   name              String
   sku               String        @unique
   description       String?
@@ -235,6 +315,7 @@ model Product {
   updatedAt         DateTime      @updatedAt
 
   createdById    String?
+  tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   createdBy      User?               @relation("ProductCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   category       Category?           @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   images         ProductImage[]
@@ -246,11 +327,13 @@ model Product {
   @@index([categoryId])
   @@index([status])
   @@index([source, externalId])
+  @@index([tenantId])
   @@map("products")
 }
 
 model ProductImage {
   id        String   @id @default(cuid())
+  tenantId  String   @default("default")
   productId String
   url       String
   altText   String?
@@ -258,13 +341,16 @@ model ProductImage {
   createdAt DateTime @default(now())
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([productId])
+  @@index([tenantId])
   @@map("product_images")
 }
 
 model ProductVariation {
   id         String       @id @default(cuid())
+  tenantId   String       @default("default")
   productId  String
   sku        String       @unique
   // e.g. { "Couleur": "Rouge", "Taille": "M" }
@@ -277,12 +363,14 @@ model ProductVariation {
   updatedAt  DateTime     @updatedAt
 
   product        Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   inventoryItems InventoryItem[]
   orderItems     OrderItem[]
   transferLines  StockTransferLine[]
 
   @@index([productId])
   @@index([source, externalId])
+  @@index([tenantId])
   @@map("product_variations")
 }
 
@@ -304,6 +392,7 @@ enum WarehouseType {
 
 model Warehouse {
   id          String        @id @default(cuid())
+  tenantId    String        @default("default")
   name        String
   isDefault   Boolean       @default(false)
   type        WarehouseType @default(ENTREPOT)
@@ -324,6 +413,7 @@ model Warehouse {
   createdAt   DateTime      @default(now())
   createdById String?
 
+  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   createdBy         User?               @relation("WarehouseCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   inventoryItems    InventoryItem[]
   movements         InventoryMovement[]
@@ -334,6 +424,7 @@ model Warehouse {
 
   @@index([source, externalId])
   @@index([isActive])
+  @@index([tenantId])
   @@map("warehouses")
 }
 
@@ -350,6 +441,7 @@ model Warehouse {
 // neither.
 model InventoryItem {
   id                 String    @id @default(cuid())
+  tenantId           String    @default("default")
   warehouseId        String
   productId          String?
   variationId        String?
@@ -377,6 +469,7 @@ model InventoryItem {
   updatedAt          DateTime  @updatedAt
 
   warehouse      Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   product        Product?            @relation(fields: [productId], references: [id], onDelete: Cascade)
   variation      ProductVariation?   @relation(fields: [variationId], references: [id], onDelete: Cascade)
   movements      InventoryMovement[]
@@ -386,6 +479,7 @@ model InventoryItem {
   @@unique([warehouseId, variationId])
   @@index([productId])
   @@index([variationId])
+  @@index([tenantId])
   @@map("inventory_items")
 }
 
@@ -412,6 +506,7 @@ enum InventoryMovementType {
 
 model InventoryMovement {
   id                 String                @id @default(cuid())
+  tenantId           String                @default("default")
   inventoryItemId    String
   // The location whose stock this movement changed — always the
   // `InventoryItem.warehouseId` of the row it was applied to (Phase 32b),
@@ -435,6 +530,7 @@ model InventoryMovement {
   createdAt          DateTime              @default(now())
 
   inventoryItem    InventoryItem     @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   warehouse        Warehouse         @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   order            Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
   stockTransfer    StockTransfer?    @relation(fields: [stockTransferId], references: [id], onDelete: SetNull)
@@ -452,6 +548,7 @@ model InventoryMovement {
   @@index([warehouseId, createdAt])
   @@index([stockTransferId])
   @@index([stocktakeSessionId])
+  @@index([tenantId])
   @@map("inventory_movements")
 }
 
@@ -474,6 +571,7 @@ enum TransferStatus {
 
 model StockTransfer {
   id                     String         @id @default(cuid())
+  tenantId               String         @default("default")
   // Sequential, collision-free; displayed "TR-000123" (formatTransferNumber).
   // Same pattern as Order.orderNumber.
   transferNumber         Int            @unique @default(autoincrement())
@@ -491,6 +589,7 @@ model StockTransfer {
 
   // A warehouse with transfer history can't be deleted (it also holds
   // InventoryItem rows — onDelete: Restrict there too).
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   source       Warehouse           @relation("StockTransferSource", fields: [sourceWarehouseId], references: [id], onDelete: Restrict)
   destination  Warehouse           @relation("StockTransferDestination", fields: [destinationWarehouseId], references: [id], onDelete: Restrict)
   createdBy    User?               @relation("StockTransferCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -504,6 +603,7 @@ model StockTransfer {
   @@index([sourceWarehouseId])
   @@index([destinationWarehouseId])
   @@index([createdAt])
+  @@index([tenantId])
   @@map("stock_transfers")
 }
 
@@ -518,6 +618,7 @@ model StockTransfer {
 // is either NULL or between 0 and quantitySent inclusive.
 model StockTransferLine {
   id               String  @id @default(cuid())
+  tenantId         String  @default("default")
   stockTransferId  String
   productId        String?
   variationId      String?
@@ -525,12 +626,14 @@ model StockTransferLine {
   quantityReceived Int?
 
   stockTransfer StockTransfer     @relation(fields: [stockTransferId], references: [id], onDelete: Cascade)
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   product       Product?          @relation(fields: [productId], references: [id], onDelete: SetNull)
   variation     ProductVariation? @relation(fields: [variationId], references: [id], onDelete: SetNull)
 
   @@index([stockTransferId])
   @@index([productId])
   @@index([variationId])
+  @@index([tenantId])
   @@map("stock_transfer_lines")
 }
 
@@ -553,6 +656,7 @@ enum StocktakeStatus {
 
 model StocktakeSession {
   id            String          @id @default(cuid())
+  tenantId      String          @default("default")
   // Sequential, collision-free; displayed "INV-000123"
   // (formatStocktakeNumber). Same pattern as Order.orderNumber.
   sessionNumber Int             @unique @default(autoincrement())
@@ -567,6 +671,7 @@ model StocktakeSession {
 
   // A warehouse with stocktake history can't be deleted (it also holds
   // InventoryItem rows — onDelete: Restrict there too).
+  tenant    Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   warehouse Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   startedBy User?               @relation("StocktakeStartedBy", fields: [startedById], references: [id], onDelete: SetNull)
   closedBy  User?               @relation("StocktakeClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
@@ -579,6 +684,7 @@ model StocktakeSession {
   @@index([status])
   @@index([warehouseId])
   @@index([createdAt])
+  @@index([tenantId])
   @@map("stocktake_sessions")
 }
 
@@ -597,6 +703,7 @@ model StocktakeSession {
 // DB-enforced (raw-SQL migration): countedQuantity IS NULL OR countedQuantity >= 0.
 model StocktakeLine {
   id                    String    @id @default(cuid())
+  tenantId              String    @default("default")
   stocktakeSessionId    String
   inventoryItemId       String
   systemQuantityAtCount Int
@@ -610,6 +717,7 @@ model StocktakeLine {
   updatedAt             DateTime  @updatedAt
 
   stocktakeSession StocktakeSession   @relation(fields: [stocktakeSessionId], references: [id], onDelete: Cascade)
+  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   // Cascade — matches InventoryMovement.inventoryItemId: a deleted
   // product/variation takes its whole stock history (movements + stocktake
   // lines) with it.
@@ -620,6 +728,7 @@ model StocktakeLine {
   @@unique([stocktakeSessionId, inventoryItemId])
   @@index([stocktakeSessionId])
   @@index([inventoryItemId])
+  @@index([tenantId])
   @@map("stocktake_lines")
 }
 
@@ -657,6 +766,7 @@ enum PaymentMethod {
 
 model Order {
   id             String             @id @default(cuid())
+  tenantId       String             @default("default")
   orderNumber    Int                @unique @default(autoincrement())
   customerId     String
   status         OrderStatus        @default(NOUVELLE)
@@ -721,6 +831,7 @@ model Order {
   confirmationAgentId String?
 
   createdById          String?
+  tenant               Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   createdBy            User?               @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   customer             Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
   fulfillmentWarehouse Warehouse?          @relation("OrderFulfillmentWarehouse", fields: [fulfillmentWarehouseId], references: [id], onDelete: SetNull)
@@ -746,11 +857,13 @@ model Order {
   @@index([placedAt])
   @@index([fulfillmentWarehouseId])
   @@index([confirmationAgentId])
+  @@index([tenantId])
   @@map("orders")
 }
 
 model OrderItem {
   id           String   @id @default(cuid())
+  tenantId     String   @default("default")
   orderId      String
   productId    String?
   variationId  String?
@@ -765,11 +878,13 @@ model OrderItem {
   costSnapshot Decimal? @db.Decimal(12, 2)
 
   order     Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   product   Product?          @relation(fields: [productId], references: [id], onDelete: SetNull)
   variation ProductVariation? @relation(fields: [variationId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@index([productId])
+  @@index([tenantId])
   @@map("order_items")
 }
 
@@ -782,6 +897,7 @@ enum RefundStatus {
 
 model Refund {
   id            String       @id @default(cuid())
+  tenantId      String       @default("default")
   orderId       String
   amount        Decimal      @db.Decimal(12, 2)
   reason        String?
@@ -793,9 +909,11 @@ model Refund {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([orderId])
+  @@index([tenantId])
   @@map("refunds")
 }
 
@@ -817,6 +935,7 @@ model Refund {
 // CommissionEntry, so changing it here never rewrites past earnings.
 model CommissionAgent {
   id           String   @id @default(cuid())
+  tenantId     String   @default("default")
   userId       String   @unique
   ratePerOrder Decimal  @db.Decimal(10, 2)
   currency     String   @default("MAD") @db.Char(3)
@@ -825,10 +944,12 @@ model CommissionAgent {
   updatedAt    DateTime @updatedAt
 
   user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   orders     Order[]
   entries    CommissionEntry[]
   statements CommissionStatement[]
 
+  @@index([tenantId])
   @@map("commission_agents")
 }
 
@@ -845,6 +966,7 @@ enum CommissionEntryType {
 // has no path back to LIVREE, so re-earning can't happen).
 model CommissionEntry {
   id          String              @id @default(cuid())
+  tenantId    String              @default("default")
   agentId     String
   orderId     String
   type        CommissionEntryType
@@ -860,11 +982,13 @@ model CommissionEntry {
   agent     CommissionAgent      @relation(fields: [agentId], references: [id], onDelete: Restrict)
   order     Order                @relation(fields: [orderId], references: [id], onDelete: Restrict)
   statement CommissionStatement? @relation(fields: [statementId], references: [id], onDelete: SetNull)
+  tenant    Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@unique([orderId, type])
   @@index([agentId])
   @@index([statementId])
   @@index([createdAt])
+  @@index([tenantId])
   @@map("commission_entries")
 }
 
@@ -879,6 +1003,7 @@ enum CommissionStatementStatus {
 // closed simply falls into the next open period — standard practice.
 model CommissionStatement {
   id             String                    @id @default(cuid())
+  tenantId       String                    @default("default")
   agentId        String
   periodYear     Int
   periodMonth    Int
@@ -899,12 +1024,14 @@ model CommissionStatement {
   updatedAt      DateTime                  @updatedAt
 
   agent    CommissionAgent   @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   closedBy User?             @relation("CommissionStatementClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
   paidBy   User?             @relation("CommissionStatementPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
   entries  CommissionEntry[]
 
   @@unique([agentId, periodYear, periodMonth])
   @@index([agentId])
+  @@index([tenantId])
   @@map("commission_statements")
 }
 
@@ -921,6 +1048,7 @@ enum ShippingProviderType {
 
 model ShippingProvider {
   id       String               @id @default(cuid())
+  tenantId String               @default("default")
   name     String
   type     ShippingProviderType @default(MANUEL)
   isActive Boolean              @default(true)
@@ -953,11 +1081,13 @@ model ShippingProvider {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   shipments     Shipment[]
   webhookEvents ShipmentWebhookEvent[]
   manifests     DeliveryManifest[]
   cityMappings  DeliveryCityMapping[]
 
+  @@index([tenantId])
   @@map("shipping_providers")
 }
 
@@ -979,6 +1109,7 @@ model ShippingProvider {
 // history — deleting the provider discards it.
 model DeliveryCityMapping {
   id                 String   @id @default(cuid())
+  tenantId           String   @default("default")
   shippingProviderId String
   // The local city, normalized with the shared normalizeCityName() rules
   // (lower-cased, accent-stripped, whitespace-collapsed) — the lookup key.
@@ -995,11 +1126,13 @@ model DeliveryCityMapping {
   updatedAt          DateTime @updatedAt
 
   provider ShippingProvider @relation(fields: [shippingProviderId], references: [id], onDelete: Cascade)
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   // At most one mapping per (provider, local city) — the DB is the real
   // guard against a duplicate created by two concurrent requests.
   @@unique([shippingProviderId, localCityKey])
   @@index([shippingProviderId])
+  @@index([tenantId])
   @@map("delivery_city_mappings")
 }
 
@@ -1014,6 +1147,7 @@ enum ShipmentStatus {
 
 model Shipment {
   id             String         @id @default(cuid())
+  tenantId       String         @default("default")
   orderId        String
   providerId     String
   trackingNumber String?
@@ -1054,6 +1188,7 @@ model Shipment {
 
   updatedById String?
   order       Order             @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   provider    ShippingProvider  @relation(fields: [providerId], references: [id], onDelete: Restrict)
   updatedBy   User?             @relation("ShipmentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   manifest    DeliveryManifest? @relation(fields: [manifestId], references: [id], onDelete: SetNull)
@@ -1066,6 +1201,7 @@ model Shipment {
   @@index([providerId])
   @@index([status])
   @@index([manifestId])
+  @@index([tenantId])
   @@map("shipments")
 }
 
@@ -1087,6 +1223,7 @@ enum DeliveryManifestStatus {
 // whose adapter declares the GENERATE_MANIFEST capability can produce one.
 model DeliveryManifest {
   id           String                 @id @default(cuid())
+  tenantId     String                 @default("default")
   providerId   String
   // The carrier's own manifest reference (e.g. OzonExpress "BL240115001").
   // Null only while BROUILLON/ECHEC before the carrier returned one —
@@ -1106,10 +1243,12 @@ model DeliveryManifest {
   createdById  String?
 
   provider  ShippingProvider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   createdBy User?            @relation("ManifestCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   shipments Shipment[]
 
   @@index([providerId])
+  @@index([tenantId])
   @@map("delivery_manifests")
 }
 
@@ -1122,6 +1261,7 @@ model DeliveryManifest {
 // persisted — only id/topic/resource id/outcome.
 model ShipmentWebhookEvent {
   id         String   @id @default(cuid())
+  tenantId   String   @default("default")
   providerId String
   deliveryId String
   topic      String
@@ -1130,9 +1270,11 @@ model ShipmentWebhookEvent {
   receivedAt DateTime @default(now())
 
   provider ShippingProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@unique([providerId, deliveryId])
   @@index([providerId, topic])
+  @@index([tenantId])
   @@map("shipment_webhook_events")
 }
 
@@ -1143,16 +1285,20 @@ model ShipmentWebhookEvent {
 
 model ExpenseCategory {
   id       String  @id @default(cuid())
+  tenantId String  @default("default")
   name     String  @unique
   isSystem Boolean @default(false)
 
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   expenses Expense[]
 
+  @@index([tenantId])
   @@map("expense_categories")
 }
 
 model Expense {
   id           String   @id @default(cuid())
+  tenantId     String   @default("default")
   categoryId   String
   amount       Decimal  @db.Decimal(12, 2)
   currency     String   @default("MAD") @db.Char(3)
@@ -1164,10 +1310,12 @@ model Expense {
   updatedAt    DateTime @updatedAt
 
   category   ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   recordedBy User?           @relation("ExpenseRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
 
   @@index([categoryId])
   @@index([date])
+  @@index([tenantId])
   @@map("expenses")
 }
 
@@ -1184,12 +1332,15 @@ enum MarketingChannelType {
 
 model MarketingChannel {
   id       String               @id @default(cuid())
+  tenantId String               @default("default")
   name     String
   type     MarketingChannelType @default(AUTRE)
   isActive Boolean              @default(true)
 
+  tenant    Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   campaigns MarketingCampaign[]
 
+  @@index([tenantId])
   @@map("marketing_channels")
 }
 
@@ -1202,6 +1353,7 @@ enum CampaignStatus {
 
 model MarketingCampaign {
   id        String         @id @default(cuid())
+  tenantId  String         @default("default")
   channelId String
   name      String
   startDate DateTime
@@ -1214,9 +1366,11 @@ model MarketingCampaign {
   updatedAt DateTime       @updatedAt
 
   channel MarketingChannel @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  tenant  Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   orders  Order[]
 
   @@index([channelId])
+  @@index([tenantId])
   @@map("marketing_campaigns")
 }
 
@@ -1254,6 +1408,7 @@ enum IntegrationStatus {
 
 model Integration {
   id                    String              @id @default(cuid())
+  tenantId              String              @default("default")
   provider              IntegrationProvider @unique
   status                IntegrationStatus   @default(DECONNECTE)
   // Non-secret configuration (store URLs, sync direction, flags, etc.)
@@ -1271,9 +1426,11 @@ model Integration {
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
 
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   syncRuns      SyncRun[]
   webhookEvents WebhookEvent[]
 
+  @@index([tenantId])
   @@map("integrations")
 }
 
@@ -1297,6 +1454,7 @@ enum SyncRunStatus {
 // blurring together.
 model SyncRun {
   id             String        @id @default(cuid())
+  tenantId       String        @default("default")
   integrationId  String
   resource       String
   direction      SyncDirection
@@ -1313,11 +1471,13 @@ model SyncRun {
   triggeredById  String?
 
   integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   triggeredBy User?       @relation("SyncRunTriggeredBy", fields: [triggeredById], references: [id], onDelete: SetNull)
 
   @@index([integrationId])
   @@index([resource])
   @@index([triggeredById])
+  @@index([tenantId])
   @@map("sync_runs")
 }
 
@@ -1329,6 +1489,7 @@ model SyncRun {
 // is rejected rather than reprocessed.
 model WebhookEvent {
   id            String              @id @default(cuid())
+  tenantId      String              @default("default")
   integrationId String
   provider      IntegrationProvider
   deliveryId    String
@@ -1338,9 +1499,11 @@ model WebhookEvent {
   receivedAt    DateTime            @default(now())
 
   integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@unique([integrationId, deliveryId])
   @@index([integrationId, topic])
+  @@index([tenantId])
   @@map("webhook_events")
 }
 
@@ -1366,6 +1529,7 @@ enum NotificationType {
 // docs/adr/0016-notifications.md.
 model Notification {
   id         String           @id @default(cuid())
+  tenantId   String           @default("default")
   userId     String
   type       NotificationType
   title      String
@@ -1383,11 +1547,13 @@ model Notification {
   isRead     Boolean          @default(false)
   createdAt  DateTime         @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@unique([userId, dedupeKey])
   @@index([userId, isRead])
   @@index([createdAt])
+  @@index([tenantId])
   @@map("notifications")
 }
 
@@ -1397,6 +1563,7 @@ model Notification {
 
 model BusinessSettings {
   id                       String   @id @default("singleton")
+  tenantId                 String   @default("default")
   companyName              String   @default("")
   currency                 String   @default("MAD") @db.Char(3)
   address                  String?
@@ -1411,6 +1578,9 @@ model BusinessSettings {
   orderNumberPrefix        String   @default("CMD")
   updatedAt                DateTime @updatedAt
 
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
   @@map("business_settings")
 }
 
@@ -1426,6 +1596,7 @@ enum AuditActorType {
 
 model AuditEvent {
   id            String         @id @default(cuid())
+  tenantId      String         @default("default")
   actorType     AuditActorType
   actorUserId   String?
   action        String
@@ -1438,10 +1609,12 @@ model AuditEvent {
   userAgent     String?
   createdAt     DateTime       @default(now())
 
-  actorUser User? @relation("AuditActorUser", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorUser User?  @relation("AuditActorUser", fields: [actorUserId], references: [id], onDelete: SetNull)
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([entityType, entityId])
   @@index([createdAt])
   @@index([actorUserId])
+  @@index([tenantId])
   @@map("audit_events")
 }

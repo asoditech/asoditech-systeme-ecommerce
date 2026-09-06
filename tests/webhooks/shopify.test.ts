@@ -328,7 +328,7 @@ describe("POST /api/webhooks/shopify", () => {
 
     const event = await prisma.webhookEvent.findFirstOrThrow({ where: { deliveryId: "d10" } });
     expect(Object.keys(event).sort()).toEqual(
-      ["id", "integrationId", "provider", "deliveryId", "topic", "resourceId", "status", "receivedAt"].sort()
+      ["id", "tenantId", "integrationId", "provider", "deliveryId", "topic", "resourceId", "status", "receivedAt"].sort()
     );
     const raw = JSON.stringify(event);
     expect(raw).not.toContain("webhook@example.com");

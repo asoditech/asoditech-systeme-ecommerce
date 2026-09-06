@@ -8,6 +8,9 @@ if (!/test/i.test(process.env.DATABASE_URL ?? "")) {
   );
 }
 
+/** The single bootstrap tenant every tenantId column defaults to (Phase 1 — docs/adr/0023). */
+export const DEFAULT_TENANT_ID = "default";
+
 /** Wipes every table between tests. Test-DB only — never point this at a real database. */
 export async function resetDb() {
   await prisma.$transaction([
@@ -46,5 +49,16 @@ export async function resetDb() {
     prisma.businessSettings.deleteMany(),
     prisma.session.deleteMany(),
     prisma.user.deleteMany(),
+    // Any tenant a test created, but never the bootstrap one — every scoped
+    // row's tenantId defaults to it, and the FKs would block the delete anyway.
+    prisma.tenant.deleteMany({ where: { id: { not: DEFAULT_TENANT_ID } } }),
   ]);
+
+  // Guarantee the bootstrap tenant exists (a freshly-pushed test DB has none),
+  // so the tenantId column default resolves to a real row for every insert.
+  await prisma.tenant.upsert({
+    where: { id: DEFAULT_TENANT_ID },
+    update: {},
+    create: { id: DEFAULT_TENANT_ID, name: "ASODITECH", slug: "default" },
+  });
 }
