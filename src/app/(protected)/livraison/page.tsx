@@ -12,6 +12,7 @@ import { CityMappingDialog } from "@/components/delivery/city-mapping-dialog";
 import { ShipmentProviderControls } from "@/components/delivery/shipment-provider-controls";
 import { RefreshStatusesButton } from "@/components/delivery/refresh-statuses-button";
 import { RetryShipmentButton } from "@/components/delivery/retry-shipment-button";
+import { BrandLogo, type BrandKey } from "@/components/brand-logo";
 import { AwaitingShipmentTable } from "@/components/delivery/awaiting-shipment-table";
 import { DeliveryDocs } from "@/components/delivery/delivery-docs";
 import { LivraisonDateFilter } from "@/components/delivery/livraison-date-filter";
@@ -41,6 +42,13 @@ import { buildParcelContentsSummary } from "@/lib/delivery";
 export const metadata = { title: "Livraison — ASODITECH Gestion E-commerce" };
 
 const TERMINAL_SHIPMENT_STATUSES = ["LIVRE", "ANNULE", "RETOURNE"];
+
+/** Carrier connector key → its brand logo (public/brands/). */
+const PROVIDER_BRANDS: Partial<Record<string, BrandKey>> = {
+  ozonexpress: "ozonexpress",
+  ameex: "ameex",
+  speedaf: "speedaf",
+};
 
 export default async function LivraisonPage({
   searchParams,
@@ -333,7 +341,18 @@ export default async function LivraisonPage({
                 <TableBody>
                   {providers.map((p) => (
                     <TableRow key={p.id}>
-                      <TableCell className="font-medium">{p.name}</TableCell>
+                      <TableCell className="font-medium">
+                        <span className="flex items-center gap-2">
+                          {p.providerKey && p.providerKey in PROVIDER_BRANDS && (
+                            <BrandLogo
+                              brand={PROVIDER_BRANDS[p.providerKey]!}
+                              label={p.name}
+                              className="size-5"
+                            />
+                          )}
+                          {p.name}
+                        </span>
+                      </TableCell>
                       <TableCell className="text-muted-foreground">{SHIPPING_PROVIDER_TYPE_LABELS[p.type]}</TableCell>
                       <TableCell>{p._count.shipments}</TableCell>
                       <TableCell>

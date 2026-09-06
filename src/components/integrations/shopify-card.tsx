@@ -1,4 +1,5 @@
-import { ShoppingBag, Globe, Clock, AlertCircle, Warehouse, Package, ShoppingCart, Boxes } from "lucide-react";
+import { Globe, Clock, AlertCircle, Warehouse, Package, ShoppingCart, Boxes } from "lucide-react";
+import { BrandTile } from "@/components/brand-logo";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConnectIntegrationDialog } from "@/components/integrations/connect-integration-dialog";
 import { ShopifyActions } from "@/components/integrations/shopify-actions";
@@ -32,9 +33,7 @@ export async function ShopifyCard({ canManage }: { canManage: boolean }) {
     <Card className="overflow-hidden">
       <CardHeader className="flex-row items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-            <ShoppingBag className="size-5" />
-          </div>
+          <BrandTile brand="shopify" label="Shopify" />
           <div>
             <CardTitle>Shopify</CardTitle>
             <ConnectionStatusPill status={status} />

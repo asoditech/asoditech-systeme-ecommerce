@@ -1,4 +1,5 @@
-import { Store, Globe, Clock, AlertCircle, Tags, Package, ShoppingCart, Boxes } from "lucide-react";
+import { Globe, Clock, AlertCircle, Tags, Package, ShoppingCart, Boxes } from "lucide-react";
+import { BrandTile } from "@/components/brand-logo";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConnectIntegrationDialog } from "@/components/integrations/connect-integration-dialog";
 import { WooCommerceActions } from "@/components/integrations/woocommerce-actions";
@@ -39,9 +40,7 @@ export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
     <Card className="overflow-hidden">
       <CardHeader className="flex-row items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400">
-            <Store className="size-5" />
-          </div>
+          <BrandTile brand="woocommerce" label="WooCommerce" />
           <div>
             <CardTitle>WooCommerce</CardTitle>
             <ConnectionStatusPill status={status} />

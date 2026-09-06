@@ -1,5 +1,6 @@
-import { Plug, Megaphone, Target, Music2, MessageCircle, Mail, FileSpreadsheet, Bot, Clock3, type LucideIcon } from "lucide-react";
+import { Plug, Mail, Clock3 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { BrandLogo, type BrandKey } from "@/components/brand-logo";
 import { WooCommerceCard } from "@/components/integrations/woocommerce-card";
 import { ShopifyCard } from "@/components/integrations/shopify-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,14 +23,13 @@ export const maxDuration = 60;
 // docs/adr/0004-integration-architecture.md. WooCommerce/Shopify (the two
 // providers with a real adapter) get their own dedicated cards above,
 // never this generic "planned" tile.
-const PLANNED_PROVIDER_ICONS: Record<string, LucideIcon> = {
-  META_ADS: Megaphone,
-  GOOGLE_ADS: Target,
-  TIKTOK_ADS: Music2,
-  WHATSAPP: MessageCircle,
-  EMAIL: Mail,
-  GOOGLE_SHEETS: FileSpreadsheet,
-  AI_PROVIDER: Bot,
+const PLANNED_PROVIDER_BRANDS: Partial<Record<string, BrandKey>> = {
+  META_ADS: "meta",
+  GOOGLE_ADS: "google",
+  TIKTOK_ADS: "tiktok",
+  WHATSAPP: "whatsapp",
+  GOOGLE_SHEETS: "google-sheets",
+  AI_PROVIDER: "ai",
 };
 
 export default async function IntegrationsPage() {
@@ -63,13 +63,19 @@ export default async function IntegrationsPage() {
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {plannedRows.map(([provider, label]) => {
-            const Icon = PLANNED_PROVIDER_ICONS[provider] ?? Plug;
+            const brand = PLANNED_PROVIDER_BRANDS[provider];
             return (
               <Card key={provider} className="border-dashed bg-muted/20 shadow-none">
                 <CardHeader className="flex-row items-center gap-3 space-y-0">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                    <Icon className="size-4.5" />
-                  </div>
+                  {brand ? (
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-white p-1.5">
+                      <BrandLogo brand={brand} label={label} className="size-full opacity-90" />
+                    </span>
+                  ) : (
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                      <Mail className="size-4.5" />
+                    </div>
+                  )}
                   <CardTitle className="text-sm text-muted-foreground">{label}</CardTitle>
                 </CardHeader>
                 <CardContent>
