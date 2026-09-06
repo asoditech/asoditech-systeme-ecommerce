@@ -2,6 +2,7 @@ import "server-only";
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { assertBootstrapTenant } from "@/lib/tenant/resolve";
 
 const PAGE_SIZE = 25;
 
@@ -93,6 +94,10 @@ export async function listInventoryItems(params: {
   const stockStatus = params.stockStatus ?? "all";
 
   if (stockStatus === "low" || stockStatus === "out") {
+    // Raw cross-join SELECT — cannot go through the tenant extension. Safe
+    // only while a single tenant exists; must gain an `ii."tenantId"`
+    // predicate before onboarding a second (docs/adr/0024, Known bypasses).
+    await assertBootstrapTenant("queries/inventory.listInventoryItems(low|out)");
     const from = stockStatusFrom(stockStatus, { q, warehouseId: params.warehouseId, categoryId: params.categoryId });
     const [idRows, countRows] = await Promise.all([
       prisma.$queryRaw<{ id: string }[]>(
@@ -155,6 +160,9 @@ export async function listInventoryItems(params: {
 }
 
 export async function getLowStockCount(): Promise<number> {
+  // Raw cross-join count — cannot go through the tenant extension
+  // (docs/adr/0024, Known bypasses). Guarded to the bootstrap tenant.
+  await assertBootstrapTenant("queries/inventory.getLowStockCount");
   const rows = await prisma.$queryRaw<{ count: bigint }[]>(
     Prisma.sql`SELECT COUNT(*)::bigint AS count ${lowStockFrom()}`
   );

@@ -1,13 +1,14 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import type { InventoryItem, InventoryMovementType, Prisma, PrismaClient } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import type { InventoryItem, InventoryMovementType } from "@prisma/client";
+import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
 
-type Tx = Prisma.TransactionClient;
+type Tx = PrismaTransactionClient;
 /** Either the shared client or an open transaction client — for helpers
- * that must work both standalone and inside a caller's `$transaction`. */
-type Db = PrismaClient | Tx;
+ * that must work both standalone and inside a caller's `$transaction`.
+ * Both are tenant-scoped by the Prisma extension (docs/adr/0024). */
+type Db = typeof prisma | Tx;
 
 /** Thrown when a movement would drive on-hand stock negative. Rolls back
  * the whole transaction (movement row + the Order/Shipment update that

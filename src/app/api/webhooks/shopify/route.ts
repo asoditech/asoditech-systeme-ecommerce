@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import type { Integration } from "@prisma/client";
+import { prisma, prismaBase } from "@/lib/prisma";
+import { runWithTenant } from "@/lib/tenant/context";
 import { decryptSecret } from "@/lib/crypto";
 import { recordAuditEvent } from "@/lib/audit";
 import { verifyShopifyWebhookSignature } from "@/lib/integrations/shopify/webhook-signature";
@@ -84,13 +86,27 @@ const inventoryLevelEnvelopeSchema = z.object({
 });
 
 export async function POST(request: Request): Promise<Response> {
+  // The webhook carries no session. Resolve the owning tenant from the
+  // Integration row with the raw (unscoped) client, then run the handler
+  // pinned to that tenant so every read/write lands in the right workspace
+  // — never from anything in the request body (docs/adr/0024).
+  const integration = await prismaBase.integration.findUnique({ where: { provider: "SHOPIFY" } });
+  if (!integration || !integration.credentialsEncrypted) {
+    return new Response(null, { status: 404 });
+  }
+  return runWithTenant(integration.tenantId, "webhook:shopify", () =>
+    handleShopifyWebhook(request, integration)
+  );
+}
+
+async function handleShopifyWebhook(request: Request, integration: Integration): Promise<Response> {
   const rawBody = await request.text();
   const signatureHeader = request.headers.get("x-shopify-hmac-sha256");
   const topic = request.headers.get("x-shopify-topic") ?? "inconnu";
   const deliveryId = request.headers.get("x-shopify-webhook-id");
 
-  const integration = await prisma.integration.findUnique({ where: { provider: "SHOPIFY" } });
-  if (!integration || !integration.credentialsEncrypted) {
+  const credentialsEncrypted = integration.credentialsEncrypted;
+  if (!credentialsEncrypted) {
     return new Response(null, { status: 404 });
   }
 
@@ -98,7 +114,7 @@ export async function POST(request: Request): Promise<Response> {
   let apiKey: string | undefined;
   let webhookSecret: string | undefined;
   try {
-    const credentials = JSON.parse(decryptSecret(integration.credentialsEncrypted)) as { apiKey?: string; apiSecret?: string };
+    const credentials = JSON.parse(decryptSecret(credentialsEncrypted)) as { apiKey?: string; apiSecret?: string };
     apiKey = credentials.apiKey;
     webhookSecret = credentials.apiSecret;
   } catch {

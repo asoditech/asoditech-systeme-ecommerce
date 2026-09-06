@@ -1,7 +1,7 @@
 import "server-only";
 
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
 import { applyStockMovement } from "@/lib/inventory";
 import { formatStocktakeNumber } from "@/lib/format";
 
@@ -47,7 +47,7 @@ export class StocktakeStaleError extends Error {
  * variation-backed item and a product-backed item are handled identically.
  */
 export async function snapshotWarehouseInventory(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTransactionClient,
   sessionId: string,
   warehouseId: string
 ): Promise<number> {
@@ -215,7 +215,7 @@ export async function finalizeStocktakeSession(sessionId: string, userId: string
  * current on-hand. `SELECT … FOR UPDATE` — the codebase's sanctioned
  * pessimistic-lock pattern (see createRefundAction), not an advisory lock. */
 async function lockCurrentQuantities(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTransactionClient,
   itemIds: string[]
 ): Promise<Map<string, number>> {
   if (itemIds.length === 0) return new Map();

@@ -1,5 +1,7 @@
 import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import type { Integration } from "@prisma/client";
+import { prisma, prismaBase } from "@/lib/prisma";
+import { runWithTenant } from "@/lib/tenant/context";
 import { decryptSecret } from "@/lib/crypto";
 import { recordAuditEvent } from "@/lib/audit";
 import { verifyWebhookSignature } from "@/lib/integrations/woocommerce/webhook-signature";
@@ -60,19 +62,33 @@ function revalidateAfterImport(kind: "order" | "product"): void {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  // The webhook carries no session. Resolve the owning tenant from the
+  // Integration row with the raw (unscoped) client, then run the handler
+  // pinned to that tenant so every read/write lands in the right workspace
+  // — never from anything in the request body (docs/adr/0024).
+  const integration = await prismaBase.integration.findUnique({ where: { provider: "WOOCOMMERCE" } });
+  if (!integration || !integration.credentialsEncrypted) {
+    return new Response(null, { status: 404 });
+  }
+  return runWithTenant(integration.tenantId, "webhook:woocommerce", () =>
+    handleWooCommerceWebhook(request, integration)
+  );
+}
+
+async function handleWooCommerceWebhook(request: Request, integration: Integration): Promise<Response> {
   const rawBody = await request.text();
   const signatureHeader = request.headers.get("x-wc-webhook-signature");
   const topic = request.headers.get("x-wc-webhook-topic") ?? "inconnu";
   const deliveryId = request.headers.get("x-wc-webhook-delivery-id");
 
-  const integration = await prisma.integration.findUnique({ where: { provider: "WOOCOMMERCE" } });
-  if (!integration || !integration.credentialsEncrypted) {
+  const credentialsEncrypted = integration.credentialsEncrypted;
+  if (!credentialsEncrypted) {
     return new Response(null, { status: 404 });
   }
 
   let webhookSecret: string | undefined;
   try {
-    const credentials = JSON.parse(decryptSecret(integration.credentialsEncrypted)) as { webhookSecret?: string };
+    const credentials = JSON.parse(decryptSecret(credentialsEncrypted)) as { webhookSecret?: string };
     webhookSecret = credentials.webhookSecret;
   } catch {
     return new Response(null, { status: 404 });

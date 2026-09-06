@@ -1,6 +1,10 @@
-import { prisma } from "@/lib/prisma";
+// Raw client on purpose: these helpers seed fixtures directly, sometimes
+// into a specific (non-active) tenant, so they must bypass the scoping
+// extension (docs/adr/0024).
+import { prismaBase as prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/auth/password";
 import { createSession } from "@/lib/auth/session";
+import { DEFAULT_TENANT_ID } from "./db";
 import type { UserRole, UserStatus } from "@prisma/client";
 
 let counter = 0;
@@ -10,6 +14,7 @@ export async function createTestUser(overrides: {
   role?: UserRole;
   status?: UserStatus;
   email?: string;
+  tenantId?: string;
 } = {}) {
   counter += 1;
   return prisma.user.create({
@@ -19,6 +24,7 @@ export async function createTestUser(overrides: {
       passwordHash: await hashPassword("correct-horse-battery-staple"),
       role: overrides.role ?? "ADMIN",
       status: overrides.status ?? "ACTIVE",
+      tenantId: overrides.tenantId ?? DEFAULT_TENANT_ID,
     },
   });
 }

@@ -1,4 +1,6 @@
-import { prisma } from "@/lib/prisma";
+// Raw client on purpose: resetDb must delete rows in EVERY tenant, so it
+// must not go through the tenant-scoping extension (docs/adr/0024).
+import { prismaBase as prisma } from "@/lib/prisma";
 
 // Refuse to run against anything that doesn't look like a test database —
 // resetDb() is destructive (deletes every row in every table).

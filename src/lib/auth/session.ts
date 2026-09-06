@@ -2,7 +2,9 @@ import "server-only";
 
 import { cookies, headers } from "next/headers";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { prisma } from "@/lib/prisma";
+// Raw client on purpose: the extended `prisma` resolves the active tenant
+// via this module, so using it here would recurse (docs/adr/0024).
+import { prismaBase as prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import type { User } from "@prisma/client";
 
@@ -68,7 +70,7 @@ export async function destroyAllSessionsForUser(userId: string): Promise<void> {
   await prisma.session.deleteMany({ where: { userId } });
 }
 
-export type CurrentUser = Pick<User, "id" | "email" | "name" | "role" | "status">;
+export type CurrentUser = Pick<User, "id" | "email" | "name" | "role" | "status" | "tenantId">;
 
 /**
  * Resolves the authenticated user for the current request, re-verifying
@@ -100,8 +102,8 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     });
   }
 
-  const { id, email, name, role, status } = session.user;
-  return { id, email, name, role, status };
+  const { id, email, name, role, status, tenantId } = session.user;
+  return { id, email, name, role, status, tenantId };
 }
 
 /** Constant-time comparison helper for token/secret verification. */

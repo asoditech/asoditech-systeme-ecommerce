@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/auth/password";
 import { createSession, destroyCurrentSession, getCurrentUser } from "@/lib/auth/session";
 import { recordAuditEvent } from "@/lib/audit";
+import { runUnscoped, runWithTenant } from "@/lib/tenant/context";
 import { loginSchema } from "@/lib/validation/auth";
 import { actionError, type ActionResult } from "@/actions/types";
 
@@ -24,7 +25,12 @@ export async function loginAction(
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
 
-  const user = await prisma.user.findUnique({ where: { email: parsed.data.email } });
+  // Login runs before the tenant is known: the user is looked up by a
+  // globally-unique email across all tenants (docs/adr/0024). Failure audit
+  // events, written with no tenant known, fall to the bootstrap tenant.
+  const user = await runUnscoped("auth:login", () =>
+    prisma.user.findUnique({ where: { email: parsed.data.email } })
+  );
 
   if (!user || user.status !== "ACTIVE") {
     await recordAuditEvent({
@@ -48,14 +54,17 @@ export async function loginAction(
     return actionError(INVALID_CREDENTIALS_MESSAGE);
   }
 
-  await createSession(user.id);
-  await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-  await recordAuditEvent({
-    actorType: "USER",
-    actorUserId: user.id,
-    action: "user.login.success",
-    entityType: "User",
-    entityId: user.id,
+  // Password verified — the rest runs pinned to this user's own tenant.
+  await runWithTenant(user.tenantId, "auth:login", async () => {
+    await createSession(user.id);
+    await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    await recordAuditEvent({
+      actorType: "USER",
+      actorUserId: user.id,
+      action: "user.login.success",
+      entityType: "User",
+      entityId: user.id,
+    });
   });
 
   redirect("/tableau-de-bord");
