@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma, OrderStatus } from "@prisma/client";
 import { canTransitionOrderStatus } from "@/lib/validation/order";
 import { canTransitionShipmentStatus, type ShipmentStatusValue } from "@/lib/validation/delivery";
+import { reconcileOrderCommission } from "@/lib/commissions";
 
 /** Thrown when a conditional status-transition update matches 0 rows. */
 export class ShipmentConflictError extends Error {}
@@ -129,6 +130,13 @@ export async function applyShipmentStatusTransition(params: {
       return { ok: false, reason: "conflict" };
     }
     throw error;
+  }
+
+  // A carrier-confirmed delivery just moved the order to LIVREE (above) —
+  // credit the confirmation-agent commission. Idempotent, best-effort,
+  // outside the status transaction. See docs/adr/0022.
+  if (params.newStatus === "LIVRE") {
+    await reconcileOrderCommission(params.orderId, params.updatedById ?? null);
   }
 
   return { ok: true };

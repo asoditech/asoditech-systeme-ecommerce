@@ -44,9 +44,16 @@ interface LineItem {
   discount: number;
 }
 
-export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehouse[] }) {
+export function OrderForm({
+  warehouses = [],
+  commissionAgents = [],
+}: {
+  warehouses?: SelectableWarehouse[];
+  commissionAgents?: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const defaultWarehouseId = warehouses.find((w) => w.isDefault)?.id ?? warehouses[0]?.id ?? "";
+  const [confirmationAgentId, setConfirmationAgentId] = React.useState("");
   const [fulfillmentWarehouseId, setFulfillmentWarehouseId] = React.useState(defaultWarehouseId);
   const [customer, setCustomer] = React.useState<Customer | null>(null);
   const [customerQuery, setCustomerQuery] = React.useState("");
@@ -188,6 +195,7 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
         fulfillmentWarehouseId: warehouses.length > 1 && fulfillmentWarehouseId ? fulfillmentWarehouseId : null,
         paymentMethod: paymentMethod as CreateOrderInputMethod,
         channel: channel as CreateOrderInputChannel,
+        confirmationAgentId: confirmationAgentId || null,
         shippingCost: Number(shippingCost || 0),
         discountTotal: Number(discountTotal || 0),
         currency: "MAD",
@@ -475,6 +483,28 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
                 </SelectContent>
               </Select>
             </div>
+            {commissionAgents.length > 0 && (
+              <div className="space-y-1.5">
+                <Label>Agent de confirmation (optionnel)</Label>
+                <Select value={confirmationAgentId || "__none__"} onValueChange={(v) => setConfirmationAgentId(v === "__none__" ? "" : (v ?? ""))}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue>
+                      {(value: string) =>
+                        value === "__none__" ? "Aucun" : commissionAgents.find((a) => a.id === value)?.name ?? "Aucun"
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Aucun</SelectItem>
+                    {commissionAgents.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {warehouses.length > 1 && (
               <div className="space-y-1.5">
                 <Label>Entrepôt de préparation</Label>

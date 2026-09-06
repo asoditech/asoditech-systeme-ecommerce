@@ -10,6 +10,7 @@ import { actorAuditFields, actorPerformedById, type SyncActor } from "./actor";
 import { isRecentlyPlaced, parseOrderPlacedAt } from "../../shared/order-recency";
 import { upsertCustomerAddressFromOrder } from "../../shared/customer-address";
 import { notifyNewOrder, resolveNotifications } from "@/lib/notifications";
+import { reconcileOrderCommission } from "@/lib/commissions";
 import { emptySyncSummary, recordNote, type SyncSummary } from "./types";
 import type { Prisma, OrderStatus } from "@prisma/client";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
@@ -343,6 +344,11 @@ async function updateExistingOrder(
   // the local "nouvelle commande" alert, same as a manual status change.
   if (existing.status === "NOUVELLE" && status !== "NOUVELLE") {
     await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: orderId });
+  }
+  // A store-driven move into (or out of) LIVREE affects any
+  // confirmation-agent commission — reconcile it. Idempotent, best-effort.
+  if (existing.status !== status && (status === "LIVREE" || existing.status === "LIVREE")) {
+    await reconcileOrderCommission(orderId);
   }
 
   return changedFields ? { outcome: "updated", reason: statusSkippedReason } : { outcome: "unchanged", reason: statusSkippedReason };

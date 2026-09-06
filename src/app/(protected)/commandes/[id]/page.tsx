@@ -14,6 +14,8 @@ import { listShipmentProviderOptions } from "@/lib/queries/delivery";
 import { buildParcelContentsSummary } from "@/lib/delivery";
 import { LinkShipmentDialog } from "@/components/delivery/link-shipment-dialog";
 import { EditShippingAddressDialog } from "@/components/orders/edit-shipping-address-dialog";
+import { AssignAgentControl } from "@/components/commissions/assign-agent-control";
+import { getOrderCommission, listAssignableCommissionAgents } from "@/lib/queries/commissions";
 import { formatCurrency, formatDateTime, displayOrderNumber, displayOrderChannel } from "@/lib/format";
 import { humanizeAuditAction } from "@/lib/audit-labels";
 import {
@@ -36,7 +38,13 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
   const canCancel = hasPermission(user.role, "orders.cancel");
   const canRefund = hasPermission(user.role, "orders.refund");
   const canManageDelivery = hasPermission(user.role, "delivery.manage");
+  const canViewCommissions = hasPermission(user.role, "commissions.view");
+  const canManageCommissions = hasPermission(user.role, "commissions.manage");
   const deliveryProviders = canManageDelivery ? await listShipmentProviderOptions() : [];
+  const [orderCommission, commissionAgents] = await Promise.all([
+    canViewCommissions ? getOrderCommission(order.id) : Promise.resolve(null),
+    canManageCommissions ? listAssignableCommissionAgents() : Promise.resolve([]),
+  ]);
   const parcelContents = buildParcelContentsSummary(order.items);
   const refundedTotal = order.refunds.filter((r) => r.status === "COMPLETE").reduce((s, r) => s + Number(r.amount), 0);
   const codAmount =
@@ -253,6 +261,42 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
               </p>
             </CardContent>
           </Card>
+
+          {canViewCommissions && orderCommission && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Agent de confirmation</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {canManageCommissions ? (
+                  <AssignAgentControl
+                    orderId={order.id}
+                    currentAgentId={orderCommission.agentId}
+                    agents={commissionAgents.map((a) => ({ id: a.id, name: a.name }))}
+                    locked={orderCommission.hasEntries}
+                  />
+                ) : (
+                  <p>
+                    <span className="text-muted-foreground">Agent : </span>
+                    {orderCommission.agentName ?? "—"}
+                  </p>
+                )}
+                {orderCommission.hasEntries ? (
+                  <p className={orderCommission.net > 0 ? "text-foreground" : "text-destructive"}>
+                    Commission :{" "}
+                    <span className="font-medium">{formatCurrency(String(orderCommission.net), order.currency)}</span>
+                    {orderCommission.net <= 0 && " (reprise)"}
+                  </p>
+                ) : orderCommission.agentRate !== null ? (
+                  <p className="text-xs text-muted-foreground">
+                    {formatCurrency(String(orderCommission.agentRate), order.currency)} seront crédités à la livraison.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Aucun agent assigné.</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>

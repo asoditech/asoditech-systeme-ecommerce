@@ -48,24 +48,27 @@ model User {
   updatedAt    DateTime   @updatedAt
   lastLoginAt  DateTime?
 
-  sessions           Session[]
-  customersCreated   Customer[]          @relation("CustomerCreatedBy")
-  ordersCreated      Order[]             @relation("OrderCreatedBy")
-  productsCreated    Product[]           @relation("ProductCreatedBy")
-  warehousesCreated  Warehouse[]         @relation("WarehouseCreatedBy")
-  inventoryMovements InventoryMovement[] @relation("MovementPerformedBy")
-  expensesRecorded   Expense[]           @relation("ExpenseRecordedBy")
-  shipmentsUpdated   Shipment[]          @relation("ShipmentUpdatedBy")
-  manifestsCreated   DeliveryManifest[]  @relation("ManifestCreatedBy")
-  syncRunsTriggered  SyncRun[]           @relation("SyncRunTriggeredBy")
-  auditEvents        AuditEvent[]        @relation("AuditActorUser")
-  notifications      Notification[]
-  stockTransfersCreated    StockTransfer[] @relation("StockTransferCreatedBy")
-  stockTransfersDispatched StockTransfer[] @relation("StockTransferDispatchedBy")
-  stockTransfersReceived   StockTransfer[] @relation("StockTransferReceivedBy")
-  stocktakesStarted        StocktakeSession[] @relation("StocktakeStartedBy")
-  stocktakesClosed         StocktakeSession[] @relation("StocktakeClosedBy")
-  stocktakesCounted        StocktakeLine[]    @relation("StocktakeCountedBy")
+  sessions                   Session[]
+  customersCreated           Customer[]            @relation("CustomerCreatedBy")
+  ordersCreated              Order[]               @relation("OrderCreatedBy")
+  productsCreated            Product[]             @relation("ProductCreatedBy")
+  warehousesCreated          Warehouse[]           @relation("WarehouseCreatedBy")
+  inventoryMovements         InventoryMovement[]   @relation("MovementPerformedBy")
+  expensesRecorded           Expense[]             @relation("ExpenseRecordedBy")
+  shipmentsUpdated           Shipment[]            @relation("ShipmentUpdatedBy")
+  manifestsCreated           DeliveryManifest[]    @relation("ManifestCreatedBy")
+  syncRunsTriggered          SyncRun[]             @relation("SyncRunTriggeredBy")
+  auditEvents                AuditEvent[]          @relation("AuditActorUser")
+  notifications              Notification[]
+  stockTransfersCreated      StockTransfer[]       @relation("StockTransferCreatedBy")
+  stockTransfersDispatched   StockTransfer[]       @relation("StockTransferDispatchedBy")
+  stockTransfersReceived     StockTransfer[]       @relation("StockTransferReceivedBy")
+  stocktakesStarted          StocktakeSession[]    @relation("StocktakeStartedBy")
+  stocktakesClosed           StocktakeSession[]    @relation("StocktakeClosedBy")
+  stocktakesCounted          StocktakeLine[]       @relation("StocktakeCountedBy")
+  commissionAgent            CommissionAgent?
+  commissionStatementsClosed CommissionStatement[] @relation("CommissionStatementClosedBy")
+  commissionStatementsPaid   CommissionStatement[] @relation("CommissionStatementPaidBy")
 
   @@index([role])
   @@map("users")
@@ -102,35 +105,35 @@ enum CustomerSegment {
 }
 
 model Customer {
-  id        String           @id @default(cuid())
-  fullName  String
-  phone     String?
-  whatsapp  String?
-  email     String?
-  city      String?
-  region    String?
-  country   String           @default("Maroc")
-  notes     String?
-  tags      String[]         @default([])
+  id              String           @id @default(cuid())
+  fullName        String
+  phone           String?
+  whatsapp        String?
+  email           String?
+  city            String?
+  region          String?
+  country         String           @default("Maroc")
+  notes           String?
+  tags            String[]         @default([])
   // Manually assigned only — no automatic segmentation logic exists yet.
   // See docs/adr/0002-domain-model.md.
-  segment   CustomerSegment?
+  segment         CustomerSegment?
   // Staff-controlled flag (see docs/adr/0002-domain-model.md) — never set
   // automatically by a threshold: the Clients page/order form surface how
   // many orders a customer has cancelled so staff can decide, but only a
   // human toggles this, to avoid locking out a customer who had a
   // legitimate reason (e.g. a shipping delay, a genuine change of mind).
-  isBlacklisted    Boolean   @default(false)
-  blacklistedAt    DateTime?
-  blacklistReason  String?
+  isBlacklisted   Boolean          @default(false)
+  blacklistedAt   DateTime?
+  blacklistReason String?
   // Set only when this customer was created/matched from a WooCommerce
   // order import (see docs/adr/0010-woocommerce-integration.md). Deduped by
   // (source, externalId) when the order carries a real WC customer id, or
   // by (source, email) for guest checkouts — never by fuzzy name matching.
-  source     RecordSource @default(INTERNE)
-  externalId String?
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  source          RecordSource     @default(INTERNE)
+  externalId      String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   createdById String?
   createdBy   User?             @relation("CustomerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -196,15 +199,15 @@ enum OrderChannel {
 }
 
 model Category {
-  id          String   @id @default(cuid())
+  id          String       @id @default(cuid())
   name        String
-  slug        String   @unique
+  slug        String       @unique
   description String?
   parentId    String?
   source      RecordSource @default(INTERNE)
   externalId  String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
   children Category[] @relation("CategoryTree")
@@ -232,8 +235,8 @@ model Product {
   updatedAt         DateTime      @updatedAt
 
   createdById    String?
-  createdBy      User?              @relation("ProductCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  category       Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  createdBy      User?               @relation("ProductCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  category       Category?           @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   images         ProductImage[]
   variations     ProductVariation[]
   inventoryItems InventoryItem[]
@@ -261,19 +264,19 @@ model ProductImage {
 }
 
 model ProductVariation {
-  id         String   @id @default(cuid())
+  id         String       @id @default(cuid())
   productId  String
-  sku        String   @unique
+  sku        String       @unique
   // e.g. { "Couleur": "Rouge", "Taille": "M" }
   attributes Json
-  price      Decimal? @db.Decimal(12, 2)
-  cost       Decimal? @db.Decimal(12, 2)
+  price      Decimal?     @db.Decimal(12, 2)
+  cost       Decimal?     @db.Decimal(12, 2)
   source     RecordSource @default(INTERNE)
   externalId String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
 
-  product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product        Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
   inventoryItems InventoryItem[]
   orderItems     OrderItem[]
   transferLines  StockTransferLine[]
@@ -300,15 +303,15 @@ enum WarehouseType {
 }
 
 model Warehouse {
-  id        String        @id @default(cuid())
-  name      String
-  isDefault Boolean       @default(false)
-  type      WarehouseType @default(ENTREPOT)
+  id          String        @id @default(cuid())
+  name        String
+  isDefault   Boolean       @default(false)
+  type        WarehouseType @default(ENTREPOT)
   // A retired location keeps its InventoryItem history but can no longer
   // receive new stock-in movements (manual adjustments) — enforced
   // server-side. The `isDefault` warehouse can never be deactivated.
-  isActive  Boolean       @default(true)
-  address   String?
+  isActive    Boolean       @default(true)
+  address     String?
   // Set when this warehouse represents a real Shopify Location — see
   // docs/adr/0011-shopify-integration.md. Shopify tracks inventory
   // per-location; mapping each Location to its own Warehouse (rather than
@@ -316,17 +319,17 @@ model Warehouse {
   // InventoryItem model represent it faithfully, unlike WooCommerce (which
   // has no location concept and only ever uses the single default
   // warehouse).
-  source      RecordSource @default(INTERNE)
+  source      RecordSource  @default(INTERNE)
   externalId  String?
-  createdAt   DateTime     @default(now())
+  createdAt   DateTime      @default(now())
   createdById String?
 
-  createdBy      User?           @relation("WarehouseCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  inventoryItems InventoryItem[]
-  movements       InventoryMovement[]
-  fulfilledOrders Order[]            @relation("OrderFulfillmentWarehouse")
-  transfersOut    StockTransfer[]    @relation("StockTransferSource")
-  transfersIn     StockTransfer[]    @relation("StockTransferDestination")
+  createdBy         User?               @relation("WarehouseCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  inventoryItems    InventoryItem[]
+  movements         InventoryMovement[]
+  fulfilledOrders   Order[]             @relation("OrderFulfillmentWarehouse")
+  transfersOut      StockTransfer[]     @relation("StockTransferSource")
+  transfersIn       StockTransfer[]     @relation("StockTransferDestination")
   stocktakeSessions StocktakeSession[]
 
   @@index([source, externalId])
@@ -346,20 +349,20 @@ model Warehouse {
 // exactly one of productId/variationId must be set, never both, never
 // neither.
 model InventoryItem {
-  id               String   @id @default(cuid())
-  warehouseId      String
-  productId        String?
-  variationId      String?
-  quantityOnHand   Int      @default(0)
-  quantityReserved Int      @default(0)
-  quantityDamaged  Int      @default(0)
+  id                 String    @id @default(cuid())
+  warehouseId        String
+  productId          String?
+  variationId        String?
+  quantityOnHand     Int       @default(0)
+  quantityReserved   Int       @default(0)
+  quantityDamaged    Int       @default(0)
   // Shopify's own InventoryItem gid at this (product/variant, location)
   // pair — a distinct resource from the Product/ProductVariation gid, and
   // exactly what the inventorySetQuantities mutation requires as its
   // target. Null for INTERNE/WooCommerce-backed rows (WooCommerce's stock
   // API targets by product/variation id directly, no separate inventory
   // item concept). See docs/adr/0011-shopify-integration.md.
-  externalId       String?
+  externalId         String?
   // Echo-loop guard for the automatic System → WooCommerce/Shopify stock
   // push (see pushStockAfterLocalChange / reconcileStockFromProvider):
   // the sellable quantity this app itself last told the store, and when.
@@ -371,7 +374,7 @@ model InventoryItem {
   // was reserved. Null until the first push.
   lastPushedQuantity Int?
   lastPushedAt       DateTime?
-  updatedAt        DateTime @updatedAt
+  updatedAt          DateTime  @updatedAt
 
   warehouse      Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   product        Product?            @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -408,38 +411,38 @@ enum InventoryMovementType {
 }
 
 model InventoryMovement {
-  id              String                @id @default(cuid())
-  inventoryItemId String
+  id                 String                @id @default(cuid())
+  inventoryItemId    String
   // The location whose stock this movement changed — always the
   // `InventoryItem.warehouseId` of the row it was applied to (Phase 32b),
   // persisted so per-location ledger queries never re-join. NOT NULL:
   // every movement has always been applied to an InventoryItem
   // (`inventoryItemId` NOT NULL, onDelete Cascade → no orphan possible),
   // so the one-time backfill from `inventory_items.warehouseId` was total.
-  warehouseId     String
-  type            InventoryMovementType
-  quantity        Int
-  reason          String?
-  orderId         String?
+  warehouseId        String
+  type               InventoryMovementType
+  quantity           Int
+  reason             String?
+  orderId            String?
   // Set on the two TRANSFERT_* movements a StockTransfer produces; null
   // for every other movement type. `SetNull` so an admin cleanup of a
   // transfer would not cascade its ledger rows.
-  stockTransferId String?
+  stockTransferId    String?
   // Set on the INVENTAIRE movement a stocktake finalization produces for a
   // non-zero variance line (Phase 32c). `SetNull` for the same reason.
   stocktakeSessionId String?
-  performedById   String?
-  createdAt       DateTime              @default(now())
+  performedById      String?
+  createdAt          DateTime              @default(now())
 
-  inventoryItem InventoryItem     @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
-  warehouse     Warehouse         @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  order         Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  stockTransfer StockTransfer?    @relation(fields: [stockTransferId], references: [id], onDelete: SetNull)
+  inventoryItem    InventoryItem     @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  warehouse        Warehouse         @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  order            Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  stockTransfer    StockTransfer?    @relation(fields: [stockTransferId], references: [id], onDelete: SetNull)
   stocktakeSession StocktakeSession? @relation(fields: [stocktakeSessionId], references: [id], onDelete: SetNull)
   // Inverse of StocktakeLine.appliedMovement — at most one stocktake line
   // binds a given movement (StocktakeLine.appliedMovementId is @unique).
-  stocktakeLine StocktakeLine?    @relation("StocktakeLineMovement")
-  performedBy   User?             @relation("MovementPerformedBy", fields: [performedById], references: [id], onDelete: SetNull)
+  stocktakeLine    StocktakeLine?    @relation("StocktakeLineMovement")
+  performedBy      User?             @relation("MovementPerformedBy", fields: [performedById], references: [id], onDelete: SetNull)
 
   @@index([inventoryItemId])
   @@index([createdAt])
@@ -564,9 +567,9 @@ model StocktakeSession {
 
   // A warehouse with stocktake history can't be deleted (it also holds
   // InventoryItem rows — onDelete: Restrict there too).
-  warehouse Warehouse          @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  startedBy User?              @relation("StocktakeStartedBy", fields: [startedById], references: [id], onDelete: SetNull)
-  closedBy  User?              @relation("StocktakeClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  warehouse Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  startedBy User?               @relation("StocktakeStartedBy", fields: [startedById], references: [id], onDelete: SetNull)
+  closedBy  User?               @relation("StocktakeClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
   lines     StocktakeLine[]
   movements InventoryMovement[]
 
@@ -606,13 +609,13 @@ model StocktakeLine {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
-  stocktakeSession StocktakeSession @relation(fields: [stocktakeSessionId], references: [id], onDelete: Cascade)
+  stocktakeSession StocktakeSession   @relation(fields: [stocktakeSessionId], references: [id], onDelete: Cascade)
   // Cascade — matches InventoryMovement.inventoryItemId: a deleted
   // product/variation takes its whole stock history (movements + stocktake
   // lines) with it.
-  inventoryItem   InventoryItem      @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
-  countedBy       User?              @relation("StocktakeCountedBy", fields: [countedById], references: [id], onDelete: SetNull)
-  appliedMovement InventoryMovement? @relation("StocktakeLineMovement", fields: [appliedMovementId], references: [id], onDelete: SetNull)
+  inventoryItem    InventoryItem      @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  countedBy        User?              @relation("StocktakeCountedBy", fields: [countedById], references: [id], onDelete: SetNull)
+  appliedMovement  InventoryMovement? @relation("StocktakeLineMovement", fields: [appliedMovementId], references: [id], onDelete: SetNull)
 
   @@unique([stocktakeSessionId, inventoryItemId])
   @@index([stocktakeSessionId])
@@ -653,14 +656,14 @@ enum PaymentMethod {
 }
 
 model Order {
-  id            String             @id @default(cuid())
-  orderNumber   Int                @unique @default(autoincrement())
-  customerId    String
-  status        OrderStatus        @default(NOUVELLE)
-  paymentStatus OrderPaymentStatus @default(EN_ATTENTE)
-  paymentMethod PaymentMethod      @default(PAIEMENT_LIVRAISON)
-  source        RecordSource       @default(INTERNE)
-  externalId    String?
+  id             String             @id @default(cuid())
+  orderNumber    Int                @unique @default(autoincrement())
+  customerId     String
+  status         OrderStatus        @default(NOUVELLE)
+  paymentStatus  OrderPaymentStatus @default(EN_ATTENTE)
+  paymentMethod  PaymentMethod      @default(PAIEMENT_LIVRAISON)
+  source         RecordSource       @default(INTERNE)
+  externalId     String?
   // WooCommerce's human-readable order "number", which can differ from its
   // numeric id (e.g. a sequential-numbering plugin). Display-only.
   externalNumber String?
@@ -710,29 +713,39 @@ model Order {
   // InventoryMovement rows carry the authoritative per-movement warehouse.
   fulfillmentWarehouseId String?
 
+  // The confirmation agent (confirmateur) credited with this order — see
+  // docs/adr/0022-order-confirmation-commission.md. `SetNull` like
+  // campaignId: removing an agent record must not touch order history, and
+  // any commission already earned keeps its own snapshot on
+  // CommissionEntry. Null for an unassigned order.
+  confirmationAgentId String?
+
   createdById          String?
   createdBy            User?               @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   customer             Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
   fulfillmentWarehouse Warehouse?          @relation("OrderFulfillmentWarehouse", fields: [fulfillmentWarehouseId], references: [id], onDelete: SetNull)
+  confirmationAgent    CommissionAgent?    @relation(fields: [confirmationAgentId], references: [id], onDelete: SetNull)
   items                OrderItem[]
   refunds              Refund[]
   shipments            Shipment[]
   movements            InventoryMovement[]
+  commissionEntries    CommissionEntry[]
   campaign             MarketingCampaign?  @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   campaignId           String?
 
-  @@index([customerId])
-  @@index([status])
-  @@index([paymentStatus])
-  @@index([createdAt])
-  @@index([placedAt])
-  @@index([fulfillmentWarehouseId])
   // Prevents a duplicate Order under a genuine race between the order
   // webhook and a concurrent manual sync both importing the same
   // WooCommerce order for the first time (Postgres allows multiple NULLs
   // in a unique index, so this never restricts INTERNE orders, which all
   // have externalId=null). See docs/adr/0010-woocommerce-integration.md.
   @@unique([source, externalId])
+  @@index([customerId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([createdAt])
+  @@index([placedAt])
+  @@index([fulfillmentWarehouseId])
+  @@index([confirmationAgentId])
   @@map("orders")
 }
 
@@ -787,6 +800,115 @@ model Refund {
 }
 
 // ---------------------------------------------------------------------------
+// Order confirmation commission — see docs/adr/0022-order-confirmation-commission.md
+//
+// A confirmation agent (confirmateur) is credited a fixed amount per order
+// they own, earned ONLY once the order reaches LIVREE. If a delivered
+// order is later returned (LIVREE -> RETOUR) the earned amount is reversed
+// with an opposite entry — the original entry is never mutated or deleted.
+// `reconcileOrderCommission()` (src/lib/commissions.ts) is the single
+// idempotent bridge between an order's status and its ledger; it runs
+// under a per-order advisory lock so concurrent status updates can't
+// double-credit.
+// ---------------------------------------------------------------------------
+
+// One row per User who acts as a confirmation agent, carrying their
+// CURRENT rate. The rate in force at earn time is snapshotted onto each
+// CommissionEntry, so changing it here never rewrites past earnings.
+model CommissionAgent {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  ratePerOrder Decimal  @db.Decimal(10, 2)
+  currency     String   @default("MAD") @db.Char(3)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders     Order[]
+  entries    CommissionEntry[]
+  statements CommissionStatement[]
+
+  @@map("commission_agents")
+}
+
+enum CommissionEntryType {
+  EARNED
+  REVERSED
+}
+
+// Append-only ledger. EARNED = +rate when an order reaches LIVREE;
+// REVERSED = -rate when a previously-earned order leaves LIVREE. Net
+// commission for an order is the sum of its entries. `@@unique([orderId,
+// type])` is the hard idempotency backstop on top of the advisory lock:
+// at most one EARNED and one REVERSED per order (the order state machine
+// has no path back to LIVREE, so re-earning can't happen).
+model CommissionEntry {
+  id          String              @id @default(cuid())
+  agentId     String
+  orderId     String
+  type        CommissionEntryType
+  amount      Decimal             @db.Decimal(10, 2)
+  rateApplied Decimal             @db.Decimal(10, 2)
+  currency    String              @default("MAD") @db.Char(3)
+  note        String?
+  // Set once the entry is locked into a closed monthly statement.
+  statementId String?
+  createdById String?
+  createdAt   DateTime            @default(now())
+
+  agent     CommissionAgent      @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  order     Order                @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  statement CommissionStatement? @relation(fields: [statementId], references: [id], onDelete: SetNull)
+
+  @@unique([orderId, type])
+  @@index([agentId])
+  @@index([statementId])
+  @@index([createdAt])
+  @@map("commission_entries")
+}
+
+enum CommissionStatementStatus {
+  CLOTURE
+  PAYE
+}
+
+// A closed monthly statement per agent. Created by the settlement action,
+// which sweeps every not-yet-settled entry dated in that calendar month
+// into it and freezes the totals. A reversal that lands after a month is
+// closed simply falls into the next open period — standard practice.
+model CommissionStatement {
+  id             String                    @id @default(cuid())
+  agentId        String
+  periodYear     Int
+  periodMonth    Int
+  status         CommissionStatementStatus @default(CLOTURE)
+  earnedCount    Int                       @default(0)
+  reversedCount  Int                       @default(0)
+  earnedAmount   Decimal                   @default(0) @db.Decimal(12, 2)
+  reversedAmount Decimal                   @default(0) @db.Decimal(12, 2)
+  netAmount      Decimal                   @default(0) @db.Decimal(12, 2)
+  paidAmount     Decimal                   @default(0) @db.Decimal(12, 2)
+  currency       String                    @default("MAD") @db.Char(3)
+  note           String?
+  closedById     String?
+  closedAt       DateTime                  @default(now())
+  paidById       String?
+  paidAt         DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  agent    CommissionAgent   @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  closedBy User?             @relation("CommissionStatementClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  paidBy   User?             @relation("CommissionStatementPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  entries  CommissionEntry[]
+
+  @@unique([agentId, periodYear, periodMonth])
+  @@index([agentId])
+  @@map("commission_statements")
+}
+
+// ---------------------------------------------------------------------------
 // Delivery — see docs/adr/0006-delivery-providers.md and
 // docs/adr/0012-delivery-provider-integration.md (Phase 22)
 // ---------------------------------------------------------------------------
@@ -798,20 +920,20 @@ enum ShippingProviderType {
 }
 
 model ShippingProvider {
-  id        String               @id @default(cuid())
-  name      String
-  type      ShippingProviderType @default(MANUEL)
-  isActive  Boolean              @default(true)
+  id       String               @id @default(cuid())
+  name     String
+  type     ShippingProviderType @default(MANUEL)
+  isActive Boolean              @default(true)
   // Non-secret adapter configuration only (e.g. default zones/rates, or for
   // an API provider, its non-secret settings such as account/warehouse id).
-  config    Json?
+  config   Json?
 
   // --- API connector fields (Phase 22) — only meaningful when type = API.
   // See docs/adr/0012-delivery-provider-integration.md.
   // Which registered adapter (src/lib/integrations/delivery/registry.ts)
   // handles this row. Null for MANUEL/FLOTTE_INTERNE, and for an API
   // provider not yet fully configured.
-  providerKey String?
+  providerKey           String?
   // Mirrors IntegrationStatus's meaning exactly (see docs/adr/0010): saving
   // credentials never implies CONNECTE, only a real "Tester la connexion"
   // success does. Null (not DECONNECTE) for MANUEL/FLOTTE_INTERNE, whose
@@ -828,8 +950,8 @@ model ShippingProvider {
   lastSyncAt            DateTime?
   lastError             String?
 
-  createdAt DateTime             @default(now())
-  updatedAt DateTime             @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   shipments     Shipment[]
   webhookEvents ShipmentWebhookEvent[]
@@ -928,7 +1050,7 @@ model Shipment {
   // shipment is on at most one manifest. `SetNull` only so a manifest row
   // could be removed in an admin cleanup without cascading the shipments;
   // no code path deletes manifests.
-  manifestId        String?
+  manifestId String?
 
   updatedById String?
   order       Order             @relation(fields: [orderId], references: [id], onDelete: Restrict)
@@ -936,14 +1058,14 @@ model Shipment {
   updatedBy   User?             @relation("ShipmentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   manifest    DeliveryManifest? @relation(fields: [manifestId], references: [id], onDelete: SetNull)
 
-  @@index([orderId])
-  @@index([providerId])
-  @@index([status])
-  @@index([manifestId])
   // Postgres allows multiple NULLs in a unique index, so this never
   // restricts MANUEL/FLOTTE_INTERNE shipments (externalId always null).
   // See docs/adr/0010-woocommerce-integration.md's identical Order pattern.
   @@unique([providerId, externalId])
+  @@index([orderId])
+  @@index([providerId])
+  @@index([status])
+  @@index([manifestId])
   @@map("shipments")
 }
 
@@ -1131,23 +1253,23 @@ enum IntegrationStatus {
 }
 
 model Integration {
-  id                   String              @id @default(cuid())
-  provider             IntegrationProvider @unique
-  status               IntegrationStatus   @default(DECONNECTE)
+  id                    String              @id @default(cuid())
+  provider              IntegrationProvider @unique
+  status                IntegrationStatus   @default(DECONNECTE)
   // Non-secret configuration (store URLs, sync direction, flags, etc.)
-  config               Json?
+  config                Json?
   // AES-256-GCM ciphertext (src/lib/crypto.ts) — never returned to the
   // frontend as plaintext, never logged. For WooCommerce this decrypts to
   // { consumerKey, consumerSecret, webhookSecret }.
-  credentialsEncrypted String?
-  capabilities         String[]            @default([])
-  lastSyncAt           DateTime?
+  credentialsEncrypted  String?
+  capabilities          String[]            @default([])
+  lastSyncAt            DateTime?
   // Set only when a "Tester la connexion" request actually succeeded —
   // distinct from lastSyncAt, which covers data synchronization runs.
   lastConnectionCheckAt DateTime?
-  lastError            String?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
+  lastError             String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
 
   syncRuns      SyncRun[]
   webhookEvents WebhookEvent[]
@@ -1206,14 +1328,14 @@ model SyncRun {
 // unique per (integration, deliveryId) so a captured-and-replayed request
 // is rejected rather than reprocessed.
 model WebhookEvent {
-  id            String   @id @default(cuid())
+  id            String              @id @default(cuid())
   integrationId String
   provider      IntegrationProvider
   deliveryId    String
   topic         String
   resourceId    String?
   status        String
-  receivedAt    DateTime @default(now())
+  receivedAt    DateTime            @default(now())
 
   integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
 

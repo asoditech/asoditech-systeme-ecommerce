@@ -81,6 +81,8 @@ export const createOrderSchema = z.object({
   fulfillmentWarehouseId: z.string().min(1).nullish().or(z.literal("")),
   paymentMethod: paymentMethodSchema,
   channel: orderChannelSchema.default("WHATSAPP"),
+  // Optional confirmation agent (docs/adr/0022) — validated server-side.
+  confirmationAgentId: z.string().min(1).nullish().or(z.literal("")),
   shippingCost: z.coerce.number().min(0).default(0),
   discountTotal: z.coerce.number().min(0).default(0),
   currency: z.string().length(3).default("MAD"),

@@ -20,6 +20,7 @@ import {
   resolveNotifications,
 } from "@/lib/notifications";
 import { pushStockAfterLocalChange, pushOrderPaymentToWooCommerce, pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
+import { reconcileOrderCommission } from "@/lib/commissions";
 import {
   createOrderSchema,
   updateOrderStatusSchema,
@@ -151,6 +152,15 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
     return actionError("Client introuvable.");
   }
 
+  const confirmationAgentId =
+    parsed.data.confirmationAgentId && parsed.data.confirmationAgentId.length > 0
+      ? parsed.data.confirmationAgentId
+      : null;
+  if (confirmationAgentId) {
+    const agent = await prisma.commissionAgent.findUnique({ where: { id: confirmationAgentId } });
+    if (!agent) return actionError("Agent de confirmation invalide.");
+  }
+
   // Fulfilment warehouse (Phase 32b — see docs/adr/0020-stock-transfers.md).
   // A client-supplied override is validated (must exist and be active — an
   // operator may legitimately fulfil from an active MAGASIN for a walk-in
@@ -239,6 +249,7 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
         customerId: parsed.data.customerId,
         paymentMethod: parsed.data.paymentMethod,
         channel: parsed.data.channel,
+        confirmationAgentId,
         shippingCost: parsed.data.shippingCost,
         discountTotal: parsed.data.discountTotal,
         subtotal,
@@ -410,6 +421,10 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
     await pushOrderStatusToWooCommerce(order.id);
   }
 
+  // Reconcile the confirmation-agent commission — earns on LIVREE, reverses
+  // when a previously-earned order leaves it. Idempotent, best-effort.
+  await reconcileOrderCommission(order.id, user.id);
+
   revalidatePath("/commandes");
   revalidatePath(`/commandes/${order.id}`);
   return actionOk({ id: order.id });
@@ -540,6 +555,9 @@ export async function cancelOrderAction(formData: FormData): Promise<ActionResul
     variationIds: lines.map((l) => l.variationId),
   });
   await pushOrderStatusToWooCommerce(order.id);
+  // Cancelling a delivered order (LIVREE only reaches ANNULEE indirectly,
+  // but a cancel from any state must undo any earned commission).
+  await reconcileOrderCommission(order.id, user.id);
 
   revalidatePath("/commandes");
   revalidatePath(`/commandes/${order.id}`);
