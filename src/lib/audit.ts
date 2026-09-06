@@ -53,6 +53,7 @@ export type AuditAction =
   | "shipment.status_sync_failed"
   | "shipment.cancelled"
   | "shipment.cancellation_failed"
+  | "shipment.deleted"
   | "shipment.webhook_received"
   | "shipment.webhook_rejected"
   | "delivery_manifest.created"

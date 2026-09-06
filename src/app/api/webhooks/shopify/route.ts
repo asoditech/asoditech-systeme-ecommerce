@@ -46,6 +46,7 @@ const SUPPORTED_TOPICS = new Set([
   "refunds/create",
   "products/create",
   "products/update",
+  "products/delete",
   "inventory_levels/update",
 ]);
 
@@ -188,6 +189,34 @@ export async function POST(request: Request): Promise<Response> {
       }
     } catch {
       await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: inventoryItemGid, status: "ECHEC" });
+      return new Response(null, { status: 500 });
+    }
+    return new Response(null, { status: 200 });
+  }
+
+  if (topic === "products/delete") {
+    const parsed = productEnvelopeSchema.safeParse(payload);
+    if (!parsed.success) {
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, status: "ECHEC" });
+      return new Response(null, { status: 400 });
+    }
+    const productGid = `gid://shopify/Product/${parsed.data.id}`;
+    try {
+      const product = await prisma.product.findFirst({ where: { source: "SHOPIFY", externalId: productGid } });
+      if (product && product.status !== "ARCHIVE") {
+        await prisma.product.update({ where: { id: product.id }, data: { status: "ARCHIVE" } });
+        await recordAuditEvent({
+          actorType: "INTEGRATION",
+          action: "product.archived",
+          entityType: "Product",
+          entityId: product.id,
+          metadata: { source: "SHOPIFY", reason: "deleted_upstream" },
+        });
+        revalidateAfterImport("product");
+      }
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: productGid, status: "TRAITE" });
+    } catch {
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: productGid, status: "ECHEC" });
       return new Response(null, { status: 500 });
     }
     return new Response(null, { status: 200 });

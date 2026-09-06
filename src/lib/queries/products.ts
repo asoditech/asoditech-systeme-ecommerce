@@ -78,6 +78,7 @@ export async function getProductDetail(id: string) {
       images: { orderBy: { position: "asc" } },
       variations: { include: { inventoryItems: true }, orderBy: { createdAt: "asc" } },
       inventoryItems: { include: { warehouse: true } },
+      _count: { select: { orderItems: true } },
     },
   });
 }
@@ -108,6 +109,7 @@ export async function getProductProfitStats(productId: string): Promise<{
   revenue: number;
   cogs: number | null;
   cogsComplete: boolean;
+  linesMissingCost: number;
   grossProfit: number | null;
   marginPct: number | null;
 }> {
@@ -120,11 +122,14 @@ export async function getProductProfitStats(productId: string): Promise<{
   let revenue = new Prisma.Decimal(0);
   let cogs = new Prisma.Decimal(0);
   let complete = true;
+  let linesMissingCost = 0;
   for (const l of lines) {
     units += l.quantity;
     revenue = revenue.plus(l.total);
-    if (l.costSnapshot === null) complete = false;
-    else cogs = cogs.plus(new Prisma.Decimal(l.costSnapshot).mul(l.quantity));
+    if (l.costSnapshot === null) {
+      complete = false;
+      linesMissingCost++;
+    } else cogs = cogs.plus(new Prisma.Decimal(l.costSnapshot).mul(l.quantity));
   }
   const grossProfit = complete ? revenue.minus(cogs) : null;
   const round = (d: Prisma.Decimal) => Number(d.toDecimalPlaces(2).toString());
@@ -133,6 +138,7 @@ export async function getProductProfitStats(productId: string): Promise<{
     revenue: round(revenue),
     cogs: complete ? round(cogs) : null,
     cogsComplete: complete,
+    linesMissingCost,
     grossProfit: grossProfit === null ? null : round(grossProfit),
     marginPct:
       grossProfit === null || revenue.isZero()

@@ -165,6 +165,21 @@ describe("POST /api/webhooks/shopify", () => {
     expect(event.status).toBe("IGNORE");
   });
 
+  it("archives a product on a products/delete delivery", async () => {
+    await seedIntegration();
+    const gid = "gid://shopify/Product/9500";
+    const product = await prisma.product.create({
+      data: { name: "Vieux", sku: "SH-DEL-1", price: 100, status: "ACTIF", source: "SHOPIFY", externalId: gid },
+    });
+    const body = JSON.stringify({ id: 9500 });
+    const response = await POST(
+      request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "products/delete", "x-shopify-webhook-id": "d-del" })
+    );
+    expect(response.status).toBe(200);
+    const after = await prisma.product.findUniqueOrThrow({ where: { id: product.id } });
+    expect(after.status).toBe("ARCHIVE");
+  });
+
   it("rejects a malformed (non-JSON) body with 400", async () => {
     await seedIntegration();
     const body = "not json at all";

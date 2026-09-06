@@ -615,6 +615,41 @@ export async function cancelShipmentAction(formData: FormData): Promise<ActionRe
 }
 
 /**
+ * Removes a shipment row that never became a real parcel — only a failed
+ * attempt (`status === "ECHEC"`, no `externalId`). Nothing external to
+ * undo; the order stays exactly where it was and can be re-shipped from
+ * « À expédier ». A shipment that reached the carrier (has an externalId)
+ * is NOT deletable here — it must be cancelled through the carrier first.
+ */
+export async function deleteFailedShipmentAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("delivery.manage");
+
+  const parsed = shipmentIdSchema.safeParse({ shipmentId: formData.get("shipmentId") });
+  if (!parsed.success) return actionError("Expédition invalide.");
+
+  const shipment = await prisma.shipment.findUnique({ where: { id: parsed.data.shipmentId } });
+  if (!shipment) return actionError("Expédition introuvable.");
+  if (shipment.status !== "ECHEC" || shipment.externalId) {
+    return actionError("Seule une tentative d'expédition en échec (sans colis chez le transporteur) peut être supprimée.");
+  }
+
+  await prisma.shipment.delete({ where: { id: shipment.id } });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "shipment.deleted",
+    entityType: "Order",
+    entityId: shipment.orderId,
+    metadata: { providerId: shipment.providerId, failedReason: shipment.failedReason },
+  });
+
+  revalidatePath("/livraison");
+  revalidatePath(`/commandes/${shipment.orderId}`);
+  return actionOk({ id: shipment.orderId });
+}
+
+/**
  * Bon de Livraison / manifest — groups a batch of EN_ATTENTE API
  * shipments of one provider into a carrier delivery note and stores its
  * printable-document links. See docs/adr/0015-delivery-manifest.md.

@@ -189,7 +189,7 @@ describe("POST /api/webhooks/woocommerce", () => {
     await seedIntegration();
     const body = orderPayload();
     const response = await POST(
-      request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "product.deleted", "x-wc-webhook-delivery-id": "d5" })
+      request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "coupon.created", "x-wc-webhook-delivery-id": "d5" })
     );
     expect(response.status).toBe(200);
 
@@ -198,6 +198,32 @@ describe("POST /api/webhooks/woocommerce", () => {
 
     const event = await prisma.webhookEvent.findFirstOrThrow({ where: { deliveryId: "d5" } });
     expect(event.status).toBe("IGNORE");
+  });
+
+  it("archives a product on a product.deleted delivery, keeping its history", async () => {
+    await seedIntegration();
+    const product = await prisma.product.create({
+      data: { name: "Vieux produit", sku: "WC-DEL-1", price: 100, status: "ACTIF", source: "WOOCOMMERCE", externalId: "9500" },
+    });
+    const body = JSON.stringify({ id: 9500 });
+    const response = await POST(
+      request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "product.deleted", "x-wc-webhook-delivery-id": "d-del" })
+    );
+    expect(response.status).toBe(200);
+
+    const after = await prisma.product.findUniqueOrThrow({ where: { id: product.id } });
+    expect(after.status).toBe("ARCHIVE");
+    const audit = await prisma.auditEvent.findFirstOrThrow({ where: { entityId: product.id, action: "product.archived" } });
+    expect(audit.actorType).toBe("INTEGRATION");
+  });
+
+  it("product.deleted for an unknown product is a no-op 200", async () => {
+    await seedIntegration();
+    const body = JSON.stringify({ id: 424242 });
+    const response = await POST(
+      request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "product.deleted", "x-wc-webhook-delivery-id": "d-del-2" })
+    );
+    expect(response.status).toBe(200);
   });
 
   it("rejects a malformed (non-JSON) body with 400", async () => {

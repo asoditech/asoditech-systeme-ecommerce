@@ -6,6 +6,7 @@ import {
   testDeliveryProviderConnectionAction,
   createShipmentViaProviderAction,
   createShipmentsBulkAction,
+  deleteFailedShipmentAction,
   linkExistingShipmentAction,
   refreshShipmentStatusesAction,
   cancelShipmentAction,
@@ -260,6 +261,33 @@ describe("OzonExpress connector — Server Action layer", () => {
 
       expect(state.seenUrls.some((u) => u.includes("/add-parcel"))).toBe(false);
       expect(await prisma.shipment.count({ where: { orderId } })).toBe(0);
+    });
+  });
+
+  describe("deleteFailedShipmentAction", () => {
+    it("removes an ECHEC attempt with no external parcel; the order can be re-shipped", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await configuredProvider();
+      const orderId = await seedShippableOrder();
+      state.forceAddParcelErrorMessage = "City Not Found";
+      await createShipmentViaProviderAction(formData({ orderId, providerId: provider.id }));
+
+      const failed = await prisma.shipment.findFirstOrThrow({ where: { orderId, status: "ECHEC" } });
+      const res = await deleteFailedShipmentAction(formData({ shipmentId: failed.id }));
+      expect(res.ok).toBe(true);
+      expect(await prisma.shipment.count({ where: { orderId } })).toBe(0);
+    });
+
+    it("refuses to delete a shipment that reached the carrier (has an externalId)", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await configuredProvider();
+      const orderId = await seedShippableOrder();
+      await createShipmentViaProviderAction(formData({ orderId, providerId: provider.id }));
+
+      const live = await prisma.shipment.findFirstOrThrow({ where: { orderId } });
+      const res = await deleteFailedShipmentAction(formData({ shipmentId: live.id }));
+      expect(res.ok).toBe(false);
+      expect(await prisma.shipment.count({ where: { orderId } })).toBe(1);
     });
   });
 

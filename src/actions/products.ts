@@ -360,3 +360,113 @@ export async function updateProductOperationalSettingsAction(formData: FormData)
   revalidatePath(`/produits/${product.id}`);
   return actionOk({ id: product.id });
 }
+
+/**
+ * Removes a product that no longer belongs in the catalogue — typically
+ * one deleted from the connected store (the `product.deleted` webhook does
+ * this automatically, but a missed webhook or a manual clean-up needs a
+ * button). If the product was never sold it is deleted outright
+ * (variations, images and stock rows cascade); otherwise it is archived,
+ * so its order history keeps a live link. Works for internal and
+ * external products alike — a product deleted upstream has no owner left.
+ */
+export async function removeProductAction(formData: FormData): Promise<ActionResult<{ id: string; deleted: boolean }>> {
+  const user = await requirePermissionForAction("products.edit");
+
+  const productId = String(formData.get("productId") ?? "");
+  if (!productId) return actionError("Produit invalide.");
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { id: true, name: true, source: true, status: true, _count: { select: { orderItems: true } } },
+  });
+  if (!product) return actionError("Produit introuvable.");
+
+  const soldCount = product._count.orderItems;
+  if (soldCount === 0) {
+    await prisma.product.delete({ where: { id: productId } });
+    await recordAuditEvent({
+      actorType: "USER",
+      actorUserId: user.id,
+      action: "product.archived",
+      entityType: "Product",
+      entityId: productId,
+      metadata: { name: product.name, source: product.source, removed: "deleted", reason: "manual_cleanup" },
+    });
+    revalidatePath("/produits");
+    return actionOk({ id: productId, deleted: true });
+  }
+
+  if (product.status !== "ARCHIVE") {
+    await prisma.product.update({ where: { id: productId }, data: { status: "ARCHIVE" } });
+  }
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "product.archived",
+    entityType: "Product",
+    entityId: productId,
+    metadata: { name: product.name, source: product.source, removed: "archived", soldCount, reason: "manual_cleanup" },
+  });
+  revalidatePath("/produits");
+  revalidatePath(`/produits/${productId}`);
+  return actionOk({ id: productId, deleted: false });
+}
+
+/**
+ * Backfills `OrderItem.costSnapshot` on this product's PAST sales that
+ * currently have none — using the product's (or the variation's) cost as
+ * it stands NOW. Deliberate override: it *does* change historical
+ * profitability, so it's an explicit button, not automatic. Only ever
+ * fills a null snapshot — a line that already carries a cost is left
+ * untouched. Skips cancelled / failed / returned / refunded orders.
+ */
+export async function backfillProductCostSnapshotsAction(
+  formData: FormData
+): Promise<ActionResult<{ id: string; updated: number }>> {
+  const user = await requirePermissionForAction("products.edit");
+
+  const productId = String(formData.get("productId") ?? "");
+  if (!productId) return actionError("Produit invalide.");
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { id: true, cost: true, variations: { select: { id: true, cost: true } } },
+  });
+  if (!product) return actionError("Produit introuvable.");
+  if (product.cost === null && product.variations.every((v) => v.cost === null)) {
+    return actionError("Renseignez d'abord le coût d'achat du produit.");
+  }
+
+  const EXCLUDED = ["ANNULEE", "ECHEC", "RETOUR", "REMBOURSEE"] as const;
+  const variationCost = new Map(product.variations.map((v) => [v.id, v.cost ?? product.cost]));
+
+  const lines = await prisma.orderItem.findMany({
+    where: { productId, costSnapshot: null, order: { status: { notIn: [...EXCLUDED] } } },
+    select: { id: true, variationId: true },
+  });
+
+  let updated = 0;
+  for (const line of lines) {
+    const cost = line.variationId ? variationCost.get(line.variationId) ?? product.cost : product.cost;
+    if (cost === null) continue;
+    await prisma.orderItem.update({ where: { id: line.id }, data: { costSnapshot: cost } });
+    updated++;
+  }
+
+  if (updated > 0) {
+    await recordAuditEvent({
+      actorType: "USER",
+      actorUserId: user.id,
+      action: "product.updated",
+      entityType: "Product",
+      entityId: productId,
+      metadata: { costSnapshotBackfill: updated },
+    });
+  }
+
+  revalidatePath(`/produits/${productId}`);
+  revalidatePath("/finance");
+  revalidatePath("/analyses");
+  return actionOk({ id: productId, updated });
+}

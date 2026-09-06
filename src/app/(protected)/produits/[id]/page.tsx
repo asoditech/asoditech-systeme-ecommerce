@@ -21,6 +21,8 @@ import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { KpiCard } from "@/components/kpi-card";
 import { ProductForm } from "@/components/products/product-form";
+import { BackfillCostButton } from "@/components/products/backfill-cost-button";
+import { RemoveProductButton } from "@/components/products/remove-product-button";
 import { VariationForm } from "@/components/products/variation-form";
 import { OperationalSettingsForm } from "@/components/products/operational-settings-form";
 import { Badge } from "@/components/ui/badge";
@@ -222,6 +224,13 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
                 <ExternalLink className="size-4" />
               </Button>
             )}
+            {canEdit && (
+              <RemoveProductButton
+                productId={product.id}
+                productName={product.name}
+                neverSold={product._count.orderItems === 0}
+              />
+            )}
           </>
         }
       />
@@ -291,10 +300,16 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
                 <p className="mt-1 text-lg font-semibold">{profit.unitsSold}</p>
               </div>
             </div>
-            <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
-              Le bénéfice réalisé utilise le coût figé à chaque vente : modifier le coût d&apos;achat maintenant ne change
-              pas l&apos;historique.
-            </p>
+            <div className="mt-3 space-y-2 border-t pt-3">
+              <p className="text-xs text-muted-foreground">
+                Le bénéfice réalisé utilise le coût figé <strong>au moment de chaque vente</strong>. Une vente enregistrée
+                avant que vous ne renseigniez le coût d&apos;achat n&apos;a pas de coût figé — c&apos;est pourquoi le
+                bénéfice peut rester « coût manquant » même après avoir saisi le coût aujourd&apos;hui.
+              </p>
+              {canEdit && !profit.cogsComplete && profit.linesMissingCost > 0 && product.cost !== null && (
+                <BackfillCostButton productId={product.id} missingCount={profit.linesMissingCost} />
+              )}
+            </div>
           </CardContent>
         </Card>
       )}

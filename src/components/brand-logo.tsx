@@ -16,6 +16,7 @@ const BRAND_SRC = {
   "google-sheets": "/brands/google-sheets.webp",
   tiktok: "/brands/tiktok.png",
   ozonexpress: "/brands/ozonexpress.png",
+  email: "/brands/email.png",
   ai: "/brands/ai.png",
   ameex: "/brands/ameex.png",
   speedaf: "/brands/speedaf.png",

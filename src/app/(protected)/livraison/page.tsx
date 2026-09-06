@@ -32,7 +32,7 @@ import {
   listOrdersAwaitingShipment,
   listAvailableDeliveryConnectors,
 } from "@/lib/queries/delivery";
-import { deleteShippingProviderAction } from "@/actions/delivery";
+import { deleteShippingProviderAction, deleteFailedShipmentAction } from "@/actions/delivery";
 import { formatCurrency, formatDateTime, displayOrderNumber, formatPercent } from "@/lib/format";
 import { SHIPMENT_STATUS_LABELS, SHIPPING_PROVIDER_TYPE_LABELS } from "@/lib/status-labels";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
@@ -242,6 +242,16 @@ export default async function LivraisonPage({
                                 {s.provider.type === "API" && (
                                   <RetryShipmentButton orderId={s.orderId} providerId={s.provider.id} />
                                 )}
+                                <ConfirmActionButton
+                                  label="Supprimer"
+                                  variant="ghost"
+                                  title="Supprimer cette tentative d'expédition ?"
+                                  description="La ligne en échec est retirée. Aucun colis n'existe chez le transporteur. La commande reste inchangée et peut être ré-expédiée depuis « À expédier »."
+                                  hiddenFields={{ shipmentId: s.id }}
+                                  action={deleteFailedShipmentAction}
+                                  successMessage="Tentative supprimée."
+                                  destructive
+                                />
                               </div>
                             </div>
                           ) : null}

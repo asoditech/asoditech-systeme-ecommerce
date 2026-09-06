@@ -31,7 +31,13 @@ import { recordWebhookEventOnce } from "@/lib/integrations/shared";
  * only then parse and act on the body. No raw external payload is ever
  * persisted — see the WebhookEvent model.
  */
-const SUPPORTED_TOPICS = new Set(["order.created", "order.updated", "product.created", "product.updated"]);
+const SUPPORTED_TOPICS = new Set([
+  "order.created",
+  "order.updated",
+  "product.created",
+  "product.updated",
+  "product.deleted",
+]);
 
 /** A webhook import writes straight to the DB but the Server-Component
  * pages that read it are cached per-path — without this, a new store order
@@ -112,6 +118,36 @@ export async function POST(request: Request): Promise<Response> {
   } catch {
     await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, status: "ECHEC" });
     return new Response(null, { status: 400 });
+  }
+
+  if (topic === "product.deleted") {
+    // WooCommerce sends only `{ id }` here. We archive rather than delete —
+    // the product may carry order history and stock movements. An already
+    // ARCHIVE/absent product is a no-op.
+    const id = (payload as { id?: unknown })?.id;
+    if (typeof id !== "number" && typeof id !== "string") {
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, status: "ECHEC" });
+      return new Response(null, { status: 400 });
+    }
+    try {
+      const product = await prisma.product.findFirst({ where: { source: "WOOCOMMERCE", externalId: String(id) } });
+      if (product && product.status !== "ARCHIVE") {
+        await prisma.product.update({ where: { id: product.id }, data: { status: "ARCHIVE" } });
+        await recordAuditEvent({
+          actorType: "INTEGRATION",
+          action: "product.archived",
+          entityType: "Product",
+          entityId: product.id,
+          metadata: { source: "WOOCOMMERCE", reason: "deleted_upstream" },
+        });
+        revalidateAfterImport("product");
+      }
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, resourceId: String(id), status: "TRAITE" });
+    } catch {
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, resourceId: String(id), status: "ECHEC" });
+      return new Response(null, { status: 500 });
+    }
+    return new Response(null, { status: 200 });
   }
 
   if (topic === "product.created" || topic === "product.updated") {

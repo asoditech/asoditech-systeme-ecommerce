@@ -5,6 +5,8 @@ import {
   updateProductAction,
   updateProductOperationalSettingsAction,
   createProductVariationAction,
+  backfillProductCostSnapshotsAction,
+  removeProductAction,
 } from "@/actions/products";
 import { resetDb } from "../helpers/db";
 import { loginAsTestUser } from "../helpers/auth";
@@ -15,6 +17,116 @@ function formData(fields: Record<string, string>) {
   for (const [key, value] of Object.entries(fields)) fd.set(key, value);
   return fd;
 }
+
+describe("backfillProductCostSnapshotsAction", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  it("fills a null costSnapshot on past sales with the current cost, skipping cancelled orders and priced lines", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const customer = await prisma.customer.create({ data: { fullName: "C" } });
+    const product = await prisma.product.create({ data: { name: "P", sku: "BF-1", price: 150, cost: 70, status: "ACTIF" } });
+
+    const sold = await prisma.order.create({
+      data: {
+        customerId: customer.id,
+        status: "LIVREE",
+        subtotal: 300,
+        total: 300,
+        currency: "MAD",
+        items: {
+          create: [
+            { productId: product.id, nameSnapshot: "P", skuSnapshot: "BF-1", unitPrice: 150, quantity: 1, total: 150, costSnapshot: null },
+            { productId: product.id, nameSnapshot: "P", skuSnapshot: "BF-1", unitPrice: 150, quantity: 1, total: 150, costSnapshot: 55 },
+          ],
+        },
+      },
+      include: { items: true },
+    });
+    const cancelled = await prisma.order.create({
+      data: {
+        customerId: customer.id,
+        status: "ANNULEE",
+        subtotal: 150,
+        total: 150,
+        currency: "MAD",
+        items: { create: { productId: product.id, nameSnapshot: "P", skuSnapshot: "BF-1", unitPrice: 150, quantity: 1, total: 150, costSnapshot: null } },
+      },
+      include: { items: true },
+    });
+
+    const res = await backfillProductCostSnapshotsAction(formData({ productId: product.id }));
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.data.updated).toBe(1);
+
+    const filled = await prisma.orderItem.findUniqueOrThrow({ where: { id: sold.items.find((i) => i.costSnapshot === null)!.id } });
+    expect(Number(filled.costSnapshot)).toBe(70);
+    const untouched = await prisma.orderItem.findUniqueOrThrow({ where: { id: sold.items.find((i) => Number(i.costSnapshot) === 55)!.id } });
+    expect(Number(untouched.costSnapshot)).toBe(55);
+    const cancelledLine = await prisma.orderItem.findFirstOrThrow({ where: { orderId: cancelled.id } });
+    expect(cancelledLine.costSnapshot).toBeNull();
+  });
+
+  it("refuses when no cost is set on the product", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const product = await prisma.product.create({ data: { name: "P", sku: "BF-2", price: 100, cost: null, status: "ACTIF" } });
+    const res = await backfillProductCostSnapshotsAction(formData({ productId: product.id }));
+    expect(res.ok).toBe(false);
+  });
+});
+
+describe("removeProductAction", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  it("hard-deletes a product that was never sold", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const product = await prisma.product.create({ data: { name: "Test", sku: "RM-1", price: 10, status: "ACTIF", source: "WOOCOMMERCE", externalId: "1" } });
+    const res = await removeProductAction(formData({ productId: product.id }));
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.data.deleted).toBe(true);
+    expect(await prisma.product.findUnique({ where: { id: product.id } })).toBeNull();
+  });
+
+  it("archives a product that has order history", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const customer = await prisma.customer.create({ data: { fullName: "C" } });
+    const product = await prisma.product.create({ data: { name: "Sold", sku: "RM-2", price: 10, status: "ACTIF" } });
+    await prisma.order.create({
+      data: {
+        customerId: customer.id,
+        status: "LIVREE",
+        subtotal: 10,
+        total: 10,
+        currency: "MAD",
+        items: { create: { productId: product.id, nameSnapshot: "Sold", skuSnapshot: "RM-2", unitPrice: 10, quantity: 1, total: 10 } },
+      },
+    });
+    const res = await removeProductAction(formData({ productId: product.id }));
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.data.deleted).toBe(false);
+    const after = await prisma.product.findUniqueOrThrow({ where: { id: product.id } });
+    expect(after.status).toBe("ARCHIVE");
+  });
+
+  it("requires products.edit", async () => {
+    await loginAsTestUser({ role: "SUPPORT" });
+    const product = await prisma.product.create({ data: { name: "X", sku: "RM-3", price: 10, status: "ACTIF" } });
+    await expect(removeProductAction(formData({ productId: product.id }))).rejects.toThrow();
+  });
+});
 
 describe("createProductAction", () => {
   beforeEach(async () => {

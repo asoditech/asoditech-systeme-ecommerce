@@ -1,4 +1,4 @@
-import { Plug, Mail, Clock3 } from "lucide-react";
+import { Plug, Clock3 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { BrandLogo, type BrandKey } from "@/components/brand-logo";
 import { WooCommerceCard } from "@/components/integrations/woocommerce-card";
@@ -28,6 +28,7 @@ const PLANNED_PROVIDER_BRANDS: Partial<Record<string, BrandKey>> = {
   GOOGLE_ADS: "google",
   TIKTOK_ADS: "tiktok",
   WHATSAPP: "whatsapp",
+  EMAIL: "email",
   GOOGLE_SHEETS: "google-sheets",
   AI_PROVIDER: "ai",
 };
@@ -73,7 +74,7 @@ export default async function IntegrationsPage() {
                     </span>
                   ) : (
                     <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                      <Mail className="size-4.5" />
+                      <Plug className="size-4.5" />
                     </div>
                   )}
                   <CardTitle className="text-sm text-muted-foreground">{label}</CardTitle>
