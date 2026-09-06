@@ -16,6 +16,7 @@ import { LinkShipmentDialog } from "@/components/delivery/link-shipment-dialog";
 import { EditShippingAddressDialog } from "@/components/orders/edit-shipping-address-dialog";
 import { AssignAgentControl } from "@/components/commissions/assign-agent-control";
 import { getOrderCommission, listAssignableCommissionAgents } from "@/lib/queries/commissions";
+import { computeOrderProfit } from "@/lib/profitability";
 import { formatCurrency, formatDateTime, displayOrderNumber, displayOrderChannel } from "@/lib/format";
 import { humanizeAuditAction } from "@/lib/audit-labels";
 import {
@@ -26,6 +27,38 @@ import {
   REFUND_STATUS_LABELS,
 } from "@/lib/status-labels";
 import type { OrderStatusValue } from "@/lib/validation/order";
+
+function Row({
+  label,
+  value,
+  muted,
+  strong,
+  warn,
+  negative,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+  strong?: boolean;
+  warn?: boolean;
+  negative?: boolean;
+}) {
+  return (
+    <p className="flex justify-between gap-4">
+      <span className="text-muted-foreground">{label}</span>
+      <span
+        className={[
+          strong ? "font-medium" : "",
+          muted ? "text-muted-foreground" : "text-foreground",
+          warn ? "text-amber-600 dark:text-amber-400" : "",
+          negative ? "text-destructive" : "",
+        ].join(" ")}
+      >
+        {value}
+      </span>
+    </p>
+  );
+}
 
 export default async function CommandeDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("orders.view");
@@ -38,6 +71,16 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
   const canCancel = hasPermission(user.role, "orders.cancel");
   const canRefund = hasPermission(user.role, "orders.refund");
   const canManageDelivery = hasPermission(user.role, "delivery.manage");
+  const canViewFinance = hasPermission(user.role, "finance.view");
+  const profit = canViewFinance
+    ? computeOrderProfit({
+        status: order.status,
+        total: order.total,
+        items: order.items,
+        refunds: order.refunds,
+        shipments: order.shipments,
+      })
+    : null;
   const canViewCommissions = hasPermission(user.role, "commissions.view");
   const canManageCommissions = hasPermission(user.role, "commissions.manage");
   const deliveryProviders = canManageDelivery ? await listShipmentProviderOptions() : [];
@@ -293,6 +336,67 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">Aucun agent assigné.</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {profit && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Rentabilité</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm">
+                {!profit.counted ? (
+                  <p className="text-muted-foreground">
+                    Commande {order.status.toLowerCase()} — non comptée dans le chiffre d&apos;affaires.
+                  </p>
+                ) : (
+                  <>
+                    <Row label="Chiffre d'affaires" value={formatCurrency(String(profit.revenue), order.currency)} />
+                    {profit.refundsTotal > 0 && (
+                      <Row label="Remboursé" value={`− ${formatCurrency(String(profit.refundsTotal), order.currency)}`} muted />
+                    )}
+                    <Row
+                      label="Coût des marchandises"
+                      value={profit.cogs === null ? "coût manquant" : formatCurrency(String(profit.cogs), order.currency)}
+                      muted
+                      warn={profit.cogs === null}
+                    />
+                    <Row
+                      label="Bénéfice brut"
+                      value={
+                        profit.grossProfit === null
+                          ? "—"
+                          : `${formatCurrency(String(profit.grossProfit), order.currency)}${
+                              profit.grossMarginPct !== null ? ` (${profit.grossMarginPct.toFixed(1)} %)` : ""
+                            }`
+                      }
+                      strong
+                      negative={profit.grossProfit !== null && profit.grossProfit < 0}
+                    />
+                    {profit.deliveryCost > 0 && (
+                      <Row
+                        label="Coût de livraison"
+                        value={`− ${formatCurrency(String(profit.deliveryCost), order.currency)}`}
+                        muted
+                      />
+                    )}
+                    {profit.profitAfterDelivery !== null && (
+                      <Row
+                        label="Bénéfice après livraison"
+                        value={formatCurrency(String(profit.profitAfterDelivery), order.currency)}
+                        strong
+                        negative={profit.profitAfterDelivery < 0}
+                      />
+                    )}
+                    {profit.itemsMissingCost > 0 && (
+                      <p className="border-t pt-2 text-xs text-amber-600 dark:text-amber-400">
+                        {profit.itemsMissingCost} article(s) sans coût d&apos;achat renseigné — renseignez-le sur la fiche
+                        produit pour un bénéfice exact.
+                      </p>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>

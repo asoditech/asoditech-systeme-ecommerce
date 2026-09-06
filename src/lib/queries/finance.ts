@@ -1,9 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
-import type { OrderStatus, RecordSource } from "@prisma/client";
-
-const NON_REVENUE_STATUSES: OrderStatus[] = ["ANNULEE", "ECHEC"];
+import { computePeriodProfitability } from "@/lib/profitability";
 
 export interface PeriodRange {
   from: Date;
@@ -11,93 +9,20 @@ export interface PeriodRange {
 }
 
 /**
- * Revenue = gross total of orders that weren't cancelled/failed, minus
- * their own completed refunds, in the period. Refunds are attributed to
- * the period of the ORDER they belong to (via the `refunds` relation on
- * each order fetched for the period), not the refund's own date — a
- * refund processed in a later period for an order sold in this one must
- * still net out of THIS period's revenue, not silently leak into
- * whichever period the refund happened to be completed in. This was fixed
- * during the A–G audit (previously a separate, refund-date-scoped
- * aggregate could double-count or cross-attribute refunds across period
- * boundaries) — see docs/adr/0007-finance-and-profit.md.
+ * The period P&L — CA, refunds, COGS (from `OrderItem.costSnapshot` only,
+ * `cogsComplete` false when any is missing), delivery cost, expenses
+ * (advertising broken out), gross/net profit and their margins.
  *
- * COGS is summed only from order items that have a costSnapshot — if any
- * are missing, `cogsComplete` is false and the caller must show that the
- * figure is partial rather than presenting it as exact. COGS is NOT
- * reduced for returned/refunded orders in this phase — a known,
- * conservative (understates gross profit, never overstates it) limitation
- * documented in the ADR rather than an unproven reversal heuristic. Net
- * profit is never computed here as a single fabricated number when the
- * inputs are incomplete.
+ * Now a thin wrapper over `computePeriodProfitability` in
+ * `src/lib/profitability.ts` — the same Decimal-safe engine the order
+ * detail, product detail and Analytics use, so the four surfaces can't
+ * drift. Cancelled / failed / returned / refunded orders contribute
+ * neither revenue nor COGS; a partial refund on an order still counted
+ * nets out via its `refunds` relation, attributed to the ORDER's period
+ * (not the refund's own date). See docs/adr/0007-finance-and-profit.md.
  */
-export async function getFinanceSummary(period: PeriodRange, source?: RecordSource) {
-  const orders = await prisma.order.findMany({
-    where: {
-      // Filter on when the customer placed the order, not when a sync run
-      // imported the row — see the Order.placedAt schema comment.
-      placedAt: { gte: period.from, lte: period.to },
-      status: { notIn: NON_REVENUE_STATUSES },
-      ...(source ? { source } : {}),
-    },
-    include: { items: true, refunds: { where: { status: "COMPLETE" } } },
-  });
-
-  let grossRevenue = 0;
-  let refundsTotal = 0;
-  let cogs = 0;
-  let cogsComplete = true;
-  let itemCount = 0;
-
-  for (const order of orders) {
-    grossRevenue += Number(order.total);
-    for (const refund of order.refunds) {
-      refundsTotal += Number(refund.amount);
-    }
-    for (const item of order.items) {
-      itemCount++;
-      if (item.costSnapshot === null) {
-        cogsComplete = false;
-        continue;
-      }
-      cogs += Number(item.costSnapshot) * item.quantity;
-    }
-  }
-  if (itemCount === 0) cogsComplete = false;
-
-  const expenses = await prisma.expense.aggregate({
-    where: { date: { gte: period.from, lte: period.to } },
-    _sum: { amount: true },
-  });
-  const expensesTotal = Number(expenses._sum.amount ?? 0);
-
-  const deliveryCost = await prisma.shipment.aggregate({
-    where: { createdAt: { gte: period.from, lte: period.to }, cost: { not: null } },
-    _sum: { cost: true },
-  });
-  const deliveryCostTotal = Number(deliveryCost._sum.cost ?? 0);
-
-  const revenue = grossRevenue - refundsTotal;
-  const grossProfit = cogsComplete ? revenue - cogs : null;
-  const netProfit = cogsComplete ? grossProfit! - expensesTotal - deliveryCostTotal : null;
-
-  return {
-    ordersCount: orders.length,
-    revenue,
-    cogs: cogsComplete ? cogs : null,
-    cogsComplete,
-    grossProfit,
-    expensesTotal,
-    deliveryCostTotal,
-    refundsTotal,
-    netProfit,
-    // Average basket for the period, on gross order totals (not
-    // refund-netted) — null when there were no orders.
-    avgOrderValue: orders.length > 0 ? grossRevenue / orders.length : null,
-    // Everything the business spent in the period: recorded expenses plus
-    // what delivery cost.
-    chargesTotal: expensesTotal + deliveryCostTotal,
-  };
+export async function getFinanceSummary(period: PeriodRange, source?: Parameters<typeof computePeriodProfitability>[1]) {
+  return computePeriodProfitability(period, source);
 }
 
 export type ExpenseSort = "recent" | "amount-desc" | "amount-asc";

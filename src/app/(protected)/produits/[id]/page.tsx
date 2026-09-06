@@ -30,7 +30,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
-import { getProductDetail, getProductSalesStats, listCategories } from "@/lib/queries/products";
+import { getProductDetail, getProductSalesStats, getProductProfitStats, listCategories } from "@/lib/queries/products";
+import { unitEconomics } from "@/lib/profitability";
 import { availableStock } from "@/lib/inventory";
 import { resolveExternalProductEditUrl } from "@/lib/integrations/shared";
 import { formatCurrency } from "@/lib/format";
@@ -180,7 +181,12 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
   const [product, categories] = await Promise.all([getProductDetail(id), listCategories()]);
   if (!product) notFound();
 
-  const sales = await getProductSalesStats(id);
+  const canViewFinance = hasPermission(user.role, "finance.view");
+  const [sales, profit] = await Promise.all([
+    getProductSalesStats(id),
+    canViewFinance ? getProductProfitStats(id) : Promise.resolve(null),
+  ]);
+  const economics = canViewFinance ? unitEconomics(product.price, product.cost) : null;
   const canEdit = hasPermission(user.role, "products.edit");
   const totalStock = product.inventoryItems.reduce((sum, i) => sum + i.quantityOnHand, 0);
   const isLowStock = product.trackInventory && totalStock <= product.lowStockThreshold;
@@ -238,6 +244,60 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
           tone="success"
         />
       </div>
+
+      {canViewFinance && profit && economics && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-[15px]">Rentabilité</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 text-sm sm:grid-cols-3">
+              <div>
+                <p className="text-xs text-muted-foreground">Marge unitaire (au prix et coût actuels)</p>
+                <p className="mt-1 text-lg font-semibold">
+                  {economics.unitMargin === null
+                    ? "Coût d'achat non renseigné"
+                    : `${formatCurrency(String(economics.unitMargin))}${
+                        economics.unitMarginPct !== null ? ` · ${economics.unitMarginPct.toFixed(1)} %` : ""
+                      }`}
+                </p>
+                {economics.unitCost !== null && (
+                  <p className="text-xs text-muted-foreground">
+                    Prix {formatCurrency(product.price.toString())} − coût {formatCurrency(String(economics.unitCost))}
+                  </p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Bénéfice brut réalisé (ventes passées)</p>
+                <p className="mt-1 text-lg font-semibold">
+                  {profit.grossProfit === null ? (
+                    <span className="text-amber-600 dark:text-amber-400">Coût manquant sur des ventes</span>
+                  ) : (
+                    <>
+                      {formatCurrency(String(profit.grossProfit))}
+                      {profit.marginPct !== null && (
+                        <span className="text-sm font-normal text-muted-foreground"> · {profit.marginPct.toFixed(1)} %</span>
+                      )}
+                    </>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  CA {formatCurrency(String(profit.revenue))}
+                  {profit.cogs !== null && ` − coût ${formatCurrency(String(profit.cogs))}`}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Unités vendues (net des retours)</p>
+                <p className="mt-1 text-lg font-semibold">{profit.unitsSold}</p>
+              </div>
+            </div>
+            <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
+              Le bénéfice réalisé utilise le coût figé à chaque vente : modifier le coût d&apos;achat maintenant ne change
+              pas l&apos;historique.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs defaultValue="apercu">
         <TabsList>
