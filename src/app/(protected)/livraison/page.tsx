@@ -11,6 +11,7 @@ import { ProviderConnectionStatus, ProviderConnectionControls } from "@/componen
 import { CityMappingDialog } from "@/components/delivery/city-mapping-dialog";
 import { ShipmentProviderControls } from "@/components/delivery/shipment-provider-controls";
 import { RefreshStatusesButton } from "@/components/delivery/refresh-statuses-button";
+import { RetryShipmentButton } from "@/components/delivery/retry-shipment-button";
 import { AwaitingShipmentTable } from "@/components/delivery/awaiting-shipment-table";
 import { DeliveryDocs } from "@/components/delivery/delivery-docs";
 import { LivraisonDateFilter } from "@/components/delivery/livraison-date-filter";
@@ -210,12 +211,32 @@ export default async function LivraisonPage({
                       </TableCell>
                       {canManage && (
                         <TableCell>
-                          {s.externalId && (
+                          {s.externalId ? (
                             <ShipmentProviderControls
                               shipmentId={s.id}
                               canCancel={!TERMINAL_SHIPMENT_STATUSES.includes(s.status)}
                             />
-                          )}
+                          ) : s.status === "ECHEC" ? (
+                            <div className="space-y-1">
+                              {s.failedReason && (
+                                <p className="max-w-[16rem] text-[11px] leading-tight text-destructive">{s.failedReason}</p>
+                              )}
+                              <div className="flex flex-wrap gap-1">
+                                {s.provider.type === "API" && s.order.shippingCity && (
+                                  <CityMappingDialog
+                                    providerId={s.provider.id}
+                                    providerName={s.provider.name}
+                                    defaultLocalCity={s.order.shippingCity}
+                                    triggerLabel="Corriger la ville"
+                                    triggerVariant="ghost"
+                                  />
+                                )}
+                                {s.provider.type === "API" && (
+                                  <RetryShipmentButton orderId={s.orderId} providerId={s.provider.id} />
+                                )}
+                              </div>
+                            </div>
+                          ) : null}
                         </TableCell>
                       )}
                     </TableRow>

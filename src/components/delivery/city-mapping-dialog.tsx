@@ -34,7 +34,21 @@ import {
  * The catalogue is a live provider call, so it is loaded lazily when the
  * dialog opens, not on every Livraison render.
  */
-export function CityMappingDialog({ providerId, providerName }: { providerId: string; providerName: string }) {
+export function CityMappingDialog({
+  providerId,
+  providerName,
+  defaultLocalCity = "",
+  triggerLabel = "Correspondances de villes",
+  triggerVariant = "outline",
+}: {
+  providerId: string;
+  providerName: string;
+  /** Pre-fill "ville locale" — used when opened from a shipment that
+   * failed to resolve this exact city. */
+  defaultLocalCity?: string;
+  triggerLabel?: string;
+  triggerVariant?: "outline" | "ghost" | "default";
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [ctx, setCtx] = useState<DeliveryCityMappingContext | null>(null);
@@ -42,8 +56,9 @@ export function CityMappingDialog({ providerId, providerName }: { providerId: st
   const [isLoading, startLoad] = useTransition();
   const [isMutating, startMutate] = useTransition();
 
-  const [newLocalCity, setNewLocalCity] = useState("");
+  const [newLocalCity, setNewLocalCity] = useState(defaultLocalCity);
   const [newProviderCityId, setNewProviderCityId] = useState<string | undefined>(undefined);
+  const [catalogueFilter, setCatalogueFilter] = useState(defaultLocalCity);
 
   const load = useCallback(() => {
     startLoad(async () => {
@@ -64,7 +79,8 @@ export function CityMappingDialog({ providerId, providerName }: { providerId: st
     if (next) {
       setCtx(null);
       setLoadError(null);
-      setNewLocalCity("");
+      setNewLocalCity(defaultLocalCity);
+      setCatalogueFilter(defaultLocalCity);
       setNewProviderCityId(undefined);
       load();
     }
@@ -75,7 +91,8 @@ export function CityMappingDialog({ providerId, providerName }: { providerId: st
       const result = await fn();
       if (result.ok) {
         toast.success(successMessage);
-        setNewLocalCity("");
+        setNewLocalCity(defaultLocalCity);
+        setCatalogueFilter("");
         setNewProviderCityId(undefined);
         load();
         router.refresh();
@@ -111,12 +128,15 @@ export function CityMappingDialog({ providerId, providerName }: { providerId: st
   }
 
   const catalogue = ctx?.catalogue ?? [];
+  const filteredCatalogue = catalogueFilter.trim()
+    ? catalogue.filter((c) => c.name.toLowerCase().includes(catalogueFilter.trim().toLowerCase()))
+    : catalogue;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger render={<Button type="button" variant="outline" size="sm" />}>
+      <DialogTrigger render={<Button type="button" variant={triggerVariant} size="sm" />}>
         <MapPin className="size-4" />
-        Correspondances de villes
+        {triggerLabel}
       </DialogTrigger>
       <DialogContent className="max-w-xl">
         <DialogHeader>
@@ -220,6 +240,13 @@ export function CityMappingDialog({ providerId, providerName }: { providerId: st
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="mapping-provider-city">Ville du transporteur</Label>
+                <Input
+                  value={catalogueFilter}
+                  onChange={(e) => setCatalogueFilter(e.target.value)}
+                  placeholder="Filtrer le catalogue… (ex. « casa »)"
+                  autoComplete="off"
+                  className="mb-1.5"
+                />
                 <Select value={newProviderCityId} onValueChange={(v: string | null) => setNewProviderCityId(v ?? undefined)}>
                   <SelectTrigger id="mapping-provider-city" className="w-full">
                     <SelectValue placeholder="Choisir dans le catalogue">
@@ -227,16 +254,25 @@ export function CityMappingDialog({ providerId, providerName }: { providerId: st
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {catalogue.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
+                    {filteredCatalogue.length === 0 ? (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">Aucune ville ne correspond.</div>
+                    ) : (
+                      filteredCatalogue.slice(0, 60).map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
+                {filteredCatalogue.length > 60 && (
+                  <p className="text-xs text-muted-foreground">
+                    {filteredCatalogue.length} villes — affinez le filtre pour toutes les voir.
+                  </p>
+                )}
               </div>
               <Button type="button" size="sm" onClick={create} disabled={isMutating}>
-                Ajouter
+                Ajouter la correspondance
               </Button>
             </div>
           </div>

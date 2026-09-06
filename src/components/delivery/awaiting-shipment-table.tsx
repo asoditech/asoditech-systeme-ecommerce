@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CreateShipmentDialog, type ShipmentProviderOption } from "@/components/delivery/create-shipment-dialog";
+import { CityMappingDialog } from "@/components/delivery/city-mapping-dialog";
 import { formatCurrency, formatDate, displayOrderNumber } from "@/lib/format";
 
 export interface AwaitingOrderRow {
@@ -125,8 +126,16 @@ export function AwaitingShipmentTable({
             <Truck className={running ? "size-4 animate-pulse" : "size-4"} />
             {running ? "Création…" : `Créer les expéditions (${selected.size})`}
           </Button>
+          {bulkProviderId && (
+            <CityMappingDialog
+              providerId={bulkProviderId}
+              providerName={apiProviders.find((p) => p.id === bulkProviderId)?.name ?? ""}
+              triggerLabel="Villes du transporteur"
+              triggerVariant="ghost"
+            />
+          )}
           <span className="text-xs text-muted-foreground">
-            Traité par lots de {BATCH} — la page continue jusqu&apos;au bout.
+            Traité par lots de {BATCH}. Une ville non reconnue ? Ajoutez une correspondance ci-dessus.
           </span>
         </div>
       )}
