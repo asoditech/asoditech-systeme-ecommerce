@@ -29,11 +29,14 @@ const tabsListVariants = cva(
     variants: {
       variant: {
         default: "bg-muted/60 dark:bg-muted/40",
-        line: "gap-1 bg-transparent",
+        // Project-wide tab style: a left-aligned underline bar sitting on a
+        // hairline border, no filled pill background. Pages that need the
+        // pill style pass variant="default" explicitly.
+        line: "mb-4 h-auto w-full flex-wrap justify-start gap-1 border-b border-border/60 bg-transparent p-0 group-data-horizontal/tabs:h-auto",
       },
     },
     defaultVariants: {
-      variant: "default",
+      variant: "line",
     },
   }
 )
@@ -59,13 +62,14 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
       data-slot="tabs-trigger"
       className={cn(
         "relative inline-flex h-[calc(100%-2px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-3 py-1 text-sm font-medium whitespace-nowrap text-muted-foreground transition-all duration-150 group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 has-data-[icon=inline-end]:pr-1 has-data-[icon=inline-start]:pl-1 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        // "line" variant — an underline indicator instead of a filled pill.
-        "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent group-data-[variant=line]/tabs-list:data-active:text-foreground",
+        // "line" variant — an underline indicator instead of a filled pill;
+        // the list is h-auto here, so the trigger sizes from its own padding.
+        "group-data-[variant=line]/tabs-list:h-9 group-data-[variant=line]/tabs-list:flex-none group-data-[variant=line]/tabs-list:rounded-none group-data-[variant=line]/tabs-list:border-transparent group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent group-data-[variant=line]/tabs-list:data-active:text-foreground group-data-[variant=line]/tabs-list:data-active:font-semibold",
         // "default" variant — the active tab reads as a soft brand-orange
         // chip, the same "tinted pill" language as Badge's default variant
         // and the sidebar's active-item highlight (see docs/adr/0014).
         "group-data-[variant=default]/tabs-list:hover:bg-background/60 data-active:group-data-[variant=default]/tabs-list:bg-primary/10 data-active:group-data-[variant=default]/tabs-list:font-semibold data-active:group-data-[variant=default]/tabs-list:text-primary data-active:group-data-[variant=default]/tabs-list:shadow-xs",
-        "after:absolute after:bg-primary after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-horizontal/tabs:after:rounded-full group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100",
+        "after:absolute after:bg-primary after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-horizontal/tabs:after:rounded-full group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100 group-data-[variant=line]/tabs-list:after:bottom-[-1px]",
         className
       )}
       {...props}

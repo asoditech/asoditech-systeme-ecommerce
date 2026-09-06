@@ -4,13 +4,14 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { KpiCard } from "@/components/kpi-card";
-import { CreateShipmentDialog, type ShipmentProviderOption } from "@/components/delivery/create-shipment-dialog";
+import type { ShipmentProviderOption } from "@/components/delivery/create-shipment-dialog";
 import { ShipmentStatusSelect } from "@/components/delivery/shipment-status-select";
 import { ProviderForm } from "@/components/delivery/provider-form";
 import { ProviderConnectionStatus, ProviderConnectionControls } from "@/components/delivery/provider-connection";
 import { CityMappingDialog } from "@/components/delivery/city-mapping-dialog";
 import { ShipmentProviderControls } from "@/components/delivery/shipment-provider-controls";
 import { RefreshStatusesButton } from "@/components/delivery/refresh-statuses-button";
+import { AwaitingShipmentTable } from "@/components/delivery/awaiting-shipment-table";
 import { DeliveryDocs } from "@/components/delivery/delivery-docs";
 import { LivraisonDateFilter } from "@/components/delivery/livraison-date-filter";
 import { ConfirmActionButton } from "@/components/confirm-action-button";
@@ -30,7 +31,7 @@ import {
   listAvailableDeliveryConnectors,
 } from "@/lib/queries/delivery";
 import { deleteShippingProviderAction } from "@/actions/delivery";
-import { formatCurrency, formatDate, formatDateTime, displayOrderNumber, formatPercent } from "@/lib/format";
+import { formatCurrency, formatDateTime, displayOrderNumber, formatPercent } from "@/lib/format";
 import { SHIPMENT_STATUS_LABELS, SHIPPING_PROVIDER_TYPE_LABELS } from "@/lib/status-labels";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
 import { resolveDateRangePreset, DATE_RANGE_PRESET_LABELS, type DateRangePreset } from "@/lib/date-range-presets";
@@ -122,7 +123,7 @@ export default async function LivraisonPage({
       </div>
 
       <Tabs defaultValue={activeTab}>
-        <TabsList variant="line" className="mb-4 w-full justify-start border-b border-border/60 pb-px">
+        <TabsList>
           <TabsTrigger value="expeditions">Expéditions &amp; suivi</TabsTrigger>
           {canManage && <TabsTrigger value="a-expedier">À expédier ({awaitingTotal})</TabsTrigger>}
           <TabsTrigger value="prestataires">Prestataires</TabsTrigger>
@@ -264,39 +265,21 @@ export default async function LivraisonPage({
                 }
               />
             ) : (
-              <div className="rounded-lg border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Commande</TableHead>
-                      <TableHead>Client</TableHead>
-                      <TableHead>Total</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {awaitingShipment.map((o) => (
-                      <TableRow key={o.id}>
-                        <TableCell className="font-medium">
-                          <Link href={`/commandes/${o.id}`} className="hover:underline">
-                            {displayOrderNumber(o)}
-                          </Link>
-                        </TableCell>
-                        <TableCell>{o.customer.fullName}</TableCell>
-                        <TableCell>{formatCurrency(o.total.toString(), o.currency)}</TableCell>
-                        <TableCell className="text-muted-foreground">{formatDate(o.placedAt)}</TableCell>
-                        <TableCell>
-                          <CreateShipmentDialog
-                            orderId={o.id}
-                            providers={shipmentProviderOptions}
-                            defaultNotes={buildParcelContentsSummary(o.items) || undefined}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              <div className="space-y-2">
+                <AwaitingShipmentTable
+                  orders={awaitingShipment.map((o) => ({
+                    id: o.id,
+                    orderNumber: o.orderNumber,
+                    source: o.source,
+                    externalNumber: o.externalNumber,
+                    customerName: o.customer.fullName,
+                    total: o.total.toString(),
+                    currency: o.currency,
+                    placedAt: o.placedAt.toISOString(),
+                    parcelContents: buildParcelContentsSummary(o.items) || null,
+                  }))}
+                  providers={shipmentProviderOptions}
+                />
                 <DataTablePagination
                   page={awaitingResult.page}
                   pageSize={awaitingPageSize}

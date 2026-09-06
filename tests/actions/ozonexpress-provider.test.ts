@@ -5,6 +5,7 @@ import {
   configureDeliveryProviderApiAction,
   testDeliveryProviderConnectionAction,
   createShipmentViaProviderAction,
+  createShipmentsBulkAction,
   linkExistingShipmentAction,
   refreshShipmentStatusesAction,
   cancelShipmentAction,
@@ -309,6 +310,48 @@ describe("OzonExpress connector — Server Action layer", () => {
         formData({ orderId, providerId: provider.id, trackingNumber: "OZE-DUP" })
       );
       expect(second.ok).toBe(false);
+    });
+  });
+
+  describe("createShipmentsBulkAction — select many, create at once", () => {
+    it("creates a shipment for every selected order in the batch", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await configuredProvider();
+      const orderA = await seedShippableOrder();
+      const orderB = await seedShippableOrder();
+
+      const fd = formData({ providerId: provider.id, orderIds: `${orderA},${orderB}` });
+      const result = await createShipmentsBulkAction(fd);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.results.filter((r) => r.ok)).toHaveLength(2);
+      }
+      expect(await prisma.shipment.count({ where: { orderId: { in: [orderA, orderB] } } })).toBe(2);
+    });
+
+    it("reports per-order failures without aborting the rest", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await configuredProvider();
+      const good = await seedShippableOrder();
+      const bad = await seedShippableOrder();
+      // A NOUVELLE order isn't shippable — it must fail, the other still succeeds.
+      await prisma.order.update({ where: { id: bad }, data: { status: "NOUVELLE" } });
+
+      const result = await createShipmentsBulkAction(formData({ providerId: provider.id, orderIds: `${good},${bad}` }));
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.results.find((r) => r.orderId === good)?.ok).toBe(true);
+        expect(result.data.results.find((r) => r.orderId === bad)?.ok).toBe(false);
+      }
+    });
+
+    it("refuses a non-API provider", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const manual = await createShippingProviderAction(formData({ name: "Manuel", type: "MANUEL" }));
+      if (!manual.ok) throw new Error("setup failed");
+      const order = await seedShippableOrder();
+      const result = await createShipmentsBulkAction(formData({ providerId: manual.data.id, orderIds: order }));
+      expect(result.ok).toBe(false);
     });
   });
 

@@ -510,6 +510,79 @@ export async function linkExistingShipmentAction(formData: FormData): Promise<Ac
   return actionOk({ id: shipment.id });
 }
 
+/**
+ * Bulk "Créer les expéditions" — one API provider, many orders, a bounded
+ * batch per call so a 50-order day fits Vercel Hobby's ~10s wall clock
+ * (the client loops through the rest). Each order goes through the exact
+ * same createShipmentViaProvider path as the single-row dialog, so the
+ * city-resolution, duplicate-slot and ECHEC-on-failure guarantees are
+ * identical — this just drives it for a list.
+ */
+const BULK_SHIPMENT_BATCH = 6;
+
+export async function createShipmentsBulkAction(
+  formData: FormData
+): Promise<ActionResult<{ results: { orderId: string; orderNumber: number; ok: boolean; error?: string }[] }>> {
+  const user = await requirePermissionForAction("delivery.manage");
+
+  const providerId = String(formData.get("providerId") ?? "");
+  const orderIds = [...new Set(String(formData.get("orderIds") ?? "").split(",").map((s) => s.trim()).filter(Boolean))];
+  if (!providerId) return actionError("Le prestataire de livraison est requis.");
+  if (orderIds.length === 0) return actionError("Sélectionnez au moins une commande.");
+
+  const provider = await prisma.shippingProvider.findUnique({ where: { id: providerId } });
+  if (!provider) return actionError("Prestataire de livraison introuvable.");
+  if (provider.type !== "API") {
+    return actionError("La création groupée n'est possible que pour un prestataire connecté par API.");
+  }
+
+  const batchIds = orderIds.slice(0, BULK_SHIPMENT_BATCH);
+  const orders = await prisma.order.findMany({
+    where: { id: { in: batchIds } },
+    include: { customer: true },
+  });
+  const orderById = new Map(orders.map((o) => [o.id, o]));
+
+  const results: { orderId: string; orderNumber: number; ok: boolean; error?: string }[] = [];
+  for (const orderId of batchIds) {
+    const order = orderById.get(orderId);
+    if (!order) {
+      results.push({ orderId, orderNumber: 0, ok: false, error: "Commande introuvable." });
+      continue;
+    }
+    if (!SHIPPABLE_ORDER_STATUSES.includes(order.status)) {
+      results.push({ orderId, orderNumber: order.orderNumber, ok: false, error: "Statut non éligible." });
+      continue;
+    }
+    try {
+      const shipment = await createShipmentViaProvider({ order, providerId, updatedById: user.id, notes: null });
+      await recordAuditEvent({
+        actorType: "USER",
+        actorUserId: user.id,
+        action: "shipment.created",
+        entityType: "Shipment",
+        entityId: shipment.id,
+        metadata: { orderId: order.id, providerId, externalId: shipment.externalId, bulk: true },
+      });
+      results.push({ orderId, orderNumber: order.orderNumber, ok: true });
+    } catch (error) {
+      const message = friendlyDeliveryError(error);
+      await recordAuditEvent({
+        actorType: "USER",
+        actorUserId: user.id,
+        action: "shipment.creation_failed",
+        entityType: "Order",
+        entityId: order.id,
+        metadata: { providerId, error: message, bulk: true },
+      });
+      results.push({ orderId, orderNumber: order.orderNumber, ok: false, error: message });
+    }
+  }
+
+  revalidatePath("/livraison");
+  return actionOk({ results });
+}
+
 export async function cancelShipmentAction(formData: FormData): Promise<ActionResult<IdResult>> {
   const user = await requirePermissionForAction("delivery.manage");
 
