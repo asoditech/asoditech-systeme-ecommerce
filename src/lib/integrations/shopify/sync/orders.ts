@@ -7,7 +7,7 @@ import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
 import type { ShopifyOrder } from "../types";
 import { actorAuditFields, actorPerformedById, emptySyncSummary, isRecentlyPlaced, parseOrderPlacedAt, recordNote, upsertCustomerAddressFromOrder, type SyncActor, type SyncSummary } from "@/lib/integrations/shared";
-import { notifyNewOrder } from "@/lib/notifications";
+import { notifyNewOrder, resolveNotifications } from "@/lib/notifications";
 import type { Prisma, OrderStatus } from "@prisma/client";
 
 /**
@@ -346,6 +346,10 @@ async function updateExistingOrder(
       entityId: orderId,
       metadata: { source: "SHOPIFY", via: actor.type === "INTEGRATION" ? "webhook_or_sync" : "sync" },
     });
+  }
+
+  if (existing.status === "NOUVELLE" && status !== "NOUVELLE") {
+    await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: orderId });
   }
 
   return changedFields ? { outcome: "updated", reason: statusSkippedReason } : { outcome: "unchanged", reason: statusSkippedReason };

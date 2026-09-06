@@ -43,7 +43,7 @@ export function LivraisonDateFilter({
   }
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <label className="text-xs text-muted-foreground">Période</label>
       <Select value={range} onValueChange={(v) => v && setRange(v as DateRangePreset)}>
         <SelectTrigger className="w-52">

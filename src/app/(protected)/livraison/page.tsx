@@ -78,7 +78,7 @@ export default async function LivraisonPage({
     listShipments({ dateFrom, dateTo, page }),
     canManage
       ? listOrdersAwaitingShipment({ page: aexpPage, search: aexpSearch })
-      : Promise.resolve({ orders: [], total: 0, page: 1, pageSize: 25 }),
+      : Promise.resolve({ orders: [], total: 0, page: 1, pageSize: 30 }),
     listAvailableDeliveryConnectors(),
   ]);
   const { shipments, total: shipmentsTotal, pageSize: shipmentsPageSize } = shipmentsResult;
@@ -102,9 +102,11 @@ export default async function LivraisonPage({
 
   return (
     <div>
-      <PageHeader title="Livraison" description="Expéditions, prestataires et taux de livraison réussie." />
-
-      <LivraisonDateFilter initialRange={preset} initialFrom={params.dateFrom} initialTo={params.dateTo} />
+      <PageHeader
+        title="Livraison"
+        description="Expéditions, prestataires et taux de livraison réussie."
+        actions={<LivraisonDateFilter initialRange={preset} initialFrom={params.dateFrom} initialTo={params.dateTo} />}
+      />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Expéditions totales" value={String(stats.total)} icon={Truck} tone="primary" />
@@ -120,7 +122,7 @@ export default async function LivraisonPage({
       </div>
 
       <Tabs defaultValue={activeTab}>
-        <TabsList>
+        <TabsList variant="line" className="mb-4 w-full justify-start border-b border-border/60 pb-px">
           <TabsTrigger value="expeditions">Expéditions &amp; suivi</TabsTrigger>
           {canManage && <TabsTrigger value="a-expedier">À expédier ({awaitingTotal})</TabsTrigger>}
           <TabsTrigger value="prestataires">Prestataires</TabsTrigger>
@@ -233,8 +235,7 @@ export default async function LivraisonPage({
         {canManage && (
           <TabsContent value="a-expedier" className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Commandes confirmées ou en préparation sans expédition active — les plus récentes d&apos;abord.
-              Créez ici l&apos;expédition avant de passer la commande au statut « Expédiée ».
+              Commandes prêtes, sans expédition — créez l&apos;expédition ici avant de marquer « Expédiée ».
             </p>
             <form className="flex flex-wrap gap-2" action="/livraison">
               <input type="hidden" name="tab" value="a-expedier" />

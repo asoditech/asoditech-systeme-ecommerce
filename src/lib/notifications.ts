@@ -89,6 +89,27 @@ export async function notify(input: NotifyInput): Promise<void> {
 // single line and the title/message/dedupe/recipient wiring lives here.
 // ---------------------------------------------------------------------------
 
+/**
+ * The opposite of `notify()` — when the condition behind an event clears
+ * (an order leaves NOUVELLE, stock climbs back above its threshold), drop
+ * the now-stale notification for that entity from every user's bell.
+ * Best-effort, never throws. A hard delete, same as
+ * `dismissNotificationAction` — nothing reads a resolved notification back.
+ */
+export async function resolveNotifications(params: {
+  types: NotificationType[];
+  entityType: string;
+  entityId: string;
+}): Promise<void> {
+  try {
+    await prisma.notification.deleteMany({
+      where: { type: { in: params.types }, entityType: params.entityType, entityId: params.entityId },
+    });
+  } catch (error) {
+    console.error("resolveNotifications() failed (non-fatal):", error);
+  }
+}
+
 /** A new order was created — manually, or imported from WooCommerce/Shopify. */
 export async function notifyNewOrder(
   order: {
@@ -272,7 +293,16 @@ export async function checkAndNotifyLowStock(
       const tracked = item.product?.trackInventory ?? item.variation?.product.trackInventory ?? false;
       if (!tracked) continue;
       const threshold = item.product?.lowStockThreshold ?? item.variation?.product.lowStockThreshold ?? 0;
-      if (item.quantityOnHand > threshold) continue;
+      if (item.quantityOnHand > threshold) {
+        // Stock recovered — clear any standing low-stock / rupture alert
+        // for this item so it doesn't sit stale in everyone's bell.
+        await resolveNotifications({
+          types: ["STOCK_FAIBLE", "RUPTURE_STOCK"],
+          entityType: "InventoryItem",
+          entityId: item.id,
+        });
+        continue;
+      }
 
       const name = item.product?.name ?? item.variation?.product.name ?? "Produit";
       const sku = item.product?.sku ?? item.variation?.sku ?? "";

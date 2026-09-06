@@ -17,6 +17,7 @@ import {
   notifyOrderReturned,
   notifyPaymentProblem,
   checkAndNotifyLowStock,
+  resolveNotifications,
 } from "@/lib/notifications";
 import { pushStockAfterLocalChange, pushOrderPaymentToWooCommerce, pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
 import {
@@ -24,6 +25,7 @@ import {
   updateOrderStatusSchema,
   updateOrderPaymentStatusSchema,
   cancelOrderSchema,
+  updateOrderShippingAddressSchema,
   createRefundSchema,
   updateRefundStatusSchema,
   canTransitionOrderStatus,
@@ -376,6 +378,12 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
     metadata: parsed.data.note ? { note: parsed.data.note } : undefined,
   });
 
+  // The order has been picked up / acted on — the "nouvelle commande"
+  // alert has served its purpose, drop it from everyone's bell.
+  if (existing.status === "NOUVELLE") {
+    await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: order.id });
+  }
+
   if (parsed.data.status === "EXPEDIEE" || parsed.data.status === "ANNULEE" || parsed.data.status === "RETOUR") {
     // Every one of these three transitions actually moved stock (a
     // fulfillment decrement, or a cancellation/return restock/release
@@ -520,6 +528,10 @@ export async function cancelOrderAction(formData: FormData): Promise<ActionResul
     metadata: parsed.data.reason ? { reason: parsed.data.reason } : undefined,
   });
 
+  if (existing.status === "NOUVELLE") {
+    await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: order.id });
+  }
+
   // Cancelling put the reserved/returned units back — a linked store's
   // displayed stock needs to reflect that too, not just this app's own —
   // and its order should move to "cancelled".
@@ -532,6 +544,62 @@ export async function cancelOrderAction(formData: FormData): Promise<ActionResul
   revalidatePath("/commandes");
   revalidatePath(`/commandes/${order.id}`);
   return actionOk({ id: order.id });
+}
+
+/**
+ * Edit the frozen shipping-address snapshot on an order — the practical
+ * fix for "L'adresse de livraison de la commande est incomplète" (or a
+ * city spelt differently from the carrier's catalogue) blocking shipment
+ * creation. Does not touch the customer's address book, only this order.
+ */
+export async function updateOrderShippingAddressAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("orders.edit");
+
+  const parsed = updateOrderShippingAddressSchema.safeParse({
+    id: formData.get("id"),
+    shippingAddressLine1: formData.get("shippingAddressLine1"),
+    shippingAddressLine2: formData.get("shippingAddressLine2"),
+    shippingCity: formData.get("shippingCity"),
+    shippingRegion: formData.get("shippingRegion"),
+    shippingCountry: formData.get("shippingCountry"),
+    shippingPhone: formData.get("shippingPhone"),
+  });
+  if (!parsed.success) {
+    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+
+  const existing = await prisma.order.findUnique({ where: { id: parsed.data.id } });
+  if (!existing) return actionError("Commande introuvable.");
+
+  const data = {
+    shippingAddressLine1: normalizeOptional(parsed.data.shippingAddressLine1),
+    shippingAddressLine2: normalizeOptional(parsed.data.shippingAddressLine2),
+    shippingCity: normalizeOptional(parsed.data.shippingCity),
+    shippingRegion: normalizeOptional(parsed.data.shippingRegion),
+    shippingCountry: normalizeOptional(parsed.data.shippingCountry),
+    shippingPhone: normalizeOptional(parsed.data.shippingPhone),
+  };
+  await prisma.order.update({ where: { id: parsed.data.id }, data });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "order.updated",
+    entityType: "Order",
+    entityId: existing.id,
+    previousValue: {
+      shippingAddressLine1: existing.shippingAddressLine1,
+      shippingCity: existing.shippingCity,
+      shippingCountry: existing.shippingCountry,
+    },
+    newValue: { shippingAddressLine1: data.shippingAddressLine1, shippingCity: data.shippingCity, shippingCountry: data.shippingCountry },
+    metadata: { field: "shipping_address" },
+  });
+
+  revalidatePath(`/commandes/${existing.id}`);
+  revalidatePath("/commandes");
+  revalidatePath("/livraison");
+  return actionOk({ id: existing.id });
 }
 
 export async function createRefundAction(formData: FormData): Promise<ActionResult<IdResult>> {

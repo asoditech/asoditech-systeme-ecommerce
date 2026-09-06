@@ -515,6 +515,10 @@ export function OrderForm({ warehouses = [] }: { warehouses?: SelectableWarehous
                 <Input value={shippingPhone} onChange={(e) => setShippingPhone(e.target.value)} />
               </div>
             </div>
+            <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              <strong>Important :</strong> écrivez le nom de la ville <strong>exactement</strong> comme il apparaît chez
+              la société de livraison (OzonExpress). Une orthographe différente empêchera la création du colis.
+            </p>
           </CardContent>
         </Card>
 

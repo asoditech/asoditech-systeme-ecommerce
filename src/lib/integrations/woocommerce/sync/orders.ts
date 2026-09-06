@@ -9,7 +9,7 @@ import type { WcOrder } from "../types";
 import { actorAuditFields, actorPerformedById, type SyncActor } from "./actor";
 import { isRecentlyPlaced, parseOrderPlacedAt } from "../../shared/order-recency";
 import { upsertCustomerAddressFromOrder } from "../../shared/customer-address";
-import { notifyNewOrder } from "@/lib/notifications";
+import { notifyNewOrder, resolveNotifications } from "@/lib/notifications";
 import { emptySyncSummary, recordNote, type SyncSummary } from "./types";
 import type { Prisma, OrderStatus } from "@prisma/client";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
@@ -337,6 +337,12 @@ async function updateExistingOrder(
       entityId: orderId,
       metadata: { source: "WOOCOMMERCE", via: actor.type === "INTEGRATION" ? "webhook_or_sync" : "sync" },
     });
+  }
+
+  // The store moved this order past "new" (e.g. paid / processing) — clear
+  // the local "nouvelle commande" alert, same as a manual status change.
+  if (existing.status === "NOUVELLE" && status !== "NOUVELLE") {
+    await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: orderId });
   }
 
   return changedFields ? { outcome: "updated", reason: statusSkippedReason } : { outcome: "unchanged", reason: statusSkippedReason };

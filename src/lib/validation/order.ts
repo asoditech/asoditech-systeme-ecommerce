@@ -123,6 +123,18 @@ export const cancelOrderSchema = z.object({
   reason: z.string().trim().max(2000).nullish().or(z.literal("")),
 });
 
+/** Edit the frozen shipping-address snapshot on an existing order — mainly
+ * to fix an incomplete or misspelt city that blocks shipment creation. */
+export const updateOrderShippingAddressSchema = z.object({
+  id: z.string().min(1),
+  shippingAddressLine1: z.string().trim().max(255).nullish().or(z.literal("")),
+  shippingAddressLine2: z.string().trim().max(255).nullish().or(z.literal("")),
+  shippingCity: z.string().trim().max(120).nullish().or(z.literal("")),
+  shippingRegion: z.string().trim().max(120).nullish().or(z.literal("")),
+  shippingCountry: z.string().trim().max(120).nullish().or(z.literal("")),
+  shippingPhone: z.string().trim().max(30).nullish().or(z.literal("")),
+});
+
 export const createRefundSchema = z.object({
   orderId: z.string().min(1),
   amount: z.coerce.number().positive("Le montant du remboursement doit être positif."),

@@ -13,6 +13,7 @@ import { getOrderDetail, getOrderAuditTimeline } from "@/lib/queries/orders";
 import { listShipmentProviderOptions } from "@/lib/queries/delivery";
 import { buildParcelContentsSummary } from "@/lib/delivery";
 import { LinkShipmentDialog } from "@/components/delivery/link-shipment-dialog";
+import { EditShippingAddressDialog } from "@/components/orders/edit-shipping-address-dialog";
 import { formatCurrency, formatDateTime, displayOrderNumber, displayOrderChannel } from "@/lib/format";
 import { humanizeAuditAction } from "@/lib/audit-labels";
 import {
@@ -255,26 +256,50 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
 
           <Card>
             <CardHeader>
-              <CardTitle>Livraison</CardTitle>
+              <CardTitle>Adresse de livraison</CardTitle>
             </CardHeader>
             <CardContent className="space-y-1 text-sm">
-              {order.shippingAddressLine1 ? (
+              {order.shippingAddressLine1 || order.shippingCity ? (
                 <>
-                  <p>{order.shippingAddressLine1}</p>
+                  {order.shippingAddressLine1 && <p>{order.shippingAddressLine1}</p>}
                   {order.shippingAddressLine2 && <p>{order.shippingAddressLine2}</p>}
                   <p>
-                    {order.shippingCity}
+                    <span className="text-muted-foreground">Ville : </span>
+                    <span className={order.shippingCity ? "font-medium" : "text-destructive"}>
+                      {order.shippingCity ?? "manquante"}
+                    </span>
                     {order.shippingRegion ? `, ${order.shippingRegion}` : ""}
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">Pays : </span>
+                    <span className={order.shippingCountry ? "" : "text-destructive"}>
+                      {order.shippingCountry ?? "manquant"}
+                    </span>
                   </p>
                   {order.shippingPhone && <p className="text-muted-foreground">{order.shippingPhone}</p>}
                 </>
               ) : (
-                <p className="text-muted-foreground">Aucune adresse renseignée.</p>
+                <p className="text-destructive">Aucune adresse renseignée — à compléter avant l&apos;expédition.</p>
               )}
               {order.fulfillmentWarehouse && (
                 <p className="border-t pt-2 text-muted-foreground">
                   Préparé depuis : <span className="text-foreground">{order.fulfillmentWarehouse.name}</span>
                 </p>
+              )}
+              {canEdit && (
+                <div className="pt-2">
+                  <EditShippingAddressDialog
+                    orderId={order.id}
+                    address={{
+                      shippingAddressLine1: order.shippingAddressLine1,
+                      shippingAddressLine2: order.shippingAddressLine2,
+                      shippingCity: order.shippingCity,
+                      shippingRegion: order.shippingRegion,
+                      shippingCountry: order.shippingCountry,
+                      shippingPhone: order.shippingPhone,
+                    }}
+                  />
+                </div>
               )}
             </CardContent>
           </Card>

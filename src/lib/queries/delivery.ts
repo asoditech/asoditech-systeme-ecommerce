@@ -6,7 +6,7 @@ import { listDeliveryProviders } from "@/lib/integrations/delivery/registry";
 import { SHIPPABLE_ORDER_STATUSES, ACTIVE_SHIPMENT_STATUSES } from "@/lib/delivery";
 import type { Prisma, ShipmentStatus } from "@prisma/client";
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 30;
 
 export async function listShippingProviders() {
   return prisma.shippingProvider.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { shipments: true } } } });

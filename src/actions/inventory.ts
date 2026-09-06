@@ -94,9 +94,10 @@ export async function adjustInventoryAction(formData: FormData): Promise<ActionR
     metadata: { type: parsed.data.type, reason: parsed.data.reason, warehouseId: warehouse.id },
   });
 
-  if (updated.quantityOnHand < previousQuantityOnHand) {
-    await checkAndNotifyLowStock({ productIds: [item.productId], variationIds: [item.variationId] });
-  }
+  // Runs on any change, up or down: a decrease may cross below the
+  // threshold (new alert), an increase may cross back above it (clears the
+  // standing alert — see checkAndNotifyLowStock).
+  await checkAndNotifyLowStock({ productIds: [item.productId], variationIds: [item.variationId] });
 
   // Real-time half of the automatic sync (see docs/adr/0010 and 0011): a
   // manual adjustment on a WooCommerce/Shopify-linked product pushes its

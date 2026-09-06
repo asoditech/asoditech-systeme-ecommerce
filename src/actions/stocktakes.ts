@@ -22,6 +22,7 @@ import {
 } from "@/lib/validation/stocktake";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
+import { checkAndNotifyLowStock } from "@/lib/notifications";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
 
 function normalizeOptional(value: string | null | undefined): string | null {
@@ -213,10 +214,12 @@ export async function finalizeStocktakeSessionAction(
       where: { id: { in: result.movementIds } },
       select: { inventoryItem: { select: { productId: true, variationId: true } } },
     });
-    await pushStockAfterLocalChange({
+    const refs = {
       productIds: movements.map((m) => m.inventoryItem.productId),
       variationIds: movements.map((m) => m.inventoryItem.variationId),
-    });
+    };
+    await pushStockAfterLocalChange(refs);
+    await checkAndNotifyLowStock(refs);
   }
 
   revalidatePath("/inventaires");

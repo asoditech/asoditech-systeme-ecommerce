@@ -293,6 +293,17 @@ describe("checkAndNotifyLowStock", () => {
     expect(await prisma.notification.count()).toBe(0);
   });
 
+  it("clears a standing low-stock alert once the item climbs back above its threshold", async () => {
+    await createTestUser({ role: "WAREHOUSE" });
+    const { item } = await seedProduct(2, 5);
+    await checkAndNotifyLowStock({ productIds: [item.productId] });
+    expect(await prisma.notification.count()).toBe(1);
+
+    await prisma.inventoryItem.update({ where: { id: item.id }, data: { quantityOnHand: 40 } });
+    await checkAndNotifyLowStock({ productIds: [item.productId] });
+    expect(await prisma.notification.count()).toBe(0);
+  });
+
   /**
    * Live-testing report: a single-operator store never saw its own
    * low-stock alerts, because every other notify* helper excludes the

@@ -6,6 +6,7 @@ import {
   createCustomerForOrderAction,
   updateOrderStatusAction,
   updateOrderPaymentStatusAction,
+  updateOrderShippingAddressAction,
   cancelOrderAction,
   createRefundAction,
   updateRefundStatusAction,
@@ -376,6 +377,48 @@ describe("updateOrderStatusAction — state machine", () => {
     if (!created.ok) throw new Error("setup failed");
     return { orderId: created.data.id, product };
   }
+
+  it("clears the « nouvelle commande » notification once the order leaves NOUVELLE", async () => {
+    const actor = await loginAsTestUser({ role: "MANAGER" });
+    const { orderId } = await createTestOrder();
+    await prisma.notification.create({
+      data: {
+        userId: actor.id,
+        type: "NOUVELLE_COMMANDE",
+        title: "Nouvelle commande",
+        message: "x",
+        entityType: "Order",
+        entityId: orderId,
+      },
+    });
+
+    await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
+
+    expect(
+      await prisma.notification.count({ where: { type: "NOUVELLE_COMMANDE", entityType: "Order", entityId: orderId } })
+    ).toBe(0);
+  });
+
+  it("updateOrderShippingAddressAction fixes an incomplete address", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { orderId } = await createTestOrder();
+
+    const result = await updateOrderShippingAddressAction(
+      formData({
+        id: orderId,
+        shippingAddressLine1: "12 rue Hassan II",
+        shippingCity: "Casablanca",
+        shippingCountry: "Maroc",
+        shippingPhone: "0600000000",
+      })
+    );
+    expect(result.ok).toBe(true);
+
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(order.shippingCity).toBe("Casablanca");
+    expect(order.shippingCountry).toBe("Maroc");
+    expect(order.shippingAddressLine1).toBe("12 rue Hassan II");
+  });
 
   // Phase 32a regression: an order line for a variation carries BOTH the
   // parent productId and the variationId (createOrderAction snapshots them

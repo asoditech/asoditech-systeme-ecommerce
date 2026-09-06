@@ -23,6 +23,7 @@ import {
 } from "@/lib/validation/transfer";
 import { listStockAtWarehouse } from "@/lib/queries/transfers";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
+import { checkAndNotifyLowStock } from "@/lib/notifications";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
 
 /** The affected product/variation refs for a transfer's own lines — a
@@ -234,8 +235,11 @@ export async function receiveStockTransferAction(
   });
 
   // Receiving just increased the destination warehouse's on-hand stock —
-  // a linked store needs to hear about that too.
-  await pushStockAfterLocalChange(await transferStockRefs(parsed.data.id));
+  // a linked store needs to hear about that too, and a standing low-stock
+  // alert for the moved items may now be cleared.
+  const movedRefs = await transferStockRefs(parsed.data.id);
+  await pushStockAfterLocalChange(movedRefs);
+  await checkAndNotifyLowStock(movedRefs);
 
   revalidatePath("/transferts");
   revalidatePath(`/transferts/${parsed.data.id}`);

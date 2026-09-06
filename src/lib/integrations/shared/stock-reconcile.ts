@@ -116,11 +116,10 @@ export async function reconcileStockFromProvider(params: {
     });
   });
 
-  // The provider's own count just moved us down — surface anything now low,
-  // exactly as a manual downward adjustment does (src/actions/inventory.ts).
-  if (delta < 0) {
-    await checkAndNotifyLowStock({ productIds: [productId], variationIds: [variationId] });
-  }
+  // The provider's own count changed our quantity — re-evaluate the
+  // low-stock alert either way: a decrease may raise one, an increase
+  // clears a standing one (src/lib/notifications.ts).
+  await checkAndNotifyLowStock({ productIds: [productId], variationIds: [variationId] });
 
   return "reconciled";
 }

@@ -174,13 +174,14 @@ export default async function CommandesPage({
         />
       ) : (
         <div className="rounded-lg border">
-          <Table>
+          <Table className="text-[13px] [&_td]:px-2.5 [&_td]:py-2 [&_th]:px-2.5">
             <TableHeader>
               <TableRow>
                 <TableHead>Commande</TableHead>
                 <TableHead>Client</TableHead>
-                <TableHead>Articles</TableHead>
-                <TableHead>Total</TableHead>
+                <TableHead>Ville</TableHead>
+                <TableHead className="text-right">Art.</TableHead>
+                <TableHead className="text-right">Total</TableHead>
                 <TableHead>Statut</TableHead>
                 <TableHead>Paiement</TableHead>
                 <TableHead>Canal</TableHead>
@@ -191,9 +192,14 @@ export default async function CommandesPage({
               {orders.map((o) => (
                 <ClickableTableRow key={o.id} href={`/commandes/${o.id}`}>
                   <TableCell className="font-medium">{displayOrderNumber(o)}</TableCell>
-                  <TableCell>{o.customer.fullName}</TableCell>
-                  <TableCell className="text-muted-foreground">{o._count.items}</TableCell>
-                  <TableCell>{formatCurrency(o.total.toString(), o.currency)}</TableCell>
+                  <TableCell>
+                    <span className="block max-w-[8rem] truncate">{o.customer.fullName}</span>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    <span className="block max-w-[7rem] truncate">{o.shippingCity ?? "—"}</span>
+                  </TableCell>
+                  <TableCell className="text-right text-muted-foreground tabular-nums">{o._count.items}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatCurrency(o.total.toString(), o.currency)}</TableCell>
                   <TableCell>
                     <StatusBadge status={o.status} labels={ORDER_STATUS_LABELS} />
                   </TableCell>
