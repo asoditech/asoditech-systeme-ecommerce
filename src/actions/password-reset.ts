@@ -132,7 +132,10 @@ export async function resetPasswordAction(
  * Admin-initiated — a tenant admin (`users.manage`) generates a reset link
  * for a user IN THEIR OWN TENANT (scoped automatically) and gets the raw
  * link back directly, to relay out-of-band. No enumeration risk: the
- * caller already has legitimate access to this user's account.
+ * caller already has legitimate access to this user's account. Never for
+ * an OWNER account — an ADMIN minting themselves a reset link for the
+ * OWNER and using it would be a straight privilege escalation around the
+ * same guard updateUserStatusAction/updateUserRoleAction enforce.
  */
 export async function adminResetPasswordAction(formData: FormData): Promise<ActionResult<{ resetUrl: string }>> {
   const actor = await requirePermissionForAction("users.manage");
@@ -142,6 +145,12 @@ export async function adminResetPasswordAction(formData: FormData): Promise<Acti
   const target = await prisma.user.findUnique({ where: { id: userId } });
   if (!target) return actionError("Utilisateur introuvable.");
   if (target.status !== "ACTIVE") return actionError("Ce compte est désactivé.");
+  // Same "OWNER accounts are immutable to everyone else" invariant as
+  // updateUserStatusAction/updateUserRoleAction (src/actions/users.ts) —
+  // without this, an ADMIN could mint themselves a reset link for the
+  // OWNER account and take it over, an escalation those two guards exist
+  // specifically to prevent.
+  if (target.role === "OWNER") return actionError("Impossible de réinitialiser le mot de passe du propriétaire.");
 
   const rawToken = await issueResetToken(prisma, target.id);
 

@@ -212,6 +212,23 @@ describe("adminResetPasswordAction", () => {
     expect(tokens).toHaveLength(0);
   });
 
+  // Production-readiness audit regression: adminResetPasswordAction was
+  // missing the "OWNER accounts are immutable to everyone else" guard
+  // that updateUserStatusAction/updateUserRoleAction both enforce — an
+  // ADMIN could mint a reset link for the OWNER and take the account
+  // over. Mirrors tests/actions/users.test.ts's equivalent OWNER-immunity
+  // cases for the other two user-management actions.
+  it("an ADMIN cannot generate a reset link for the OWNER account (privilege escalation)", async () => {
+    const owner = await createTestUser({ role: "OWNER" });
+    await loginAsTestUser({ role: "ADMIN" });
+
+    const result = await adminResetPasswordAction(formData({ userId: owner.id }));
+    expect(result.ok).toBe(false);
+
+    const tokens = await prismaBase.passwordResetToken.findMany({ where: { userId: owner.id } });
+    expect(tokens).toHaveLength(0);
+  });
+
   it("returns a usable reset link for a user in the admin's own tenant", async () => {
     await loginAsTestUser({ role: "ADMIN" });
     const target = await createTestUser({ role: "CONFIRMATION" });
