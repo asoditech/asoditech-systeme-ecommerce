@@ -34,46 +34,58 @@ async function main() {
   const password = process.env.SEED_OWNER_PASSWORD ?? "change-me-immediately";
   const passwordHash = await bcrypt.hash(password, 12);
 
-  // Phase 1 multi-tenant foundation (docs/adr/0023-multi-tenant-foundation.md):
-  // the single bootstrap tenant that owns everything. Every `tenantId` column
-  // defaults to "default", so nothing below has to reference it explicitly yet.
-  await prisma.tenant.upsert({
-    where: { id: "default" },
-    update: {},
-    create: { id: "default", name: "ASODITECH", slug: "default" },
-  });
+  // Phase 4 (docs/adr/0026-multi-tenant-rls.md): every tenant-scoped table
+  // now has Postgres Row-Level Security enabled, and this script's
+  // DATABASE_URL is the app's restricted runtime role (not the migration
+  // owner, which bypasses RLS automatically) — without setting the bypass
+  // GUC first, every upsert below would see zero rows and fail its own
+  // `WITH CHECK`. One transaction, one bypass, for the whole bootstrap.
+  const owner = await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SELECT set_config('app.bypass_rls', 'on', true)`);
 
-  const owner = await prisma.user.upsert({
-    where: { tenantId_email: { tenantId: "default", email } },
-    update: {},
-    create: {
-      email,
-      name: "Propriétaire ASODITECH",
-      passwordHash,
-      role: "OWNER",
-      status: "ACTIVE",
-    },
-  });
-
-  await prisma.warehouse.upsert({
-    where: { id: "default-warehouse" },
-    update: {},
-    create: { id: "default-warehouse", name: "Entrepôt principal", isDefault: true },
-  });
-
-  await prisma.businessSettings.upsert({
-    where: { tenantId: "default" },
-    update: {},
-    create: { id: "singleton" },
-  });
-
-  for (const name of SYSTEM_EXPENSE_CATEGORIES) {
-    await prisma.expenseCategory.upsert({
-      where: { tenantId_name: { tenantId: "default", name } },
+    // Phase 1 multi-tenant foundation (docs/adr/0023-multi-tenant-foundation.md):
+    // the single bootstrap tenant that owns everything. Every `tenantId` column
+    // defaults to "default", so nothing below has to reference it explicitly yet.
+    await tx.tenant.upsert({
+      where: { id: "default" },
       update: {},
-      create: { name, isSystem: true },
+      create: { id: "default", name: "ASODITECH", slug: "default" },
     });
-  }
+
+    const createdOwner = await tx.user.upsert({
+      where: { tenantId_email: { tenantId: "default", email } },
+      update: {},
+      create: {
+        email,
+        name: "Propriétaire ASODITECH",
+        passwordHash,
+        role: "OWNER",
+        status: "ACTIVE",
+      },
+    });
+
+    await tx.warehouse.upsert({
+      where: { id: "default-warehouse" },
+      update: {},
+      create: { id: "default-warehouse", name: "Entrepôt principal", isDefault: true },
+    });
+
+    await tx.businessSettings.upsert({
+      where: { tenantId: "default" },
+      update: {},
+      create: { id: "singleton" },
+    });
+
+    for (const name of SYSTEM_EXPENSE_CATEGORIES) {
+      await tx.expenseCategory.upsert({
+        where: { tenantId_name: { tenantId: "default", name } },
+        update: {},
+        create: { name, isSystem: true },
+      });
+    }
+
+    return createdOwner;
+  });
 
   console.log(`Compte propriétaire prêt : ${owner.email}`);
   if (!process.env.SEED_OWNER_PASSWORD) {

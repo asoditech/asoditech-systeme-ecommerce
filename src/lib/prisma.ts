@@ -1,24 +1,29 @@
-import { PrismaClient } from "@prisma/client";
+import { prismaRaw } from "@/lib/tenant/raw-client";
 import { tenantExtension } from "@/lib/tenant/extension";
+import { bypassExtension } from "@/lib/tenant/bypass-extension";
+import { attachRlsTransaction } from "@/lib/tenant/rls";
+import { resolveActiveTenant } from "@/lib/tenant/resolve";
 
-declare global {
-  var __prismaBase: PrismaClient | undefined;
-}
+export { prismaRaw } from "@/lib/tenant/raw-client";
 
 /**
- * Raw client — NO tenant scoping. Use only where scoping must not apply and
- * would recurse: session resolution (src/lib/auth/session.ts), the seed
- * script, and test DB reset. Everything else uses the extended `prisma`.
+ * Raw-shaped client — NO app-level tenant FILTERING (every `where`/`data`
+ * passes through untouched). Use only where scoping must not apply and
+ * would recurse: session resolution (src/lib/auth/session.ts), the two
+ * webhook routes' cross-tenant Integration lookup, the seed script, and
+ * test fixtures spanning multiple tenants.
+ *
+ * Phase 4 (docs/adr/0026-multi-tenant-rls.md): every tenant-scoped table
+ * now has Row-Level Security enabled, so "no app-level filtering" no
+ * longer means "sees everything" by default — `bypassExtension` sets the
+ * DB-level `app.bypass_rls` GUC on every call (and `$transaction`, via
+ * `attachRlsTransaction`) so this client keeps its original, pre-RLS
+ * behavior at the DB level too.
  */
-export const prismaBase =
-  global.__prismaBase ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
-  });
-
-if (process.env.NODE_ENV !== "production") {
-  global.__prismaBase = prismaBase;
-}
+export const prismaBase = attachRlsTransaction(prismaRaw.$extends(bypassExtension), async () => ({
+  sql: `SELECT set_config('app.bypass_rls', 'on', true)`,
+  params: [],
+}));
 
 /**
  * The application Prisma client. Every operation on a tenant-owned model is
@@ -26,8 +31,19 @@ if (process.env.NODE_ENV !== "production") {
  * (docs/adr/0024-multi-tenant-context.md). The tenant comes from an
  * explicit `runWithTenant` directive, else the logged-in user's session,
  * else the bootstrap tenant.
+ *
+ * Phase 4 (docs/adr/0026-multi-tenant-rls.md): the SAME resolution also
+ * sets the DB-level `app.tenant_id`/`app.bypass_rls` GUC an RLS policy
+ * reads, via `attachRlsTransaction` — real enforcement now lives at the
+ * database, this app-level layer is defense in depth on top of it.
  */
-export const prisma = prismaBase.$extends(tenantExtension);
+export const prisma = attachRlsTransaction(prismaRaw.$extends(tenantExtension), async () => {
+  const { tenantId, source } = await resolveActiveTenant("(transaction)", "$transaction");
+  if (source === "unscoped" || tenantId === null) {
+    return { sql: `SELECT set_config('app.bypass_rls', 'on', true)`, params: [] };
+  }
+  return { sql: `SELECT set_config('app.tenant_id', $1, true)`, params: [tenantId] };
+});
 
 /**
  * The client type handed to an interactive `prisma.$transaction(async (tx) => …)`

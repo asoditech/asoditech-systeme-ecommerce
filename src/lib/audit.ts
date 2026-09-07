@@ -1,7 +1,7 @@
 import "server-only";
 
 import { headers } from "next/headers";
-import { prisma } from "@/lib/prisma";
+import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
 import type { AuditActorType, Prisma } from "@prisma/client";
 
 /**
@@ -108,8 +108,21 @@ interface RecordAuditEventInput {
  * Append-only audit trail. Never call `prisma.auditEvent.update` or
  * `.delete` anywhere in the app — this function is the only writer.
  * Callers must not pass secrets, tokens, or password material.
+ *
+ * Pass `tx` when calling this from inside an already-open
+ * `prisma.$transaction(async (tx) => { ... })` — without it, this write
+ * runs on the top-level `prisma` client instead, its own separate
+ * transaction. That was always a latent atomicity gap (the audit event
+ * wouldn't roll back with the rest of the unit of work); Phase 4
+ * (docs/adr/0026-multi-tenant-rls.md) turns it into a hard failure instead
+ * of a silent one — the top-level client's own `SET LOCAL app.tenant_id`
+ * only covers ITS OWN mini-transaction, not the caller's already-open one,
+ * so the write would land with no RLS-visible tenant at all.
  */
-export async function recordAuditEvent(input: RecordAuditEventInput): Promise<void> {
+export async function recordAuditEvent(
+  input: RecordAuditEventInput,
+  tx: PrismaTransactionClient | typeof prisma = prisma
+): Promise<void> {
   let ipAddress: string | null = null;
   let userAgent: string | null = null;
   try {
@@ -121,7 +134,7 @@ export async function recordAuditEvent(input: RecordAuditEventInput): Promise<vo
     // scripts) — audit events from those contexts simply omit IP/UA.
   }
 
-  await prisma.auditEvent.create({
+  await tx.auditEvent.create({
     data: {
       actorType: input.actorType,
       actorUserId: input.actorUserId ?? null,

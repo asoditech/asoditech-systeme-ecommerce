@@ -105,15 +105,18 @@ export async function reconcileStockFromProvider(params: {
     });
     if (!result.applied) return; // row vanished between the read above and here — nothing to reconcile
 
-    await recordAuditEvent({
-      ...actorAuditFields(actor),
-      action: "inventory.reconciled",
-      entityType: "InventoryItem",
-      entityId: result.item.id,
-      previousValue: { quantityOnHand: existing.quantityOnHand },
-      newValue: { quantityOnHand: result.item.quantityOnHand },
-      metadata: { source },
-    });
+    await recordAuditEvent(
+      {
+        ...actorAuditFields(actor),
+        action: "inventory.reconciled",
+        entityType: "InventoryItem",
+        entityId: result.item.id,
+        previousValue: { quantityOnHand: existing.quantityOnHand },
+        newValue: { quantityOnHand: result.item.quantityOnHand },
+        metadata: { source },
+      },
+      tx
+    );
   });
 
   // The provider's own count changed our quantity — re-evaluate the

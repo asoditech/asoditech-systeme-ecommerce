@@ -3,6 +3,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { resolveActiveTenantIdForRawSql } from "@/lib/tenant/resolve";
+import { runRawBatchWithTenant } from "@/lib/tenant/rls";
 
 const PAGE_SIZE = 25;
 
@@ -104,12 +105,16 @@ export async function listInventoryItems(params: {
     // docs/adr/0025, closing the ADR 0024 "Known bypass").
     const tenantId = await resolveActiveTenantIdForRawSql("queries/inventory.listInventoryItems(low|out)");
     const from = stockStatusFrom(tenantId, stockStatus, { q, warehouseId: params.warehouseId, categoryId: params.categoryId });
-    const [idRows, countRows] = await Promise.all([
+    // Phase 4 (docs/adr/0026): a raw query bypasses every Prisma extension,
+    // so it never picks up the RLS `app.tenant_id` GUC on its own —
+    // `runRawBatchWithTenant` runs both statements in one transaction with
+    // that GUC set first, on top of the app-level predicate above.
+    const [idRows, countRows] = (await runRawBatchWithTenant(tenantId, [
       prisma.$queryRaw<{ id: string }[]>(
         Prisma.sql`SELECT ii.id ${from} ${sortClause(params.sort)} OFFSET ${skip} LIMIT ${PAGE_SIZE}`
       ),
       prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`SELECT COUNT(*)::bigint AS count ${from}`),
-    ]);
+    ])) as [{ id: string }[], { count: bigint }[]];
     const ids = idRows.map((r) => r.id);
     const rows = await prisma.inventoryItem.findMany({ where: { id: { in: ids } }, include: INVENTORY_INCLUDE });
     const byId = new Map(rows.map((r) => [r.id, r]));
@@ -169,9 +174,9 @@ export async function getLowStockCount(): Promise<number> {
   // carries its own `ii."tenantId"` predicate instead (Phase 3 —
   // docs/adr/0025, closing the ADR 0024 "Known bypass").
   const tenantId = await resolveActiveTenantIdForRawSql("queries/inventory.getLowStockCount");
-  const rows = await prisma.$queryRaw<{ count: bigint }[]>(
-    Prisma.sql`SELECT COUNT(*)::bigint AS count ${lowStockFrom(tenantId)}`
-  );
+  const [rows] = (await runRawBatchWithTenant(tenantId, [
+    prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`SELECT COUNT(*)::bigint AS count ${lowStockFrom(tenantId)}`),
+  ])) as [{ count: bigint }[]];
   return Number(rows[0]?.count ?? 0);
 }
 

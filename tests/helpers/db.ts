@@ -13,48 +13,53 @@ if (!/test/i.test(process.env.DATABASE_URL ?? "")) {
 /** The single bootstrap tenant every tenantId column defaults to (Phase 1 — docs/adr/0023). */
 export const DEFAULT_TENANT_ID = "default";
 
-/** Wipes every table between tests. Test-DB only — never point this at a real database. */
+/** Wipes every table between tests. Test-DB only — never point this at a real database.
+ *
+ * Callback-form `$transaction` deliberately (Phase 4 — docs/adr/0026): the
+ * batch-array form isn't supported on `prismaBase`/`prisma` any more — RLS
+ * needs a callback so it can set the bypass GUC as the transaction's first
+ * statement, before any of these deletes run. */
 export async function resetDb() {
-  await prisma.$transaction([
-    prisma.auditEvent.deleteMany(),
-    prisma.notification.deleteMany(),
-    prisma.webhookEvent.deleteMany(),
-    prisma.syncRun.deleteMany(),
-    prisma.integration.deleteMany(),
-    prisma.marketingCampaign.deleteMany(),
-    prisma.marketingChannel.deleteMany(),
-    prisma.expense.deleteMany(),
-    prisma.expenseCategory.deleteMany(),
-    prisma.shipmentWebhookEvent.deleteMany(),
-    prisma.shipment.deleteMany(),
-    prisma.deliveryManifest.deleteMany(),
-    prisma.shippingProvider.deleteMany(),
-    prisma.commissionEntry.deleteMany(),
-    prisma.commissionStatement.deleteMany(),
-    prisma.commissionAgent.deleteMany(),
-    prisma.refund.deleteMany(),
-    prisma.orderItem.deleteMany(),
-    prisma.order.deleteMany(),
-    prisma.stocktakeLine.deleteMany(),
-    prisma.stocktakeSession.deleteMany(),
-    prisma.inventoryMovement.deleteMany(),
-    prisma.stockTransferLine.deleteMany(),
-    prisma.stockTransfer.deleteMany(),
-    prisma.inventoryItem.deleteMany(),
-    prisma.warehouse.deleteMany(),
-    prisma.productVariation.deleteMany(),
-    prisma.productImage.deleteMany(),
-    prisma.product.deleteMany(),
-    prisma.category.deleteMany(),
-    prisma.customerAddress.deleteMany(),
-    prisma.customer.deleteMany(),
-    prisma.businessSettings.deleteMany(),
-    prisma.session.deleteMany(),
-    prisma.user.deleteMany(),
+  await prisma.$transaction(async (tx) => {
+    await tx.auditEvent.deleteMany();
+    await tx.notification.deleteMany();
+    await tx.webhookEvent.deleteMany();
+    await tx.syncRun.deleteMany();
+    await tx.integration.deleteMany();
+    await tx.marketingCampaign.deleteMany();
+    await tx.marketingChannel.deleteMany();
+    await tx.expense.deleteMany();
+    await tx.expenseCategory.deleteMany();
+    await tx.shipmentWebhookEvent.deleteMany();
+    await tx.shipment.deleteMany();
+    await tx.deliveryManifest.deleteMany();
+    await tx.shippingProvider.deleteMany();
+    await tx.commissionEntry.deleteMany();
+    await tx.commissionStatement.deleteMany();
+    await tx.commissionAgent.deleteMany();
+    await tx.refund.deleteMany();
+    await tx.orderItem.deleteMany();
+    await tx.order.deleteMany();
+    await tx.stocktakeLine.deleteMany();
+    await tx.stocktakeSession.deleteMany();
+    await tx.inventoryMovement.deleteMany();
+    await tx.stockTransferLine.deleteMany();
+    await tx.stockTransfer.deleteMany();
+    await tx.inventoryItem.deleteMany();
+    await tx.warehouse.deleteMany();
+    await tx.productVariation.deleteMany();
+    await tx.productImage.deleteMany();
+    await tx.product.deleteMany();
+    await tx.category.deleteMany();
+    await tx.customerAddress.deleteMany();
+    await tx.customer.deleteMany();
+    await tx.businessSettings.deleteMany();
+    await tx.session.deleteMany();
+    await tx.user.deleteMany();
     // Any tenant a test created, but never the bootstrap one — every scoped
     // row's tenantId defaults to it, and the FKs would block the delete anyway.
-    prisma.tenant.deleteMany({ where: { id: { not: DEFAULT_TENANT_ID } } }),
-  ]);
+    await tx.tenant.deleteMany({ where: { id: { not: DEFAULT_TENANT_ID } } });
+  });
 
   // Guarantee the bootstrap tenant exists (a freshly-pushed test DB has
   // none), so the tenantId column default resolves to a real row for every
