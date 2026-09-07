@@ -69,7 +69,7 @@ describe("loginAction", () => {
         email: "disabled@test.local",
         name: "Disabled",
         passwordHash: await hashPassword("correct-horse-battery-staple"),
-        role: "SALES",
+        role: "CONFIRMATION",
         status: "DISABLED",
       },
     });

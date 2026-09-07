@@ -48,7 +48,7 @@ describe("createOrderAction", () => {
   });
 
   it("createCustomerForOrderAction creates a customer inline for an orders.create user and audits it", async () => {
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     const result = await createCustomerForOrderAction({ fullName: "Nouveau Client", phone: "0612345678", city: "Casablanca" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -61,7 +61,7 @@ describe("createOrderAction", () => {
   it("createCustomerForOrderAction rejects a caller without orders.create and a too-short name", async () => {
     await loginAsTestUser({ role: "SUPPORT" });
     await expect(createCustomerForOrderAction({ fullName: "X" })).rejects.toThrow(/non autorisé/i);
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     const bad = await createCustomerForOrderAction({ fullName: "X" });
     expect(bad.ok).toBe(false);
   });
@@ -91,7 +91,7 @@ describe("createOrderAction", () => {
 
   it("creates an order, snapshots product price/cost, and reserves stock without touching on-hand", async () => {
     const { customer, product } = await seedOrderable();
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
 
     const result = await createOrderAction({
       customerId: customer.id,
@@ -124,7 +124,7 @@ describe("createOrderAction", () => {
 
   it("defaults channel to WHATSAPP when omitted, and persists an explicit choice", async () => {
     const { customer, product } = await seedOrderable();
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
 
     const defaulted = await createOrderAction({
       customerId: customer.id,
@@ -153,7 +153,7 @@ describe("createOrderAction", () => {
 
   it("nets out both per-item and order-level discounts from the total (audit fix)", async () => {
     const { customer, product } = await seedOrderable();
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
 
     // 2 x 100 = 200 gross, minus a 20 per-line discount, minus a 10
     // order-level discount, plus 5 shipping = 175.
@@ -208,7 +208,7 @@ describe("createOrderAction", () => {
   it("rejects an order item referencing an archived product, even when the ID is supplied directly (audit fix)", async () => {
     const { customer, product } = await seedOrderable();
     await prisma.product.update({ where: { id: product.id }, data: { status: "ARCHIVE" } });
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
 
     // The search-assisted UI only ever offers ACTIF products, but a
     // crafted request can still supply an archived product's ID directly
@@ -266,7 +266,7 @@ describe("createOrderAction — fulfilment warehouse (Phase 32b)", () => {
 
   it("O1/O8 — defaults to getDefaultWarehouseId(), reserves there, and records it in the audit metadata", async () => {
     const { customer, product, warehouse } = await seedOrderable();
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     const r = await createOrderAction(orderInput(customer.id, product.id));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -285,7 +285,7 @@ describe("createOrderAction — fulfilment warehouse (Phase 32b)", () => {
     const second = await prisma.warehouse.create({ data: { name: "Dépôt Sud", type: "ENTREPOT" } });
     await prisma.inventoryItem.create({ data: { warehouseId: second.id, productId: product.id, quantityOnHand: 30 } });
 
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     const r = await createOrderAction(orderInput(customer.id, product.id, { fulfillmentWarehouseId: second.id }));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -300,7 +300,7 @@ describe("createOrderAction — fulfilment warehouse (Phase 32b)", () => {
     const { customer, product } = await seedOrderable();
     const shop = await prisma.warehouse.create({ data: { name: "Magasin Centre", type: "MAGASIN" } });
     await prisma.inventoryItem.create({ data: { warehouseId: shop.id, productId: product.id, quantityOnHand: 12 } });
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     const r = await createOrderAction(orderInput(customer.id, product.id, { fulfillmentWarehouseId: shop.id }));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -311,7 +311,7 @@ describe("createOrderAction — fulfilment warehouse (Phase 32b)", () => {
   it("O3 — an inactive explicit warehouse is rejected and no order is created", async () => {
     const { customer, product } = await seedOrderable();
     const inactive = await prisma.warehouse.create({ data: { name: "Retiré", type: "ENTREPOT", isActive: false } });
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     const r = await createOrderAction(orderInput(customer.id, product.id, { fulfillmentWarehouseId: inactive.id }));
     expect(r).toMatchObject({ ok: false });
     expect(await prisma.order.count()).toBe(0);
@@ -319,7 +319,7 @@ describe("createOrderAction — fulfilment warehouse (Phase 32b)", () => {
 
   it("O4 — a non-existent explicit warehouse is rejected", async () => {
     const { customer, product } = await seedOrderable();
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     const r = await createOrderAction(orderInput(customer.id, product.id, { fulfillmentWarehouseId: "does-not-exist" }));
     expect(r).toMatchObject({ ok: false });
     expect(await prisma.order.count()).toBe(0);
@@ -740,7 +740,7 @@ describe("order notifications (docs/adr/0016-notifications.md)", () => {
 
   it("createOrderAction notifies orders.view holders, excluding the creator", async () => {
     const { customer, product } = await seedOrderable();
-    const creator = await loginAsTestUser({ role: "SALES" });
+    const creator = await loginAsTestUser({ role: "CONFIRMATION" });
     const teammate = await createTestUser({ role: "MANAGER" });
 
     const result = await createOrderAction({
@@ -772,7 +772,7 @@ describe("order notifications (docs/adr/0016-notifications.md)", () => {
   it("notifies orders.view holders when an order is returned", async () => {
     const { customer, product } = await seedOrderable();
     const actor = await loginAsTestUser({ role: "MANAGER" });
-    const teammate = await createTestUser({ role: "SALES" });
+    const teammate = await createTestUser({ role: "CONFIRMATION" });
 
     const created = await createOrderAction({
       customerId: customer.id,
@@ -809,7 +809,7 @@ describe("order notifications (docs/adr/0016-notifications.md)", () => {
   it("notifies orders.view holders when payment fails, deduped against a second ECHEC", async () => {
     const { customer, product } = await seedOrderable();
     const actor = await loginAsTestUser({ role: "MANAGER" });
-    const teammate = await createTestUser({ role: "SALES" });
+    const teammate = await createTestUser({ role: "CONFIRMATION" });
 
     const created = await createOrderAction({
       customerId: customer.id,

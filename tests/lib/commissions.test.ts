@@ -5,7 +5,7 @@ import { resetDb } from "../helpers/db";
 import { createTestUser } from "../helpers/auth";
 
 async function seedAgent(rate = 10) {
-  const user = await createTestUser({ role: "SALES" });
+  const user = await createTestUser({ role: "CONFIRMATION" });
   const agent = await prisma.commissionAgent.create({ data: { userId: user.id, ratePerOrder: rate } });
   return { user, agent };
 }

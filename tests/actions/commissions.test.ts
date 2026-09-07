@@ -19,7 +19,7 @@ function fd(fields: Record<string, string>) {
 }
 
 async function seedAgentViaAction(rate = 10) {
-  const user = await createTestUser({ role: "SALES" });
+  const user = await createTestUser({ role: "CONFIRMATION" });
   const res = await createCommissionAgentAction(fd({ userId: user.id, ratePerOrder: String(rate) }));
   if (!res.ok) throw new Error("agent setup failed");
   return { user, agentId: res.data.id };
@@ -50,8 +50,8 @@ describe("commission actions", () => {
   });
 
   it("createCommissionAgentAction requires commissions.manage", async () => {
-    await loginAsTestUser({ role: "SALES" });
-    const target = await createTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
+    const target = await createTestUser({ role: "CONFIRMATION" });
     await expect(createCommissionAgentAction(fd({ userId: target.id, ratePerOrder: "10" }))).rejects.toThrow(/autoris/i);
   });
 

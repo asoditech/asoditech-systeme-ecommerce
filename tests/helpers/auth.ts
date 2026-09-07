@@ -15,6 +15,7 @@ export async function createTestUser(overrides: {
   status?: UserStatus;
   email?: string;
   tenantId?: string;
+  isPlatformAdmin?: boolean;
 } = {}) {
   counter += 1;
   return prisma.user.create({
@@ -25,6 +26,7 @@ export async function createTestUser(overrides: {
       role: overrides.role ?? "ADMIN",
       status: overrides.status ?? "ACTIVE",
       tenantId: overrides.tenantId ?? DEFAULT_TENANT_ID,
+      isPlatformAdmin: overrides.isPlatformAdmin ?? false,
     },
   });
 }

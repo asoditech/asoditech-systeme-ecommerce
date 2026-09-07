@@ -52,6 +52,10 @@ async function main() {
       create: { id: "default", name: "ASODITECH", slug: "default" },
     });
 
+    // isPlatformAdmin (Phase 5 — docs/adr/0027-tenant-provisioning.md):
+    // until real platform provisioning exists, the bootstrap tenant's
+    // OWNER is also the platform operator — the only account with access
+    // to /platform (create/activate/suspend OTHER tenants).
     const createdOwner = await tx.user.upsert({
       where: { tenantId_email: { tenantId: "default", email } },
       update: {},
@@ -61,6 +65,7 @@ async function main() {
         passwordHash,
         role: "OWNER",
         status: "ACTIVE",
+        isPlatformAdmin: true,
       },
     });
 

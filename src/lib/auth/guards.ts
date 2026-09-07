@@ -54,11 +54,26 @@ export async function requirePermissionForAction(permission: Permission): Promis
   return user;
 }
 
-/** Only OWNER may provision, edit the role of, or disable staff accounts. */
-export async function requireOwnerForAction(): Promise<CurrentUser> {
+/**
+ * Use at the top of a `/platform` page/layout (Phase 5 —
+ * docs/adr/0027-tenant-provisioning.md) — the cross-tenant area that
+ * manages OTHER tenants' existence. `isPlatformAdmin` is a flag on `User`,
+ * deliberately independent of `role`/RBAC (see the schema comment) —
+ * being OWNER of a tenant does not, by itself, grant this.
+ */
+export async function requirePlatformAdmin(): Promise<CurrentUser> {
+  const user = await requireUser();
+  if (!user.isPlatformAdmin) {
+    redirect("/acces-refuse");
+  }
+  return user;
+}
+
+/** Use inside a `/platform` Server Action. Throws instead of redirecting — see `requirePlatformAdmin`. */
+export async function requirePlatformAdminForAction(): Promise<CurrentUser> {
   const user = await requireUserForAction();
-  if (user.role !== "OWNER") {
-    throw new Error("Non autorisé : réservé au propriétaire du compte.");
+  if (!user.isPlatformAdmin) {
+    throw new Error("Non autorisé : réservé aux administrateurs de la plateforme.");
   }
   return user;
 }

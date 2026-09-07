@@ -1,11 +1,11 @@
 import "server-only";
 
 import { cookies, headers } from "next/headers";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 // Raw client on purpose: the extended `prisma` resolves the active tenant
 // via this module, so using it here would recurse (docs/adr/0024).
 import { prismaBase as prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
+import { generateRawToken, hashToken } from "@/lib/auth/tokens";
 import type { User } from "@prisma/client";
 
 // Server-side, database-backed sessions — mirrors the Control Center's
@@ -15,14 +15,6 @@ import type { User } from "@prisma/client";
 const SESSION_COOKIE = "aec_session";
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const SESSION_REFRESH_THRESHOLD_MS = 24 * 60 * 60 * 1000; // touch at most once/day
-
-function hashToken(rawToken: string): string {
-  return createHmac("sha256", env.AUTH_SECRET).update(rawToken).digest("hex");
-}
-
-function generateRawToken(): string {
-  return randomBytes(32).toString("base64url");
-}
 
 function cookieOptions(maxAgeMs: number) {
   return {
@@ -65,17 +57,31 @@ export async function destroyCurrentSession(): Promise<void> {
   await prisma.session.deleteMany({ where: { tokenHash } });
 }
 
-/** Revoke every session for a user — used when disabling an account. */
+/** Revoke every session for a user — used when disabling an account, and
+ * (Phase 5 — docs/adr/0027-tenant-provisioning.md) when suspending a
+ * tenant (every one of its users, in one pass) or resetting a password. */
 export async function destroyAllSessionsForUser(userId: string): Promise<void> {
   await prisma.session.deleteMany({ where: { userId } });
 }
 
-export type CurrentUser = Pick<User, "id" | "email" | "name" | "role" | "status" | "tenantId">;
+/** Revoke every session for every user of a tenant — used when suspending
+ * it (docs/adr/0027-tenant-provisioning.md): immediate lockout, not merely
+ * "can't log in again". */
+export async function destroyAllSessionsForTenant(tenantId: string): Promise<void> {
+  await prisma.session.deleteMany({ where: { user: { tenantId } } });
+}
+
+export type CurrentUser = Pick<User, "id" | "email" | "name" | "role" | "status" | "tenantId" | "isPlatformAdmin">;
 
 /**
  * Resolves the authenticated user for the current request, re-verifying
  * against the database every call. Returns null if there is no valid,
- * unexpired session for an ACTIVE user.
+ * unexpired session for an ACTIVE user in an ACTIVE tenant — a session for
+ * a user whose TENANT was suspended (Phase 5) is treated exactly like a
+ * disabled user's: no valid session, without needing to touch every one of
+ * that tenant's session rows individually (`destroyAllSessionsForTenant`
+ * still runs at suspend time for immediate, unambiguous lockout; this
+ * check is the backstop for any session created in the gap).
  */
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   const cookieStore = await cookies();
@@ -85,13 +91,13 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
   const tokenHash = hashToken(rawToken);
   const session = await prisma.session.findUnique({
     where: { tokenHash },
-    include: { user: true },
+    include: { user: { include: { tenant: { select: { status: true } } } } },
   });
 
   if (!session || session.expiresAt < new Date()) {
     return null;
   }
-  if (session.user.status !== "ACTIVE") {
+  if (session.user.status !== "ACTIVE" || session.user.tenant.status !== "ACTIVE") {
     return null;
   }
 
@@ -102,16 +108,8 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     });
   }
 
-  const { id, email, name, role, status, tenantId } = session.user;
-  return { id, email, name, role, status, tenantId };
-}
-
-/** Constant-time comparison helper for token/secret verification. */
-export function safeCompare(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
+  const { id, email, name, role, status, tenantId, isPlatformAdmin } = session.user;
+  return { id, email, name, role, status, tenantId, isPlatformAdmin };
 }
 
 export { SESSION_COOKIE };

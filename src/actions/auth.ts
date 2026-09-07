@@ -33,12 +33,18 @@ export async function loginAction(
   // Failure audit events, written with no tenant known, fall to the
   // bootstrap tenant.
   const candidates = await runUnscoped("auth:login", () =>
-    prisma.user.findMany({ where: { email: parsed.data.email } })
+    prisma.user.findMany({
+      where: { email: parsed.data.email },
+      include: { tenant: { select: { status: true } } },
+    })
   );
 
   let user: (typeof candidates)[number] | null = null;
   for (const candidate of candidates) {
-    if (candidate.status !== "ACTIVE") continue;
+    // A disabled user and a user whose TENANT is suspended (Phase 5 —
+    // docs/adr/0027-tenant-provisioning.md) are rejected identically here
+    // — same generic message either way, revealing neither.
+    if (candidate.status !== "ACTIVE" || candidate.tenant.status !== "ACTIVE") continue;
     if (await verifyPassword(parsed.data.password, candidate.passwordHash)) {
       user = candidate;
       break;

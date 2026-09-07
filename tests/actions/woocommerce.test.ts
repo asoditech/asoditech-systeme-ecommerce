@@ -70,7 +70,7 @@ describe("WooCommerce integration", () => {
 
   describe("connectIntegrationAction — WooCommerce", () => {
     it("rejects a caller without integrations.manage permission", async () => {
-      await loginAsTestUser({ role: "SALES" });
+      await loginAsTestUser({ role: "CONFIRMATION" });
       await expect(
         connectIntegrationAction(
           formData({ provider: "WOOCOMMERCE", siteUrl: FAKE_STORE_URL, apiKey: "x", apiSecret: "y" })
@@ -219,7 +219,7 @@ describe("WooCommerce integration", () => {
     });
 
     it("rejects a caller without integrations.manage permission", async () => {
-      await loginAsTestUser({ role: "SALES" });
+      await loginAsTestUser({ role: "CONFIRMATION" });
       await expect(syncWooCommerceProductsAction()).rejects.toThrow(/non autorisé/i);
     });
 
@@ -424,7 +424,7 @@ describe("WooCommerce integration", () => {
 
     it("imports a registered-customer order with correct totals, line items, and a cost snapshot from the internal product", async () => {
       const product = await seedProductWithCost();
-      const teammate = await createTestUser({ role: "SALES" }); // holds orders.view, distinct from the syncing ADMIN
+      const teammate = await createTestUser({ role: "CONFIRMATION" }); // holds orders.view, distinct from the syncing ADMIN
 
       state.orders = [
         {
@@ -561,7 +561,7 @@ describe("WooCommerce integration", () => {
 
     it("does not fan out a notification for a months-old order (history backfill)", async () => {
       await seedProductWithCost();
-      const teammate = await createTestUser({ role: "SALES" });
+      const teammate = await createTestUser({ role: "CONFIRMATION" });
       state.orders = [
         {
           id: 9600,

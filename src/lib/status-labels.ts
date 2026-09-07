@@ -128,7 +128,7 @@ export const USER_ROLE_LABELS: Record<string, string> = {
   OWNER: "Propriétaire",
   ADMIN: "Administrateur",
   MANAGER: "Manager",
-  SALES: "Ventes",
+  CONFIRMATION: "Confirmation",
   WAREHOUSE: "Entrepôt",
   DELIVERY: "Livraison",
   SUPPORT: "Support",

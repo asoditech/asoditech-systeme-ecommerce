@@ -2,61 +2,23 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireOwnerForAction } from "@/lib/auth/guards";
-import { hashPassword } from "@/lib/auth/password";
+import { requirePermissionForAction } from "@/lib/auth/guards";
 import { destroyAllSessionsForUser } from "@/lib/auth/session";
 import { recordAuditEvent } from "@/lib/audit";
-import { createUserSchema, updateUserStatusSchema, updateUserRoleSchema } from "@/lib/validation/user";
+import { updateUserStatusSchema, updateUserRoleSchema } from "@/lib/validation/user";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
-import { isUniqueConstraintError } from "@/lib/prisma-errors";
 
-/** Only OWNER may provision accounts or change roles — see docs/adr/0003-auth-and-rbac.md. */
-export async function createUserAction(formData: FormData): Promise<ActionResult<IdResult>> {
-  const owner = await requireOwnerForAction();
-
-  const parsed = createUserSchema.safeParse({
-    name: formData.get("name"),
-    email: formData.get("email"),
-    password: formData.get("password"),
-    role: formData.get("role"),
-  });
-  if (!parsed.success) {
-    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
-  }
-
-  const existing = await prisma.user.findFirst({ where: { email: parsed.data.email } });
-  if (existing) {
-    return actionError("Un utilisateur avec cet e-mail existe déjà.", { email: ["E-mail déjà utilisé."] });
-  }
-
-  const passwordHash = await hashPassword(parsed.data.password);
-  let user;
-  try {
-    user = await prisma.user.create({
-      data: { name: parsed.data.name, email: parsed.data.email, passwordHash, role: parsed.data.role },
-    });
-  } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      return actionError("Un utilisateur avec cet e-mail existe déjà.", { email: ["E-mail déjà utilisé."] });
-    }
-    throw error;
-  }
-
-  await recordAuditEvent({
-    actorType: "USER",
-    actorUserId: owner.id,
-    action: "user.created",
-    entityType: "User",
-    entityId: user.id,
-    newValue: { email: user.email, role: user.role },
-  });
-
-  revalidatePath("/utilisateurs");
-  return actionOk({ id: user.id });
-}
+/**
+ * OWNER and ADMIN may manage users — WITHIN THEIR OWN TENANT (the Phase
+ * 2-4 extension + RLS scope every query here automatically; nothing in
+ * this file ever needs an explicit tenantId check). See
+ * docs/adr/0003-auth-and-rbac.md and docs/adr/0027-tenant-provisioning.md.
+ * Creating an account is now `inviteUserAction` (src/actions/invitations.ts)
+ * — there is no more "admin picks a temporary password" path.
+ */
 
 export async function updateUserStatusAction(formData: FormData): Promise<ActionResult<IdResult>> {
-  const owner = await requireOwnerForAction();
+  const actor = await requirePermissionForAction("users.manage");
 
   const parsed = updateUserStatusSchema.safeParse({ id: formData.get("id"), status: formData.get("status") });
   if (!parsed.success) {
@@ -74,7 +36,7 @@ export async function updateUserStatusAction(formData: FormData): Promise<Action
 
   await recordAuditEvent({
     actorType: "USER",
-    actorUserId: owner.id,
+    actorUserId: actor.id,
     action: "user.status_changed",
     entityType: "User",
     entityId: user.id,
@@ -87,11 +49,17 @@ export async function updateUserStatusAction(formData: FormData): Promise<Action
 }
 
 export async function updateUserRoleAction(formData: FormData): Promise<ActionResult<IdResult>> {
-  const owner = await requireOwnerForAction();
+  const actor = await requirePermissionForAction("users.manage");
 
   const parsed = updateUserRoleSchema.safeParse({ id: formData.get("id"), role: formData.get("role") });
   if (!parsed.success) {
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+  // Only OWNER may hand out the OWNER role — an ADMIN could otherwise
+  // promote a user to OWNER and lose the "OWNER accounts are immutable to
+  // everyone else" guarantee below at one remove.
+  if (parsed.data.role === "OWNER" && actor.role !== "OWNER") {
+    return actionError("Seul le propriétaire peut attribuer le rôle propriétaire.");
   }
 
   const existing = await prisma.user.findUnique({ where: { id: parsed.data.id } });
@@ -102,7 +70,7 @@ export async function updateUserRoleAction(formData: FormData): Promise<ActionRe
 
   await recordAuditEvent({
     actorType: "USER",
-    actorUserId: owner.id,
+    actorUserId: actor.id,
     action: "user.role_changed",
     entityType: "User",
     entityId: user.id,

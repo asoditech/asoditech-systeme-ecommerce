@@ -104,7 +104,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     "audit.view",
     "ai.use",
   ],
-  SALES: [
+  CONFIRMATION: [
     "dashboard.view",
     "orders.view",
     "orders.create",

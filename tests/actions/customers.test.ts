@@ -37,7 +37,7 @@ describe("createCustomerAction", () => {
   });
 
   it("creates a customer and records who created it", async () => {
-    const user = await loginAsTestUser({ role: "SALES" });
+    const user = await loginAsTestUser({ role: "CONFIRMATION" });
     const result = await createCustomerAction(formData({ fullName: "Amine Tazi", phone: "0612345678" }));
 
     expect(result.ok).toBe(true);
@@ -51,7 +51,7 @@ describe("createCustomerAction", () => {
   });
 
   it("treats blank optional fields as null, not empty strings", async () => {
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     const result = await createCustomerAction(formData({ fullName: "Amine", email: "", phone: "" }));
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -61,7 +61,7 @@ describe("createCustomerAction", () => {
   });
 
   it("rejects a missing full name with a field-level error", async () => {
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     const result = await createCustomerAction(formData({ fullName: "" }));
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -81,7 +81,7 @@ describe("updateCustomerAction", () => {
   });
 
   it("allows setting a manual customer segment", async () => {
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     const created = await createCustomerAction(formData({ fullName: "Amine" }));
     if (!created.ok) throw new Error("setup failed");
 
@@ -93,7 +93,7 @@ describe("updateCustomerAction", () => {
   });
 
   it("returns an error for a non-existent customer instead of throwing", async () => {
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     const result = await updateCustomerAction(formData({ id: "does-not-exist", fullName: "X" }));
     expect(result.ok).toBe(false);
   });
@@ -110,7 +110,7 @@ describe("deleteCustomerAddressAction — IDOR protection (audit fix)", () => {
   });
 
   it("refuses to delete an address that belongs to a different customer than claimed", async () => {
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     const ownerCustomer = await createCustomerAction(formData({ fullName: "Client A" }));
     const otherCustomer = await createCustomerAction(formData({ fullName: "Client B" }));
     if (!ownerCustomer.ok || !otherCustomer.ok) throw new Error("setup failed");
@@ -131,7 +131,7 @@ describe("deleteCustomerAddressAction — IDOR protection (audit fix)", () => {
   });
 
   it("deletes an address when the customerId matches its real owner", async () => {
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     const customer = await createCustomerAction(formData({ fullName: "Client A" }));
     if (!customer.ok) throw new Error("setup failed");
     const address = await createCustomerAddressAction(
@@ -160,7 +160,7 @@ describe("createCustomerAddressAction", () => {
   });
 
   it("rejects an address for a non-existent customer instead of throwing", async () => {
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     const result = await createCustomerAddressAction(
       formData({ customerId: "does-not-exist", addressLine1: "12 Rue Atlas", city: "Casablanca" })
     );
@@ -168,7 +168,7 @@ describe("createCustomerAddressAction", () => {
   });
 
   it("only one address is marked default at a time", async () => {
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     const customer = await createCustomerAction(formData({ fullName: "Client A" }));
     if (!customer.ok) throw new Error("setup failed");
 

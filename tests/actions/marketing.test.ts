@@ -22,7 +22,7 @@ describe("createMarketingChannelAction", () => {
   });
 
   it("rejects a caller without marketing.manage permission (Phase 26 audit fix)", async () => {
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     await expect(createMarketingChannelAction(formData({ name: "Meta", type: "META" }))).rejects.toThrow(
       /non autorisé/i
     );

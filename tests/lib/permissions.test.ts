@@ -11,7 +11,7 @@ describe("RBAC permission matrix", () => {
 
   it("never grants users.manage or settings.manage to non-admin roles", () => {
     const restricted: Array<keyof typeof ROLE_PERMISSIONS> = [
-      "SALES",
+      "CONFIRMATION",
       "WAREHOUSE",
       "DELIVERY",
       "SUPPORT",
@@ -27,7 +27,7 @@ describe("RBAC permission matrix", () => {
   it("only grants finance.manage to roles that need it", () => {
     expect(hasPermission("ACCOUNTANT", "finance.manage")).toBe(true);
     expect(hasPermission("OWNER", "finance.manage")).toBe(true);
-    expect(hasPermission("SALES", "finance.manage")).toBe(false);
+    expect(hasPermission("CONFIRMATION", "finance.manage")).toBe(false);
     expect(hasPermission("WAREHOUSE", "finance.manage")).toBe(false);
     expect(hasPermission("DELIVERY", "finance.manage")).toBe(false);
   });
@@ -35,7 +35,7 @@ describe("RBAC permission matrix", () => {
   it("only grants inventory.adjust to roles responsible for stock", () => {
     expect(hasPermission("WAREHOUSE", "inventory.adjust")).toBe(true);
     expect(hasPermission("MANAGER", "inventory.adjust")).toBe(true);
-    expect(hasPermission("SALES", "inventory.adjust")).toBe(false);
+    expect(hasPermission("CONFIRMATION", "inventory.adjust")).toBe(false);
     expect(hasPermission("SUPPORT", "inventory.adjust")).toBe(false);
   });
 
@@ -44,7 +44,7 @@ describe("RBAC permission matrix", () => {
     expect(hasPermission("MANAGER", "warehouses.manage")).toBe(true);
     expect(hasPermission("OWNER", "warehouses.manage")).toBe(true);
     expect(hasPermission("ADMIN", "warehouses.manage")).toBe(true);
-    expect(hasPermission("SALES", "warehouses.manage")).toBe(false);
+    expect(hasPermission("CONFIRMATION", "warehouses.manage")).toBe(false);
     expect(hasPermission("DELIVERY", "warehouses.manage")).toBe(false);
   });
 
@@ -55,15 +55,15 @@ describe("RBAC permission matrix", () => {
   });
 
   it("does not grant orders.cancel or orders.refund to SALES", () => {
-    expect(hasPermission("SALES", "orders.cancel")).toBe(false);
-    expect(hasPermission("SALES", "orders.refund")).toBe(false);
+    expect(hasPermission("CONFIRMATION", "orders.cancel")).toBe(false);
+    expect(hasPermission("CONFIRMATION", "orders.refund")).toBe(false);
   });
 
   it("grants inventory.transfer to stock-moving roles only (Phase 32b)", () => {
     for (const role of ["OWNER", "ADMIN", "MANAGER", "WAREHOUSE"] as const) {
       expect(hasPermission(role, "inventory.transfer")).toBe(true);
     }
-    for (const role of ["SALES", "DELIVERY", "SUPPORT", "ACCOUNTANT"] as const) {
+    for (const role of ["CONFIRMATION", "DELIVERY", "SUPPORT", "ACCOUNTANT"] as const) {
       expect(hasPermission(role, "inventory.transfer")).toBe(false);
     }
   });
@@ -72,7 +72,7 @@ describe("RBAC permission matrix", () => {
     for (const role of ["OWNER", "ADMIN", "MANAGER", "WAREHOUSE"] as const) {
       expect(hasPermission(role, "inventory.count")).toBe(true);
     }
-    for (const role of ["SALES", "DELIVERY", "SUPPORT", "ACCOUNTANT"] as const) {
+    for (const role of ["CONFIRMATION", "DELIVERY", "SUPPORT", "ACCOUNTANT"] as const) {
       expect(hasPermission(role, "inventory.count")).toBe(false);
     }
   });

@@ -54,7 +54,7 @@ describe("Shopify integration", () => {
 
   describe("connectIntegrationAction — Shopify", () => {
     it("rejects a caller without integrations.manage permission", async () => {
-      await loginAsTestUser({ role: "SALES" });
+      await loginAsTestUser({ role: "CONFIRMATION" });
       await expect(
         connectIntegrationAction(formData({ provider: "SHOPIFY", siteUrl: FAKE_SHOP_DOMAIN, apiKey: "x", apiSecret: "" }))
       ).rejects.toThrow(/non autorisé/i);
@@ -197,7 +197,7 @@ describe("Shopify integration", () => {
     });
 
     it("rejects a caller without integrations.manage permission", async () => {
-      await loginAsTestUser({ role: "SALES" });
+      await loginAsTestUser({ role: "CONFIRMATION" });
       await expect(syncShopifyProductsAction()).rejects.toThrow(/non autorisé/i);
     });
 
@@ -402,7 +402,7 @@ describe("Shopify integration", () => {
 
     it("imports a registered-customer order with correct totals, line items, and a cost snapshot", async () => {
       const product = await seedProductWithCost();
-      const teammate = await createTestUser({ role: "SALES" }); // holds orders.view, distinct from the syncing ADMIN
+      const teammate = await createTestUser({ role: "CONFIRMATION" }); // holds orders.view, distinct from the syncing ADMIN
 
       state.orders = [
         {

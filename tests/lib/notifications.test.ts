@@ -23,7 +23,7 @@ describe("notify()", () => {
 
   it("fans out only to users holding the recipient permission", async () => {
     const warehouse = await createTestUser({ role: "WAREHOUSE" }); // has inventory.view
-    const sales = await createTestUser({ role: "SALES" }); // does not have inventory.view
+    const sales = await createTestUser({ role: "CONFIRMATION" }); // does not have inventory.view
 
     await notify({
       type: "STOCK_FAIBLE",

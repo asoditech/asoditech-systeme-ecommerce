@@ -114,6 +114,9 @@ export function LoginForm() {
         <Button type="submit" size="lg" loading={isPending} className="w-full rounded-xl">
           {isPending ? "Connexion…" : "Se connecter"}
         </Button>
+        <a href="/mot-de-passe-oublie" className="block text-center text-sm text-muted-foreground hover:underline">
+          Mot de passe oublié ?
+        </a>
       </form>
 
       <div className="h-px w-full bg-black/10" />

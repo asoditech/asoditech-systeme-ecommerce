@@ -102,6 +102,8 @@ model Tenant {
   notifications         Notification[]
   businessSettings      BusinessSettings[]
   auditEvents           AuditEvent[]
+  invitations           Invitation[]
+  passwordResetTokens   PasswordResetToken[]
 
   @@map("tenants")
 }
@@ -114,7 +116,12 @@ enum UserRole {
   OWNER
   ADMIN
   MANAGER
-  SALES
+  // Order-confirmation agent (confirmateur) — see
+  // docs/adr/0022-order-confirmation-commission.md. Renamed from SALES in
+  // Phase 5 (docs/adr/0027-tenant-provisioning.md) to match what the role
+  // actually does in this app; `ALTER TYPE … RENAME VALUE` in the
+  // migration preserves every existing row's role unchanged.
+  CONFIRMATION
   WAREHOUSE
   DELIVERY
   SUPPORT
@@ -132,14 +139,26 @@ model User {
   email        String
   name         String
   passwordHash String
-  role         UserRole   @default(SALES)
+  role         UserRole   @default(CONFIRMATION)
   status       UserStatus @default(ACTIVE)
+  // Cross-tenant flag, deliberately NOT part of the per-tenant RBAC matrix
+  // (docs/adr/0003) — grants access to the `/platform` area (Phase 5,
+  // docs/adr/0027-tenant-provisioning.md), which manages OTHER tenants'
+  // existence. Independent of `role`: a platform admin is still a normal
+  // member of their own tenant otherwise. Never settable through any
+  // tenant-scoped action — only by direct DB access (this app's answer to
+  // "who provisions the provisioner" while there is no billing/licensing
+  // layer yet).
+  isPlatformAdmin Boolean  @default(false)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   lastLoginAt  DateTime?
 
   tenant                     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   sessions                   Session[]
+  invitationsSent            Invitation[]          @relation("InvitationInvitedBy")
+  invitationAccepted         Invitation?           @relation("InvitationAcceptedUser")
+  passwordResetTokens        PasswordResetToken[]
   customersCreated           Customer[]            @relation("CustomerCreatedBy")
   ordersCreated              Order[]               @relation("OrderCreatedBy")
   productsCreated            Product[]             @relation("ProductCreatedBy")
@@ -185,6 +204,75 @@ model Session {
 
   @@index([userId])
   @@map("sessions")
+}
+
+// ---------------------------------------------------------------------------
+// Tenant-scoped user provisioning — Phase 5 (docs/adr/0027-tenant-provisioning.md).
+// Both models use the same secure-token mechanism as Session (src/lib/auth/
+// tokens.ts, shared with session.ts): a random 256-bit token handed to the
+// invitee/requester, only its HMAC-SHA256 hash ever stored. Lookup happens
+// BEFORE any tenant is known (like login's email lookup), so `tokenHash` is
+// globally unique — never a composite with tenantId, the one deliberate
+// exception to Phase 3's "no more global uniqueness" — the token itself is
+// the lookup key precisely because the tenant isn't known yet.
+// ---------------------------------------------------------------------------
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+}
+
+// One pending (or resolved) invite for a specific email to join a specific
+// tenant at a specific role. Creating a User row directly (a temporary
+// admin-chosen password) is gone — every user, in every tenant, including a
+// brand-new tenant's first OWNER (see `createTenantAction`), is provisioned
+// by accepting one of these. At most one PENDING invitation per
+// (tenant, email) — `inviteUserAction` revokes any prior pending one for
+// the same address rather than allowing two live tokens for one invite.
+model Invitation {
+  id         String           @id @default(cuid())
+  tenantId   String           @default("default")
+  email      String
+  name       String
+  role       UserRole
+  tokenHash  String           @unique
+  status     InvitationStatus @default(PENDING)
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  createdAt  DateTime         @default(now())
+
+  invitedById  String?
+  acceptedById String? @unique
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  invitedBy  User?  @relation("InvitationInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+  acceptedBy User?  @relation("InvitationAcceptedUser", fields: [acceptedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, email])
+  @@index([tenantId, status])
+  @@map("invitations")
+}
+
+// A one-time password-reset link for an EXISTING user. `usedAt` makes it
+// single-use; `expiresAt` is deliberately much shorter-lived than an
+// Invitation's (1 hour vs 7 days) — resetting an active account's password
+// is more sensitive than onboarding a new one.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tenantId  String    @default("default")
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 // ---------------------------------------------------------------------------

@@ -1,11 +1,14 @@
 import { PageHeader } from "@/components/page-header";
-import { CreateUserForm } from "@/components/users/create-user-form";
+import { InviteUserForm } from "@/components/users/invite-user-form";
 import { UserRowControls } from "@/components/users/user-row-controls";
+import { PendingInvitationsList } from "@/components/users/pending-invitations-list";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
+import { hasPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/prisma";
+import { listPendingInvitations } from "@/lib/queries/users";
 import { formatDate } from "@/lib/format";
 import { USER_ROLE_LABELS, USER_STATUS_LABELS } from "@/lib/status-labels";
 import { ROLE_PERMISSIONS, PERMISSIONS } from "@/lib/auth/permissions";
@@ -14,16 +17,32 @@ export const metadata = { title: "Utilisateurs — ASODITECH Gestion E-commerce"
 
 export default async function UtilisateursPage() {
   const user = await requirePermission("users.view");
-  const isOwner = user.role === "OWNER";
-  const users = await prisma.user.findMany({ orderBy: { createdAt: "asc" } });
+  const canManage = hasPermission(user.role, "users.manage");
+  const [users, invitations] = await Promise.all([
+    prisma.user.findMany({ orderBy: { createdAt: "asc" } }),
+    canManage ? listPendingInvitations() : Promise.resolve([]),
+  ]);
 
   return (
     <div className="space-y-8">
       <PageHeader
         title="Utilisateurs"
         description="Comptes d'accès et rôles. Les permissions sont définies par rôle."
-        actions={isOwner ? <CreateUserForm /> : undefined}
+        actions={canManage ? <InviteUserForm /> : undefined}
       />
+
+      {canManage && (
+        <PendingInvitationsList
+          invitations={invitations.map((i) => ({
+            id: i.id,
+            email: i.email,
+            name: i.name,
+            role: i.role,
+            expiresAt: i.expiresAt.toISOString(),
+            invitedByName: i.invitedBy?.name ?? null,
+          }))}
+        />
+      )}
 
       <div className="rounded-lg border">
         <Table>
@@ -41,7 +60,7 @@ export default async function UtilisateursPage() {
                 <TableCell className="font-medium">{u.name}</TableCell>
                 <TableCell className="text-muted-foreground">{u.email}</TableCell>
                 <TableCell>
-                  {isOwner ? (
+                  {canManage ? (
                     <UserRowControls userId={u.id} role={u.role} status={u.status} />
                   ) : (
                     <div className="flex items-center gap-2">

@@ -377,7 +377,7 @@ describe("stock transfer actions (Phase 32b)", () => {
 
   describe("RBAC", () => {
     const allowed: UserRole[] = ["OWNER", "ADMIN", "MANAGER", "WAREHOUSE"];
-    const denied: UserRole[] = ["SALES", "DELIVERY", "SUPPORT", "ACCOUNTANT"];
+    const denied: UserRole[] = ["CONFIRMATION", "DELIVERY", "SUPPORT", "ACCOUNTANT"];
 
     it("R1 — allowed roles can create + dispatch + receive + cancel", async () => {
       for (const role of allowed) {

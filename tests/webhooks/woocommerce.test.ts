@@ -118,7 +118,7 @@ describe("POST /api/webhooks/woocommerce", () => {
 
   it("processes a validly signed order.created delivery and creates the order", async () => {
     await seedIntegration();
-    const staff = await createTestUser({ role: "SALES" }); // holds orders.view
+    const staff = await createTestUser({ role: "CONFIRMATION" }); // holds orders.view
     const body = orderPayload();
     const response = await POST(
       request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "d1" })

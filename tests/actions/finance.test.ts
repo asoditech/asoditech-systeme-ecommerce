@@ -25,7 +25,7 @@ describe("createExpenseAction", () => {
 
   it("rejects a caller without finance.manage permission", async () => {
     const category = await prisma.expenseCategory.create({ data: { name: "Publicité" } });
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     await expect(
       createExpenseAction(
         formData({ categoryId: category.id, amount: "100", date: "2026-08-01", currency: "MAD" })

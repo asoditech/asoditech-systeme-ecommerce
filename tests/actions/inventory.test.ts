@@ -35,7 +35,7 @@ describe("adjustInventoryAction", () => {
 
   it("rejects a caller without inventory.adjust permission", async () => {
     const { warehouse, product } = await seedInventoryItem();
-    await loginAsTestUser({ role: "SALES" });
+    await loginAsTestUser({ role: "CONFIRMATION" });
     await expect(
       adjustInventoryAction(
         formData({

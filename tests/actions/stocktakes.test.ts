@@ -455,7 +455,7 @@ describe("stocktake actions (Phase 32c)", () => {
   // ------------------------------------------------------------ H. RBAC
   describe("RBAC", () => {
     const allowed: UserRole[] = ["OWNER", "ADMIN", "MANAGER", "WAREHOUSE"];
-    const denied: UserRole[] = ["SALES", "DELIVERY", "SUPPORT", "ACCOUNTANT"];
+    const denied: UserRole[] = ["CONFIRMATION", "DELIVERY", "SUPPORT", "ACCOUNTANT"];
 
     it("H — allowed roles can create + count + finalize + cancel", async () => {
       for (const role of allowed) {

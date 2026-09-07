@@ -95,7 +95,7 @@ describe("POST /api/webhooks/shopify", () => {
 
   it("processes a validly signed orders/create delivery by re-fetching and importing the order", async () => {
     await seedIntegration();
-    const staff = await createTestUser({ role: "SALES" }); // holds orders.view
+    const staff = await createTestUser({ role: "CONFIRMATION" }); // holds orders.view
     const body = orderCreatePayload();
     const response = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/create", "x-shopify-webhook-id": "d1" }));
     expect(response.status).toBe(200);
