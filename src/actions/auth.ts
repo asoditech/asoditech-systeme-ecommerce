@@ -6,6 +6,7 @@ import { verifyPassword } from "@/lib/auth/password";
 import { createSession, destroyCurrentSession, getCurrentUser } from "@/lib/auth/session";
 import { recordAuditEvent } from "@/lib/audit";
 import { runUnscoped, runWithTenant } from "@/lib/tenant/context";
+import { BOOTSTRAP_TENANT_ID } from "@/lib/tenant/resolve";
 import { loginSchema } from "@/lib/validation/auth";
 import { actionError, type ActionResult } from "@/actions/types";
 
@@ -52,16 +53,23 @@ export async function loginAction(
   }
 
   if (!user) {
-    await recordAuditEvent({
-      actorType: "SYSTEM",
-      action: "user.login.failure",
-      entityType: "User",
-      // Only attributable to a specific account when the email resolved to
-      // exactly one candidate — with several (across tenants), which one
-      // the attempt was "for" is ambiguous by design.
-      entityId: candidates.length === 1 ? candidates[0].id : "unknown",
-      metadata: { email: parsed.data.email },
-    });
+    // No directive and (by definition, at this point) no session — outside
+    // NODE_ENV=test this would otherwise throw TenantContextRequiredError
+    // (ADR 0025's create-context guard) instead of recording the audit
+    // event, exactly like an unattributable webhook rejection (see
+    // src/app/api/webhooks/woocommerce/route.ts).
+    await runWithTenant(BOOTSTRAP_TENANT_ID, "auth:login:failure", () =>
+      recordAuditEvent({
+        actorType: "SYSTEM",
+        action: "user.login.failure",
+        entityType: "User",
+        // Only attributable to a specific account when the email resolved to
+        // exactly one candidate — with several (across tenants), which one
+        // the attempt was "for" is ambiguous by design.
+        entityId: candidates.length === 1 ? candidates[0].id : "unknown",
+        metadata: { email: parsed.data.email },
+      })
+    );
     return actionError(INVALID_CREDENTIALS_MESSAGE);
   }
 

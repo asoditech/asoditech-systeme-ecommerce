@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma, prismaBase } from "@/lib/prisma";
 import { hashPassword } from "@/lib/auth/password";
 import { loginAction } from "@/actions/auth";
@@ -60,6 +60,35 @@ describe("loginAction", () => {
     expect(noSuchAccount).toMatchObject({ ok: false });
     if (!wrongPassword.ok && !noSuchAccount.ok) {
       expect(wrongPassword.error).toBe(noSuchAccount.error);
+    }
+  });
+
+  // Regression (found via live acceptance testing against a real dev
+  // server, outside NODE_ENV=test — this whole suite's carve-out in
+  // resolveActiveTenantForCreate masked it completely): the failure-audit
+  // write had no directive and (by definition) no session, so outside the
+  // test carve-out it hit TenantContextRequiredError and 500'd on every
+  // wrong password. `vi.stubEnv` reproduces that outside-test condition.
+  it("records the failure audit event against the bootstrap tenant instead of throwing outside NODE_ENV=test", async () => {
+    await prisma.user.create({
+      data: {
+        email: "regression@test.local",
+        name: "Regression",
+        passwordHash: await hashPassword("correct-horse-battery-staple"),
+        role: "OWNER",
+        status: "ACTIVE",
+      },
+    });
+
+    vi.stubEnv("NODE_ENV", "production");
+    try {
+      const result = await loginAction(undefined, formData({ email: "regression@test.local", password: "wrong" }));
+      expect(result).toMatchObject({ ok: false });
+
+      const event = await prismaBase.auditEvent.findFirstOrThrow({ where: { action: "user.login.failure" } });
+      expect(event.tenantId).toBe(DEFAULT_TENANT_ID);
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 
