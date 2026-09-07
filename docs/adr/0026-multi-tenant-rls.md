@@ -76,7 +76,21 @@ This is deliberately **not** part of the versioned migration — it needs a
 password, which does not belong in migration history, and role
 provisioning is infrastructure the migration file has no way to express
 portably across providers anyway (matches how `DATABASE_URL` itself is
-never created by a migration). Locally, this phase created:
+never created by a migration). Locally, this phase created the role by
+hand with the equivalent of the SQL below.
+
+**Production readiness audit (2026-09-07) update**: this step is no
+longer bare prose — `scripts/provision-production-role.sql` is the same
+statements below, made idempotent and parameterized (safe to re-run; see
+its own header for exact usage), and `scripts/verify-rls.sh` proves RLS
+actually blocks cross-tenant access against a real database connecting
+as the resulting restricted role — wrapped in a transaction that always
+`ROLLBACK`s, so it's safe to run against production directly. Both were
+verified end-to-end against a `prisma migrate deploy`-created database
+during that audit. One trap found and fixed while writing the SQL script:
+psql does **not** interpolate `:variables` inside a `DO $$ ... $$` body —
+the idempotent "create role if missing" step uses the `SELECT ... WHERE
+NOT EXISTS (...) \gexec` idiom instead, not a `DO` block.
 
 ```sql
 CREATE ROLE asoditech_app WITH LOGIN PASSWORD '…' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
@@ -93,7 +107,9 @@ ALTER DEFAULT PRIVILEGES FOR ROLE mac IN SCHEMA public
 `DIRECT_URL` stays the owner role (`mac`) for migrations. **Production
 needs the equivalent** — a non-owner, non-superuser, non-`BYPASSRLS` role
 for the app's pooled connection — before this migration means anything
-there.
+there. Run `scripts/provision-production-role.sql` (see its header for
+the exact invocation), then `scripts/verify-rls.sh` before treating a
+production environment as ready.
 
 ### 3. Setting the GUC — `SET LOCAL`, always inside a real transaction
 `SET LOCAL` is scoped to the current transaction and reverts automatically
