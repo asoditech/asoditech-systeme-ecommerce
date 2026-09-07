@@ -21,11 +21,23 @@ import type { UserRole } from "@prisma/client";
  * previous behavior (logging the link) so no existing environment
  * (local dev, this test suite, CI) changes until an operator
  * deliberately configures real delivery.
+ *
+ * NODE_ENV==="test" always forces the log-only path, regardless of those
+ * two vars — found necessary the hard way: `.env.test` deliberately
+ * curates a minimal, hermetic set of vars for the test suite, but
+ * `@prisma/client`'s own runtime auto-loads the real `.env` file for any
+ * variable that isn't already set in `process.env`, so a developer's real
+ * RESEND_API_KEY/EMAIL_FROM (present in their local, gitignored `.env`
+ * for manual testing, absent from `.env.test`) silently leaks into every
+ * test run and fires real Resend API calls. This guard makes the test
+ * suite hermetic against that leak instead of relying on every developer
+ * mirroring every new `.env` var into `.env.test` correctly forever.
  */
 
 let client: Resend | null = null;
 
 function getClient(): Resend | null {
+  if (env.NODE_ENV === "test") return null;
   if (!env.RESEND_API_KEY || !env.EMAIL_FROM) return null;
   client ??= new Resend(env.RESEND_API_KEY);
   return client;
