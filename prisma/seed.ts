@@ -30,6 +30,19 @@ const SYSTEM_EXPENSE_CATEGORIES = [
 ];
 
 async function main() {
+  // The fallback credentials below are a known, public value (they're
+  // sitting right here in source control) — safe only for a disposable
+  // local database. Refusing to run with them in production is the only
+  // thing standing between "someone forgot to set the env var" and a
+  // publicly-known password on a real, isPlatformAdmin:true account.
+  if (process.env.NODE_ENV === "production" && !process.env.SEED_OWNER_PASSWORD) {
+    throw new Error(
+      "SEED_OWNER_PASSWORD is required when NODE_ENV=production — refusing to seed the bootstrap " +
+        "OWNER with the well-known local default password. Set SEED_OWNER_EMAIL and SEED_OWNER_PASSWORD " +
+        "(a real, unique password) before running this script against a production database."
+    );
+  }
+
   const email = process.env.SEED_OWNER_EMAIL ?? "owner@asoditech.local";
   const password = process.env.SEED_OWNER_PASSWORD ?? "change-me-immediately";
   const passwordHash = await bcrypt.hash(password, 12);
