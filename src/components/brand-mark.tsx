@@ -71,9 +71,9 @@ export function BrandMark({
 
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
-      <Image src="/logos/IconA.png" alt="" width={740} height={740} priority unoptimized className="size-7 shrink-0 dark:hidden" />
-      <Image src="/logos/Icon white.png" alt="" width={740} height={740} priority unoptimized className="hidden size-7 shrink-0 dark:block" />
-      <span className="text-sm font-semibold tracking-tight text-foreground">ASODITECH</span>
+      <Image src="/logos/IconA.png" alt="" width={740} height={740} priority unoptimized className="size-8 shrink-0 dark:hidden" />
+      <Image src="/logos/Icon white.png" alt="" width={740} height={740} priority unoptimized className="hidden size-8 shrink-0 dark:block" />
+      <span className="text-base font-semibold tracking-tight text-foreground">ASODITECH</span>
     </div>
   );
 }

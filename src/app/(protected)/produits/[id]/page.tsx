@@ -14,6 +14,10 @@ import {
   ExternalLink,
   AlertTriangle,
   LogIn,
+  Percent,
+  PiggyBank,
+  Package,
+  Info,
   type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -260,55 +264,54 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
             <CardTitle className="text-[15px]">Rentabilité</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 text-sm sm:grid-cols-3">
-              <div>
-                <p className="text-xs text-muted-foreground">Marge unitaire (au prix et coût actuels)</p>
-                <p className="mt-1 text-lg font-semibold">
-                  {economics.unitMargin === null
-                    ? "Coût d'achat non renseigné"
+            <div className="grid gap-4 sm:grid-cols-3">
+              <KpiCard
+                label="Marge unitaire"
+                value={
+                  economics.unitMargin === null
+                    ? null
                     : `${formatCurrency(String(economics.unitMargin))}${
                         economics.unitMarginPct !== null ? ` · ${economics.unitMarginPct.toFixed(1)} %` : ""
-                      }`}
+                      }`
+                }
+                unavailableReason="Coût d'achat non renseigné"
+                hint={
+                  economics.unitCost !== null
+                    ? `Prix ${formatCurrency(product.price.toString())} − coût ${formatCurrency(String(economics.unitCost))}`
+                    : undefined
+                }
+                icon={Percent}
+                tone={economics.unitMargin === null ? "warning" : "info"}
+              />
+              <KpiCard
+                label="Bénéfice brut réalisé"
+                value={profit.grossProfit === null ? null : formatCurrency(String(profit.grossProfit))}
+                unavailableReason="Coût manquant sur des ventes"
+                hint={`CA ${formatCurrency(String(profit.revenue))}${
+                  profit.cogs !== null ? ` − coût ${formatCurrency(String(profit.cogs))}` : ""
+                }`}
+                trend={
+                  profit.grossProfit !== null && profit.marginPct !== null
+                    ? { direction: "flat", label: `${profit.marginPct.toFixed(1)} %` }
+                    : undefined
+                }
+                icon={PiggyBank}
+                tone={profit.grossProfit === null ? "warning" : "success"}
+              />
+              <KpiCard label="Unités vendues (net des retours)" value={String(profit.unitsSold)} icon={Package} tone="violet" />
+            </div>
+            <div className="mt-4 flex gap-2 rounded-lg bg-muted/40 p-3">
+              <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Le bénéfice réalisé utilise le coût figé <strong>au moment de chaque vente</strong>. Une vente enregistrée
+                  avant que vous ne renseigniez le coût d&apos;achat n&apos;a pas de coût figé — c&apos;est pourquoi le
+                  bénéfice peut rester « coût manquant » même après avoir saisi le coût aujourd&apos;hui.
                 </p>
-                {economics.unitCost !== null && (
-                  <p className="text-xs text-muted-foreground">
-                    Prix {formatCurrency(product.price.toString())} − coût {formatCurrency(String(economics.unitCost))}
-                  </p>
+                {canEdit && !profit.cogsComplete && profit.linesMissingCost > 0 && product.cost !== null && (
+                  <BackfillCostButton productId={product.id} missingCount={profit.linesMissingCost} />
                 )}
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Bénéfice brut réalisé (ventes passées)</p>
-                <p className="mt-1 text-lg font-semibold">
-                  {profit.grossProfit === null ? (
-                    <span className="text-amber-600 dark:text-amber-400">Coût manquant sur des ventes</span>
-                  ) : (
-                    <>
-                      {formatCurrency(String(profit.grossProfit))}
-                      {profit.marginPct !== null && (
-                        <span className="text-sm font-normal text-muted-foreground"> · {profit.marginPct.toFixed(1)} %</span>
-                      )}
-                    </>
-                  )}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  CA {formatCurrency(String(profit.revenue))}
-                  {profit.cogs !== null && ` − coût ${formatCurrency(String(profit.cogs))}`}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Unités vendues (net des retours)</p>
-                <p className="mt-1 text-lg font-semibold">{profit.unitsSold}</p>
-              </div>
-            </div>
-            <div className="mt-3 space-y-2 border-t pt-3">
-              <p className="text-xs text-muted-foreground">
-                Le bénéfice réalisé utilise le coût figé <strong>au moment de chaque vente</strong>. Une vente enregistrée
-                avant que vous ne renseigniez le coût d&apos;achat n&apos;a pas de coût figé — c&apos;est pourquoi le
-                bénéfice peut rester « coût manquant » même après avoir saisi le coût aujourd&apos;hui.
-              </p>
-              {canEdit && !profit.cogsComplete && profit.linesMissingCost > 0 && product.cost !== null && (
-                <BackfillCostButton productId={product.id} missingCount={profit.linesMissingCost} />
-              )}
             </div>
           </CardContent>
         </Card>

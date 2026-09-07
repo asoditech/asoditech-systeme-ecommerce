@@ -6,10 +6,11 @@ import { StatusBadge } from "@/components/status-badge";
 import { KpiCard } from "@/components/kpi-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { LineChart, Wallet, PackageMinus, TrendingUp, TrendingDown } from "lucide-react";
 import { requirePermission } from "@/lib/auth/guards";
-import { getRevenueTrend, getOrderStatusBreakdown, getTopProducts } from "@/lib/queries/analytics";
+import { getRevenueTrend, getOrderStatusBreakdown, getChannelBreakdown, getTopProducts } from "@/lib/queries/analytics";
 import { currentMonthRange, currentQuarterRange, currentYearRange, type PeriodRange } from "@/lib/queries/finance";
 import { computePeriodProfitability, computeProductProfitability } from "@/lib/profitability";
 import { formatCurrency } from "@/lib/format";
@@ -28,9 +29,10 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
   const params = await searchParams;
   const { range: period, key: periodKey, label: periodLabel } = resolvePeriod(params.period);
 
-  const [trend, statusBreakdown, topProducts, pnl, productProfit] = await Promise.all([
+  const [trend, statusBreakdown, channelBreakdown, topProducts, pnl, productProfit] = await Promise.all([
     getRevenueTrend(30),
     getOrderStatusBreakdown(),
+    getChannelBreakdown(),
     getTopProducts(5),
     computePeriodProfitability(period),
     computeProductProfitability(period, { limit: 10 }),
@@ -166,7 +168,7 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
             </CardContent>
           </Card>
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
             <Card>
               <CardHeader>
                 <CardTitle>Répartition des commandes par statut</CardTitle>
@@ -190,6 +192,36 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
                     ))}
                   </TableBody>
                 </Table>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Répartition des commandes par canal</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {channelBreakdown.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Aucune commande enregistrée.</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Canal</TableHead>
+                        <TableHead>Nombre</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {channelBreakdown.map((c) => (
+                        <TableRow key={c.channel}>
+                          <TableCell>
+                            <Badge variant="secondary">{c.channel}</Badge>
+                          </TableCell>
+                          <TableCell>{c.count}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
 

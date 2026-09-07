@@ -25,6 +25,16 @@ const BRAND_SRC = {
 
 export type BrandKey = keyof typeof BRAND_SRC;
 
+// A couple of the source files above (meta.png in particular) ship with a
+// lot of transparent margin baked into the canvas itself — at any fixed
+// box size the mark renders visibly smaller than every sibling logo next
+// to it. Rather than re-export the asset, scale it up from its own
+// center; `overflow-hidden` on the wrapping span below clips it back to
+// the box instead of letting it spill past a rounded/bordered container.
+const BRAND_ZOOM: Partial<Record<BrandKey, number>> = {
+  meta: 1.6,
+};
+
 export function BrandLogo({
   brand,
   label,
@@ -35,9 +45,18 @@ export function BrandLogo({
   /** Sizes the box — e.g. "size-5", "size-9". Must resolve to a real size. */
   className?: string;
 }) {
+  const zoom = BRAND_ZOOM[brand];
   return (
-    <span className={cn("relative inline-block shrink-0", className)}>
-      <Image src={BRAND_SRC[brand]} alt={label} fill sizes="48px" unoptimized className="object-contain" />
+    <span className={cn("relative inline-block shrink-0 overflow-hidden", className)}>
+      <Image
+        src={BRAND_SRC[brand]}
+        alt={label}
+        fill
+        sizes="48px"
+        unoptimized
+        className="object-contain"
+        style={zoom ? { transform: `scale(${zoom})` } : undefined}
+      />
     </span>
   );
 }
