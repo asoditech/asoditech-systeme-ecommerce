@@ -29,7 +29,7 @@ export async function getRevenueTrend(days = 30) {
 
 export async function getOrderStatusBreakdown() {
   const grouped = await prisma.order.groupBy({ by: ["status"], _count: true });
-  return grouped.map((g) => ({ status: g.status, count: g._count }));
+  return grouped.map((g) => ({ status: g.status, count: g._count })).sort((a, b) => b.count - a.count);
 }
 
 /**

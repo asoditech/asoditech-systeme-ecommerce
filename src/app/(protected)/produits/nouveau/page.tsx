@@ -62,7 +62,7 @@ export default async function NouveauProduitPage() {
                         href={platform.createUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        title={`Ouvre l'administration ${platform.label} — soyez déjà connecté(e) à ${platform.label} dans ce navigateur, sinon une page de connexion s'affichera.`}
+                        title={`Ouvre l'administration ${platform.label} — connectez-vous d'abord si nécessaire.`}
                       />
                     }
                   >
@@ -79,12 +79,7 @@ export default async function NouveauProduitPage() {
       {platforms.length > 0 && (
         <p className="mt-4 flex max-w-xl items-start gap-1.5 text-xs text-muted-foreground">
           <LogIn className="mt-0.5 size-3.5 shrink-0" />
-          <span>
-            Ces boutons ouvrent l&apos;administration réelle de la plateforme, dans ce navigateur. Assurez-vous d&apos;être
-            déjà connecté(e) à cette administration — sinon, la plateforme vous demandera de vous identifier.
-            L&apos;adresse de connexion peut varier selon le site (par exemple une page de connexion personnalisée
-            sur WordPress via une extension de sécurité).
-          </span>
+          <span>Ces boutons ouvrent l&apos;administration réelle de la plateforme — connectez-vous d&apos;abord si nécessaire.</span>
         </p>
       )}
     </div>

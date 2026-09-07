@@ -2,11 +2,11 @@ import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { RevenueTrendChart } from "@/components/analytics/revenue-trend-chart";
+import { BreakdownBarList } from "@/components/analytics/breakdown-bar-list";
 import { StatusBadge } from "@/components/status-badge";
 import { KpiCard } from "@/components/kpi-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { LineChart, Wallet, PackageMinus, TrendingUp, TrendingDown } from "lucide-react";
 import { requirePermission } from "@/lib/auth/guards";
@@ -17,6 +17,19 @@ import { formatCurrency } from "@/lib/format";
 import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
 
 export const metadata = { title: "Analyses — ASODITECH Gestion E-commerce" };
+
+// Bar color per StatusBadge variant, so the distribution bar below each
+// status reads consistently with the badge itself shown next to it.
+const STATUS_BAR_COLOR: Record<string, string> = {
+  default: "bg-primary",
+  secondary: "bg-slate-400",
+  destructive: "bg-rose-500",
+  outline: "bg-amber-500",
+};
+
+// Channels have no inherent status semantics, so this just cycles a
+// pleasant fixed palette by rank (already sorted by count descending).
+const CHANNEL_BAR_COLORS = ["bg-primary", "bg-violet-500", "bg-cyan-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500"];
 
 function resolvePeriod(key: string | undefined): { range: PeriodRange; key: string; label: string } {
   if (key === "quarter") return { range: currentQuarterRange(), key, label: "Ce trimestre" };
@@ -174,24 +187,14 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
                 <CardTitle>Répartition des commandes par statut</CardTitle>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Statut</TableHead>
-                      <TableHead>Nombre</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {statusBreakdown.map((s) => (
-                      <TableRow key={s.status}>
-                        <TableCell>
-                          <StatusBadge status={s.status} labels={ORDER_STATUS_LABELS} />
-                        </TableCell>
-                        <TableCell>{s.count}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <BreakdownBarList
+                  items={statusBreakdown.map((s) => ({
+                    key: s.status,
+                    count: s.count,
+                    label: <StatusBadge status={s.status} labels={ORDER_STATUS_LABELS} />,
+                    barColor: STATUS_BAR_COLOR[ORDER_STATUS_LABELS[s.status]?.variant ?? "outline"] ?? "bg-muted-foreground",
+                  }))}
+                />
               </CardContent>
             </Card>
 
@@ -203,24 +206,14 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
                 {channelBreakdown.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Aucune commande enregistrée.</p>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Canal</TableHead>
-                        <TableHead>Nombre</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {channelBreakdown.map((c) => (
-                        <TableRow key={c.channel}>
-                          <TableCell>
-                            <Badge variant="secondary">{c.channel}</Badge>
-                          </TableCell>
-                          <TableCell>{c.count}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                  <BreakdownBarList
+                    items={channelBreakdown.map((c, i) => ({
+                      key: c.channel,
+                      count: c.count,
+                      label: <span className="truncate text-sm font-medium">{c.channel}</span>,
+                      barColor: CHANNEL_BAR_COLORS[i % CHANNEL_BAR_COLORS.length],
+                    }))}
+                  />
                 )}
               </CardContent>
             </Card>

@@ -220,7 +220,7 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
                     href={externalEditUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    title={`Ouvre l'administration ${externalLabel} — soyez déjà connecté(e) à ${externalLabel} dans ce navigateur, sinon une page de connexion s'affichera.`}
+                    title={`Ouvre l'administration ${externalLabel} — connectez-vous d'abord si nécessaire.`}
                   />
                 }
               >
@@ -460,21 +460,14 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
                   <Card>
                     <CardContent className="flex flex-col items-start gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
                       <div>
-                        <p className="text-sm font-medium">
-                          Ce produit est géré sur {externalLabel}.
-                        </p>
+                        <p className="text-sm font-medium">Ce produit est géré sur {externalLabel}.</p>
                         <p className="text-sm text-muted-foreground">
-                          Nom, SKU, prix, description, statut et catégorie se modifient directement sur{" "}
-                          {externalLabel} — ASODITECH synchronise ces informations, il ne les édite pas.
+                          Nom, SKU, prix, description, statut et catégorie sont gérés sur {externalLabel} — ASODITECH
+                          les synchronise, sans les modifier.
                         </p>
                         <p className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
                           <LogIn className="mt-0.5 size-3.5 shrink-0" />
-                          <span>
-                            Ce lien ouvre l&apos;administration {externalLabel} dans ce navigateur — assurez-vous
-                            d&apos;y être déjà connecté. Si ce n&apos;est pas le cas, {externalLabel} vous demandera
-                            de vous identifier ; l&apos;adresse de connexion peut varier selon le site (par exemple
-                            une page de connexion personnalisée sur WordPress via une extension de sécurité).
-                          </span>
+                          <span>Ce lien ouvre l&apos;administration {externalLabel} — connectez-vous d&apos;abord si nécessaire.</span>
                         </p>
                       </div>
                       {externalEditUrl && (
