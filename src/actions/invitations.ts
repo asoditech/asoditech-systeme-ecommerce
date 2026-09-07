@@ -10,6 +10,7 @@ import { findUsableInvitation } from "@/lib/auth/token-lookup";
 import { hashPassword } from "@/lib/auth/password";
 import { createSession } from "@/lib/auth/session";
 import { recordAuditEvent } from "@/lib/audit";
+import { sendInvitationEmail } from "@/lib/email";
 import { inviteUserSchema } from "@/lib/validation/user";
 import { acceptInvitationSchema } from "@/lib/validation/auth";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
@@ -90,8 +91,11 @@ export async function inviteUserAction(formData: FormData): Promise<ActionResult
     newValue: { email: invitation.email, role: invitation.role },
   });
 
+  const inviteUrl = `/invitations/${rawToken}`;
+  await sendInvitationEmail({ to: invitation.email, inviteeName: invitation.name, role: invitation.role, inviteUrl });
+
   revalidatePath("/utilisateurs");
-  return actionOk({ id: invitation.id, inviteUrl: `/invitations/${rawToken}` });
+  return actionOk({ id: invitation.id, inviteUrl });
 }
 
 export async function revokeInvitationAction(formData: FormData): Promise<ActionResult<undefined>> {

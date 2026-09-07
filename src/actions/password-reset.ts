@@ -9,6 +9,7 @@ import { findUsablePasswordResetToken } from "@/lib/auth/token-lookup";
 import { hashPassword } from "@/lib/auth/password";
 import { destroyAllSessionsForUser } from "@/lib/auth/session";
 import { recordAuditEvent } from "@/lib/audit";
+import { sendPasswordResetEmail } from "@/lib/email";
 import { requestPasswordResetSchema, resetPasswordSchema } from "@/lib/validation/auth";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import type { PrismaTransactionClient } from "@/lib/prisma";
@@ -19,15 +20,14 @@ import type { PrismaTransactionClient } from "@/lib/prisma";
  * (src/lib/auth/tokens.ts): a random 256-bit token, only its hash stored,
  * expiring, single-use.
  *
- * No transactional email is wired up (out of scope, same as ADR 0003's
- * original call) — the self-service request path logs the reset link
- * server-side rather than emailing it (swap the `console.log` for a real
- * send once that infra exists) and always returns a generic response to
- * the browser, so an unauthenticated caller can never learn whether a
- * given email has an account. The admin-initiated path
- * (`adminResetPasswordAction`) instead hands the link straight back to
- * the tenant admin who requested it — they're already authorized to
- * manage that user, so there's no enumeration risk to guard against.
+ * The self-service request path emails the reset link (src/lib/email.ts
+ * — falls back to logging it when no email provider is configured) and
+ * always returns a generic response to the browser, so an unauthenticated
+ * caller can never learn whether a given email has an account. The
+ * admin-initiated path (`adminResetPasswordAction`) instead hands the
+ * link straight back to the tenant admin who requested it — they're
+ * already authorized to manage that user, so there's no enumeration risk
+ * to guard against, and no email is sent for that path.
  */
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour — shorter-lived than an invitation
@@ -65,8 +65,8 @@ export async function requestPasswordResetAction(
     if (candidate.tenant.status !== "ACTIVE") continue;
     await runWithTenant(candidate.tenantId, "password-reset:request", async () => {
       const rawToken = await issueResetToken(prisma, candidate.id);
-      // Delivery stub — see the module doc comment. Never sent to the browser.
-      console.log(`[password-reset] tenant=${candidate.tenantId} user=${candidate.id} link=/reinitialiser-mot-de-passe/${rawToken}`);
+      // Never returned to the browser — see the module doc comment.
+      await sendPasswordResetEmail({ to: candidate.email, resetUrl: `/reinitialiser-mot-de-passe/${rawToken}` });
       await recordAuditEvent({
         actorType: "SYSTEM",
         action: "password_reset.requested",

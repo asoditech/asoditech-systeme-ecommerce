@@ -1,0 +1,88 @@
+import "server-only";
+
+import { Resend } from "resend";
+import { env } from "@/lib/env";
+import { USER_ROLE_LABELS } from "@/lib/status-labels";
+import type { UserRole } from "@prisma/client";
+
+/**
+ * Transactional email — invitations and password resets only (see
+ * docs/adr/0027-tenant-provisioning.md). Deliberately minimal: one
+ * provider (Resend — a plain HTTPS API, no SMTP config, already the
+ * simplest option compatible with a Vercel deployment), plain template
+ * strings, no queue, no retry. A failed send is logged and swallowed,
+ * never thrown: the invitation/token row this email describes has
+ * already been committed by the time this runs, and the UI (invitations)
+ * or audit trail (password reset) already carries the link as a
+ * fallback — a missing email should not roll back or fail the action
+ * that triggered it.
+ *
+ * Without RESEND_API_KEY + EMAIL_FROM set, every send falls back to the
+ * previous behavior (logging the link) so no existing environment
+ * (local dev, this test suite, CI) changes until an operator
+ * deliberately configures real delivery.
+ */
+
+let client: Resend | null = null;
+
+function getClient(): Resend | null {
+  if (!env.RESEND_API_KEY || !env.EMAIL_FROM) return null;
+  client ??= new Resend(env.RESEND_API_KEY);
+  return client;
+}
+
+async function sendEmail(input: { to: string; subject: string; html: string; text: string }): Promise<void> {
+  const resend = getClient();
+  if (!resend) {
+    console.log(`[email] not configured (RESEND_API_KEY/EMAIL_FROM unset) — logging instead:\nTo: ${input.to}\nSubject: ${input.subject}\n${input.text}`);
+    return;
+  }
+
+  const { error } = await resend.emails.send({
+    from: env.EMAIL_FROM!,
+    to: input.to,
+    subject: input.subject,
+    html: input.html,
+    text: input.text,
+  });
+
+  if (error) {
+    // Best-effort: the caller's own record (invitation/token) already
+    // exists and its link is already visible another way — see the
+    // module doc comment. Never let a delivery failure surface as an
+    // action failure.
+    console.error(`[email] Resend send failed for ${input.to}:`, error);
+  }
+}
+
+function absoluteUrl(path: string): string {
+  return new URL(path, env.APP_URL).toString();
+}
+
+export async function sendInvitationEmail(input: {
+  to: string;
+  inviteeName: string;
+  role: UserRole;
+  inviteUrl: string;
+}): Promise<void> {
+  const url = absoluteUrl(input.inviteUrl);
+  const roleLabel = USER_ROLE_LABELS[input.role] ?? input.role;
+
+  await sendEmail({
+    to: input.to,
+    subject: "Vous êtes invité(e) sur ASODITECH",
+    text: `Bonjour ${input.inviteeName},\n\nVous avez été invité(e) à rejoindre ASODITECH en tant que ${roleLabel}.\n\nCréez votre compte : ${url}\n\nCe lien expire dans 7 jours et ne peut être utilisé qu'une seule fois.`,
+    html: `<p>Bonjour ${input.inviteeName},</p><p>Vous avez été invité(e) à rejoindre ASODITECH en tant que <strong>${roleLabel}</strong>.</p><p><a href="${url}">Créez votre compte</a></p><p>Ce lien expire dans 7 jours et ne peut être utilisé qu'une seule fois.</p>`,
+  });
+}
+
+export async function sendPasswordResetEmail(input: { to: string; resetUrl: string }): Promise<void> {
+  const url = absoluteUrl(input.resetUrl);
+
+  await sendEmail({
+    to: input.to,
+    subject: "Réinitialisation de votre mot de passe ASODITECH",
+    text: `Une réinitialisation de mot de passe a été demandée pour ce compte.\n\nChoisissez un nouveau mot de passe : ${url}\n\nCe lien expire dans 1 heure et ne peut être utilisé qu'une seule fois. Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.`,
+    html: `<p>Une réinitialisation de mot de passe a été demandée pour ce compte.</p><p><a href="${url}">Choisissez un nouveau mot de passe</a></p><p>Ce lien expire dans 1 heure et ne peut être utilisé qu'une seule fois. Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.</p>`,
+  });
+}

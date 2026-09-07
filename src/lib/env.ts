@@ -14,6 +14,19 @@ const envSchema = z.object({
       }
     }, "INTEGRATION_ENCRYPTION_KEY must be a base64-encoded 32-byte key"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  // Base URL used to build absolute links inside transactional emails
+  // (invitation/password-reset — see src/lib/email.ts). Server-rendered
+  // pages can build these from the incoming request, but a queued email
+  // has no request to read from, so this must be set explicitly in any
+  // deployed environment (production's real domain, not a *.vercel.app
+  // preview URL — those change per-deployment).
+  APP_URL: z.url().default("http://localhost:3000"),
+  // Both optional: src/lib/email.ts falls back to logging the email
+  // (previous behavior) when either is absent, so every existing
+  // environment — including this test suite — keeps working unchanged
+  // until an operator deliberately turns real delivery on.
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().optional(),
 });
 
 function loadEnv() {

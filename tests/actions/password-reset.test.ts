@@ -111,14 +111,17 @@ describe("resetPasswordAction", () => {
   });
 
   async function requestReset(email: string) {
+    // No RESEND_API_KEY/EMAIL_FROM in .env.test, so src/lib/email.ts falls
+    // back to logging the email it would have sent (including the
+    // absolute reset URL) instead of calling Resend.
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     await requestPasswordResetAction(undefined, formData({ email }));
-    const call = logSpy.mock.calls.find((args) => String(args[0]).includes("link="));
+    const call = logSpy.mock.calls.find((args) => String(args[0]).includes("/reinitialiser-mot-de-passe/"));
     logSpy.mockRestore();
-    const link = String(call?.[0] ?? "");
-    const match = link.match(/link=(\/reinitialiser-mot-de-passe\/\S+)/);
+    const logged = String(call?.[0] ?? "");
+    const match = logged.match(/\/reinitialiser-mot-de-passe\/(\S+)/);
     if (!match) throw new Error("no reset link logged");
-    return tokenFromResetUrl(match[1]!);
+    return match[1]!;
   }
 
   it("resets the password, invalidates the token, and destroys existing sessions", async () => {

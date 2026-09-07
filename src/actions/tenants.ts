@@ -7,6 +7,7 @@ import { runUnscoped, runWithTenant } from "@/lib/tenant/context";
 import { destroyAllSessionsForTenant } from "@/lib/auth/session";
 import { generateRawToken, hashToken } from "@/lib/auth/tokens";
 import { recordAuditEvent } from "@/lib/audit";
+import { sendInvitationEmail } from "@/lib/email";
 import { createTenantSchema } from "@/lib/validation/tenant";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
@@ -101,8 +102,11 @@ export async function createTenantAction(
     metadata: { via: "platform:create-tenant", tenantId: tenant.id },
   });
 
+  const inviteUrl = `/invitations/${rawToken}`;
+  await sendInvitationEmail({ to: invitation.email, inviteeName: invitation.name, role: invitation.role, inviteUrl });
+
   revalidatePath("/platform");
-  return actionOk({ id: tenant.id, inviteUrl: `/invitations/${rawToken}` });
+  return actionOk({ id: tenant.id, inviteUrl });
 }
 
 export async function activateTenantAction(formData: FormData): Promise<ActionResult<undefined>> {
