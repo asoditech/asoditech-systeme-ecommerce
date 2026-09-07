@@ -1,14 +1,20 @@
 // ASODITECH E-commerce Management System — core domain schema.
 // See docs/adr/ for the reasoning behind these boundaries.
 //
-// Multi-tenancy — Phase 1 foundation (see docs/adr/0023-multi-tenant-foundation.md).
-// Every business/data model now carries a `tenantId` FK to `Tenant`, and a
-// single bootstrap tenant (`id = "default"`) owns all existing data. This is
-// ONLY the column + backfill: there is deliberately NO tenant context,
-// middleware, query scoping, RLS, or provisioning yet — `tenantId` defaults to
-// "default" so nothing at runtime has changed. The historical per-deployment
-// isolation model (docs/adr/0002) still stands until later phases wire real
-// row-level isolation on top of this column.
+// Multi-tenancy:
+//  - Phase 1 (docs/adr/0023-multi-tenant-foundation.md) — every business/data
+//    model carries a `tenantId` FK to `Tenant`, defaulted to the bootstrap
+//    tenant ("default").
+//  - Phase 2 (docs/adr/0024-multi-tenant-context.md) — request-scoped tenant
+//    context + a Prisma client extension enforce isolation at the app layer.
+//  - Phase 3 (docs/adr/0025-multi-tenant-isolation.md) — the composite
+//    tenant-scoped unique constraints below (replacing the Phase 1 global
+//    ones), a tenant-scoped BusinessSettings, and per-tenant DISPLAY
+//    numbering for orders/transfers/stocktakes (Tenant.nextOrderNumber and
+//    friends; Order.displayNumber and friends) layered on top of the
+//    untouched, never-renumbered global sequences.
+// Postgres RLS (Phase 4) is still not in place — isolation today is
+// entirely application-level (the Phase 2 extension + these constraints).
 
 generator client {
   provider = "prisma-client-js"
@@ -44,6 +50,22 @@ model Tenant {
   status    TenantStatus @default(ACTIVE)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
+
+  // Per-tenant DISPLAY numbering (Phase 3 — docs/adr/0025-multi-tenant-isolation.md).
+  // The next value to hand out for Order.displayNumber / StockTransfer.displayNumber /
+  // StocktakeSession.displayNumber. Deliberately separate from the historical
+  // orderNumber/transferNumber/sessionNumber autoincrement columns, which are
+  // NEVER renumbered or reused — those stay a single global sequence across
+  // every tenant, forever, as the immutable internal identity. Claimed
+  // atomically via a row-locked `UPDATE … SET x = x + 1` (see
+  // src/lib/tenant/numbering.ts) — safe under concurrent creates for the
+  // same tenant. Backfilled by the Phase 3 migration to
+  // MAX(existing global number for this tenant's rows) + 1, so the
+  // bootstrap tenant's next display number continues seamlessly from
+  // exactly where the old global sequence left off.
+  nextOrderNumber     Int @default(1)
+  nextTransferNumber  Int @default(1)
+  nextStocktakeNumber Int @default(1)
 
   users                 User[]
   customers             Customer[]
@@ -107,7 +129,7 @@ enum UserStatus {
 model User {
   id           String     @id @default(cuid())
   tenantId     String     @default("default")
-  email        String     @unique
+  email        String
   name         String
   passwordHash String
   role         UserRole   @default(SALES)
@@ -139,6 +161,10 @@ model User {
   commissionStatementsClosed CommissionStatement[] @relation("CommissionStatementClosedBy")
   commissionStatementsPaid   CommissionStatement[] @relation("CommissionStatementPaidBy")
 
+  // Phase 3 (docs/adr/0025): email is unique PER TENANT, not globally — two
+  // tenants may have a user with the same email. Login (src/actions/auth.ts)
+  // looks up every candidate across tenants and disambiguates by password.
+  @@unique([tenantId, email])
   @@index([role])
   @@index([tenantId])
   @@map("users")
@@ -278,7 +304,7 @@ model Category {
   id          String       @id @default(cuid())
   tenantId    String       @default("default")
   name        String
-  slug        String       @unique
+  slug        String
   description String?
   parentId    String?
   source      RecordSource @default(INTERNE)
@@ -291,6 +317,8 @@ model Category {
   products Product[]
   tenant   Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
+  // Phase 3 (docs/adr/0025): slug is unique per tenant, not globally.
+  @@unique([tenantId, slug])
   @@index([source, externalId])
   @@index([tenantId])
   @@map("categories")
@@ -300,7 +328,7 @@ model Product {
   id                String        @id @default(cuid())
   tenantId          String        @default("default")
   name              String
-  sku               String        @unique
+  sku               String
   description       String?
   categoryId        String?
   price             Decimal       @db.Decimal(12, 2)
@@ -324,6 +352,8 @@ model Product {
   orderItems     OrderItem[]
   transferLines  StockTransferLine[]
 
+  // Phase 3 (docs/adr/0025): sku is unique per tenant, not globally.
+  @@unique([tenantId, sku])
   @@index([categoryId])
   @@index([status])
   @@index([source, externalId])
@@ -352,7 +382,7 @@ model ProductVariation {
   id         String       @id @default(cuid())
   tenantId   String       @default("default")
   productId  String
-  sku        String       @unique
+  sku        String
   // e.g. { "Couleur": "Rouge", "Taille": "M" }
   attributes Json
   price      Decimal?     @db.Decimal(12, 2)
@@ -368,6 +398,8 @@ model ProductVariation {
   orderItems     OrderItem[]
   transferLines  StockTransferLine[]
 
+  // Phase 3 (docs/adr/0025): sku is unique per tenant, not globally.
+  @@unique([tenantId, sku])
   @@index([productId])
   @@index([source, externalId])
   @@index([tenantId])
@@ -572,9 +604,15 @@ enum TransferStatus {
 model StockTransfer {
   id                     String         @id @default(cuid())
   tenantId               String         @default("default")
-  // Sequential, collision-free; displayed "TR-000123" (formatTransferNumber).
-  // Same pattern as Order.orderNumber.
+  // Sequential, collision-free, GLOBAL (never per-tenant) internal identity —
+  // never renumbered, never shown to a user. Same pattern as Order.orderNumber.
   transferNumber         Int            @unique @default(autoincrement())
+  // Per-tenant DISPLAY number (Phase 3 — docs/adr/0025), shown as
+  // "TR-000123" (formatTransferNumber) instead of transferNumber. Null for
+  // every pre-Phase-3 row — formatTransferNumber falls back to
+  // transferNumber for those. Assigned atomically at creation via
+  // src/lib/tenant/numbering.ts.
+  displayNumber          Int?
   sourceWarehouseId      String
   destinationWarehouseId String
   status                 TransferStatus @default(BROUILLON)
@@ -599,6 +637,9 @@ model StockTransfer {
   movements    InventoryMovement[]
 
   // DB-enforced (raw-SQL migration): source and destination must differ.
+  // Postgres allows multiple NULLs, so every pre-Phase-3 row (displayNumber
+  // NULL) is unrestricted by this constraint.
+  @@unique([tenantId, displayNumber])
   @@index([status])
   @@index([sourceWarehouseId])
   @@index([destinationWarehouseId])
@@ -657,9 +698,15 @@ enum StocktakeStatus {
 model StocktakeSession {
   id            String          @id @default(cuid())
   tenantId      String          @default("default")
-  // Sequential, collision-free; displayed "INV-000123"
-  // (formatStocktakeNumber). Same pattern as Order.orderNumber.
+  // Sequential, collision-free, GLOBAL (never per-tenant) internal identity —
+  // never renumbered, never shown to a user. Same pattern as Order.orderNumber.
   sessionNumber Int             @unique @default(autoincrement())
+  // Per-tenant DISPLAY number (Phase 3 — docs/adr/0025), shown as
+  // "INV-000123" (formatStocktakeNumber) instead of sessionNumber. Null for
+  // every pre-Phase-3 row — formatStocktakeNumber falls back to
+  // sessionNumber for those. Assigned atomically at creation via
+  // src/lib/tenant/numbering.ts.
+  displayNumber Int?
   warehouseId   String
   status        StocktakeStatus @default(EN_COURS)
   notes         String?
@@ -681,6 +728,7 @@ model StocktakeSession {
   // DB-enforced (raw-SQL migration): a PARTIAL unique index on
   // (warehouseId) WHERE status = 'EN_COURS' — at most one open session per
   // warehouse at a time.
+  @@unique([tenantId, displayNumber])
   @@index([status])
   @@index([warehouseId])
   @@index([createdAt])
@@ -767,7 +815,15 @@ enum PaymentMethod {
 model Order {
   id             String             @id @default(cuid())
   tenantId       String             @default("default")
+  // Sequential, collision-free, GLOBAL (never per-tenant) internal identity —
+  // never renumbered. Phase 3 (docs/adr/0025) introduces `displayNumber`
+  // below for what's actually shown to a user.
   orderNumber    Int                @unique @default(autoincrement())
+  // Per-tenant DISPLAY number, shown as "CMD-000123" (formatOrderNumber)
+  // instead of orderNumber. Null for every pre-Phase-3 row —
+  // formatOrderNumber falls back to orderNumber for those. Assigned
+  // atomically at creation via src/lib/tenant/numbering.ts.
+  displayNumber  Int?
   customerId     String
   status         OrderStatus        @default(NOUVELLE)
   paymentStatus  OrderPaymentStatus @default(EN_ATTENTE)
@@ -849,7 +905,10 @@ model Order {
   // WooCommerce order for the first time (Postgres allows multiple NULLs
   // in a unique index, so this never restricts INTERNE orders, which all
   // have externalId=null). See docs/adr/0010-woocommerce-integration.md.
-  @@unique([source, externalId])
+  // Phase 3 (docs/adr/0025) scopes this per tenant — two tenants can
+  // independently import "the same" WooCommerce order id.
+  @@unique([tenantId, source, externalId])
+  @@unique([tenantId, displayNumber])
   @@index([customerId])
   @@index([status])
   @@index([paymentStatus])
@@ -1286,12 +1345,14 @@ model ShipmentWebhookEvent {
 model ExpenseCategory {
   id       String  @id @default(cuid())
   tenantId String  @default("default")
-  name     String  @unique
+  name     String
   isSystem Boolean @default(false)
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   expenses Expense[]
 
+  // Phase 3 (docs/adr/0025): name is unique per tenant, not globally.
+  @@unique([tenantId, name])
   @@index([tenantId])
   @@map("expense_categories")
 }
@@ -1409,7 +1470,7 @@ enum IntegrationStatus {
 model Integration {
   id                    String              @id @default(cuid())
   tenantId              String              @default("default")
-  provider              IntegrationProvider @unique
+  provider              IntegrationProvider
   status                IntegrationStatus   @default(DECONNECTE)
   // Non-secret configuration (store URLs, sync direction, flags, etc.)
   config                Json?
@@ -1430,6 +1491,11 @@ model Integration {
   syncRuns      SyncRun[]
   webhookEvents WebhookEvent[]
 
+  // Phase 3 (docs/adr/0025): provider is unique per tenant, not globally —
+  // two tenants can each connect their own WooCommerce store. Webhooks
+  // disambiguate by trying every candidate's signature (see
+  // src/app/api/webhooks/{woocommerce,shopify}/route.ts).
+  @@unique([tenantId, provider])
   @@index([tenantId])
   @@map("integrations")
 }
@@ -1561,9 +1627,16 @@ model Notification {
 // Settings — singleton row
 // ---------------------------------------------------------------------------
 
+// Phase 1 made this a global singleton (`id = "singleton"`); Phase 3
+// (docs/adr/0025) makes it tenant-scoped instead — one settings row per
+// tenant, looked up/created by `tenantId`. The bootstrap tenant's existing
+// row keeps its literal id "singleton" (never rewritten); every row
+// created from here on gets a normal cuid() id, and `tenantId` — not
+// `id` — is the lookup key everywhere (src/actions/settings.ts,
+// src/app/(protected)/parametres/page.tsx).
 model BusinessSettings {
-  id                       String   @id @default("singleton")
-  tenantId                 String   @default("default")
+  id                       String   @id @default(cuid())
+  tenantId                 String   @unique @default("default")
   companyName              String   @default("")
   currency                 String   @default("MAD") @db.Char(3)
   address                  String?
@@ -1580,7 +1653,6 @@ model BusinessSettings {
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
-  @@index([tenantId])
   @@map("business_settings")
 }
 

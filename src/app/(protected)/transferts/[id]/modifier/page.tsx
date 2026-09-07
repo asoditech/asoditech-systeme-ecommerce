@@ -4,7 +4,7 @@ import { TransferForm } from "@/components/transfers/transfer-form";
 import { requirePermission } from "@/lib/auth/guards";
 import { getStockTransferDetail } from "@/lib/queries/transfers";
 import { listSelectableFulfilmentWarehouses } from "@/lib/queries/warehouses";
-import { formatTransferNumber } from "@/lib/format";
+import { displayTransferNumber } from "@/lib/format";
 
 export const metadata = { title: "Modifier le transfert — ASODITECH Gestion E-commerce" };
 
@@ -17,7 +17,7 @@ export default async function ModifierTransfertPage({ params }: { params: Promis
   if (transfer.status !== "BROUILLON") redirect(`/transferts/${id}`);
 
   const warehouses = await listSelectableFulfilmentWarehouses();
-  const ref = formatTransferNumber(transfer.transferNumber);
+  const ref = displayTransferNumber(transfer);
 
   return (
     <div>

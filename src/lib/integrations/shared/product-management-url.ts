@@ -83,7 +83,7 @@ export async function resolveExternalProductEditUrl(product: {
   if (!product.externalId) return null;
 
   if (product.source === "WOOCOMMERCE") {
-    const integration = await prisma.integration.findUnique({ where: { provider: "WOOCOMMERCE" } });
+    const integration = await prisma.integration.findFirst({ where: { provider: "WOOCOMMERCE" } });
     if (!integration || integration.status !== "CONNECTE") return null;
     const siteUrl = (integration.config as { siteUrl?: string } | null)?.siteUrl;
     const origin = siteUrl && safeOrigin(siteUrl);
@@ -92,7 +92,7 @@ export async function resolveExternalProductEditUrl(product: {
   }
 
   if (product.source === "SHOPIFY") {
-    const integration = await prisma.integration.findUnique({ where: { provider: "SHOPIFY" } });
+    const integration = await prisma.integration.findFirst({ where: { provider: "SHOPIFY" } });
     if (!integration || integration.status !== "CONNECTE") return null;
     const shopDomain = (integration.config as { shopDomain?: string } | null)?.shopDomain;
     const origin = shopDomain && safeOrigin(shopDomain);

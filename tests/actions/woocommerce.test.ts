@@ -84,7 +84,7 @@ describe("WooCommerce integration", () => {
         formData({ provider: "WOOCOMMERCE", siteUrl: "https://127.0.0.1", apiKey: "x", apiSecret: "y" })
       );
       expect(result.ok).toBe(false);
-      const integration = await prisma.integration.findUnique({ where: { provider: "WOOCOMMERCE" } });
+      const integration = await prisma.integration.findFirst({ where: { provider: "WOOCOMMERCE" } });
       expect(integration).toBeNull();
     });
 
@@ -123,7 +123,7 @@ describe("WooCommerce integration", () => {
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.data.status).toBe("CONNECTE");
 
-      const integration = await prisma.integration.findUniqueOrThrow({ where: { provider: "WOOCOMMERCE" } });
+      const integration = await prisma.integration.findFirstOrThrow({ where: { provider: "WOOCOMMERCE" } });
       expect(integration.status).toBe("CONNECTE");
       expect(integration.lastConnectionCheckAt).not.toBeNull();
 
@@ -146,7 +146,7 @@ describe("WooCommerce integration", () => {
         expect(result.error).not.toContain("wrong-secret");
       }
 
-      const integration = await prisma.integration.findUniqueOrThrow({ where: { provider: "WOOCOMMERCE" } });
+      const integration = await prisma.integration.findFirstOrThrow({ where: { provider: "WOOCOMMERCE" } });
       expect(integration.status).toBe("ERREUR");
       expect(integration.lastError).not.toContain("wrong-key");
 
@@ -849,7 +849,7 @@ describe("WooCommerce integration", () => {
       if (!result.ok) return;
       expect(result.data.secret.length).toBeGreaterThanOrEqual(32);
 
-      const integration = await prisma.integration.findUniqueOrThrow({ where: { provider: "WOOCOMMERCE" } });
+      const integration = await prisma.integration.findFirstOrThrow({ where: { provider: "WOOCOMMERCE" } });
       expect(integration.credentialsEncrypted).not.toContain(result.data.secret);
       const decrypted = JSON.parse(decryptSecret(integration.credentialsEncrypted!));
       expect(decrypted.webhookSecret).toBe(result.data.secret);
@@ -864,7 +864,7 @@ describe("WooCommerce integration", () => {
       const result = await disconnectIntegrationAction(formData({ provider: "WOOCOMMERCE" }));
       expect(result.ok).toBe(true);
 
-      const integration = await prisma.integration.findUniqueOrThrow({ where: { provider: "WOOCOMMERCE" } });
+      const integration = await prisma.integration.findFirstOrThrow({ where: { provider: "WOOCOMMERCE" } });
       expect(integration.status).toBe("DECONNECTE");
       expect(integration.credentialsEncrypted).toBeNull();
     });

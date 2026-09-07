@@ -3,6 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { InventoryItem, InventoryMovementType } from "@prisma/client";
 import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
+import { resolveActiveTenantIdForRawSql } from "@/lib/tenant/resolve";
 
 type Tx = PrismaTransactionClient;
 /** Either the shared client or an open transaction client — for helpers
@@ -203,10 +204,18 @@ export async function ensureInventoryItem(
   }
 
   const id = randomUUID();
+  // Phase 3 (docs/adr/0025): this raw INSERT bypasses the tenant extension,
+  // so it must stamp `tenantId` itself — otherwise every row it creates
+  // would silently land in the column default ("default") regardless of
+  // the active tenant, and the findUniqueOrThrow below (which the
+  // extension DOES scope) would then throw "not found" for any other
+  // tenant. `warehouseId`/`productId`/`variationId` are already the active
+  // tenant's own (verified by a prior scoped read), so this is safe.
+  const tenantId = await resolveActiveTenantIdForRawSql("lib/inventory.ensureInventoryItem");
   if (input.variationId) {
     await tx.$executeRaw`
-      INSERT INTO "inventory_items" ("id", "warehouseId", "variationId", "updatedAt")
-      VALUES (${id}, ${input.warehouseId}, ${input.variationId}, now())
+      INSERT INTO "inventory_items" ("id", "tenantId", "warehouseId", "variationId", "updatedAt")
+      VALUES (${id}, ${tenantId}, ${input.warehouseId}, ${input.variationId}, now())
       ON CONFLICT ("warehouseId", "variationId") DO NOTHING`;
     return tx.inventoryItem.findUniqueOrThrow({
       where: { warehouseId_variationId: { warehouseId: input.warehouseId, variationId: input.variationId } },
@@ -214,8 +223,8 @@ export async function ensureInventoryItem(
   }
 
   await tx.$executeRaw`
-    INSERT INTO "inventory_items" ("id", "warehouseId", "productId", "updatedAt")
-    VALUES (${id}, ${input.warehouseId}, ${input.productId!}, now())
+    INSERT INTO "inventory_items" ("id", "tenantId", "warehouseId", "productId", "updatedAt")
+    VALUES (${id}, ${tenantId}, ${input.warehouseId}, ${input.productId!}, now())
     ON CONFLICT ("warehouseId", "productId") DO NOTHING`;
   return tx.inventoryItem.findUniqueOrThrow({
     where: { warehouseId_productId: { warehouseId: input.warehouseId, productId: input.productId! } },

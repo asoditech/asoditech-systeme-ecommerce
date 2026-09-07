@@ -22,6 +22,7 @@ import {
   type ReceiveStockTransferInput,
 } from "@/lib/validation/transfer";
 import { listStockAtWarehouse } from "@/lib/queries/transfers";
+import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
 import { checkAndNotifyLowStock } from "@/lib/notifications";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
@@ -100,14 +101,18 @@ export async function createStockTransferAction(
   const resolved = await resolveLines(parsed.data.lines);
   if (!resolved.ok) return actionError(resolved.error);
 
-  const transfer = await prisma.stockTransfer.create({
-    data: {
-      sourceWarehouseId: source.id,
-      destinationWarehouseId: destination.id,
-      notes: normalizeOptional(parsed.data.notes),
-      createdById: user.id,
-      lines: { create: resolved.lines },
-    },
+  const transfer = await prisma.$transaction(async (tx) => {
+    const created = await tx.stockTransfer.create({
+      data: {
+        sourceWarehouseId: source.id,
+        destinationWarehouseId: destination.id,
+        notes: normalizeOptional(parsed.data.notes),
+        createdById: user.id,
+        lines: { create: resolved.lines },
+      },
+    });
+    const displayNumber = await claimTenantDisplayNumber(tx, created.tenantId, "transfer");
+    return tx.stockTransfer.update({ where: { id: created.id }, data: { displayNumber } });
   });
 
   await recordAuditEvent({

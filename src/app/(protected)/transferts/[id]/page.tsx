@@ -11,7 +11,7 @@ import { TransferReceiveForm } from "@/components/transfers/transfer-receive-for
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { getStockTransferDetail, getStockTransferAuditTimeline } from "@/lib/queries/transfers";
-import { formatDateTime, formatTransferNumber } from "@/lib/format";
+import { formatDateTime, displayTransferNumber } from "@/lib/format";
 import { TRANSFER_STATUS_LABELS } from "@/lib/status-labels";
 
 type TransferDetail = NonNullable<Awaited<ReturnType<typeof getStockTransferDetail>>>;
@@ -33,7 +33,7 @@ export default async function TransfertDetailPage({ params }: { params: Promise<
 
   const canTransfer = hasPermission(user.role, "inventory.transfer");
   const timeline = await getStockTransferAuditTimeline(id);
-  const ref = formatTransferNumber(transfer.transferNumber);
+  const ref = displayTransferNumber(transfer);
   const lines = transfer.lines.map((l) => ({ ...l, ...lineLabel(l) }));
 
   return (

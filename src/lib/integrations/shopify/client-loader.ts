@@ -21,7 +21,7 @@ interface StoredCredentials {
  * operator simply hasn't connected Shopify (or has since disconnected it).
  */
 export async function loadShopifyClient(): Promise<{ integration: Integration; client: ShopifyClient } | null> {
-  const integration = await prisma.integration.findUnique({ where: { provider: "SHOPIFY" } });
+  const integration = await prisma.integration.findFirst({ where: { provider: "SHOPIFY" } });
   if (!integration || !integration.credentialsEncrypted) return null;
 
   const config = (integration.config as { shopDomain?: string } | null) ?? {};

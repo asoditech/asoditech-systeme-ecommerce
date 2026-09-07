@@ -85,7 +85,7 @@ export async function connectIntegrationAction(formData: FormData): Promise<Acti
     : null;
 
   const integration = await prisma.integration.upsert({
-    where: { provider: parsed.data.provider },
+    where: { tenantId_provider: { tenantId: user.tenantId, provider: parsed.data.provider } },
     update: {
       status: "CONFIGURE",
       config,
@@ -125,11 +125,11 @@ export async function disconnectIntegrationAction(formData: FormData): Promise<A
     return actionError("Fournisseur invalide.");
   }
 
-  const existing = await prisma.integration.findUnique({ where: { provider: parsed.data.provider } });
+  const existing = await prisma.integration.findFirst({ where: { provider: parsed.data.provider } });
   if (!existing) return actionError("Intégration introuvable.");
 
   await prisma.integration.update({
-    where: { provider: parsed.data.provider },
+    where: { id: existing.id },
     data: { status: "DECONNECTE", credentialsEncrypted: null, config: undefined },
   });
 

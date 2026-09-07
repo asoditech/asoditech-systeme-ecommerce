@@ -44,7 +44,7 @@ async function main() {
   });
 
   const owner = await prisma.user.upsert({
-    where: { email },
+    where: { tenantId_email: { tenantId: "default", email } },
     update: {},
     create: {
       email,
@@ -62,14 +62,14 @@ async function main() {
   });
 
   await prisma.businessSettings.upsert({
-    where: { id: "singleton" },
+    where: { tenantId: "default" },
     update: {},
     create: { id: "singleton" },
   });
 
   for (const name of SYSTEM_EXPENSE_CATEGORIES) {
     await prisma.expenseCategory.upsert({
-      where: { name },
+      where: { tenantId_name: { tenantId: "default", name } },
       update: {},
       create: { name, isSystem: true },
     });

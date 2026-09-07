@@ -36,6 +36,17 @@ export function formatOrderNumber(orderNumber: number, prefix = "CMD"): string {
 }
 
 /**
+ * The number to actually display for an order/transfer/stocktake row
+ * (Phase 3 — docs/adr/0025-multi-tenant-isolation.md): the per-tenant
+ * `displayNumber` when one was assigned, else the legacy GLOBAL number
+ * every pre-Phase-3 row still has. Never renumbers history — a row's
+ * `displayNumber` is null forever if it predates Phase 3.
+ */
+export function resolvedDisplayNumber(row: { displayNumber?: number | null }, legacyNumber: number): number {
+  return row.displayNumber ?? legacyNumber;
+}
+
+/**
  * The order reference to actually show someone. A manually-created order
  * has no external reference — the internal `CMD-000039` sequence is its
  * only identity. An order imported from WooCommerce/Shopify already has a
@@ -47,13 +58,14 @@ export function formatOrderNumber(orderNumber: number, prefix = "CMD"): string {
  */
 export function displayOrderNumber(order: {
   orderNumber: number;
+  displayNumber?: number | null;
   source: "INTERNE" | "WOOCOMMERCE" | "SHOPIFY";
   externalNumber?: string | null;
 }): string {
   if (order.source !== "INTERNE" && order.externalNumber) {
     return `#${order.externalNumber}`;
   }
-  return formatOrderNumber(order.orderNumber);
+  return formatOrderNumber(resolvedDisplayNumber(order, order.orderNumber));
 }
 
 /**
@@ -78,4 +90,16 @@ export function formatTransferNumber(transferNumber: number): string {
 /** Stocktake session reference, e.g. "INV-000123" (Phase 32c). */
 export function formatStocktakeNumber(sessionNumber: number): string {
   return `INV-${sessionNumber.toString().padStart(6, "0")}`;
+}
+
+/** Stock transfer reference from the row itself — prefers the per-tenant
+ * `displayNumber` (Phase 3) over the legacy global `transferNumber`. */
+export function displayTransferNumber(transfer: { transferNumber: number; displayNumber?: number | null }): string {
+  return formatTransferNumber(resolvedDisplayNumber(transfer, transfer.transferNumber));
+}
+
+/** Stocktake session reference from the row itself — prefers the
+ * per-tenant `displayNumber` (Phase 3) over the legacy global `sessionNumber`. */
+export function displayStocktakeNumber(session: { sessionNumber: number; displayNumber?: number | null }): string {
+  return formatStocktakeNumber(resolvedDisplayNumber(session, session.sessionNumber));
 }

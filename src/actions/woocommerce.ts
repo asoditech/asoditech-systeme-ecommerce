@@ -252,7 +252,7 @@ export async function pushWooCommerceStockAction(): Promise<ActionResult<{ summa
 export async function generateWooCommerceWebhookSecretAction(): Promise<ActionResult<{ secret: string }>> {
   const user = await requirePermissionForAction("integrations.manage");
 
-  const integration = await prisma.integration.findUnique({ where: { provider: "WOOCOMMERCE" } });
+  const integration = await prisma.integration.findFirst({ where: { provider: "WOOCOMMERCE" } });
   if (!integration || !integration.credentialsEncrypted) {
     return actionError("Configurez d'abord la connexion WooCommerce.");
   }

@@ -10,10 +10,11 @@ export default async function ParametresPage() {
   const user = await requirePermission("settings.view");
   const canManage = hasPermission(user.role, "settings.manage");
 
+  // Phase 3 (docs/adr/0025): tenant-scoped, not a global singleton.
   const settings = await prisma.businessSettings.upsert({
-    where: { id: "singleton" },
+    where: { tenantId: user.tenantId },
     update: {},
-    create: { id: "singleton" },
+    create: {},
   });
 
   return (

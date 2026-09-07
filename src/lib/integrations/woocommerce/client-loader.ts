@@ -24,7 +24,7 @@ interface StoredCredentials {
  * WooCommerce (or has since disconnected it).
  */
 export async function loadWooCommerceClient(): Promise<{ integration: Integration; client: WooCommerceClient } | null> {
-  const integration = await prisma.integration.findUnique({ where: { provider: "WOOCOMMERCE" } });
+  const integration = await prisma.integration.findFirst({ where: { provider: "WOOCOMMERCE" } });
   if (!integration || !integration.credentialsEncrypted) return null;
 
   const config = (integration.config as { siteUrl?: string } | null) ?? {};

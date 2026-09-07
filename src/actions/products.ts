@@ -57,7 +57,7 @@ export async function createProductAction(formData: FormData): Promise<ActionRes
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
 
-  const existingSku = await prisma.product.findUnique({ where: { sku: parsed.data.sku } });
+  const existingSku = await prisma.product.findFirst({ where: { sku: parsed.data.sku } });
   if (existingSku) {
     return actionError("Un produit avec ce SKU existe déjà.", { sku: ["SKU déjà utilisé."] });
   }
@@ -143,7 +143,7 @@ export async function updateProductAction(formData: FormData): Promise<ActionRes
   if (sourceError) return actionError(sourceError);
 
   if (parsed.data.sku !== existing.sku) {
-    const skuTaken = await prisma.product.findUnique({ where: { sku: parsed.data.sku } });
+    const skuTaken = await prisma.product.findFirst({ where: { sku: parsed.data.sku } });
     if (skuTaken) {
       return actionError("Un produit avec ce SKU existe déjà.", { sku: ["SKU déjà utilisé."] });
     }
@@ -201,7 +201,7 @@ export async function createCategoryAction(formData: FormData): Promise<ActionRe
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
 
-  const existingSlug = await prisma.category.findUnique({ where: { slug: parsed.data.slug } });
+  const existingSlug = await prisma.category.findFirst({ where: { slug: parsed.data.slug } });
   if (existingSlug) {
     return actionError("Ce slug est déjà utilisé.", { slug: ["Slug déjà utilisé."] });
   }
@@ -265,7 +265,7 @@ export async function createProductVariationAction(
   const sourceError = externalSourceError(product);
   if (sourceError) return actionError(sourceError);
 
-  const existingSku = await prisma.productVariation.findUnique({ where: { sku: parsed.data.sku } });
+  const existingSku = await prisma.productVariation.findFirst({ where: { sku: parsed.data.sku } });
   if (existingSku) {
     return actionError("Un SKU de variation identique existe déjà.", { sku: ["SKU déjà utilisé."] });
   }

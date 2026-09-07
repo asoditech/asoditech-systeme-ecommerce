@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listStocktakeSessions } from "@/lib/queries/stocktakes";
-import { formatDateTime, formatStocktakeNumber } from "@/lib/format";
+import { formatDateTime, displayStocktakeNumber } from "@/lib/format";
 import { STOCKTAKE_STATUS_LABELS } from "@/lib/status-labels";
 
 export const metadata = { title: "Inventaires — ASODITECH Gestion E-commerce" };
@@ -60,7 +60,7 @@ export default async function InventairesPage({
                 <TableRow key={s.id}>
                   <TableCell className="font-medium">
                     <Link href={`/inventaires/${s.id}`} className="hover:underline">
-                      {formatStocktakeNumber(s.sessionNumber)}
+                      {displayStocktakeNumber(s)}
                     </Link>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{s.warehouseName}</TableCell>

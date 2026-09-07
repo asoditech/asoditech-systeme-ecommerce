@@ -218,7 +218,12 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
                     <TableRow key={e.id}>
                       <TableCell className="font-medium">
                         <Link href={`/commandes/${e.orderId}`} className="hover:underline">
-                          {displayOrderNumber({ orderNumber: e.orderNumber, source: e.orderSource, externalNumber: e.orderExternalNumber })}
+                          {displayOrderNumber({
+                            orderNumber: e.orderNumber,
+                            displayNumber: e.orderDisplayNumber,
+                            source: e.orderSource,
+                            externalNumber: e.orderExternalNumber,
+                          })}
                         </Link>
                       </TableCell>
                       <TableCell className={e.type === "REVERSED" ? "text-destructive" : ""}>

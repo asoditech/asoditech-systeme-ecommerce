@@ -2,7 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { applyStockMovement, ensureInventoryItem, InsufficientStockError } from "@/lib/inventory";
-import { formatTransferNumber } from "@/lib/format";
+import { displayTransferNumber } from "@/lib/format";
 
 /**
  * Stock transfer service — the two stock-moving lifecycle steps, each in
@@ -47,7 +47,7 @@ export async function dispatchTransfer(transferId: string, userId: string): Prom
     });
     if (gate.count === 0) throw new TransferConflictError();
 
-    const reason = `Transfert ${formatTransferNumber(transfer.transferNumber)} → ${transfer.destination.name}`;
+    const reason = `Transfert ${displayTransferNumber(transfer)} → ${transfer.destination.name}`;
     for (const line of transfer.lines) {
       // A line whose catalogue record was deleted has no stock ref — nothing
       // to move (mirrors the orphaned-order-line handling in inventory.ts).
@@ -131,7 +131,7 @@ export async function receiveTransfer(
       throw new TransferValidationError("L'entrepôt de destination est inactif — réactivez-le pour recevoir ce transfert.");
     }
 
-    const reason = `Transfert ${formatTransferNumber(transfer.transferNumber)} ← ${transfer.source.name}`;
+    const reason = `Transfert ${displayTransferNumber(transfer)} ← ${transfer.source.name}`;
     let hasShortfall = false;
     for (const line of transfer.lines) {
       const qty = receivedById.get(line.id)!;

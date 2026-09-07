@@ -56,11 +56,17 @@ export async function resetDb() {
     prisma.tenant.deleteMany({ where: { id: { not: DEFAULT_TENANT_ID } } }),
   ]);
 
-  // Guarantee the bootstrap tenant exists (a freshly-pushed test DB has none),
-  // so the tenantId column default resolves to a real row for every insert.
+  // Guarantee the bootstrap tenant exists (a freshly-pushed test DB has
+  // none), so the tenantId column default resolves to a real row for every
+  // insert — and reset its per-tenant numbering counters (Phase 3 —
+  // docs/adr/0025) back to 1: the Tenant row itself survives resetDb (only
+  // ROWS are wiped, not the bootstrap tenant), so without this its
+  // nextOrderNumber/nextTransferNumber/nextStocktakeNumber would keep
+  // climbing across every test in the suite instead of each test getting a
+  // fresh count.
   await prisma.tenant.upsert({
     where: { id: DEFAULT_TENANT_ID },
-    update: {},
+    update: { nextOrderNumber: 1, nextTransferNumber: 1, nextStocktakeNumber: 1 },
     create: { id: DEFAULT_TENANT_ID, name: "ASODITECH", slug: "default" },
   });
 }

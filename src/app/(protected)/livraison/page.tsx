@@ -309,6 +309,7 @@ export default async function LivraisonPage({
                   orders={awaitingShipment.map((o) => ({
                     id: o.id,
                     orderNumber: o.orderNumber,
+                    displayNumber: o.displayNumber,
                     source: o.source,
                     externalNumber: o.externalNumber,
                     customerName: o.customer.fullName,

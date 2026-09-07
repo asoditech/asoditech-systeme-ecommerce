@@ -24,7 +24,7 @@ export async function createUserAction(formData: FormData): Promise<ActionResult
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
 
-  const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } });
+  const existing = await prisma.user.findFirst({ where: { email: parsed.data.email } });
   if (existing) {
     return actionError("Un utilisateur avec cet e-mail existe déjà.", { email: ["E-mail déjà utilisé."] });
   }

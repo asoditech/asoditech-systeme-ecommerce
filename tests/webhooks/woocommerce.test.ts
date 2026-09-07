@@ -1,9 +1,9 @@
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaBase } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { POST } from "@/app/api/webhooks/woocommerce/route";
-import { resetDb } from "../helpers/db";
+import { DEFAULT_TENANT_ID, resetDb } from "../helpers/db";
 import { createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 
@@ -20,6 +20,23 @@ async function seedIntegration() {
       ),
     },
   });
+}
+
+/** A second tenant with its own WOOCOMMERCE integration and its own
+ * webhook secret — provider is no longer globally unique (Phase 3, docs/adr/0025). */
+async function seedTenantBIntegration(secret: string) {
+  const TENANT_B = "tenant-b-wc-webhook";
+  await prismaBase.tenant.create({ data: { id: TENANT_B, name: "Tenant B", slug: TENANT_B } });
+  const integration = await prismaBase.integration.create({
+    data: {
+      tenantId: TENANT_B,
+      provider: "WOOCOMMERCE",
+      status: "CONNECTE",
+      config: { siteUrl: "https://tenant-b.example.com" },
+      credentialsEncrypted: encryptSecret(JSON.stringify({ apiKey: "ck_b", apiSecret: "cs_b", webhookSecret: secret })),
+    },
+  });
+  return { tenantId: TENANT_B, integration };
 }
 
 function sign(body: string, secret = WEBHOOK_SECRET): string {
@@ -136,6 +153,55 @@ describe("POST /api/webhooks/woocommerce", () => {
     expect(order).toBeNull();
 
     const rejected = await prisma.auditEvent.findFirstOrThrow({ where: { action: "integration.webhook_rejected" } });
+    expect(rejected).toBeTruthy();
+  });
+
+  // Phase 3 (docs/adr/0025): provider is no longer globally unique, so the
+  // tenant is resolved by matching the signature against every WOOCOMMERCE
+  // integration across every tenant.
+  it("resolves the correct tenant among two WooCommerce integrations by signature", async () => {
+    await seedIntegration(); // tenant A, WEBHOOK_SECRET
+    const TENANT_B_SECRET = "tenant-b-secret";
+    const { tenantId: TENANT_B } = await seedTenantBIntegration(TENANT_B_SECRET);
+
+    const body = orderPayload({ id: 8002 });
+    const response = await POST(
+      request(body, {
+        "x-wc-webhook-signature": sign(body, TENANT_B_SECRET),
+        "x-wc-webhook-topic": "order.created",
+        "x-wc-webhook-delivery-id": "d-tenant-b",
+      })
+    );
+    expect(response.status).toBe(200);
+
+    const orderB = await prismaBase.order.findFirst({ where: { source: "WOOCOMMERCE", externalId: "8002" } });
+    expect(orderB?.tenantId).toBe(TENANT_B);
+
+    const orderA = await prismaBase.order.findFirst({
+      where: { source: "WOOCOMMERCE", externalId: "8002", tenantId: DEFAULT_TENANT_ID },
+    });
+    expect(orderA).toBeNull();
+  });
+
+  it("a signature that matches no tenant's integration is rejected with 401, attributed to no specific integration", async () => {
+    await seedIntegration();
+    await seedTenantBIntegration("tenant-b-secret");
+
+    const body = orderPayload({ id: 8003 });
+    const response = await POST(
+      request(body, {
+        "x-wc-webhook-signature": sign(body, "some-other-secret"),
+        "x-wc-webhook-topic": "order.created",
+        "x-wc-webhook-delivery-id": "d-nobody",
+      })
+    );
+    expect(response.status).toBe(401);
+    const order = await prismaBase.order.findFirst({ where: { source: "WOOCOMMERCE", externalId: "8003" } });
+    expect(order).toBeNull();
+
+    const rejected = await prismaBase.auditEvent.findFirstOrThrow({
+      where: { action: "integration.webhook_rejected", entityId: "unknown" },
+    });
     expect(rejected).toBeTruthy();
   });
 

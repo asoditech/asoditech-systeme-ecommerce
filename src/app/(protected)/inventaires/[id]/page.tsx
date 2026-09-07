@@ -9,7 +9,7 @@ import { StocktakeLifecycleActions } from "@/components/stocktakes/stocktake-lif
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { getStocktakeSessionDetail, getStocktakeAuditTimeline } from "@/lib/queries/stocktakes";
-import { formatDateTime, formatStocktakeNumber } from "@/lib/format";
+import { formatDateTime, displayStocktakeNumber } from "@/lib/format";
 import { STOCKTAKE_STATUS_LABELS } from "@/lib/status-labels";
 
 export default async function InventaireDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -20,7 +20,7 @@ export default async function InventaireDetailPage({ params }: { params: Promise
 
   const canCount = hasPermission(user.role, "inventory.count");
   const timeline = await getStocktakeAuditTimeline(id);
-  const ref = formatStocktakeNumber(session.sessionNumber);
+  const ref = displayStocktakeNumber(session);
   const isOpen = session.status === "EN_COURS";
 
   return (

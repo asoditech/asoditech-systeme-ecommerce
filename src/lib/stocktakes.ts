@@ -3,7 +3,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
 import { applyStockMovement } from "@/lib/inventory";
-import { formatStocktakeNumber } from "@/lib/format";
+import { displayStocktakeNumber } from "@/lib/format";
 
 /**
  * Stocktake service — Phase 32c (docs/adr/0021-stocktaking.md).
@@ -140,9 +140,9 @@ export async function finalizeStocktakeSession(sessionId: string, userId: string
 
     const session = await tx.stocktakeSession.findUniqueOrThrow({
       where: { id: sessionId },
-      select: { sessionNumber: true },
+      select: { sessionNumber: true, displayNumber: true },
     });
-    const reason = `Inventaire ${formatStocktakeNumber(session.sessionNumber)}`;
+    const reason = `Inventaire ${displayStocktakeNumber(session)}`;
 
     const allLines = await tx.stocktakeLine.findMany({
       where: { stocktakeSessionId: sessionId },

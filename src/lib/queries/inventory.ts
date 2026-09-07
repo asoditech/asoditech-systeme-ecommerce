@@ -2,7 +2,7 @@ import "server-only";
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { assertBootstrapTenant } from "@/lib/tenant/resolve";
+import { resolveActiveTenantIdForRawSql } from "@/lib/tenant/resolve";
 
 const PAGE_SIZE = 25;
 
@@ -20,7 +20,7 @@ const INVENTORY_INCLUDE = {
  * can't express. Done as one raw SELECT of matching ids (paginated
  * DB-side), then hydrated with the normal typed `include`. Read-only.
  */
-function lowStockFrom(q?: string): Prisma.Sql {
+function lowStockFrom(tenantId: string, q?: string): Prisma.Sql {
   // Escape LIKE metacharacters so a SKU search for "SKU_ABC" matches
   // literally (underscores are common in SKUs) — Prisma's `contains` does
   // the same for the non-low-stock path.
@@ -33,7 +33,8 @@ function lowStockFrom(q?: string): Prisma.Sql {
     LEFT JOIN products p ON p.id = ii."productId"
     LEFT JOIN product_variations pv ON pv.id = ii."variationId"
     LEFT JOIN products vp ON vp.id = pv."productId"
-    WHERE ii."quantityOnHand" <= COALESCE(p."lowStockThreshold", vp."lowStockThreshold", 0)
+    WHERE ii."tenantId" = ${tenantId}
+    AND ii."quantityOnHand" <= COALESCE(p."lowStockThreshold", vp."lowStockThreshold", 0)
     ${qFilter}
   `;
 }
@@ -48,7 +49,11 @@ export type InventorySort = "recent" | "quantity-asc" | "quantity-desc";
  * with the warehouse/category/search filters layered on top of whichever
  * stock-status condition applies.
  */
-function stockStatusFrom(status: "low" | "out", filters: { q?: string; warehouseId?: string; categoryId?: string }): Prisma.Sql {
+function stockStatusFrom(
+  tenantId: string,
+  status: "low" | "out",
+  filters: { q?: string; warehouseId?: string; categoryId?: string }
+): Prisma.Sql {
   const like = filters.q ? `%${filters.q.replace(/[\\%_]/g, "\\$&")}%` : null;
   const qFilter = like
     ? Prisma.sql`AND (p.name ILIKE ${like} OR p.sku ILIKE ${like} OR pv.sku ILIKE ${like})`
@@ -66,7 +71,7 @@ function stockStatusFrom(status: "low" | "out", filters: { q?: string; warehouse
     LEFT JOIN products p ON p.id = ii."productId"
     LEFT JOIN product_variations pv ON pv.id = ii."variationId"
     LEFT JOIN products vp ON vp.id = pv."productId"
-    WHERE 1=1
+    WHERE ii."tenantId" = ${tenantId}
     ${statusFilter}
     ${qFilter}
     ${warehouseFilter}
@@ -94,11 +99,11 @@ export async function listInventoryItems(params: {
   const stockStatus = params.stockStatus ?? "all";
 
   if (stockStatus === "low" || stockStatus === "out") {
-    // Raw cross-join SELECT — cannot go through the tenant extension. Safe
-    // only while a single tenant exists; must gain an `ii."tenantId"`
-    // predicate before onboarding a second (docs/adr/0024, Known bypasses).
-    await assertBootstrapTenant("queries/inventory.listInventoryItems(low|out)");
-    const from = stockStatusFrom(stockStatus, { q, warehouseId: params.warehouseId, categoryId: params.categoryId });
+    // Raw cross-join SELECT — cannot go through the tenant extension, so
+    // it carries its own `ii."tenantId"` predicate instead (Phase 3 —
+    // docs/adr/0025, closing the ADR 0024 "Known bypass").
+    const tenantId = await resolveActiveTenantIdForRawSql("queries/inventory.listInventoryItems(low|out)");
+    const from = stockStatusFrom(tenantId, stockStatus, { q, warehouseId: params.warehouseId, categoryId: params.categoryId });
     const [idRows, countRows] = await Promise.all([
       prisma.$queryRaw<{ id: string }[]>(
         Prisma.sql`SELECT ii.id ${from} ${sortClause(params.sort)} OFFSET ${skip} LIMIT ${PAGE_SIZE}`
@@ -160,11 +165,12 @@ export async function listInventoryItems(params: {
 }
 
 export async function getLowStockCount(): Promise<number> {
-  // Raw cross-join count — cannot go through the tenant extension
-  // (docs/adr/0024, Known bypasses). Guarded to the bootstrap tenant.
-  await assertBootstrapTenant("queries/inventory.getLowStockCount");
+  // Raw cross-join count — cannot go through the tenant extension, so it
+  // carries its own `ii."tenantId"` predicate instead (Phase 3 —
+  // docs/adr/0025, closing the ADR 0024 "Known bypass").
+  const tenantId = await resolveActiveTenantIdForRawSql("queries/inventory.getLowStockCount");
   const rows = await prisma.$queryRaw<{ count: bigint }[]>(
-    Prisma.sql`SELECT COUNT(*)::bigint AS count ${lowStockFrom()}`
+    Prisma.sql`SELECT COUNT(*)::bigint AS count ${lowStockFrom(tenantId)}`
   );
   return Number(rows[0]?.count ?? 0);
 }

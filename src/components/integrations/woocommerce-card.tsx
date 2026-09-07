@@ -16,7 +16,7 @@ const RESOURCES = [
 ] as const;
 
 export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
-  const integration = await prisma.integration.findUnique({ where: { provider: "WOOCOMMERCE" } });
+  const integration = await prisma.integration.findFirst({ where: { provider: "WOOCOMMERCE" } });
   const runs = integration
     ? await prisma.syncRun.findMany({
         where: { integrationId: integration.id },

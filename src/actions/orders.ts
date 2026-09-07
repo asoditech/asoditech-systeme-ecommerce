@@ -21,6 +21,7 @@ import {
 } from "@/lib/notifications";
 import { pushStockAfterLocalChange, pushOrderPaymentToWooCommerce, pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
 import { reconcileOrderCommission } from "@/lib/commissions";
+import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import {
   createOrderSchema,
   updateOrderStatusSchema,
@@ -276,7 +277,8 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
       user.id
     );
 
-    return created;
+    const displayNumber = await claimTenantDisplayNumber(tx, created.tenantId, "order");
+    return tx.order.update({ where: { id: created.id }, data: { displayNumber } });
   });
 
   await recordAuditEvent({
@@ -292,6 +294,7 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
     {
       id: order.id,
       orderNumber: order.orderNumber,
+      displayNumber: order.displayNumber,
       total: total,
       currency: parsed.data.currency,
       customerName: customer.fullName,
@@ -410,7 +413,12 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
   if (parsed.data.status === "RETOUR") {
     const customer = await prisma.customer.findUnique({ where: { id: existing.customerId }, select: { fullName: true } });
     await notifyOrderReturned(
-      { id: order.id, orderNumber: order.orderNumber, customerName: customer?.fullName ?? "Client" },
+      {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        displayNumber: order.displayNumber,
+        customerName: customer?.fullName ?? "Client",
+      },
       user.id
     );
   }
@@ -472,7 +480,10 @@ export async function updateOrderPaymentStatusAction(formData: FormData): Promis
   });
 
   if (order.paymentStatus === "ECHEC" && existing.paymentStatus !== "ECHEC") {
-    await notifyPaymentProblem({ id: order.id, orderNumber: order.orderNumber }, user.id);
+    await notifyPaymentProblem(
+      { id: order.id, orderNumber: order.orderNumber, displayNumber: order.displayNumber },
+      user.id
+    );
   }
 
   if (order.paymentStatus === "PAYE" && existing.paymentStatus !== "PAYE") {

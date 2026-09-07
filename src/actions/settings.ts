@@ -31,8 +31,12 @@ export async function updateBusinessSettingsAction(formData: FormData): Promise<
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
 
+  // Phase 3 (docs/adr/0025): BusinessSettings is tenant-scoped, not a
+  // global singleton — looked up/created by `tenantId`, never the old
+  // fixed `id: "singleton"` (which now belongs only to the bootstrap
+  // tenant's original row).
   const settings = await prisma.businessSettings.upsert({
-    where: { id: "singleton" },
+    where: { tenantId: user.tenantId },
     update: {
       companyName: parsed.data.companyName,
       currency: parsed.data.currency,
@@ -45,7 +49,7 @@ export async function updateBusinessSettingsAction(formData: FormData): Promise<
       lowStockDefaultThreshold: parsed.data.lowStockDefaultThreshold,
       orderNumberPrefix: parsed.data.orderNumberPrefix,
     },
-    create: { id: "singleton", ...parsed.data },
+    create: { ...parsed.data },
   });
 
   await recordAuditEvent({

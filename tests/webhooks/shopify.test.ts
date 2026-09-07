@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaBase } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { POST } from "@/app/api/webhooks/shopify/route";
 import { resetDb } from "../helpers/db";
@@ -23,6 +23,23 @@ async function seedIntegration() {
 
 function sign(body: string, secret = WEBHOOK_SECRET): string {
   return createHmac("sha256", secret).update(body, "utf8").digest("base64");
+}
+
+/** A second tenant with its own SHOPIFY integration and its own webhook
+ * secret — provider is no longer globally unique (Phase 3, docs/adr/0025). */
+async function seedTenantBIntegration(secret: string) {
+  const TENANT_B = "tenant-b-shopify-webhook";
+  await prismaBase.tenant.create({ data: { id: TENANT_B, name: "Tenant B", slug: TENANT_B } });
+  const integration = await prismaBase.integration.create({
+    data: {
+      tenantId: TENANT_B,
+      provider: "SHOPIFY",
+      status: "CONNECTE",
+      config: { shopDomain: "https://tenant-b.myshopify.com" },
+      credentialsEncrypted: encryptSecret(JSON.stringify({ apiKey: FAKE_ACCESS_TOKEN, apiSecret: secret })),
+    },
+  });
+  return { tenantId: TENANT_B, integration };
 }
 
 function orderCreatePayload(overrides: Record<string, unknown> = {}) {
@@ -115,6 +132,58 @@ describe("POST /api/webhooks/shopify", () => {
     const body = orderCreatePayload();
     const response = await POST(request(body, { "x-shopify-topic": "orders/create", "x-shopify-webhook-id": "d3" }));
     expect(response.status).toBe(401);
+  });
+
+  // Phase 3 (docs/adr/0025): provider is no longer globally unique, so the
+  // tenant is resolved by matching the signature against every SHOPIFY
+  // integration across every tenant. Uses products/delete (handled
+  // straight from the webhook body, no GraphQL re-fetch) to keep the fake
+  // Shopify server out of it.
+  it("resolves the correct tenant among two Shopify integrations by signature", async () => {
+    await seedIntegration(); // tenant A
+    const TENANT_B_SECRET = "tenant-b-secret";
+    const { tenantId: TENANT_B } = await seedTenantBIntegration(TENANT_B_SECRET);
+
+    const gid = "gid://shopify/Product/9600";
+    const productB = await prismaBase.product.create({
+      data: { name: "B product", sku: "SH-B-1", price: 100, status: "ACTIF", source: "SHOPIFY", externalId: gid, tenantId: TENANT_B },
+    });
+
+    const body = JSON.stringify({ id: 9600 });
+    const response = await POST(
+      request(body, {
+        "x-shopify-hmac-sha256": sign(body, TENANT_B_SECRET),
+        "x-shopify-topic": "products/delete",
+        "x-shopify-webhook-id": "d-tenant-b",
+      })
+    );
+    expect(response.status).toBe(200);
+
+    const after = await prismaBase.product.findUniqueOrThrow({ where: { id: productB.id } });
+    expect(after.status).toBe("ARCHIVE");
+
+    const event = await prismaBase.webhookEvent.findFirstOrThrow({ where: { deliveryId: "d-tenant-b" } });
+    expect(event.tenantId).toBe(TENANT_B);
+  });
+
+  it("a signature that matches no tenant's integration is rejected with 401, attributed to no specific integration", async () => {
+    await seedIntegration();
+    await seedTenantBIntegration("tenant-b-secret");
+
+    const body = JSON.stringify({ id: 9601 });
+    const response = await POST(
+      request(body, {
+        "x-shopify-hmac-sha256": sign(body, "some-other-secret"),
+        "x-shopify-topic": "products/delete",
+        "x-shopify-webhook-id": "d-nobody",
+      })
+    );
+    expect(response.status).toBe(401);
+
+    const rejected = await prismaBase.auditEvent.findFirstOrThrow({
+      where: { action: "integration.webhook_rejected", entityId: "unknown" },
+    });
+    expect(rejected).toBeTruthy();
   });
 
   it("rejects a request with no delivery id header", async () => {

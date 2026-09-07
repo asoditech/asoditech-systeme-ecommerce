@@ -1,7 +1,7 @@
 import "server-only";
 
 import { Prisma } from "@prisma/client";
-import { resolveActiveTenant } from "@/lib/tenant/resolve";
+import { resolveActiveTenant, resolveActiveTenantForCreate } from "@/lib/tenant/resolve";
 
 /**
  * Phase 2 tenant isolation extension (docs/adr/0024-multi-tenant-context.md).
@@ -16,6 +16,12 @@ import { resolveActiveTenant } from "@/lib/tenant/resolve";
  * It does NOT reach nested reads/writes (`include`, nested `create`) — a
  * Prisma client-extension limitation. Those rely on the Phase 1 column
  * default and are closed by RLS in a later phase (see the ADR).
+ *
+ * Phase 3 (docs/adr/0025-multi-tenant-isolation.md) tightens one thing: a
+ * create-family op (create/createMany/createManyAndReturn/upsert) with NO
+ * resolvable tenant (no directive, no session) now throws instead of
+ * silently landing in the bootstrap tenant — see
+ * `resolveActiveTenantForCreate`.
  */
 
 export class TenantIsolationError extends Error {
@@ -93,7 +99,14 @@ export const tenantExtension = Prisma.defineExtension({
           return query(args);
         }
 
-        const { tenantId, source } = await resolveActiveTenant(model, operation);
+        // A create-family op (including upsert, which may take the create
+        // branch) gets the stricter resolver: no directive + no session is
+        // no longer a silent "default" fallback for a NEW row outside
+        // tests (docs/adr/0025, Phase 3).
+        const isCreateFamily = CREATE_OPS.has(operation) || operation === "upsert";
+        const { tenantId, source } = isCreateFamily
+          ? await resolveActiveTenantForCreate(model, operation)
+          : await resolveActiveTenant(model, operation);
         if (source === "unscoped" || tenantId === null) {
           // Deliberately trusted context (login, webhook self-lookup, …).
           return query(args);

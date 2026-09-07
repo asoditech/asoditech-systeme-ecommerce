@@ -126,7 +126,7 @@ export async function createExpenseCategoryAction(formData: FormData): Promise<A
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
 
-  const existing = await prisma.expenseCategory.findUnique({ where: { name: parsed.data.name } });
+  const existing = await prisma.expenseCategory.findFirst({ where: { name: parsed.data.name } });
   if (existing) return actionError("Cette catégorie existe déjà.");
 
   let category;

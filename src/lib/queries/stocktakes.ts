@@ -44,6 +44,7 @@ export async function listStocktakeSessions(params: { status?: string; page?: nu
     sessions: sessions.map((s) => ({
       id: s.id,
       sessionNumber: s.sessionNumber,
+      displayNumber: s.displayNumber,
       status: s.status,
       warehouseName: s.warehouse.name,
       startedByName: s.startedBy?.name ?? null,
@@ -115,6 +116,7 @@ export async function getStocktakeSessionDetail(id: string) {
   return {
     id: session.id,
     sessionNumber: session.sessionNumber,
+    displayNumber: session.displayNumber,
     status: session.status,
     notes: session.notes,
     warehouse: session.warehouse,

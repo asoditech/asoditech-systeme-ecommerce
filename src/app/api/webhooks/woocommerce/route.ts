@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import type { Integration } from "@prisma/client";
 import { prisma, prismaBase } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant/context";
+import { BOOTSTRAP_TENANT_ID } from "@/lib/tenant/resolve";
 import { decryptSecret } from "@/lib/crypto";
 import { recordAuditEvent } from "@/lib/audit";
 import { verifyWebhookSignature } from "@/lib/integrations/woocommerce/webhook-signature";
@@ -61,52 +62,79 @@ function revalidateAfterImport(kind: "order" | "product"): void {
   }
 }
 
-export async function POST(request: Request): Promise<Response> {
-  // The webhook carries no session. Resolve the owning tenant from the
-  // Integration row with the raw (unscoped) client, then run the handler
-  // pinned to that tenant so every read/write lands in the right workspace
-  // — never from anything in the request body (docs/adr/0024).
-  const integration = await prismaBase.integration.findUnique({ where: { provider: "WOOCOMMERCE" } });
-  if (!integration || !integration.credentialsEncrypted) {
-    return new Response(null, { status: 404 });
+/**
+ * Finds which tenant's WOOCOMMERCE Integration this request's signature
+ * belongs to (Phase 3 — docs/adr/0025-multi-tenant-isolation.md): `provider`
+ * is no longer globally unique, so a signature-carrying webhook can't be
+ * routed by provider alone once a second tenant connects its own store.
+ * Tries every WOOCOMMERCE Integration row's secret against the exact raw
+ * body, across all tenants (`prismaBase`, unscoped by nature — there is no
+ * tenant yet to scope by), and returns whichever one verifies. Mirrors how
+ * a multi-account webhook consumer (e.g. Stripe Connect) disambiguates by
+ * secret rather than by an id in the URL.
+ */
+async function resolveWooCommerceIntegrationBySignature(
+  rawBody: string,
+  signatureHeader: string | null
+): Promise<Integration | "invalid_signature" | null> {
+  const candidates = await prismaBase.integration.findMany({ where: { provider: "WOOCOMMERCE" } });
+  if (candidates.length === 0) return null;
+
+  for (const candidate of candidates) {
+    if (!candidate.credentialsEncrypted) continue;
+    let webhookSecret: string | undefined;
+    try {
+      const credentials = JSON.parse(decryptSecret(candidate.credentialsEncrypted)) as { webhookSecret?: string };
+      webhookSecret = credentials.webhookSecret;
+    } catch {
+      continue;
+    }
+    if (!webhookSecret) continue;
+    if (verifyWebhookSignature(rawBody, signatureHeader, webhookSecret)) return candidate;
   }
-  return runWithTenant(integration.tenantId, "webhook:woocommerce", () =>
-    handleWooCommerceWebhook(request, integration)
-  );
+  return "invalid_signature";
 }
 
-async function handleWooCommerceWebhook(request: Request, integration: Integration): Promise<Response> {
+export async function POST(request: Request): Promise<Response> {
+  // The webhook carries no session, and (Phase 3) the tenant can no longer
+  // be found by provider alone — resolve it by matching the signature
+  // against every candidate first, then run the handler pinned to that
+  // tenant so every read/write lands in the right workspace — never from
+  // anything in the request body (docs/adr/0024, docs/adr/0025).
   const rawBody = await request.text();
   const signatureHeader = request.headers.get("x-wc-webhook-signature");
   const topic = request.headers.get("x-wc-webhook-topic") ?? "inconnu";
-  const deliveryId = request.headers.get("x-wc-webhook-delivery-id");
 
-  const credentialsEncrypted = integration.credentialsEncrypted;
-  if (!credentialsEncrypted) {
+  const resolved = await resolveWooCommerceIntegrationBySignature(rawBody, signatureHeader);
+  if (resolved === null) {
     return new Response(null, { status: 404 });
   }
-
-  let webhookSecret: string | undefined;
-  try {
-    const credentials = JSON.parse(decryptSecret(credentialsEncrypted)) as { webhookSecret?: string };
-    webhookSecret = credentials.webhookSecret;
-  } catch {
-    return new Response(null, { status: 404 });
-  }
-  if (!webhookSecret) {
-    return new Response(null, { status: 404 });
-  }
-
-  if (!verifyWebhookSignature(rawBody, signatureHeader, webhookSecret)) {
-    await recordAuditEvent({
-      actorType: "INTEGRATION",
-      action: "integration.webhook_rejected",
-      entityType: "Integration",
-      entityId: integration.id,
-      metadata: { provider: "WOOCOMMERCE", reason: "invalid_signature", topic },
-    });
+  if (resolved === "invalid_signature") {
+    // No candidate's secret matched — genuinely unknown which tenant (if
+    // any) this was meant for. Logged against the bootstrap tenant, same
+    // as an unattributable login failure (docs/adr/0024).
+    await runWithTenant(BOOTSTRAP_TENANT_ID, "webhook:woocommerce:rejected", () =>
+      recordAuditEvent({
+        actorType: "INTEGRATION",
+        action: "integration.webhook_rejected",
+        entityType: "Integration",
+        entityId: "unknown",
+        metadata: { provider: "WOOCOMMERCE", reason: "invalid_signature", topic },
+      })
+    );
     return new Response(null, { status: 401 });
   }
+  return runWithTenant(resolved.tenantId, "webhook:woocommerce", () =>
+    handleWooCommerceWebhook(request, resolved, rawBody)
+  );
+}
+
+async function handleWooCommerceWebhook(request: Request, integration: Integration, rawBody: string): Promise<Response> {
+  const topic = request.headers.get("x-wc-webhook-topic") ?? "inconnu";
+  const deliveryId = request.headers.get("x-wc-webhook-delivery-id");
+
+  // Signature already verified during tenant resolution above — no need to
+  // re-decrypt/re-verify here.
 
   if (!deliveryId) {
     return new Response(null, { status: 400 });

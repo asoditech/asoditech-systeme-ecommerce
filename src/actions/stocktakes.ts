@@ -21,6 +21,7 @@ import {
   type UpdateStocktakeCountsInput,
 } from "@/lib/validation/stocktake";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
+import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
 import { checkAndNotifyLowStock } from "@/lib/notifications";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
@@ -60,6 +61,8 @@ export async function createStocktakeSessionAction(
         },
       });
       const lineCount = await snapshotWarehouseInventory(tx, created.id, warehouse.id);
+      const displayNumber = await claimTenantDisplayNumber(tx, created.tenantId, "stocktake");
+      await tx.stocktakeSession.update({ where: { id: created.id }, data: { displayNumber } });
       return { id: created.id, sessionNumber: created.sessionNumber, lineCount };
     });
   } catch (error) {

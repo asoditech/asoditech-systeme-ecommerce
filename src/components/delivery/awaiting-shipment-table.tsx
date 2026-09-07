@@ -17,6 +17,7 @@ import { formatCurrency, formatDate, displayOrderNumber } from "@/lib/format";
 export interface AwaitingOrderRow {
   id: string;
   orderNumber: number;
+  displayNumber?: number | null;
   source: "INTERNE" | "WOOCOMMERCE" | "SHOPIFY";
   externalNumber: string | null;
   customerName: string;
@@ -80,7 +81,10 @@ export function AwaitingShipmentTable({
         for (const r of res.data.results) {
           done.add(r.orderId);
           if (r.ok) created++;
-          else failures.push(`${displayOrderNumber({ orderNumber: r.orderNumber, source: "INTERNE", externalNumber: null })} : ${r.error ?? "échec"}`);
+          else
+            failures.push(
+              `${displayOrderNumber({ orderNumber: r.orderNumber, displayNumber: r.orderDisplayNumber, source: "INTERNE", externalNumber: null })} : ${r.error ?? "échec"}`
+            );
         }
         remaining = remaining.filter((id) => !done.has(id));
         if (res.data.results.length === 0) break; // safety

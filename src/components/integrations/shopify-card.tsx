@@ -16,7 +16,7 @@ const RESOURCES = [
 ] as const;
 
 export async function ShopifyCard({ canManage }: { canManage: boolean }) {
-  const integration = await prisma.integration.findUnique({ where: { provider: "SHOPIFY" } });
+  const integration = await prisma.integration.findFirst({ where: { provider: "SHOPIFY" } });
   const runs = integration
     ? await prisma.syncRun.findMany({
         where: { integrationId: integration.id },

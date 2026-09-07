@@ -156,7 +156,7 @@ async function syncOneProduct(
       // WooCommerce SKU was reused/renamed on the store side) must not
       // silently steal that other product's SKU — skip this field rather
       // than fail the whole item.
-      const skuOwner = await prisma.product.findUnique({ where: { sku: fields.sku } });
+      const skuOwner = await prisma.product.findFirst({ where: { sku: fields.sku } });
       const sku = !skuOwner || skuOwner.id === existing.id ? fields.sku : existing.sku;
 
       await prisma.product.update({
@@ -178,7 +178,7 @@ async function syncOneProduct(
     }
     productId = existing.id;
   } else {
-    const skuOwner = await prisma.product.findUnique({ where: { sku: fields.sku } });
+    const skuOwner = await prisma.product.findFirst({ where: { sku: fields.sku } });
     const sku = skuOwner ? `${fields.sku}-wc-${wc.id}` : fields.sku;
 
     const created = await prisma.product.create({
@@ -263,7 +263,7 @@ async function syncOneVariation(
     }
     variationId = existing.id;
   } else {
-    const skuOwner = await prisma.productVariation.findUnique({ where: { sku } });
+    const skuOwner = await prisma.productVariation.findFirst({ where: { sku } });
     const finalSku = skuOwner ? `${sku}-wc-${wc.id}` : sku;
     const created = await prisma.productVariation.create({
       data: {

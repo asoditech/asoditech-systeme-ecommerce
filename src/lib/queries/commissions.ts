@@ -64,7 +64,7 @@ export async function getAgentCommissionDetail(agentId: string) {
     prisma.commissionEntry.findMany({
       where: { agentId, statementId: null },
       orderBy: { createdAt: "desc" },
-      include: { order: { select: { orderNumber: true, source: true, externalNumber: true } } },
+      include: { order: { select: { orderNumber: true, displayNumber: true, source: true, externalNumber: true } } },
     }),
   ]);
 
@@ -117,6 +117,7 @@ export async function getAgentCommissionDetail(agentId: string) {
       amount: Number(e.amount),
       orderId: e.orderId,
       orderNumber: e.order.orderNumber,
+      orderDisplayNumber: e.order.displayNumber,
       orderSource: e.order.source,
       orderExternalNumber: e.order.externalNumber,
       createdAt: e.createdAt,

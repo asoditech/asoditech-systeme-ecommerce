@@ -64,7 +64,7 @@ describe("Shopify integration", () => {
       await loginAsTestUser({ role: "ADMIN" });
       const result = await connectIntegrationAction(formData({ provider: "SHOPIFY", siteUrl: "https://www.maboutique.com", apiKey: "x", apiSecret: "" }));
       expect(result.ok).toBe(false);
-      const integration = await prisma.integration.findUnique({ where: { provider: "SHOPIFY" } });
+      const integration = await prisma.integration.findFirst({ where: { provider: "SHOPIFY" } });
       expect(integration).toBeNull();
     });
 
@@ -114,7 +114,7 @@ describe("Shopify integration", () => {
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.data.status).toBe("CONNECTE");
 
-      const integration = await prisma.integration.findUniqueOrThrow({ where: { provider: "SHOPIFY" } });
+      const integration = await prisma.integration.findFirstOrThrow({ where: { provider: "SHOPIFY" } });
       expect(integration.status).toBe("CONNECTE");
       expect(integration.lastConnectionCheckAt).not.toBeNull();
     });
@@ -128,7 +128,7 @@ describe("Shopify integration", () => {
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error).not.toContain("wrong-token");
 
-      const integration = await prisma.integration.findUniqueOrThrow({ where: { provider: "SHOPIFY" } });
+      const integration = await prisma.integration.findFirstOrThrow({ where: { provider: "SHOPIFY" } });
       expect(integration.status).toBe("ERREUR");
       expect(integration.lastError).not.toContain("wrong-token");
 
@@ -764,7 +764,7 @@ describe("Shopify integration", () => {
       const result = await disconnectIntegrationAction(formData({ provider: "SHOPIFY" }));
       expect(result.ok).toBe(true);
 
-      const integration = await prisma.integration.findUniqueOrThrow({ where: { provider: "SHOPIFY" } });
+      const integration = await prisma.integration.findFirstOrThrow({ where: { provider: "SHOPIFY" } });
       expect(integration.status).toBe("DECONNECTE");
       expect(integration.credentialsEncrypted).toBeNull();
     });

@@ -11,6 +11,7 @@ import { isRecentlyPlaced, parseOrderPlacedAt } from "../../shared/order-recency
 import { upsertCustomerAddressFromOrder } from "../../shared/customer-address";
 import { notifyNewOrder, resolveNotifications } from "@/lib/notifications";
 import { reconcileOrderCommission } from "@/lib/commissions";
+import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { emptySyncSummary, recordNote, type SyncSummary } from "./types";
 import type { Prisma, OrderStatus } from "@prisma/client";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
@@ -223,6 +224,8 @@ async function createImportedOrder(
       items: { create: items },
     },
   });
+  const displayNumber = await claimTenantDisplayNumber(prisma, order.tenantId, "order");
+  await prisma.order.update({ where: { id: order.id }, data: { displayNumber } });
 
   const refunded = totalRefundedAmount(wc);
   if (refunded > 0) {
@@ -253,7 +256,15 @@ async function createImportedOrder(
   if (actor.type === "INTEGRATION" || isRecentlyPlaced(wc.date_created)) {
     const customer = await prisma.customer.findUniqueOrThrow({ where: { id: customerId }, select: { fullName: true } });
     await notifyNewOrder(
-      { id: order.id, orderNumber: order.orderNumber, total: fields.total, currency: fields.currency, customerName: customer.fullName, source: "WOOCOMMERCE" },
+      {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        displayNumber,
+        total: fields.total,
+        currency: fields.currency,
+        customerName: customer.fullName,
+        source: "WOOCOMMERCE",
+      },
       actorPerformedById(actor)
     );
   }

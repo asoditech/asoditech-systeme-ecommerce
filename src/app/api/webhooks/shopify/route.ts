@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import type { Integration } from "@prisma/client";
 import { prisma, prismaBase } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant/context";
+import { BOOTSTRAP_TENANT_ID } from "@/lib/tenant/resolve";
 import { decryptSecret } from "@/lib/crypto";
 import { recordAuditEvent } from "@/lib/audit";
 import { verifyShopifyWebhookSignature } from "@/lib/integrations/shopify/webhook-signature";
@@ -85,55 +86,98 @@ const inventoryLevelEnvelopeSchema = z.object({
   available: z.number(),
 });
 
-export async function POST(request: Request): Promise<Response> {
-  // The webhook carries no session. Resolve the owning tenant from the
-  // Integration row with the raw (unscoped) client, then run the handler
-  // pinned to that tenant so every read/write lands in the right workspace
-  // — never from anything in the request body (docs/adr/0024).
-  const integration = await prismaBase.integration.findUnique({ where: { provider: "SHOPIFY" } });
-  if (!integration || !integration.credentialsEncrypted) {
-    return new Response(null, { status: 404 });
-  }
-  return runWithTenant(integration.tenantId, "webhook:shopify", () =>
-    handleShopifyWebhook(request, integration)
-  );
+interface ResolvedShopifyIntegration {
+  integration: Integration;
+  apiKey: string;
+  shopDomain: string;
 }
 
-async function handleShopifyWebhook(request: Request, integration: Integration): Promise<Response> {
+/**
+ * Finds which tenant's SHOPIFY Integration this request's signature
+ * belongs to (Phase 3 — docs/adr/0025-multi-tenant-isolation.md): `provider`
+ * is no longer globally unique, so a signature-carrying webhook can't be
+ * routed by provider alone once a second tenant connects its own store.
+ * Tries every SHOPIFY Integration row's secret against the exact raw body,
+ * across all tenants (`prismaBase`, unscoped by nature — there is no
+ * tenant yet to scope by), and returns whichever one verifies.
+ */
+async function resolveShopifyIntegrationBySignature(
+  rawBody: string,
+  signatureHeader: string | null
+): Promise<ResolvedShopifyIntegration | "invalid_signature" | null> {
+  const candidates = await prismaBase.integration.findMany({ where: { provider: "SHOPIFY" } });
+  if (candidates.length === 0) return null;
+
+  for (const candidate of candidates) {
+    if (!candidate.credentialsEncrypted) continue;
+    const config = (candidate.config as { shopDomain?: string } | null) ?? {};
+    if (!config.shopDomain) continue;
+    let apiKey: string | undefined;
+    let webhookSecret: string | undefined;
+    try {
+      const credentials = JSON.parse(decryptSecret(candidate.credentialsEncrypted)) as {
+        apiKey?: string;
+        apiSecret?: string;
+      };
+      apiKey = credentials.apiKey;
+      webhookSecret = credentials.apiSecret;
+    } catch {
+      continue;
+    }
+    if (!webhookSecret || !apiKey) continue;
+    if (verifyShopifyWebhookSignature(rawBody, signatureHeader, webhookSecret)) {
+      return { integration: candidate, apiKey, shopDomain: config.shopDomain };
+    }
+  }
+  return "invalid_signature";
+}
+
+export async function POST(request: Request): Promise<Response> {
+  // The webhook carries no session, and (Phase 3) the tenant can no longer
+  // be found by provider alone — resolve it by matching the signature
+  // against every candidate first, then run the handler pinned to that
+  // tenant so every read/write lands in the right workspace — never from
+  // anything in the request body (docs/adr/0024, docs/adr/0025).
   const rawBody = await request.text();
   const signatureHeader = request.headers.get("x-shopify-hmac-sha256");
   const topic = request.headers.get("x-shopify-topic") ?? "inconnu";
-  const deliveryId = request.headers.get("x-shopify-webhook-id");
 
-  const credentialsEncrypted = integration.credentialsEncrypted;
-  if (!credentialsEncrypted) {
+  const resolved = await resolveShopifyIntegrationBySignature(rawBody, signatureHeader);
+  if (resolved === null) {
     return new Response(null, { status: 404 });
   }
-
-  const config = (integration.config as { shopDomain?: string } | null) ?? {};
-  let apiKey: string | undefined;
-  let webhookSecret: string | undefined;
-  try {
-    const credentials = JSON.parse(decryptSecret(credentialsEncrypted)) as { apiKey?: string; apiSecret?: string };
-    apiKey = credentials.apiKey;
-    webhookSecret = credentials.apiSecret;
-  } catch {
-    return new Response(null, { status: 404 });
-  }
-  if (!webhookSecret || !apiKey || !config.shopDomain) {
-    return new Response(null, { status: 404 });
-  }
-
-  if (!verifyShopifyWebhookSignature(rawBody, signatureHeader, webhookSecret)) {
-    await recordAuditEvent({
-      actorType: "INTEGRATION",
-      action: "integration.webhook_rejected",
-      entityType: "Integration",
-      entityId: integration.id,
-      metadata: { provider: "SHOPIFY", reason: "invalid_signature", topic },
-    });
+  if (resolved === "invalid_signature") {
+    // No candidate's secret matched — genuinely unknown which tenant (if
+    // any) this was meant for. Logged against the bootstrap tenant, same
+    // as an unattributable login failure (docs/adr/0024).
+    await runWithTenant(BOOTSTRAP_TENANT_ID, "webhook:shopify:rejected", () =>
+      recordAuditEvent({
+        actorType: "INTEGRATION",
+        action: "integration.webhook_rejected",
+        entityType: "Integration",
+        entityId: "unknown",
+        metadata: { provider: "SHOPIFY", reason: "invalid_signature", topic },
+      })
+    );
     return new Response(null, { status: 401 });
   }
+  return runWithTenant(resolved.integration.tenantId, "webhook:shopify", () =>
+    handleShopifyWebhook(request, resolved, rawBody)
+  );
+}
+
+async function handleShopifyWebhook(
+  request: Request,
+  resolved: ResolvedShopifyIntegration,
+  rawBody: string
+): Promise<Response> {
+  const { integration, apiKey, shopDomain: configShopDomain } = resolved;
+  const topic = request.headers.get("x-shopify-topic") ?? "inconnu";
+  const deliveryId = request.headers.get("x-shopify-webhook-id");
+  const config = { shopDomain: configShopDomain };
+
+  // Signature already verified during tenant resolution above — no need to
+  // re-decrypt/re-verify here.
 
   if (!deliveryId) {
     return new Response(null, { status: 400 });

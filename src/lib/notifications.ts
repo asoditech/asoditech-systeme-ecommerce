@@ -115,6 +115,7 @@ export async function notifyNewOrder(
   order: {
     id: string;
     orderNumber: number;
+    displayNumber?: number | null;
     total: string | number;
     currency: string;
     customerName: string;
@@ -125,7 +126,7 @@ export async function notifyNewOrder(
   const src = SOURCE_LABEL[order.source];
   await notify({
     type: "NOUVELLE_COMMANDE",
-    title: `Nouvelle commande ${formatOrderNumber(order.orderNumber)}`,
+    title: `Nouvelle commande ${formatOrderNumber(order.displayNumber ?? order.orderNumber)}`,
     message:
       `${order.customerName} — ${formatCurrency(order.total, order.currency)}` +
       (src ? ` (importée de ${src})` : ""),
@@ -139,13 +140,14 @@ export async function notifyNewOrder(
 
 /** An order's payment status became ECHEC. */
 export async function notifyPaymentProblem(
-  order: { id: string; orderNumber: number },
+  order: { id: string; orderNumber: number; displayNumber?: number | null },
   exceptUserId?: string | null
 ): Promise<void> {
+  const num = formatOrderNumber(order.displayNumber ?? order.orderNumber);
   await notify({
     type: "PROBLEME_PAIEMENT",
-    title: `Problème de paiement — commande ${formatOrderNumber(order.orderNumber)}`,
-    message: `Le paiement de la commande ${formatOrderNumber(order.orderNumber)} a échoué.`,
+    title: `Problème de paiement — commande ${num}`,
+    message: `Le paiement de la commande ${num} a échoué.`,
     entityType: "Order",
     entityId: order.id,
     dedupeKey: `probleme_paiement:${order.id}`,
@@ -156,13 +158,14 @@ export async function notifyPaymentProblem(
 
 /** An order moved to RETOUR. */
 export async function notifyOrderReturned(
-  order: { id: string; orderNumber: number; customerName: string },
+  order: { id: string; orderNumber: number; displayNumber?: number | null; customerName: string },
   exceptUserId?: string | null
 ): Promise<void> {
+  const num = formatOrderNumber(order.displayNumber ?? order.orderNumber);
   await notify({
     type: "COMMANDE_RETOURNEE",
-    title: `Commande retournée ${formatOrderNumber(order.orderNumber)}`,
-    message: `La commande ${formatOrderNumber(order.orderNumber)} de ${order.customerName} a été retournée.`,
+    title: `Commande retournée ${num}`,
+    message: `La commande ${num} de ${order.customerName} a été retournée.`,
     entityType: "Order",
     entityId: order.id,
     dedupeKey: `commande_retournee:${order.id}`,
@@ -173,14 +176,22 @@ export async function notifyOrderReturned(
 
 /** A shipment failed delivery (status ECHEC). */
 export async function notifyShipmentFailed(
-  shipment: { id: string; orderId: string; orderNumber: number; providerName: string; reason?: string | null },
+  shipment: {
+    id: string;
+    orderId: string;
+    orderNumber: number;
+    orderDisplayNumber?: number | null;
+    providerName: string;
+    reason?: string | null;
+  },
   exceptUserId?: string | null
 ): Promise<void> {
+  const num = formatOrderNumber(shipment.orderDisplayNumber ?? shipment.orderNumber);
   await notify({
     type: "ECHEC_LIVRAISON",
-    title: `Échec de livraison — commande ${formatOrderNumber(shipment.orderNumber)}`,
+    title: `Échec de livraison — commande ${num}`,
     message:
-      `L'expédition de la commande ${formatOrderNumber(shipment.orderNumber)} (${shipment.providerName}) a échoué.` +
+      `L'expédition de la commande ${num} (${shipment.providerName}) a échoué.` +
       (shipment.reason ? ` Motif : ${shipment.reason}` : ""),
     entityType: "Shipment",
     entityId: shipment.id,

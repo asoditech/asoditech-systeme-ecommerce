@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listStockTransfers } from "@/lib/queries/transfers";
-import { formatDateTime, formatTransferNumber } from "@/lib/format";
+import { formatDateTime, displayTransferNumber } from "@/lib/format";
 import { TRANSFER_STATUS_LABELS } from "@/lib/status-labels";
 
 export const metadata = { title: "Transferts — ASODITECH Gestion E-commerce" };
@@ -60,7 +60,7 @@ export default async function TransfertsPage({
                 <TableRow key={t.id}>
                   <TableCell className="font-medium">
                     <Link href={`/transferts/${t.id}`} className="hover:underline">
-                      {formatTransferNumber(t.transferNumber)}
+                      {displayTransferNumber(t)}
                     </Link>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{t.source.name}</TableCell>

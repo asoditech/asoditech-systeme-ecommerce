@@ -45,13 +45,20 @@ import { actionError, actionOk, type ActionResult, type IdResult } from "@/actio
 async function shipmentNotificationContext(shipmentId: string) {
   const s = await prisma.shipment.findUnique({
     where: { id: shipmentId },
-    select: { id: true, orderId: true, failedReason: true, order: { select: { orderNumber: true } }, provider: { select: { name: true } } },
+    select: {
+      id: true,
+      orderId: true,
+      failedReason: true,
+      order: { select: { orderNumber: true, displayNumber: true } },
+      provider: { select: { name: true } },
+    },
   });
   return s
     ? {
         id: s.id,
         orderId: s.orderId,
         orderNumber: s.order.orderNumber,
+        orderDisplayNumber: s.order.displayNumber,
         providerName: s.provider.name,
         reason: s.failedReason,
       }
@@ -522,7 +529,11 @@ const BULK_SHIPMENT_BATCH = 6;
 
 export async function createShipmentsBulkAction(
   formData: FormData
-): Promise<ActionResult<{ results: { orderId: string; orderNumber: number; ok: boolean; error?: string }[] }>> {
+): Promise<
+  ActionResult<{
+    results: { orderId: string; orderNumber: number; orderDisplayNumber?: number | null; ok: boolean; error?: string }[];
+  }>
+> {
   const user = await requirePermissionForAction("delivery.manage");
 
   const providerId = String(formData.get("providerId") ?? "");
@@ -543,7 +554,8 @@ export async function createShipmentsBulkAction(
   });
   const orderById = new Map(orders.map((o) => [o.id, o]));
 
-  const results: { orderId: string; orderNumber: number; ok: boolean; error?: string }[] = [];
+  const results: { orderId: string; orderNumber: number; orderDisplayNumber?: number | null; ok: boolean; error?: string }[] =
+    [];
   for (const orderId of batchIds) {
     const order = orderById.get(orderId);
     if (!order) {
@@ -551,7 +563,13 @@ export async function createShipmentsBulkAction(
       continue;
     }
     if (!SHIPPABLE_ORDER_STATUSES.includes(order.status)) {
-      results.push({ orderId, orderNumber: order.orderNumber, ok: false, error: "Statut non éligible." });
+      results.push({
+        orderId,
+        orderNumber: order.orderNumber,
+        orderDisplayNumber: order.displayNumber,
+        ok: false,
+        error: "Statut non éligible.",
+      });
       continue;
     }
     try {
@@ -564,7 +582,7 @@ export async function createShipmentsBulkAction(
         entityId: shipment.id,
         metadata: { orderId: order.id, providerId, externalId: shipment.externalId, bulk: true },
       });
-      results.push({ orderId, orderNumber: order.orderNumber, ok: true });
+      results.push({ orderId, orderNumber: order.orderNumber, orderDisplayNumber: order.displayNumber, ok: true });
     } catch (error) {
       const message = friendlyDeliveryError(error);
       await recordAuditEvent({
@@ -575,7 +593,13 @@ export async function createShipmentsBulkAction(
         entityId: order.id,
         metadata: { providerId, error: message, bulk: true },
       });
-      results.push({ orderId, orderNumber: order.orderNumber, ok: false, error: message });
+      results.push({
+        orderId,
+        orderNumber: order.orderNumber,
+        orderDisplayNumber: order.displayNumber,
+        ok: false,
+        error: message,
+      });
     }
   }
 

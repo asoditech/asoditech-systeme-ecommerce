@@ -203,7 +203,7 @@ async function syncSimpleProduct(
       existing.trackInventory !== fields.trackInventory;
 
     if (changed) {
-      const skuOwner = await prisma.product.findUnique({ where: { sku: fields.sku } });
+      const skuOwner = await prisma.product.findFirst({ where: { sku: fields.sku } });
       const sku = !skuOwner || skuOwner.id === existing.id ? fields.sku : existing.sku;
       await prisma.product.update({
         where: { id: existing.id },
@@ -215,7 +215,7 @@ async function syncSimpleProduct(
     }
     productId = existing.id;
   } else {
-    const skuOwner = await prisma.product.findUnique({ where: { sku: fields.sku } });
+    const skuOwner = await prisma.product.findFirst({ where: { sku: fields.sku } });
     const sku = skuOwner ? `${fields.sku}-shop-${product.id.split("/").pop()}` : fields.sku;
     const created = await prisma.product.create({
       data: { name: fields.name, sku, description: fields.description, price: fields.price, status: fields.status, trackInventory: fields.trackInventory, source: "SHOPIFY", externalId: product.id },
@@ -254,7 +254,7 @@ async function syncOneVariant(
     }
     variationId = existing.id;
   } else {
-    const skuOwner = await prisma.productVariation.findUnique({ where: { sku: fields.sku } });
+    const skuOwner = await prisma.productVariation.findFirst({ where: { sku: fields.sku } });
     const sku = skuOwner ? `${fields.sku}-shop-${variant.id.split("/").pop()}` : fields.sku;
     const created = await prisma.productVariation.create({
       data: { productId, sku, price: fields.price, attributes: { Variante: variant.title }, source: "SHOPIFY", externalId: variant.id },

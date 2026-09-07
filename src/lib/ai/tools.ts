@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getFinanceSummary, currentMonthRange } from "@/lib/queries/finance";
 import { getTopProducts } from "@/lib/queries/analytics";
 import { getLowStockCount } from "@/lib/queries/inventory";
-import { formatCurrency, formatOrderNumber } from "@/lib/format";
+import { formatCurrency, displayOrderNumber } from "@/lib/format";
 
 /**
  * Controlled tool layer for the AI assistant — see docs/adr/0009-ai-tool-layer.md.
@@ -39,7 +39,7 @@ export async function toolBestSellingProduct(): Promise<string> {
 
 export async function toolMarketingSpendThisMonth(): Promise<string> {
   const { from, to } = currentMonthRange();
-  const category = await prisma.expenseCategory.findUnique({ where: { name: "Publicité" } });
+  const category = await prisma.expenseCategory.findFirst({ where: { name: "Publicité" } });
   if (!category) {
     return "Aucune catégorie de dépense « Publicité » n'est configurée.";
   }
@@ -73,7 +73,7 @@ export async function toolLateOrders(): Promise<string> {
   if (orders.length === 0) {
     return "Aucune commande n'est en retard (plus de 2 jours sans expédition).";
   }
-  const list = orders.map((o) => formatOrderNumber(o.orderNumber)).join(", ");
+  const list = orders.map((o) => displayOrderNumber(o)).join(", ");
   return `${orders.length} commande(s) sont en retard de traitement (plus de 2 jours) : ${list}.`;
 }
 

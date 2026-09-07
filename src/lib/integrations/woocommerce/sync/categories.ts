@@ -51,7 +51,7 @@ export async function syncCategories(
         continue;
       }
 
-      const slugTaken = await prisma.category.findUnique({ where: { slug: wc.slug } });
+      const slugTaken = await prisma.category.findFirst({ where: { slug: wc.slug } });
       const slug = slugTaken ? `${wc.slug}-wc-${wc.id}` : wc.slug;
 
       const created = await prisma.category.create({

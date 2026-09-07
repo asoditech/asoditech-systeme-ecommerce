@@ -9,6 +9,7 @@ import type { ShopifyOrder } from "../types";
 import { actorAuditFields, actorPerformedById, emptySyncSummary, isRecentlyPlaced, parseOrderPlacedAt, recordNote, upsertCustomerAddressFromOrder, type SyncActor, type SyncSummary } from "@/lib/integrations/shared";
 import { notifyNewOrder, resolveNotifications } from "@/lib/notifications";
 import { reconcileOrderCommission } from "@/lib/commissions";
+import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import type { Prisma, OrderStatus } from "@prisma/client";
 
 /**
@@ -238,6 +239,8 @@ async function createImportedOrder(
       items: { create: items },
     },
   });
+  const displayNumber = await claimTenantDisplayNumber(prisma, createdOrder.tenantId, "order");
+  await prisma.order.update({ where: { id: createdOrder.id }, data: { displayNumber } });
 
   const refunded = totalRefundedAmount(order);
   if (refunded > 0) {
@@ -265,6 +268,7 @@ async function createImportedOrder(
       {
         id: createdOrder.id,
         orderNumber: createdOrder.orderNumber,
+        displayNumber,
         total: fields.total,
         currency: fields.currency,
         customerName: customer.fullName,

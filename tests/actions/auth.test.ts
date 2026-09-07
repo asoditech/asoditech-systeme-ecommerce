@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaBase } from "@/lib/prisma";
 import { hashPassword } from "@/lib/auth/password";
 import { loginAction } from "@/actions/auth";
 import { getCurrentUser } from "@/lib/auth/session";
-import { resetDb } from "../helpers/db";
+import { DEFAULT_TENANT_ID, resetDb } from "../helpers/db";
 import { mockCookieStore } from "../mocks/cookie-store";
 import { RedirectSignal } from "../setup";
 
@@ -101,5 +101,80 @@ describe("loginAction", () => {
     ).rejects.toThrow(RedirectSignal);
     const successEvent = await prisma.auditEvent.findFirst({ where: { action: "user.login.success" } });
     expect(successEvent).toBeTruthy();
+  });
+
+  // Phase 3 (docs/adr/0025): email is unique per tenant, not globally — the
+  // same address can have an independent account (and password) in two
+  // tenants. Login must resolve to the account whose password matches, and
+  // therefore to the right tenant.
+  it("resolves the correct tenant when two tenants share the same login email", async () => {
+    const TENANT_B = "tenant-b-auth";
+    await prismaBase.tenant.create({ data: { id: TENANT_B, name: "Tenant B", slug: TENANT_B } });
+
+    await prismaBase.user.create({
+      data: {
+        tenantId: DEFAULT_TENANT_ID,
+        email: "shared@test.local",
+        name: "Owner A",
+        passwordHash: await hashPassword("password-for-a"),
+        role: "OWNER",
+        status: "ACTIVE",
+      },
+    });
+    await prismaBase.user.create({
+      data: {
+        tenantId: TENANT_B,
+        email: "shared@test.local",
+        name: "Owner B",
+        passwordHash: await hashPassword("password-for-b"),
+        role: "OWNER",
+        status: "ACTIVE",
+      },
+    });
+
+    await expect(
+      loginAction(undefined, formData({ email: "shared@test.local", password: "password-for-a" }))
+    ).rejects.toThrow(RedirectSignal);
+    const userA = await getCurrentUser();
+    expect(userA?.name).toBe("Owner A");
+    expect(userA?.tenantId).toBe(DEFAULT_TENANT_ID);
+
+    mockCookieStore.clear();
+
+    await expect(
+      loginAction(undefined, formData({ email: "shared@test.local", password: "password-for-b" }))
+    ).rejects.toThrow(RedirectSignal);
+    const userB = await getCurrentUser();
+    expect(userB?.name).toBe("Owner B");
+    expect(userB?.tenantId).toBe(TENANT_B);
+  });
+
+  it("rejects a wrong password against a shared email across tenants (no cross-tenant leak on failure)", async () => {
+    const TENANT_B = "tenant-b-auth-2";
+    await prismaBase.tenant.create({ data: { id: TENANT_B, name: "Tenant B", slug: TENANT_B } });
+    await prismaBase.user.create({
+      data: {
+        tenantId: DEFAULT_TENANT_ID,
+        email: "shared2@test.local",
+        name: "Owner A",
+        passwordHash: await hashPassword("password-for-a"),
+        role: "OWNER",
+        status: "ACTIVE",
+      },
+    });
+    await prismaBase.user.create({
+      data: {
+        tenantId: TENANT_B,
+        email: "shared2@test.local",
+        name: "Owner B",
+        passwordHash: await hashPassword("password-for-b"),
+        role: "OWNER",
+        status: "ACTIVE",
+      },
+    });
+
+    const result = await loginAction(undefined, formData({ email: "shared2@test.local", password: "neither" }));
+    expect(result).toMatchObject({ ok: false });
+    expect(await getCurrentUser()).toBeNull();
   });
 });
