@@ -83,8 +83,8 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
     : null;
   const canViewCommissions = hasPermission(user.role, "commissions.view");
   const canManageCommissions = hasPermission(user.role, "commissions.manage");
-  const deliveryProviders = canManageDelivery ? await listShipmentProviderOptions() : [];
-  const [orderCommission, commissionAgents] = await Promise.all([
+  const [deliveryProviders, orderCommission, commissionAgents] = await Promise.all([
+    canManageDelivery ? listShipmentProviderOptions() : Promise.resolve([]),
     canViewCommissions ? getOrderCommission(order.id) : Promise.resolve(null),
     canManageCommissions ? listAssignableCommissionAgents() : Promise.resolve([]),
   ]);
