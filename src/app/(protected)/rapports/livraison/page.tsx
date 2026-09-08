@@ -3,9 +3,11 @@ import { KpiCard } from "@/components/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
+import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
 import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
 import { getDeliveryPerformanceReport, type DeliveryPerfRow } from "@/lib/queries/reports/delivery";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { formatCurrency } from "@/lib/format";
 
 export const metadata = { title: "Performance livraison — ASODITECH Gestion E-commerce" };
@@ -57,13 +59,17 @@ export default async function RapportLivraisonPage({
   await requirePermission("analytics.view");
   const params = await searchParams;
   const resolved = resolveReportRange(params);
-  const report = await getDeliveryPerformanceReport(resolved.range);
+  const [report, business] = await Promise.all([
+    getDeliveryPerformanceReport(resolved.range),
+    getReportBusinessInfo(),
+  ]);
   const o = report.overall;
 
   const exportHref = `/rapports/export/livraison?${rangeQuery(resolved)}`;
 
   return (
     <div>
+      <ReportDocumentHeader business={business} title="Rapport de performance livraison" periodLabel={resolved.label} />
       <PageHeader
         title="Rapport de performance livraison"
         description={`Période : ${resolved.label} — expéditions créées dans la fenêtre.`}

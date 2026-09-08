@@ -4,11 +4,14 @@ import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
+import { ReportDocumentHeader } from "@/components/reports/report-document-header";
+import { SalesChart } from "@/components/reports/sales-chart";
 import { requirePermission } from "@/lib/auth/guards";
 import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
 import { trendFromDelta } from "@/lib/reports/trend";
 import { getSalesReport } from "@/lib/queries/reports/sales";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
+import { formatCurrency } from "@/lib/format";
 import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
 
 export const metadata = { title: "Rapport de ventes — ASODITECH Gestion E-commerce" };
@@ -23,19 +26,27 @@ export default async function RapportVentesPage({
   await requirePermission("analytics.view");
   const params = await searchParams;
   const resolved = resolveReportRange(params);
-  const report = await getSalesReport(resolved.range, resolved.previous);
+  const [report, business] = await Promise.all([
+    getSalesReport(resolved.range, resolved.previous),
+    getReportBusinessInfo(),
+  ]);
   const { current, previous, deltas } = report;
 
   const exportHref = `/rapports/export/ventes?${rangeQuery(resolved)}`;
+  const seriesTitle = report.granularity === "month" ? "Évolution par mois" : "Évolution par jour";
 
   return (
     <div>
-      <PageHeader title="Rapport de ventes" description={`Période : ${resolved.label} — comparé à la période précédente de même durée.`} />
+      <ReportDocumentHeader business={business} title="Rapport de ventes" periodLabel={resolved.label} />
+      <PageHeader
+        title="Rapport de ventes"
+        description={`Période : ${resolved.label} — comparé à la période précédente de même durée.`}
+      />
       <ReportFilterBar basePath="/rapports/ventes" resolved={resolved} exportHref={exportHref} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Chiffre d'affaires" value={formatCurrency(current.revenue)} tone="primary"
-          trend={trendFromDelta(deltas.revenue)} hint={`${previous.revenue.toLocaleString("fr")} période préc.`} />
+          trend={trendFromDelta(deltas.revenue)} hint={`${formatCurrency(previous.revenue)} période préc.`} />
         <KpiCard label="Commandes" value={String(current.ordersCount)} tone="info"
           trend={trendFromDelta(deltas.ordersCount)} hint={`${previous.ordersCount} période préc.`} />
         <KpiCard label="Panier moyen" value={current.avgOrderValue !== null ? formatCurrency(current.avgOrderValue) : null}
@@ -50,7 +61,14 @@ export default async function RapportVentesPage({
           trend={trendFromDelta(deltas.returnRate, { invert: true })} />
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+      <Card className="mt-6">
+        <CardHeader><CardTitle>{seriesTitle}</CardTitle></CardHeader>
+        <CardContent>
+          <SalesChart data={report.series} />
+        </CardContent>
+      </Card>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader><CardTitle>Par statut de commande</CardTitle></CardHeader>
           <CardContent>
@@ -89,14 +107,14 @@ export default async function RapportVentesPage({
       </div>
 
       <Card className="mt-4">
-        <CardHeader><CardTitle>Détail par jour</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Détail chiffré</CardTitle></CardHeader>
         <CardContent className="overflow-x-auto">
           <Table className="text-[13px]">
-            <TableHeader><TableRow><TableHead>Date</TableHead><TableHead className="text-right">Commandes</TableHead><TableHead className="text-right">CA</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>{report.granularity === "month" ? "Mois" : "Jour"}</TableHead><TableHead className="text-right">Commandes</TableHead><TableHead className="text-right">CA</TableHead></TableRow></TableHeader>
             <TableBody>
-              {report.daily.map((d) => (
-                <TableRow key={d.date}>
-                  <TableCell>{formatDate(new Date(d.date))}</TableCell>
+              {report.series.map((d) => (
+                <TableRow key={d.key}>
+                  <TableCell>{d.label}</TableCell>
                   <TableCell className="text-right tabular-nums">{d.orders}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatCurrency(d.revenue)}</TableCell>
                 </TableRow>

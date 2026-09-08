@@ -67,6 +67,23 @@ describe("getSalesReport", () => {
     expect(report.deltas.revenue).toBe(150); // (100-40)/40 * 100
     expect(report.current.deliveryRate).toBe(50); // 1 of 2 orders LIVREE
   });
+
+  it("uses daily granularity for a month and monthly for a year", async () => {
+    const c = await customer("A");
+    await order({ customerId: c.id, total: 100, placedAt: new Date("2026-06-10") });
+
+    const monthly = await getSalesReport(RANGE, PREV);
+    expect(monthly.granularity).toBe("day");
+    expect(monthly.series.length).toBeGreaterThan(28);
+
+    const yearly = await getSalesReport(
+      { from: new Date("2026-01-01"), to: new Date("2026-12-31T23:59:59") },
+      { from: new Date("2025-01-01"), to: new Date("2025-12-31T23:59:59") }
+    );
+    expect(yearly.granularity).toBe("month");
+    expect(yearly.series).toHaveLength(12);
+    expect(yearly.series[5].revenue).toBe(100); // June bucket
+  });
 });
 
 describe("getStockValuationReport", () => {

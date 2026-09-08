@@ -30,15 +30,32 @@ export interface SalesKpi {
   returnRate: number | null;
 }
 
+export interface SalesSeriesPoint {
+  /** ISO key: `YYYY-MM-DD` for day granularity, `YYYY-MM` for month. */
+  key: string;
+  /** Human label already formatted for display ("15 janv." / "janv. 2026"). */
+  label: string;
+  revenue: number;
+  orders: number;
+}
+
 export interface SalesReport {
   current: SalesKpi;
   previous: SalesKpi;
   deltas: { [K in keyof SalesKpi]: number | null };
-  daily: { date: string; revenue: number; orders: number }[];
+  /** Daily for windows ≤ 62 days, monthly beyond — so "Cette année" is 12
+   * rows, not 365. */
+  granularity: "day" | "month";
+  series: SalesSeriesPoint[];
   byStatus: { status: OrderStatus; count: number; revenue: number }[];
   byChannel: { channel: string; count: number; revenue: number }[];
   byPayment: { paymentStatus: OrderPaymentStatus; count: number; amount: number }[];
 }
+
+const MONTH_LABELS = [
+  "janv.", "févr.", "mars", "avr.", "mai", "juin",
+  "juil.", "août", "sept.", "oct.", "nov.", "déc.",
+];
 
 type OrderRow = Awaited<ReturnType<typeof fetchOrders>>[number];
 
@@ -90,18 +107,33 @@ export async function getSalesReport(range: PeriodRange, previous: PeriodRange):
   const current = kpiFrom(orders);
   const prev = kpiFrom(prevOrders);
 
-  const dayKeys = new Map<string, { revenue: number; orders: number }>();
+  const spanDays = Math.round((range.to.getTime() - range.from.getTime()) / 86_400_000);
+  const granularity: "day" | "month" = spanDays > 62 ? "month" : "day";
+
+  const keyOf = (d: Date) =>
+    granularity === "month" ? d.toLocaleDateString("en-CA").slice(0, 7) : d.toLocaleDateString("en-CA");
+  const labelOf = (key: string) => {
+    if (granularity === "month") {
+      const [y, m] = key.split("-");
+      return `${MONTH_LABELS[Number(m) - 1]} ${y}`;
+    }
+    const [, m, day] = key.split("-");
+    return `${Number(day)} ${MONTH_LABELS[Number(m) - 1]}`;
+  };
+
+  const buckets = new Map<string, { revenue: number; orders: number }>();
   const cursor = new Date(range.from);
+  cursor.setHours(0, 0, 0, 0);
   while (cursor <= range.to) {
-    dayKeys.set(cursor.toLocaleDateString("en-CA"), { revenue: 0, orders: 0 });
-    cursor.setDate(cursor.getDate() + 1);
+    buckets.set(keyOf(cursor), { revenue: 0, orders: 0 });
+    if (granularity === "month") cursor.setMonth(cursor.getMonth() + 1);
+    else cursor.setDate(cursor.getDate() + 1);
   }
   for (const o of orders) {
-    const key = o.placedAt.toLocaleDateString("en-CA");
-    const bucket = dayKeys.get(key) ?? { revenue: 0, orders: 0 };
-    bucket.orders += 1;
-    if (isRevenue(o.status)) bucket.revenue += Number(o.total);
-    dayKeys.set(key, bucket);
+    const b = buckets.get(keyOf(o.placedAt)) ?? { revenue: 0, orders: 0 };
+    b.orders += 1;
+    if (isRevenue(o.status)) b.revenue += Number(o.total);
+    buckets.set(keyOf(o.placedAt), b);
   }
 
   const byStatusMap = new Map<OrderStatus, { count: number; revenue: number }>();
@@ -141,7 +173,13 @@ export async function getSalesReport(range: PeriodRange, previous: PeriodRange):
       deliveryRate: deltaPct(current.deliveryRate, prev.deliveryRate),
       returnRate: deltaPct(current.returnRate, prev.returnRate),
     },
-    daily: [...dayKeys.entries()].map(([date, v]) => ({ date, revenue: round2(v.revenue), orders: v.orders })),
+    granularity,
+    series: [...buckets.entries()].map(([key, v]) => ({
+      key,
+      label: labelOf(key),
+      revenue: round2(v.revenue),
+      orders: v.orders,
+    })),
     byStatus: [...byStatusMap.entries()]
       .map(([status, v]) => ({ status, count: v.count, revenue: round2(v.revenue) }))
       .sort((a, b) => b.count - a.count),

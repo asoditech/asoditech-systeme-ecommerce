@@ -87,7 +87,7 @@ export function ReportFilterBar({
             Exporter CSV
           </Button>
         )}
-        <PrintButton />
+        <PrintButton label="Télécharger PDF" />
       </div>
     </div>
   );

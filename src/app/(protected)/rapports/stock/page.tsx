@@ -3,10 +3,12 @@ import { KpiCard } from "@/components/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
+import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { WarehousePickerLink } from "@/components/reports/warehouse-picker-link";
 import { requirePermission } from "@/lib/auth/guards";
 import { resolveReportRange } from "@/lib/reports/range";
 import { getStockValuationReport } from "@/lib/queries/reports/stock-valuation";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { listSelectableFulfilmentWarehouses } from "@/lib/queries/warehouses";
 import { formatCurrency } from "@/lib/format";
 
@@ -25,7 +27,10 @@ export default async function RapportStockPage({
   const warehouses = await listSelectableFulfilmentWarehouses();
   const warehouseId = warehouses.find((w) => w.id === params.warehouseId)?.id;
 
-  const report = await getStockValuationReport({ warehouseId });
+  const [report, business] = await Promise.all([
+    getStockValuationReport({ warehouseId }),
+    getReportBusinessInfo(),
+  ]);
   const { totals } = report;
 
   const exportParams = new URLSearchParams();
@@ -33,6 +38,7 @@ export default async function RapportStockPage({
 
   return (
     <div>
+      <ReportDocumentHeader business={business} title="Valorisation du stock" periodLabel="stock actuel" />
       <PageHeader
         title="Valorisation & rotation du stock"
         description="Photo du stock actuel — valeur au coût et au prix de vente, et articles qui ne tournent pas."

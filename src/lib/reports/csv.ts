@@ -26,8 +26,45 @@ export function toCsv(headers: string[], rows: Cell[][]): string {
 /** A downloadable-file Response for a route handler. `filename` gets a
  * `.csv` suffix and today's date appended. */
 export function csvResponse(filename: string, headers: string[], rows: Cell[][]): Response {
+  return fileResponse(filename, toCsv(headers, rows));
+}
+
+export interface CsvSection {
+  heading: string;
+  headers: string[];
+  rows: Cell[][];
+}
+
+/**
+ * A multi-section report CSV — a title/period block, then one labelled
+ * table per section separated by a blank line. Opens cleanly in Excel /
+ * Google Sheets and reads as a real document rather than a bare dump.
+ */
+export function csvDocument(opts: { title: string; meta: string[]; sections: CsvSection[] }): string {
+  const lines: string[] = [];
+  const push = (cells: Cell[]) => lines.push(cells.map(formatCell).join(","));
+
+  push([opts.title]);
+  for (const m of opts.meta) push([m]);
+  lines.push("");
+
+  opts.sections.forEach((section, i) => {
+    if (i > 0) lines.push("");
+    push([section.heading]);
+    push(section.headers);
+    for (const r of section.rows) push(r);
+  });
+
+  return `﻿${lines.join("\r\n")}\r\n`;
+}
+
+export function csvDocumentResponse(filename: string, doc: string): Response {
+  return fileResponse(filename, doc);
+}
+
+function fileResponse(filename: string, body: string): Response {
   const stamped = `${filename}-${new Date().toLocaleDateString("en-CA")}.csv`;
-  return new Response(toCsv(headers, rows), {
+  return new Response(body, {
     headers: {
       "content-type": "text/csv; charset=utf-8",
       "content-disposition": `attachment; filename="${stamped}"`,

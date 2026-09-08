@@ -328,6 +328,17 @@
    chrome so only the document prints; individual controls opt out with
    Tailwind's `print:hidden`. */
 @media print {
+  @page {
+    margin: 14mm;
+  }
+  :root {
+    color-scheme: light;
+  }
+  html,
+  body {
+    background: #fff !important;
+    color: #0f172a !important;
+  }
   aside,
   header {
     display: none !important;
@@ -342,5 +353,26 @@
   [data-print-sheet] {
     box-shadow: none !important;
     border: none !important;
+  }
+  /* Report cards: flatten to plain sections and keep each one whole
+     across page breaks. */
+  main [data-slot="card"],
+  main .rounded-lg.border {
+    box-shadow: none !important;
+    border-color: #e2e8f0 !important;
+    break-inside: avoid;
+  }
+  main table {
+    break-inside: auto;
+  }
+  main tr {
+    break-inside: avoid;
+  }
+  /* KPI grid: 3-up on paper regardless of screen breakpoints. */
+  main .grid.sm\:grid-cols-2,
+  main .grid.lg\:grid-cols-4 {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 8px !important;
   }
 }

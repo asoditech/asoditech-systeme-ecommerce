@@ -3,9 +3,11 @@ import { KpiCard } from "@/components/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
+import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
 import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
 import { getCustomerReport } from "@/lib/queries/reports/customers";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { formatCurrency } from "@/lib/format";
 
 export const metadata = { title: "Rapport clients — ASODITECH Gestion E-commerce" };
@@ -21,13 +23,17 @@ export default async function RapportClientsPage({
   await requirePermission("analytics.view");
   const params = await searchParams;
   const resolved = resolveReportRange(params);
-  const report = await getCustomerReport(resolved.range);
+  const [report, business] = await Promise.all([
+    getCustomerReport(resolved.range),
+    getReportBusinessInfo(),
+  ]);
   const t = report.totals;
 
   const exportHref = `/rapports/export/clients?${rangeQuery(resolved)}`;
 
   return (
     <div>
+      <ReportDocumentHeader business={business} title="Rapport clients" periodLabel={resolved.label} />
       <PageHeader
         title="Rapport clients"
         description={`Période : ${resolved.label} — clients ayant commandé dans la fenêtre.`}

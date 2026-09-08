@@ -18,6 +18,7 @@ export async function updateBusinessSettingsAction(formData: FormData): Promise<
   const parsed = updateBusinessSettingsSchema.safeParse({
     companyName: formData.get("companyName") || "",
     currency: formData.get("currency") || "MAD",
+    logoUrl: formData.get("logoUrl"),
     address: formData.get("address"),
     city: formData.get("city"),
     country: formData.get("country") || "Maroc",
@@ -40,6 +41,7 @@ export async function updateBusinessSettingsAction(formData: FormData): Promise<
     update: {
       companyName: parsed.data.companyName,
       currency: parsed.data.currency,
+      logoUrl: normalizeOptional(parsed.data.logoUrl),
       address: normalizeOptional(parsed.data.address),
       city: normalizeOptional(parsed.data.city),
       country: parsed.data.country,

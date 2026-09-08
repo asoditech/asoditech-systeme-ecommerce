@@ -7,7 +7,8 @@ import { updateBusinessSettingsAction } from "@/actions/settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LogoField } from "@/components/settings/logo-field";
 import type { BusinessSettings } from "@prisma/client";
 import type { ActionResult } from "@/actions/types";
 
@@ -29,9 +30,12 @@ export function BusinessSettingsForm({ settings }: { settings: BusinessSettings 
   }, [state, router]);
 
   return (
-    <Card>
-      <CardContent className="pt-6">
-        <form action={formAction} className="space-y-4">
+    <form action={formAction} className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Identité de l&apos;entreprise</CardTitle>
+        </CardHeader>
+        <CardContent>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="companyName">Nom de l&apos;entreprise</Label>
@@ -41,6 +45,17 @@ export function BusinessSettingsForm({ settings }: { settings: BusinessSettings 
               <Label htmlFor="currency">Devise</Label>
               <Input id="currency" name="currency" maxLength={3} defaultValue={settings.currency} />
             </div>
+            <LogoField defaultValue={settings.logoUrl} />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Coordonnées</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="email">E-mail de contact</Label>
               <Input id="email" name="email" type="email" defaultValue={settings.email ?? ""} />
@@ -61,6 +76,16 @@ export function BusinessSettingsForm({ settings }: { settings: BusinessSettings 
               <Label htmlFor="country">Pays</Label>
               <Input id="country" name="country" defaultValue={settings.country} />
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Préférences</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="timezone">Fuseau horaire</Label>
               <Input id="timezone" name="timezone" defaultValue={settings.timezone} />
@@ -80,13 +105,14 @@ export function BusinessSettingsForm({ settings }: { settings: BusinessSettings 
               <Input id="orderNumberPrefix" name="orderNumberPrefix" defaultValue={settings.orderNumberPrefix} />
             </div>
           </div>
-          <div className="flex justify-end">
-            <Button type="submit" disabled={isPending}>
-              {isPending ? "Enregistrement..." : "Enregistrer"}
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+
+      <div className="flex justify-end">
+        <Button type="submit" disabled={isPending}>
+          {isPending ? "Enregistrement..." : "Enregistrer"}
+        </Button>
+      </div>
+    </form>
   );
 }

@@ -3,9 +3,11 @@ import { KpiCard } from "@/components/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
+import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
 import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
 import { getCashflowReport } from "@/lib/queries/reports/cashflow";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { formatCurrency } from "@/lib/format";
 
 export const metadata = { title: "Rapport de trésorerie — ASODITECH Gestion E-commerce" };
@@ -20,12 +22,16 @@ export default async function RapportTresoreriePage({
   await requirePermission("finance.view");
   const params = await searchParams;
   const resolved = resolveReportRange(params);
-  const r = await getCashflowReport(resolved.range);
+  const [r, business] = await Promise.all([
+    getCashflowReport(resolved.range),
+    getReportBusinessInfo(),
+  ]);
 
   const exportHref = `/rapports/export/tresorerie?${rangeQuery(resolved)}`;
 
   return (
     <div>
+      <ReportDocumentHeader business={business} title="Rapport de trésorerie" periodLabel={resolved.label} />
       <PageHeader
         title="Rapport de trésorerie"
         description={`Période : ${resolved.label} — encaissements attendus vs sorties. Vue caisse, pas comptable.`}
