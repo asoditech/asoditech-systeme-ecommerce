@@ -61,6 +61,24 @@ describe("WooCommerceClient", () => {
     await expect(client.testConnection()).rejects.toThrow(WooCommercePermissionError);
   });
 
+  it("distinguishes a rejected key from a stripped Authorization header on 401", async () => {
+    // WooCommerce received the credentials and rejected them.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ code: "woocommerce_rest_authentication_error" }, { status: 401 }))
+    );
+    let client = new WooCommerceClient("https://boutique.example", { consumerKey: "a", consumerSecret: "b" });
+    await expect(client.testConnection()).rejects.toThrow(/refusés par la boutique/i);
+
+    // WooCommerce saw an anonymous request — the server never forwarded the header.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ code: "woocommerce_rest_cannot_view" }, { status: 401 }))
+    );
+    client = new WooCommerceClient("https://boutique.example", { consumerKey: "a", consumerSecret: "b" });
+    await expect(client.testConnection()).rejects.toThrow(/n'a pas reçu les identifiants|Authorization/i);
+  });
+
   it("maps 404 to WooCommerceNotFoundError", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({}, { status: 404 })));
     const client = new WooCommerceClient("https://boutique.example", { consumerKey: "a", consumerSecret: "b" });

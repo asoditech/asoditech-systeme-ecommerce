@@ -70,6 +70,16 @@ export default async function CommandesPage({
     params.q || statusFilter || paymentStatusFilter || params.dateFrom || params.dateTo || isAll
   );
 
+  // The default scope is "this month". After a first import (or for a
+  // store whose recent orders are all older than the current month), that
+  // view is empty even though the history isn't — so when it is, check
+  // whether widening the date scope would actually show something and
+  // point the operator straight at it instead of a dead end.
+  const olderOrdersExist =
+    orders.length === 0 && isThisMonth && !params.q && !statusFilter && !paymentStatusFilter
+      ? (await listOrders({ page: 1 })).total > 0
+      : false;
+
   // Preserves q/status/paymentStatus while switching only the date scope.
   function dateScopeHref(opts: { dateFrom?: string; dateTo?: string; all?: boolean }) {
     const sp = new URLSearchParams();
@@ -167,11 +177,22 @@ export default async function CommandesPage({
       </form>
 
       {orders.length === 0 ? (
-        <EmptyState
-          icon={ShoppingCart}
-          title="Aucune commande ne correspond à ces critères."
-          description="Créez une commande manuelle ou ajustez vos filtres."
-        />
+        olderOrdersExist ? (
+          <EmptyState
+            icon={ShoppingCart}
+            title="Aucune commande ce mois-ci."
+            description="Des commandes plus anciennes existent (import ou historique). Affichez toute la période pour les voir."
+            action={
+              <Button render={<Link href={dateScopeHref({ all: true })} />}>Voir toutes les commandes</Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={ShoppingCart}
+            title="Aucune commande ne correspond à ces critères."
+            description="Créez une commande manuelle ou ajustez vos filtres."
+          />
+        )
       ) : (
         <div className="rounded-lg border">
           <Table className="text-[13px] [&_td]:px-2.5 [&_td]:py-2 [&_th]:px-2.5">

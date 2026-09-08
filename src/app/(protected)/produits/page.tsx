@@ -196,25 +196,54 @@ export default async function ProduitsPage({
             </TableHeader>
             <TableBody>
               {products.map((p) => {
-                const stock = p.trackInventory
-                  ? p.inventoryItems.reduce((sum, i) => sum + i.quantityOnHand, 0)
-                  : null;
-                const isLow = stock !== null && stock <= p.lowStockThreshold;
+                const isVariable = p.variations.length > 0;
+
+                // A variable product keeps no price/stock of its own
+                // (WooCommerce puts both on the variations) — aggregate
+                // from the variations so the row isn't a misleading
+                // "0,00 MAD / Non suivi".
+                const variationPrices = p.variations
+                  .map((v) => (v.price != null ? Number(v.price) : null))
+                  .filter((n): n is number => n != null && n > 0);
+                const priceLabel = isVariable
+                  ? variationPrices.length > 0
+                    ? (() => {
+                        const min = Math.min(...variationPrices);
+                        const max = Math.max(...variationPrices);
+                        return min === max
+                          ? formatCurrency(String(min))
+                          : `${formatCurrency(String(min))} – ${formatCurrency(String(max))}`;
+                      })()
+                    : "—"
+                  : formatCurrency(p.price.toString());
+
+                const stock = isVariable
+                  ? p.variations.reduce(
+                      (sum, v) => sum + v.inventoryItems.reduce((s, i) => s + i.quantityOnHand, 0),
+                      0
+                    )
+                  : p.trackInventory
+                    ? p.inventoryItems.reduce((sum, i) => sum + i.quantityOnHand, 0)
+                    : null;
+                const stockTracked = isVariable
+                  ? p.variations.some((v) => v.inventoryItems.length > 0)
+                  : p.trackInventory;
+                const isLow = stock !== null && stockTracked && stock <= p.lowStockThreshold;
                 return (
                   <ClickableTableRow key={p.id} href={`/produits/${p.id}`}>
                     <TableCell className="font-medium">
                       {p.name}
-                      {p.variations.length > 0 && (
+                      {isVariable && (
                         <span className="ml-1.5 text-xs text-muted-foreground">
-                          ({p.variations.length} variations)
+                          ({p.variations.length} variante{p.variations.length > 1 ? "s" : ""})
                         </span>
                       )}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{p.sku}</TableCell>
                     <TableCell className="text-muted-foreground">{p.category?.name ?? "—"}</TableCell>
-                    <TableCell>{formatCurrency(p.price.toString())}</TableCell>
+                    <TableCell>{priceLabel}</TableCell>
                     <TableCell>
-                      {stock === null ? (
+                      {stock === null || (isVariable && !stockTracked) ? (
                         <span className="text-muted-foreground">Non suivi</span>
                       ) : (
                         <span className={isLow ? "font-medium text-destructive" : ""}>{stock}</span>

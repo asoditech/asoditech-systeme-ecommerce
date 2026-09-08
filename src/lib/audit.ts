@@ -19,6 +19,8 @@ export type AuditAction =
   | "tenant.created"
   | "tenant.activated"
   | "tenant.suspended"
+  | "tenant.baseline_provisioned"
+  | "tenant.baseline_provisioning_failed"
   | "invitation.created"
   | "invitation.revoked"
   | "invitation.accepted"

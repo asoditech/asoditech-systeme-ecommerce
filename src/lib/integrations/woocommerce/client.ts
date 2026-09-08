@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import {
+  authErrorForCode,
   errorForStatus,
   WooCommerceMalformedResponseError,
   WooCommerceTimeoutError,
@@ -106,10 +107,31 @@ export class WooCommerceClient {
     throw new WooCommerceUnavailableError("Impossible de joindre la boutique WooCommerce.");
   }
 
+  /**
+   * Maps a non-OK response to the right typed error. For 401/403 it peeks
+   * at WooCommerce's machine-readable `code` slug (safe closed vocabulary,
+   * never interpolated — see errors.ts) to tell "key rejected" apart from
+   * "credentials never reached WooCommerce" (a stripped Authorization
+   * header). Reads a `clone()` so the caller can still consume the body.
+   */
+  private async errorForResponse(response: Response): Promise<Error> {
+    if (response.status === 401 || response.status === 403) {
+      let code: string | undefined;
+      try {
+        const body = (await response.clone().json()) as { code?: unknown };
+        if (typeof body.code === "string") code = body.code;
+      } catch {
+        // no or non-JSON body — authErrorForCode handles `undefined`
+      }
+      return authErrorForCode(response.status, code);
+    }
+    return errorForStatus(response.status);
+  }
+
   private async requestJson<T>(schema: z.ZodType<T>, path: string, init?: RequestInit): Promise<T> {
     const response = await this.requestRaw(path, init);
     if (!response.ok) {
-      throw errorForStatus(response.status);
+      throw await this.errorForResponse(response);
     }
     let body: unknown;
     try {
@@ -134,7 +156,7 @@ export class WooCommerceClient {
     const separator = path.includes("?") ? "&" : "?";
     const response = await this.requestRaw(`${path}${separator}page=${page}&per_page=${PER_PAGE}`);
     if (!response.ok) {
-      throw errorForStatus(response.status);
+      throw await this.errorForResponse(response);
     }
     let body: unknown;
     try {
@@ -242,7 +264,7 @@ export class WooCommerceClient {
       body: JSON.stringify({ manage_stock: true, stock_quantity: quantity }),
     });
     if (!response.ok) {
-      throw errorForStatus(response.status);
+      throw await this.errorForResponse(response);
     }
   }
 
@@ -262,7 +284,7 @@ export class WooCommerceClient {
       body: JSON.stringify({ set_paid: true }),
     });
     if (!response.ok) {
-      throw errorForStatus(response.status);
+      throw await this.errorForResponse(response);
     }
   }
 
@@ -279,7 +301,7 @@ export class WooCommerceClient {
       body: JSON.stringify({ status }),
     });
     if (!response.ok) {
-      throw errorForStatus(response.status);
+      throw await this.errorForResponse(response);
     }
   }
 }

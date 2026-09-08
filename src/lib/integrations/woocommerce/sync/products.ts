@@ -54,6 +54,17 @@ export async function syncProducts(
 ): Promise<SyncSummary> {
   const summary = emptySyncSummary();
   const warehouse = await prisma.warehouse.findFirst({ where: { isDefault: true } });
+  if (!warehouse) {
+    // Without a default warehouse every `reconcileStockFromWooCommerce`
+    // call below is skipped and stock silently never lands — surface that
+    // instead of reporting a clean success. `provisionTenantBaseline`
+    // creates this row for new tenants; `scripts/backfill-tenant-baseline.ts`
+    // repairs older ones.
+    recordNote(
+      summary,
+      "Aucun entrepôt par défaut configuré — les produits sont importés mais le stock ne peut pas être synchronisé. Contactez le support."
+    );
+  }
 
   const integration = await prisma.integration.findUniqueOrThrow({ where: { id: integrationId } });
   const config = (integration.config as Record<string, unknown> | null) ?? {};

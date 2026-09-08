@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { cookies, headers } from "next/headers";
 // Raw client on purpose: the extended `prisma` resolves the active tenant
 // via this module, so using it here would recurse (docs/adr/0024).
@@ -82,8 +83,15 @@ export type CurrentUser = Pick<User, "id" | "email" | "name" | "role" | "status"
  * that tenant's session rows individually (`destroyAllSessionsForTenant`
  * still runs at suspend time for immediate, unambiguous lockout; this
  * check is the backstop for any session created in the gap).
+ *
+ * Wrapped in React `cache()` so the many callers within a single request
+ * — the protected layout's `requireUser`, each page's `requirePermission`,
+ * AND the tenant resolver that runs before the first tenant-scoped query
+ * (`resolveAmbientTenantId`) — share ONE session lookup instead of firing
+ * three or more identical RLS-wrapped `session.findUnique` round-trips per
+ * navigation. Per-request only; a fresh request still re-verifies.
  */
-export async function getCurrentUser(): Promise<CurrentUser | null> {
+export const getCurrentUser = cache(async function getCurrentUser(): Promise<CurrentUser | null> {
   const cookieStore = await cookies();
   const rawToken = cookieStore.get(SESSION_COOKIE)?.value;
   if (!rawToken) return null;
@@ -110,6 +118,6 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
 
   const { id, email, name, role, status, tenantId, isPlatformAdmin } = session.user;
   return { id, email, name, role, status, tenantId, isPlatformAdmin };
-}
+});
 
 export { SESSION_COOKIE };

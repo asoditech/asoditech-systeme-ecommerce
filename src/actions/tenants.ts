@@ -9,6 +9,7 @@ import { generateRawToken, hashToken } from "@/lib/auth/tokens";
 import { recordAuditEvent } from "@/lib/audit";
 import { sendInvitationEmail } from "@/lib/email";
 import { createTenantSchema } from "@/lib/validation/tenant";
+import { provisionTenantBaseline } from "@/lib/tenant/provision";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 
@@ -68,6 +69,37 @@ export async function createTenantAction(
       return actionError("Cet identifiant est déjà utilisé.", { slug: ["Identifiant déjà utilisé."] });
     }
     throw error;
+  }
+
+  // Baseline rows the tenant's operators need before the app is usable —
+  // most importantly the `isDefault` warehouse every stock path requires
+  // (docs/adr/0027-tenant-provisioning.md). Best-effort: a failure here
+  // must not strand the tenant/invitation that already exist — the
+  // `scripts/backfill-tenant-baseline.ts` script re-runs the same
+  // idempotent provisioning.
+  try {
+    const baseline = await provisionTenantBaseline(tenant.id, { companyName: tenant.name });
+    await recordAuditEvent({
+      actorType: "USER",
+      actorUserId: actor.id,
+      action: "tenant.baseline_provisioned",
+      entityType: "Tenant",
+      entityId: tenant.id,
+      newValue: {
+        warehouseCreated: baseline.warehouseCreated,
+        businessSettingsCreated: baseline.businessSettingsCreated,
+        expenseCategoriesCreated: baseline.expenseCategoriesCreated,
+      },
+    });
+  } catch (error) {
+    await recordAuditEvent({
+      actorType: "USER",
+      actorUserId: actor.id,
+      action: "tenant.baseline_provisioning_failed",
+      entityType: "Tenant",
+      entityId: tenant.id,
+      metadata: { message: error instanceof Error ? error.message : "unknown" },
+    });
   }
 
   const rawToken = generateRawToken();

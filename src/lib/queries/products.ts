@@ -61,7 +61,17 @@ export async function listProducts(params: ProductListFilters) {
       include: {
         category: true,
         inventoryItems: { select: { quantityOnHand: true, quantityReserved: true } },
-        variations: { select: { id: true } },
+        // Variation price + stock so the list can show a real price range
+        // and aggregate stock for a variable product, instead of the
+        // parent's own always-empty price/stock (WooCommerce keeps neither
+        // on a variable parent — both live on the variations).
+        variations: {
+          select: {
+            id: true,
+            price: true,
+            inventoryItems: { select: { quantityOnHand: true } },
+          },
+        },
       },
     }),
     prisma.product.count({ where }),

@@ -72,3 +72,40 @@ export function errorForStatus(status: number): WooCommerceError {
   }
   return new WooCommerceUnavailableError("La boutique WooCommerce a retourné une réponse inattendue.");
 }
+
+/**
+ * Sharper 401/403 mapping using WooCommerce's own machine-readable error
+ * `code` — a small closed vocabulary of slugs, never free text, so it is
+ * safe to branch on (the slug itself is still never interpolated into the
+ * user-facing message — see this file's header).
+ *
+ * The distinction that matters operationally: a request WooCommerce
+ * received *with* credentials it rejected (`woocommerce_rest_authentication_error`)
+ * vs. a request that reached WooCommerce carrying *no* credentials at all
+ * (`woocommerce_rest_cannot_view` / `_cannot_create`, or an empty body) —
+ * the latter is almost always the web server (LiteSpeed, Apache
+ * CGI/FastCGI, common on Hostinger) silently stripping the `Authorization`
+ * header before PHP sees it, not a wrong key. Telling the operator to
+ * "check the key" when the key never arrived sends them in circles.
+ */
+export function authErrorForCode(status: number, code: string | undefined): WooCommerceError {
+  if (code === "woocommerce_rest_authentication_error" || code === "woocommerce_rest_invalid_signature") {
+    return new WooCommerceAuthError(
+      "Clé ou secret API refusés par la boutique WooCommerce. Régénérez une clé avec les permissions Lecture/Écriture dans WooCommerce → Réglages → Avancé → API REST, puis reconnectez."
+    );
+  }
+  if (
+    status === 401 &&
+    (code === undefined || code === "woocommerce_rest_cannot_view" || code === "woocommerce_rest_cannot_create")
+  ) {
+    return new WooCommerceAuthError(
+      "La boutique WooCommerce n'a pas reçu les identifiants API — le serveur web ne transmet pas l'en-tête « Authorization » à WooCommerce (fréquent avec LiteSpeed / Hostinger). Ajoutez la règle de réécriture correspondante dans le .htaccess de la boutique, puis réessayez."
+    );
+  }
+  if (status === 403) {
+    return new WooCommercePermissionError(
+      "Accès refusé par la boutique WooCommerce — la clé API n'a pas les permissions Lecture/Écriture, ou l'utilisateur associé à la clé n'est pas administrateur / responsable de boutique."
+    );
+  }
+  return errorForStatus(status);
+}
