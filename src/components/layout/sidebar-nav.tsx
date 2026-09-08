@@ -15,6 +15,7 @@ import {
   ClipboardCheck,
   Truck,
   LineChart,
+  FileBarChart,
   Wallet,
   Receipt,
   HandCoins,
@@ -65,6 +66,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Pilotage",
     items: [
+      { href: "/rapports", label: "Rapports", icon: FileBarChart, permission: "analytics.view" },
       { href: "/analyses", label: "Analyses", icon: LineChart, permission: "analytics.view" },
       { href: "/finance", label: "Finance", icon: Wallet, permission: "finance.view" },
       { href: "/depenses", label: "Dépenses", icon: Receipt, permission: "finance.view" },

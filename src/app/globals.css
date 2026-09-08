@@ -324,3 +324,23 @@
 @media (prefers-reduced-motion: reduce) {
   .animate-blob-breathe-a, .animate-blob-breathe-b, .animate-blob-breathe-c { animation: none; }
 }
+/* Printing — reports (/rapports) and delivery invoices. Drop the app
+   chrome so only the document prints; individual controls opt out with
+   Tailwind's `print:hidden`. */
+@media print {
+  aside,
+  header {
+    display: none !important;
+  }
+  main {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+  .md\:pl-64 {
+    padding-left: 0 !important;
+  }
+  [data-print-sheet] {
+    box-shadow: none !important;
+    border: none !important;
+  }
+}
