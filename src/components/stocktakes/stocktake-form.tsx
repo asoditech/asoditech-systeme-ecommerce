@@ -55,7 +55,12 @@ export function StocktakeForm({ warehouses }: { warehouses: WarehouseOption[] })
             ) : (
               <Select value={warehouseId} onValueChange={(v) => v && setWarehouseId(v)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Choisir un entrepôt" />
+                  <SelectValue placeholder="Choisir un entrepôt">
+                    {(v: string) => {
+                      const w = warehouses.find((x) => x.id === v);
+                      return w ? `${w.name} (${WAREHOUSE_TYPE_LABELS[w.type]})` : "Choisir un entrepôt";
+                    }}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {warehouses.map((w) => (

@@ -4,9 +4,9 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FilterSelect } from "@/components/filter-select";
+import { FilterSearchInput } from "@/components/filter-search-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { requirePermission } from "@/lib/auth/guards";
@@ -77,45 +77,33 @@ export default async function ClientsPage({
         }
       />
 
-      <form className="mb-4 flex flex-wrap gap-2" action="/clients">
-        <Input name="q" placeholder="Nom, téléphone, e-mail..." defaultValue={params.q} className="max-w-56" />
-        <Input name="city" placeholder="Ville" defaultValue={params.city} className="w-36" />
-        <Select name="segment" defaultValue={params.segment || "all"}>
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="Segment">
-              {segmentFilter ? CUSTOMER_SEGMENT_LABELS[segmentFilter] : "Tous les segments"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous les segments</SelectItem>
-            {Object.entries(CUSTOMER_SEGMENT_LABELS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select name="sort" defaultValue={sortFilter}>
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="Trier">{SORT_LABELS[sortFilter]}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(SORT_LABELS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button type="submit" variant="outline">
-          Filtrer
-        </Button>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <FilterSearchInput placeholder="Nom, téléphone, e-mail..." defaultValue={params.q} className="w-56" />
+        <FilterSearchInput paramKey="city" placeholder="Ville" defaultValue={params.city} className="w-36" />
+        <FilterSelect
+          paramKey="segment"
+          value={segmentFilter}
+          allLabel="Tous les segments"
+          ariaLabel="Segment"
+          className="w-44"
+          options={Object.entries(CUSTOMER_SEGMENT_LABELS).map(([value, label]) => ({ value, label }))}
+        />
+        <FilterSelect
+          paramKey="sort"
+          value={params.sort === "name" || params.sort === "orders" ? params.sort : undefined}
+          allLabel={SORT_LABELS.recent}
+          ariaLabel="Trier"
+          className="w-44"
+          options={(Object.entries(SORT_LABELS) as [CustomerSort, string][])
+            .filter(([value]) => value !== "recent")
+            .map(([value, label]) => ({ value, label }))}
+        />
         {hasActiveFilter ? (
-          <Button variant="ghost" render={<Link href="/clients" />}>
+          <Button size="sm" variant="ghost" render={<Link href="/clients" />}>
             Réinitialiser
           </Button>
         ) : null}
-      </form>
+      </div>
 
       {customers.length === 0 ? (
         <EmptyState

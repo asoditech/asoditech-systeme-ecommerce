@@ -28,7 +28,9 @@ export function WarehousePickerLink({
   return (
     <Select value={selected ?? "all"} onValueChange={go}>
       <SelectTrigger className="w-52">
-        <SelectValue placeholder="Entrepôt" />
+        <SelectValue>
+          {(v: string) => (v === "all" ? "Tous les entrepôts" : warehouses.find((w) => w.id === v)?.name ?? "Entrepôt")}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="all">Tous les entrepôts</SelectItem>

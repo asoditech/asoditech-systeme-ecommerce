@@ -6,8 +6,9 @@ import { StatusBadge } from "@/components/status-badge";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FilterSelect } from "@/components/filter-select";
+import { FilterSearchInput } from "@/components/filter-search-input";
+import { DisconnectedSourceBanner } from "@/components/integrations/disconnected-source-banner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
@@ -95,76 +96,50 @@ export default async function ProduitsPage({
         }
       />
 
-      <form className="mb-4 flex flex-wrap gap-2" action="/produits">
-        <Input name="q" placeholder="Nom ou SKU..." defaultValue={params.q} className="max-w-56" />
-        <Select name="status" defaultValue={params.status || "all"}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Statut">
-              {statusFilter ? PRODUCT_STATUS_LABELS[statusFilter].label : "Tous les statuts"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous les statuts</SelectItem>
-            {Object.entries(PRODUCT_STATUS_LABELS).map(([value, meta]) => (
-              <SelectItem key={value} value={value}>
-                {meta.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select name="categoryId" defaultValue={categoryFilter ?? "all"}>
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="Catégorie">
-              {categoryFilter
-                ? (categories.find((c) => c.id === categoryFilter)?.name ?? "Catégorie")
-                : "Toutes catégories"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Toutes catégories</SelectItem>
-            {categories.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select name="type" defaultValue={params.type || "all"}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Type">
-              {typeFilter ? PRODUCT_TYPE_LABELS[typeFilter] : "Tous types"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous types</SelectItem>
-            {Object.entries(PRODUCT_TYPE_LABELS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select name="sort" defaultValue={sortFilter}>
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="Trier">{SORT_LABELS[sortFilter]}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(SORT_LABELS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button type="submit" variant="outline">
-          Filtrer
-        </Button>
+      <DisconnectedSourceBanner entity="product" />
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <FilterSearchInput placeholder="Nom ou SKU..." defaultValue={params.q} className="w-56" />
+        <FilterSelect
+          paramKey="status"
+          value={statusFilter}
+          allLabel="Tous les statuts"
+          ariaLabel="Statut"
+          className="w-40"
+          options={Object.entries(PRODUCT_STATUS_LABELS).map(([value, meta]) => ({ value, label: meta.label }))}
+        />
+        <FilterSelect
+          paramKey="categoryId"
+          value={categoryFilter}
+          allLabel="Toutes catégories"
+          ariaLabel="Catégorie"
+          className="w-44"
+          options={categories.map((c) => ({ value: c.id, label: c.name }))}
+        />
+        <FilterSelect
+          paramKey="type"
+          value={typeFilter}
+          allLabel="Tous types"
+          ariaLabel="Type"
+          className="w-40"
+          options={Object.entries(PRODUCT_TYPE_LABELS).map(([value, label]) => ({ value, label }))}
+        />
+        <FilterSelect
+          paramKey="sort"
+          value={params.sort && SORT_LABELS[params.sort as ProductSort] ? params.sort : undefined}
+          allLabel={SORT_LABELS.recent}
+          ariaLabel="Trier"
+          className="w-44"
+          options={(Object.entries(SORT_LABELS) as [ProductSort, string][])
+            .filter(([value]) => value !== "recent")
+            .map(([value, label]) => ({ value, label }))}
+        />
         {hasActiveFilter ? (
-          <Button variant="ghost" render={<Link href="/produits" />}>
+          <Button variant="ghost" size="sm" render={<Link href="/produits" />}>
             Réinitialiser
           </Button>
         ) : null}
-      </form>
+      </div>
 
       {products.length === 0 ? (
         <EmptyState

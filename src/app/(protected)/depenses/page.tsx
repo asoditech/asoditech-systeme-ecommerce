@@ -7,7 +7,8 @@ import { ExpenseForm } from "@/components/finance/expense-form";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FilterSelect } from "@/components/filter-select";
+import { FilterSearchInput } from "@/components/filter-search-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
@@ -124,55 +125,51 @@ export default async function DepensesPage({
         <KpiCard label="Coût de livraison" value={formatCurrency(summary.deliveryCostTotal)} icon={Truck} tone="info" />
       </div>
 
-      <form className="mb-4 flex flex-wrap gap-2" action="/depenses">
-        {params.periode ? <input type="hidden" name="periode" value={params.periode} /> : null}
-        <Input name="q" placeholder="Description ou fournisseur..." defaultValue={params.q} className="max-w-56" />
-        <Select name="categoryId" defaultValue={categoryFilter ?? "all"}>
-          <SelectTrigger className="w-52">
-            <SelectValue placeholder="Catégorie">
-              {categoryFilter
-                ? (categories.find((c) => c.id === categoryFilter)?.name ?? "Catégorie")
-                : "Toutes les catégories"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Toutes les catégories</SelectItem>
-            {categories.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Input type="date" name="dateFrom" defaultValue={params.dateFrom} className="w-40" />
-        <Input type="date" name="dateTo" defaultValue={params.dateTo} className="w-40" />
-        <Select name="sort" defaultValue={sortFilter}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Trier">{SORT_LABELS[sortFilter]}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(SORT_LABELS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button type="submit" variant="outline">
-          Filtrer
-        </Button>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <FilterSearchInput placeholder="Description ou fournisseur..." defaultValue={params.q} className="w-56" />
+        <FilterSelect
+          paramKey="categoryId"
+          value={categoryFilter}
+          allLabel="Toutes les catégories"
+          ariaLabel="Catégorie"
+          className="w-52"
+          options={categories.map((c) => ({ value: c.id, label: c.name }))}
+        />
+        <FilterSelect
+          paramKey="sort"
+          value={params.sort === "amount-desc" || params.sort === "amount-asc" ? params.sort : undefined}
+          allLabel={SORT_LABELS.recent}
+          ariaLabel="Trier"
+          className="w-48"
+          options={[
+            { value: "amount-desc", label: SORT_LABELS["amount-desc"] },
+            { value: "amount-asc", label: SORT_LABELS["amount-asc"] },
+          ]}
+        />
+        <form className="flex items-center gap-2" action="/depenses">
+          {params.periode ? <input type="hidden" name="periode" value={params.periode} /> : null}
+          {params.q ? <input type="hidden" name="q" value={params.q} /> : null}
+          {categoryFilter ? <input type="hidden" name="categoryId" value={categoryFilter} /> : null}
+          {params.sort ? <input type="hidden" name="sort" value={params.sort} /> : null}
+          <Input type="date" name="dateFrom" defaultValue={params.dateFrom} className="w-40" aria-label="Date de début" />
+          <Input type="date" name="dateTo" defaultValue={params.dateTo} className="w-40" aria-label="Date de fin" />
+          <Button type="submit" size="sm" variant="outline">
+            Filtrer
+          </Button>
+        </form>
         <Button
+          size="sm"
           variant={isThisMonth ? "default" : "ghost"}
           render={<Link href={`/depenses${periodSuffix}${periodSuffix ? "&" : "?"}dateFrom=${monthFrom}&dateTo=${monthTo}`} />}
         >
           Ce mois-ci
         </Button>
         {hasActiveFilter ? (
-          <Button variant="ghost" render={<Link href={params.periode ? `/depenses?periode=${params.periode}` : "/depenses"} />}>
+          <Button size="sm" variant="ghost" render={<Link href={params.periode ? `/depenses?periode=${params.periode}` : "/depenses"} />}>
             Réinitialiser
           </Button>
         ) : null}
-      </form>
+      </div>
 
       {expenses.length === 0 ? (
         <EmptyState

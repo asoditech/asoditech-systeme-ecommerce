@@ -7,7 +7,9 @@ import { DataTablePagination } from "@/components/data-table-pagination";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FilterSelect } from "@/components/filter-select";
+import { FilterSearchInput } from "@/components/filter-search-input";
+import { DisconnectedSourceBanner } from "@/components/integrations/disconnected-source-banner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
@@ -111,70 +113,52 @@ export default async function CommandesPage({
         }
       />
 
-      <form className="mb-4 flex flex-wrap gap-2" action="/commandes">
-        <Input name="q" placeholder="N° commande, client..." defaultValue={params.q} className="max-w-56" />
-        <Select name="status" defaultValue={params.status || "all"}>
-          <SelectTrigger className="w-44">
-            {/* SelectValue's dynamic-label children must be a plain
-                ReactNode here, never a function — this page is a Server
-                Component and SelectValue is a Client Component, and a
-                closure can't cross that boundary (found via live browser
-                verification during the layout redesign; see the other
-                (client-component) Select usages elsewhere in the app,
-                where the function-children form is fine). */}
-            <SelectValue placeholder="Statut">
-              {params.status && params.status !== "all" ? (ORDER_STATUS_LABELS[params.status]?.label ?? params.status) : "Tous les statuts"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous les statuts</SelectItem>
-            {Object.entries(ORDER_STATUS_LABELS).map(([value, meta]) => (
-              <SelectItem key={value} value={value}>
-                {meta.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select name="paymentStatus" defaultValue={params.paymentStatus || "all"}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Paiement">
-              {params.paymentStatus && params.paymentStatus !== "all"
-                ? (ORDER_PAYMENT_STATUS_LABELS[params.paymentStatus]?.label ?? params.paymentStatus)
-                : "Tous les paiements"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous les paiements</SelectItem>
-            {Object.entries(ORDER_PAYMENT_STATUS_LABELS).map(([value, meta]) => (
-              <SelectItem key={value} value={value}>
-                {meta.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Input type="date" name="dateFrom" defaultValue={effectiveDateFrom} className="w-40" />
-        <Input type="date" name="dateTo" defaultValue={effectiveDateTo} className="w-40" />
-        <Button type="submit" variant="outline">
-          Filtrer
-        </Button>
+      <DisconnectedSourceBanner entity="order" />
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <FilterSearchInput placeholder="N° commande, client..." defaultValue={params.q} className="w-56" />
+        <FilterSelect
+          paramKey="status"
+          value={statusFilter}
+          allLabel="Tous les statuts"
+          ariaLabel="Statut"
+          className="w-44"
+          options={Object.entries(ORDER_STATUS_LABELS).map(([value, meta]) => ({ value, label: meta.label }))}
+        />
+        <FilterSelect
+          paramKey="paymentStatus"
+          value={paymentStatusFilter}
+          allLabel="Tous les paiements"
+          ariaLabel="Paiement"
+          className="w-48"
+          options={Object.entries(ORDER_PAYMENT_STATUS_LABELS).map(([value, meta]) => ({ value, label: meta.label }))}
+        />
+        <form className="flex items-center gap-2" action="/commandes">
+          {statusFilter ? <input type="hidden" name="status" value={statusFilter} /> : null}
+          {paymentStatusFilter ? <input type="hidden" name="paymentStatus" value={paymentStatusFilter} /> : null}
+          {params.q ? <input type="hidden" name="q" value={params.q} /> : null}
+          <Input type="date" name="dateFrom" defaultValue={effectiveDateFrom} className="w-40" aria-label="Date de début" />
+          <Input type="date" name="dateTo" defaultValue={effectiveDateTo} className="w-40" aria-label="Date de fin" />
+          <Button type="submit" size="sm" variant="outline">
+            Filtrer
+          </Button>
+        </form>
         <Button
+          size="sm"
           variant={isThisMonth ? "default" : "ghost"}
           render={<Link href={dateScopeHref({ dateFrom: monthFrom, dateTo: monthTo })} />}
         >
           Ce mois-ci
         </Button>
-        <Button
-          variant={isAll ? "default" : "ghost"}
-          render={<Link href={dateScopeHref({ all: true })} />}
-        >
+        <Button size="sm" variant={isAll ? "default" : "ghost"} render={<Link href={dateScopeHref({ all: true })} />}>
           Toutes les commandes
         </Button>
         {hasActiveFilter ? (
-          <Button variant="ghost" render={<Link href="/commandes" />}>
+          <Button size="sm" variant="ghost" render={<Link href="/commandes" />}>
             Réinitialiser
           </Button>
         ) : null}
-      </form>
+      </div>
 
       {orders.length === 0 ? (
         olderOrdersExist ? (

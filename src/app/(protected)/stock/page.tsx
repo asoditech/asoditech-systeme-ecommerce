@@ -5,9 +5,9 @@ import { EmptyState } from "@/components/empty-state";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { StockAdjustmentDialog } from "@/components/inventory/stock-adjustment-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FilterSelect } from "@/components/filter-select";
+import { FilterSearchInput } from "@/components/filter-search-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
@@ -71,71 +71,52 @@ export default async function StockPage({
     <div>
       <PageHeader title="Stock" description="Niveaux de stock par produit et par entrepôt." />
 
-      <form className="mb-4 flex flex-wrap gap-2" action="/stock">
-        <Input name="q" placeholder="Rechercher par produit ou SKU..." defaultValue={params.q} className="max-w-56" />
-        <Select name="warehouseId" defaultValue={warehouseId || "all"}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Emplacement">
-              {warehouseId ? (warehouses.find((w) => w.id === warehouseId)?.name ?? "Emplacement") : "Tous les emplacements"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous les emplacements</SelectItem>
-            {warehouses.map((w) => (
-              <SelectItem key={w.id} value={w.id}>
-                {w.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select name="categoryId" defaultValue={categoryId || "all"}>
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="Catégorie">
-              {categoryId ? (categories.find((c) => c.id === categoryId)?.name ?? "Catégorie") : "Toutes catégories"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Toutes catégories</SelectItem>
-            {categories.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select name="stockStatus" defaultValue={stockStatus}>
-          <SelectTrigger className="w-44">
-            <SelectValue>{STOCK_STATUS_LABELS[stockStatus]}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(STOCK_STATUS_LABELS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select name="sort" defaultValue={sort}>
-          <SelectTrigger className="w-48">
-            <SelectValue>{SORT_LABELS[sort]}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(SORT_LABELS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button type="submit" variant="outline">
-          Filtrer
-        </Button>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <FilterSearchInput placeholder="Produit ou SKU..." defaultValue={params.q} className="w-56" />
+        <FilterSelect
+          paramKey="warehouseId"
+          value={warehouseId}
+          allLabel="Tous les emplacements"
+          ariaLabel="Emplacement"
+          className="w-48"
+          options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
+        />
+        <FilterSelect
+          paramKey="categoryId"
+          value={categoryId}
+          allLabel="Toutes catégories"
+          ariaLabel="Catégorie"
+          className="w-44"
+          options={categories.map((c) => ({ value: c.id, label: c.name }))}
+        />
+        <FilterSelect
+          paramKey="stockStatus"
+          value={stockStatus !== "all" ? stockStatus : undefined}
+          allLabel={STOCK_STATUS_LABELS.all}
+          ariaLabel="Statut de stock"
+          className="w-44"
+          options={[
+            { value: "low", label: STOCK_STATUS_LABELS.low },
+            { value: "out", label: STOCK_STATUS_LABELS.out },
+          ]}
+        />
+        <FilterSelect
+          paramKey="sort"
+          value={params.sort === "quantity-asc" || params.sort === "quantity-desc" ? params.sort : undefined}
+          allLabel={SORT_LABELS.recent}
+          ariaLabel="Trier"
+          className="w-48"
+          options={[
+            { value: "quantity-asc", label: SORT_LABELS["quantity-asc"] },
+            { value: "quantity-desc", label: SORT_LABELS["quantity-desc"] },
+          ]}
+        />
         {hasActiveFilter ? (
-          <Button variant="ghost" render={<Link href="/stock" />}>
+          <Button size="sm" variant="ghost" render={<Link href="/stock" />}>
             Réinitialiser
           </Button>
         ) : null}
-      </form>
+      </div>
 
       {items.length === 0 ? (
         <EmptyState

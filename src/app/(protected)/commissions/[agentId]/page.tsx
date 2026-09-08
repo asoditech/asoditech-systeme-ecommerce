@@ -147,7 +147,7 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
                     <TableHead className="text-right">Payé</TableHead>
                     <TableHead>Statut</TableHead>
                     <TableHead>Clôturé</TableHead>
-                    {canManage && <TableHead />}
+                    <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -173,9 +173,16 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
                           <span className="block">Payé {formatDate(s.paidAt)} · {s.paidByName}</span>
                         )}
                       </TableCell>
-                      {canManage && (
-                        <TableCell className="text-right">
-                          {s.status === "CLOTURE" && (
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Link
+                            href={`/commissions/${agent.id}/releves/${s.id}`}
+                            className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                          >
+                            <FileText className="size-3.5" />
+                            Facture
+                          </Link>
+                          {canManage && s.status === "CLOTURE" && (
                             <ConfirmActionButton
                               label="Marquer payé"
                               variant="outline"
@@ -186,8 +193,8 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
                               successMessage="Relevé marqué payé."
                             />
                           )}
-                        </TableCell>
-                      )}
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

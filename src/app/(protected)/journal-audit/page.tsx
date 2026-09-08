@@ -3,10 +3,10 @@ import { ScrollText } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { DataTablePagination } from "@/components/data-table-pagination";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FilterSelect } from "@/components/filter-select";
+import { FilterSearchInput } from "@/components/filter-search-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { prisma } from "@/lib/prisma";
@@ -71,32 +71,22 @@ export default async function JournalAuditPage({
         description="Historique complet et non modifiable des actions effectuées dans le système."
       />
 
-      <form className="mb-4 flex flex-wrap gap-2" action="/journal-audit">
-        <Input name="q" placeholder="Rechercher par action ou type d'entité..." defaultValue={params.q} className="max-w-56" />
-        <Select name="category" defaultValue={category || "all"}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Catégorie">
-              {category ? AUDIT_CATEGORY_LABELS[category] : "Toutes les catégories"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Toutes les catégories</SelectItem>
-            {Object.entries(AUDIT_CATEGORY_LABELS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button type="submit" variant="outline">
-          Filtrer
-        </Button>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <FilterSearchInput placeholder="Action ou type d'entité..." defaultValue={params.q} className="w-64" />
+        <FilterSelect
+          paramKey="category"
+          value={category}
+          allLabel="Toutes les catégories"
+          ariaLabel="Catégorie"
+          className="w-48"
+          options={Object.entries(AUDIT_CATEGORY_LABELS).map(([value, label]) => ({ value, label }))}
+        />
         {hasActiveFilter ? (
-          <Button variant="ghost" render={<Link href="/journal-audit" />}>
+          <Button size="sm" variant="ghost" render={<Link href="/journal-audit" />}>
             Réinitialiser
           </Button>
         ) : null}
-      </form>
+      </div>
 
       {pageItems.length === 0 ? (
         <EmptyState
