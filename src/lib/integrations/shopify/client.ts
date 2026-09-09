@@ -62,7 +62,7 @@ const INVENTORY_LEVELS_PER_VARIANT = 10;
 const MAX_PAGES = 200;
 
 const PRODUCT_FIELDS = `
-  id title handle status descriptionHtml
+  id title handle status descriptionHtml createdAt
   variants(first: 100) {
     nodes {
       id title sku price

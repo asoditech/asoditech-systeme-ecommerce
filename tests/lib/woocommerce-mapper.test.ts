@@ -64,6 +64,7 @@ function makeWcProduct(overrides: Partial<WcProduct> = {}): WcProduct {
     sku: "SKU-1",
     status: "publish",
     type: "simple",
+    date_created: "2026-05-01T12:00:00",
     description: null,
     regular_price: 100,
     sale_price: null,
@@ -113,6 +114,16 @@ describe("mapProductFields", () => {
     expect(mapProductFields(makeWcProduct({ regular_price: 100, sale_price: 80 })).salePrice).toBe(80);
     expect(mapProductFields(makeWcProduct({ regular_price: 100, sale_price: 0 })).salePrice).toBeNull();
     expect(mapProductFields(makeWcProduct({ regular_price: 100, sale_price: 150 })).salePrice).toBeNull();
+  });
+
+  it("carries the store-side date_created through as platformCreatedAt (for newest-first ordering)", () => {
+    const fields = mapProductFields(makeWcProduct({ date_created: "2026-09-08T22:50:13" }));
+    expect(fields.platformCreatedAt?.toISOString()).toBe(new Date("2026-09-08T22:50:13").toISOString());
+  });
+
+  it("leaves platformCreatedAt null when WooCommerce omits or garbles date_created", () => {
+    expect(mapProductFields(makeWcProduct({ date_created: null })).platformCreatedAt).toBeNull();
+    expect(mapProductFields(makeWcProduct({ date_created: "not-a-date" })).platformCreatedAt).toBeNull();
   });
 });
 

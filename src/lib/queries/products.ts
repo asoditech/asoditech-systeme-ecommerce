@@ -43,14 +43,19 @@ export async function listProducts(params: ProductListFilters) {
         : {}),
   };
 
-  const orderBy: Prisma.ProductOrderByWithRelationInput =
+  // "recent" (the default) = newest-created first. `platformCreatedAt` is
+  // the merchant-facing creation date (the store's `date_created` for an
+  // imported product, `now()` for one made here) — `createdAt` is only the
+  // local insert time, which reshuffles on every re-import. Fall back to
+  // `createdAt` for any row a sync hasn't populated yet.
+  const orderBy: Prisma.ProductOrderByWithRelationInput[] =
     params.sort === "name"
-      ? { name: "asc" }
+      ? [{ name: "asc" }]
       : params.sort === "price-asc"
-        ? { price: "asc" }
+        ? [{ price: "asc" }]
         : params.sort === "price-desc"
-          ? { price: "desc" }
-          : { createdAt: "desc" };
+          ? [{ price: "desc" }]
+          : [{ platformCreatedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }];
 
   const [products, total] = await Promise.all([
     prisma.product.findMany({

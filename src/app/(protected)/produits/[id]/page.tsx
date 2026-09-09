@@ -431,7 +431,9 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
                       <TableHead>SKU</TableHead>
                       <TableHead>Attributs</TableHead>
                       <TableHead className="text-right">Prix</TableHead>
-                      {canViewFinance && <TableHead className="text-right">Coût d&apos;achat</TableHead>}
+                      {canViewFinance && (
+                        <TableHead className="text-right whitespace-nowrap">Coût d&apos;achat</TableHead>
+                      )}
                       <TableHead className="text-right">Stock</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -452,7 +454,7 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
                           {formatCurrency((v.price ?? product.price).toString())}
                         </TableCell>
                         {canViewFinance && (
-                          <TableCell className="text-right">
+                          <TableCell className="text-right whitespace-nowrap tabular-nums">
                             {canEdit ? (
                               <VariationCostCell variationId={v.id} cost={v.cost?.toString() ?? null} />
                             ) : v.cost ? (

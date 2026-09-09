@@ -153,6 +153,13 @@ async function syncOneProduct(
 
   let productId: string;
   if (existing) {
+    // Backfill / correct platformCreatedAt whenever WooCommerce gives us a
+    // date the row doesn't already carry (rows imported before this field
+    // existed have it set to their local createdAt by the migration).
+    const needsPlatformDate =
+      fields.platformCreatedAt !== null &&
+      existing.platformCreatedAt?.getTime() !== fields.platformCreatedAt.getTime();
+
     const changed =
       existing.name !== fields.name ||
       existing.description !== fields.description ||
@@ -160,7 +167,8 @@ async function syncOneProduct(
       (existing.salePrice ? Number(existing.salePrice) : null) !== fields.salePrice ||
       existing.status !== fields.status ||
       existing.trackInventory !== fields.trackInventory ||
-      existing.categoryId !== categoryId;
+      existing.categoryId !== categoryId ||
+      needsPlatformDate;
 
     if (changed) {
       // A SKU collision against a *different* internal product (e.g. the
@@ -181,6 +189,7 @@ async function syncOneProduct(
           status: fields.status,
           trackInventory: fields.trackInventory,
           categoryId,
+          ...(fields.platformCreatedAt ? { platformCreatedAt: fields.platformCreatedAt } : {}),
         },
       });
       summary.updated++;
@@ -204,6 +213,7 @@ async function syncOneProduct(
         categoryId,
         source: "WOOCOMMERCE",
         externalId,
+        platformCreatedAt: fields.platformCreatedAt,
       },
     });
     productId = created.id;

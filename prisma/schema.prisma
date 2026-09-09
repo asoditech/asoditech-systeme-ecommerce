@@ -427,6 +427,14 @@ model Product {
   lowStockThreshold Int           @default(5)
   source            RecordSource  @default(INTERNE)
   externalId        String?
+  // When the product first came into existence for the merchant: the
+  // platform's own `date_created` / `createdAt` for an imported product,
+  // and `now()` for one created here. `createdAt` below is only the local
+  // row's insert time (i.e. when a sync first saw it), which is useless
+  // for "newest products first" — the catalogue list sorts on this.
+  // Backfilled to `createdAt` for pre-existing rows; the next sync
+  // overwrites imported rows with the true platform date.
+  platformCreatedAt DateTime?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -446,6 +454,7 @@ model Product {
   @@index([status])
   @@index([source, externalId])
   @@index([tenantId])
+  @@index([tenantId, platformCreatedAt])
   @@map("products")
 }
 

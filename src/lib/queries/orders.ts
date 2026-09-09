@@ -73,11 +73,12 @@ export async function listOrders(filters: OrderListFilters) {
   const [orders, total] = await Promise.all([
     prisma.order.findMany({
       where,
-      // Most-recently-added first: a freshly imported or manually created
-      // order shows at the top of the list immediately, regardless of its
-      // customer-facing order date. `placedAt` is still what the date
-      // filter and the visible "Date" column use.
-      orderBy: [{ createdAt: "desc" }, { placedAt: "desc" }],
+      // Newest order first — `placedAt` is the customer-facing order date
+      // (WooCommerce/Shopify `date_created`, or `now()` for a manual
+      // order), which is also the visible "Date" column and the date
+      // filter, so the list stays in step with what it shows. `createdAt`
+      // (local insert time) only breaks ties on a bulk import.
+      orderBy: [{ placedAt: "desc" }, { createdAt: "desc" }],
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       include: { customer: true, _count: { select: { items: true } } },

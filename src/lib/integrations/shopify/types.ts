@@ -62,6 +62,9 @@ export const shopifyProductSchema = z.object({
   title: z.string(),
   handle: z.string(),
   status: z.string(), // ACTIVE | ARCHIVED | DRAFT
+  // Storefront creation timestamp (ISO 8601). Drives "newest products
+  // first" ordering. Nullish for safety — never fabricated.
+  createdAt: z.string().nullish(),
   descriptionHtml: z.string().nullish(),
   variants: z.object({ nodes: z.array(shopifyVariantSchema).default([]) }),
 });

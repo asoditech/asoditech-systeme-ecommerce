@@ -47,6 +47,10 @@ export const wcProductSchema = z.object({
   sku: z.string().default(""),
   status: z.string(), // draft | pending | private | publish
   type: z.string().default("simple"), // simple | variable | grouped | external
+  // Store-side creation timestamp ("2026-09-08T22:50:13", store tz). Used
+  // for "newest products first" ordering. Older WC versions / odd plugins
+  // may omit it — nullish, never fabricated.
+  date_created: z.string().nullish(),
   description: z.string().nullish(),
   regular_price: wcMoneyString.default(0),
   sale_price: wcMoneyString.nullish(),

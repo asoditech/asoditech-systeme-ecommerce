@@ -27,6 +27,11 @@ export interface MappedProductFields {
   salePrice: number | null;
   status: ProductStatus;
   trackInventory: boolean;
+  /** WooCommerce's own `date_created` — when the merchant created the
+   * product on the store. `null` only if WooCommerce sent an unparseable
+   * value. Stored as `Product.platformCreatedAt` so the catalogue sorts
+   * newest-created first. */
+  platformCreatedAt: Date | null;
 }
 
 export function mapProductFields(wc: WcProduct): MappedProductFields {
@@ -47,7 +52,16 @@ export function mapProductFields(wc: WcProduct): MappedProductFields {
     salePrice: wc.sale_price && wc.sale_price > 0 && wc.sale_price < wc.regular_price ? wc.sale_price : null,
     status: mapProductStatus(wc.status),
     trackInventory: wc.manage_stock,
+    platformCreatedAt: parseWcDate(wc.date_created),
   };
+}
+
+/** WooCommerce sends dates as `"2026-09-08T22:50:13"` (store timezone, no
+ * offset). `new Date()` parses it; guard against a blank/garbage value. */
+function parseWcDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 /**

@@ -46,7 +46,7 @@ export function VariationCostCell({
   }
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
       <Input
         ref={ref}
         type="number"
@@ -62,10 +62,10 @@ export function VariationCostCell({
             (e.target as HTMLInputElement).blur();
           }
         }}
-        className="h-8 w-24 text-right tabular-nums"
+        className="h-8 w-20 shrink-0 text-right tabular-nums"
         disabled={isPending}
       />
-      <span className="text-xs text-muted-foreground">{currency}</span>
+      <span className="shrink-0 text-xs text-muted-foreground">{currency}</span>
     </div>
   );
 }

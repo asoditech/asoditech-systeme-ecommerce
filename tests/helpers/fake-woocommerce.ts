@@ -41,6 +41,8 @@ export interface FakeProduct {
   sku: string;
   status: string;
   type: string;
+  /** Store-side creation timestamp — mapped to Product.platformCreatedAt. */
+  date_created?: string | null;
   description?: string | null;
   regular_price: string;
   sale_price?: string | null;

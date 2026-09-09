@@ -7,6 +7,14 @@ import { availableFrom } from "../types";
 import type { ShopifyProduct, ShopifyVariant } from "../types";
 import { emptySyncSummary, recordNote, reconcileStockFromProvider, type SyncSummary, type SyncActor } from "@/lib/integrations/shared";
 
+/** Shopify `createdAt` is an ISO 8601 string. Guard against a
+ * blank/garbage value so a bad date never crashes a whole sync run. */
+function parseShopifyDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /**
  * Shopify → System, one direction (see docs/adr/0011-shopify-integration.md).
  * Products are matched by (source=SHOPIFY, externalId=<product gid>).
@@ -136,6 +144,7 @@ async function syncOneProduct(
   // ProductVariation rows — the lowest variant price is a common,
   // non-fabricated "from" price for this purpose, not an invented value.
   const variantPrices = product.variants.nodes.map((v) => Number(v.price)).filter((p) => Number.isFinite(p));
+  const platformCreatedAt = parseShopifyDate(product.createdAt);
   const fields = {
     name: product.title,
     description: null as string | null,
@@ -146,9 +155,23 @@ async function syncOneProduct(
 
   let productId: string;
   if (existing) {
-    const changed = existing.name !== fields.name || existing.status !== fields.status || Number(existing.price) !== fields.price;
+    const needsPlatformDate =
+      platformCreatedAt !== null && existing.platformCreatedAt?.getTime() !== platformCreatedAt.getTime();
+    const changed =
+      existing.name !== fields.name ||
+      existing.status !== fields.status ||
+      Number(existing.price) !== fields.price ||
+      needsPlatformDate;
     if (changed) {
-      await prisma.product.update({ where: { id: existing.id }, data: { name: fields.name, status: fields.status, price: fields.price } });
+      await prisma.product.update({
+        where: { id: existing.id },
+        data: {
+          name: fields.name,
+          status: fields.status,
+          price: fields.price,
+          ...(platformCreatedAt ? { platformCreatedAt } : {}),
+        },
+      });
       summary.updated++;
     } else {
       summary.unchanged++;
@@ -167,6 +190,7 @@ async function syncOneProduct(
         source: "SHOPIFY",
         externalId: product.id,
         trackInventory: false,
+        platformCreatedAt,
       },
     });
     productId = created.id;
@@ -191,23 +215,35 @@ async function syncSimpleProduct(
   summary: SyncSummary
 ): Promise<void> {
   const fields = mapSimpleProductFields(product);
+  const platformCreatedAt = parseShopifyDate(product.createdAt);
   const existing = await prisma.product.findFirst({ where: { source: "SHOPIFY", externalId: product.id } });
 
   let productId: string;
   if (existing) {
+    const needsPlatformDate =
+      platformCreatedAt !== null && existing.platformCreatedAt?.getTime() !== platformCreatedAt.getTime();
     const changed =
       existing.name !== fields.name ||
       existing.description !== fields.description ||
       Number(existing.price) !== fields.price ||
       existing.status !== fields.status ||
-      existing.trackInventory !== fields.trackInventory;
+      existing.trackInventory !== fields.trackInventory ||
+      needsPlatformDate;
 
     if (changed) {
       const skuOwner = await prisma.product.findFirst({ where: { sku: fields.sku } });
       const sku = !skuOwner || skuOwner.id === existing.id ? fields.sku : existing.sku;
       await prisma.product.update({
         where: { id: existing.id },
-        data: { name: fields.name, sku, description: fields.description, price: fields.price, status: fields.status, trackInventory: fields.trackInventory },
+        data: {
+          name: fields.name,
+          sku,
+          description: fields.description,
+          price: fields.price,
+          status: fields.status,
+          trackInventory: fields.trackInventory,
+          ...(platformCreatedAt ? { platformCreatedAt } : {}),
+        },
       });
       summary.updated++;
     } else {
@@ -218,7 +254,7 @@ async function syncSimpleProduct(
     const skuOwner = await prisma.product.findFirst({ where: { sku: fields.sku } });
     const sku = skuOwner ? `${fields.sku}-shop-${product.id.split("/").pop()}` : fields.sku;
     const created = await prisma.product.create({
-      data: { name: fields.name, sku, description: fields.description, price: fields.price, status: fields.status, trackInventory: fields.trackInventory, source: "SHOPIFY", externalId: product.id },
+      data: { name: fields.name, sku, description: fields.description, price: fields.price, status: fields.status, trackInventory: fields.trackInventory, source: "SHOPIFY", externalId: product.id, platformCreatedAt },
     });
     productId = created.id;
     summary.imported++;

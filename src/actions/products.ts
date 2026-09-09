@@ -79,6 +79,9 @@ export async function createProductAction(formData: FormData): Promise<ActionRes
           trackInventory: parsed.data.trackInventory,
           lowStockThreshold: parsed.data.lowStockThreshold,
           createdById: user.id,
+          // Created here, now — so it sorts alongside imported products,
+          // which carry their platform's own creation date.
+          platformCreatedAt: new Date(),
         },
       });
 
