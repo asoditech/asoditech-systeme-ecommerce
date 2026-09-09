@@ -14,6 +14,8 @@ import { RefreshStatusesButton } from "@/components/delivery/refresh-statuses-bu
 import { RetryShipmentButton } from "@/components/delivery/retry-shipment-button";
 import { BrandLogo, type BrandKey } from "@/components/brand-logo";
 import { AwaitingShipmentTable } from "@/components/delivery/awaiting-shipment-table";
+import { FilterSelect } from "@/components/filter-select";
+import { FilterSearchInput } from "@/components/filter-search-input";
 import { DeliveryDocs } from "@/components/delivery/delivery-docs";
 import { LivraisonDateFilter } from "@/components/delivery/livraison-date-filter";
 import { ConfirmActionButton } from "@/components/confirm-action-button";
@@ -62,6 +64,9 @@ export default async function LivraisonPage({
     tab?: string;
     aexp?: string;
     aexpq?: string;
+    sstatus?: string;
+    sprovider?: string;
+    sq?: string;
   }>;
 }) {
   const user = await requirePermission("delivery.view");
@@ -83,10 +88,24 @@ export default async function LivraisonPage({
     to: params.dateTo,
   });
 
+  const SHIPMENT_STATUSES = ["EN_ATTENTE", "EN_TRANSIT", "LIVRE", "ECHEC", "RETOURNE", "ANNULE"] as const;
+  const shipmentStatusFilter = SHIPMENT_STATUSES.includes(params.sstatus as (typeof SHIPMENT_STATUSES)[number])
+    ? (params.sstatus as (typeof SHIPMENT_STATUSES)[number])
+    : undefined;
+  const shipmentSearch = params.sq?.trim() || undefined;
+  const shipmentFilterActive = Boolean(shipmentStatusFilter || params.sprovider || shipmentSearch);
+
   const [stats, providers, shipmentsResult, awaitingResult, connectors] = await Promise.all([
     getDeliveryStats(dateFrom, dateTo),
     listShippingProviders(),
-    listShipments({ dateFrom, dateTo, page }),
+    listShipments({
+      dateFrom,
+      dateTo,
+      page,
+      status: shipmentStatusFilter,
+      providerId: params.sprovider || undefined,
+      search: shipmentSearch,
+    }),
     canManage
       ? listOrdersAwaitingShipment({ page: aexpPage, search: aexpSearch })
       : Promise.resolve({ orders: [], total: 0, page: 1, pageSize: 30 }),
@@ -149,8 +168,45 @@ export default async function LivraisonPage({
               <RefreshStatusesButton />
             </div>
           )}
+
+          {(shipments.length > 0 || shipmentFilterActive) && (
+            <div className="flex flex-wrap items-center gap-2">
+              <FilterSearchInput
+                paramKey="sq"
+                placeholder="N° commande, client, n° de suivi…"
+                defaultValue={params.sq}
+                className="w-64 max-w-full"
+              />
+              <FilterSelect
+                paramKey="sstatus"
+                value={shipmentStatusFilter}
+                allLabel="Tous les statuts"
+                ariaLabel="Filtrer par statut"
+                className="w-44"
+                options={SHIPMENT_STATUSES.map((s) => ({ value: s, label: SHIPMENT_STATUS_LABELS[s].label }))}
+              />
+              {providers.length > 1 && (
+                <FilterSelect
+                  paramKey="sprovider"
+                  value={params.sprovider}
+                  allLabel="Tous les transporteurs"
+                  ariaLabel="Filtrer par transporteur"
+                  className="w-52"
+                  options={providers.map((p) => ({ value: p.id, label: p.name }))}
+                />
+              )}
+            </div>
+          )}
+
           {shipments.length === 0 ? (
-            <EmptyState icon={Truck} title="Aucune expédition pour le moment." />
+            <EmptyState
+              icon={Truck}
+              title={
+                shipmentFilterActive
+                  ? "Aucune expédition ne correspond à ces filtres."
+                  : "Aucune expédition pour le moment."
+              }
+            />
           ) : (
             <div className="rounded-lg border">
               <Table className="text-[13px] [&_td]:px-2.5 [&_td]:py-2 [&_th]:px-2.5">
@@ -267,7 +323,14 @@ export default async function LivraisonPage({
                 pageSize={shipmentsPageSize}
                 total={shipmentsTotal}
                 basePath="/livraison"
-                searchParams={{ range: params.range, dateFrom: params.dateFrom, dateTo: params.dateTo }}
+                searchParams={{
+                  range: params.range,
+                  dateFrom: params.dateFrom,
+                  dateTo: params.dateTo,
+                  sstatus: params.sstatus,
+                  sprovider: params.sprovider,
+                  sq: params.sq,
+                }}
               />
             </div>
           )}

@@ -270,6 +270,38 @@ describe("WooCommerce integration", () => {
       expect(syncRuns[0].triggeredBy?.role).toBe("ADMIN");
     });
 
+    it("never imports a variation as a standalone product, and scrubs a bogus one a pre-fix webhook left behind", async () => {
+      await loginAsTestUser({ role: "ADMIN" });
+      await connectFakeStore();
+
+      // Simulate the old bug: a `product.updated` webhook for variation
+      // 601's save wrongly created a standalone catalogue product keyed by
+      // the variation's own id.
+      await prisma.product.create({
+        data: {
+          name: "Coffret variable - Rouge",
+          sku: "WC-601",
+          price: 80,
+          status: "ACTIF",
+          source: "WOOCOMMERCE",
+          externalId: "601",
+        },
+      });
+
+      const result = await syncWooCommerceProductsAction();
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      // The variation exists once, attached to its real parent…
+      const parent = await prisma.product.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "503" } });
+      const variation = await prisma.productVariation.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "601" } });
+      expect(variation.productId).toBe(parent.id);
+
+      // …and the bogus standalone product is gone.
+      const productsForVariationId = await prisma.product.findMany({ where: { source: "WOOCOMMERCE", externalId: "601" } });
+      expect(productsForVariationId).toHaveLength(0);
+    });
+
     it("running the same sync twice is idempotent — no duplicates, second run reports unchanged", async () => {
       await loginAsTestUser({ role: "ADMIN" });
       await connectFakeStore();

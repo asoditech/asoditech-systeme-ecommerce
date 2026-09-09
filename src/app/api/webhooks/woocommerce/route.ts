@@ -195,6 +195,51 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
   }
 
   if (topic === "product.created" || topic === "product.updated") {
+    // WooCommerce fires this topic for VARIATION saves too, and a
+    // variation's REST body (`type: "variation"`, a `parent_id`, `name`
+    // like "Tee - Red", `slug: ""`) carries just enough to pass
+    // `wcProductSchema` — which would import it as a bogus standalone
+    // product. Redirect to a full re-sync of the PARENT instead (that
+    // re-syncs every variation + its stock, and self-heals any duplicate
+    // a pre-fix delivery already created). See docs/adr/0010 addendum.
+    const rawObj = (payload ?? {}) as Record<string, unknown>;
+    const parentIdRaw = rawObj.parent_id;
+    const parentId =
+      typeof parentIdRaw === "number"
+        ? parentIdRaw
+        : typeof parentIdRaw === "string" && /^\d+$/.test(parentIdRaw)
+          ? Number(parentIdRaw)
+          : 0;
+    const isVariation = rawObj.type === "variation" || parentId > 0;
+
+    if (isVariation) {
+      const loaded = await loadWooCommerceClient();
+      const resourceId = typeof rawObj.id === "number" || typeof rawObj.id === "string" ? String(rawObj.id) : undefined;
+      if (loaded && parentId > 0) {
+        try {
+          const parent = await loaded.client.getProduct(parentId);
+          await importProduct(loaded.client, parent, { type: "INTEGRATION" });
+          revalidateAfterImport("product");
+          await recordWebhookEventOnce({
+            integrationId: integration.id,
+            provider: "WOOCOMMERCE",
+            deliveryId,
+            topic,
+            resourceId,
+            status: "TRAITE",
+          });
+        } catch {
+          await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, resourceId, status: "ECHEC" });
+          return new Response(null, { status: 500 });
+        }
+      } else {
+        // No client, or a variation payload with no usable parent id —
+        // acknowledge; "Synchroniser les produits" will reconcile it.
+        await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, resourceId, status: "IGNORE" });
+      }
+      return new Response(null, { status: 200 });
+    }
+
     const parsed = wcProductSchema.safeParse(payload);
     if (!parsed.success) {
       await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, status: "ECHEC" });

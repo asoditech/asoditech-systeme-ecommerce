@@ -256,6 +256,14 @@ export class WooCommerceClient {
     return this.requestJson(wcOrderSchema, `/orders/${id}`);
   }
 
+  /** Fetches one product by id (the parent of a variable product, never a
+   * variation — `/products/{id}` for a variation id 404s). Used by the
+   * webhook route to re-sync a parent when a variation-save webhook
+   * arrives. */
+  async getProduct(id: number): Promise<WcProduct> {
+    return this.requestJson(wcProductSchema, `/products/${id}`);
+  }
+
   /** System → WooCommerce stock push. `variationId` targets a specific variation instead of the parent product. */
   async updateStock(productId: number, quantity: number, variationId?: number): Promise<void> {
     const path = variationId ? `/products/${productId}/variations/${variationId}` : `/products/${productId}`;

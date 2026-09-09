@@ -138,6 +138,16 @@ async function syncOneProduct(
   actor: SyncActor,
   summary: SyncSummary
 ): Promise<void> {
+  // A `product_variation` is NOT a catalogue product — it must only ever
+  // become a `ProductVariation` row under its parent. WooCommerce's
+  // `product.updated` webhook fires for variation saves too, and a
+  // variation's REST body carries just enough (`name`, `slug:""`,
+  // `status`) to slip past `wcProductSchema`. The webhook route already
+  // redirects those to the parent, but this guard is the backstop so a
+  // variation can never land as a standalone product no matter how
+  // `syncOneProduct` is reached. See docs/adr/0010 addendum.
+  if (wc.type === "variation") return;
+
   const fields = mapProductFields(wc);
   // The bulk sync passes a pre-built map (one query for the whole
   // catalog); a single-item webhook import has no map worth building for
@@ -242,8 +252,10 @@ async function syncVariationsForProduct(
   actor: SyncActor,
   summary: SyncSummary
 ): Promise<void> {
+  const variationExternalIds: string[] = [];
   for await (const page of client.listAllProductVariations(wcProductId)) {
     for (const wcVar of page) {
+      variationExternalIds.push(String(wcVar.id));
       try {
         const outcome = await syncOneVariation(wcVar, productId, warehouseId, actor);
         summary[outcome]++;
@@ -252,6 +264,51 @@ async function syncVariationsForProduct(
         summary.failed++;
       }
     }
+  }
+
+  // Self-heal: a past `product.updated` webhook for a variation save may
+  // have created a bogus standalone Product row keyed by the variation's
+  // own id (the pre-fix behaviour — see docs/adr/0010 addendum). Now that
+  // the variation is correctly attached to its parent, drop that
+  // duplicate — but only when it carries no order history (OrderItem is
+  // onDelete:SetNull, so a sale keeps its snapshot regardless, but we
+  // still don't want to silently detach one).
+  await cleanupBogusVariationProducts(variationExternalIds, productId, summary);
+}
+
+/**
+ * Deletes standalone `Product` rows (source WOOCOMMERCE) whose `externalId`
+ * is actually one of `variationExternalIds` — i.e. rows that a
+ * variation-save webhook wrongly created before the parent-redirect fix.
+ * A row with sold lines is left in place and reported instead.
+ */
+async function cleanupBogusVariationProducts(
+  variationExternalIds: string[],
+  realParentProductId: string,
+  summary: SyncSummary
+): Promise<void> {
+  if (variationExternalIds.length === 0) return;
+  const bogus = await prisma.product.findMany({
+    where: {
+      source: "WOOCOMMERCE",
+      externalId: { in: variationExternalIds },
+      id: { not: realParentProductId },
+    },
+    select: { id: true, name: true, _count: { select: { orderItems: true, variations: true } } },
+  });
+  for (const p of bogus) {
+    // A genuine parent product would have its own variations; a bogus
+    // variation-row never does. Guard against an id coincidence.
+    if (p._count.variations > 0) continue;
+    if (p._count.orderItems > 0) {
+      recordNote(
+        summary,
+        `Produit en double « ${p.name} » (créé à tort depuis une variante) — conservé car il a un historique de commandes. À fusionner manuellement.`
+      );
+      continue;
+    }
+    await prisma.product.delete({ where: { id: p.id } });
+    recordNote(summary, `Produit en double « ${p.name} » (issu d'une variante) supprimé.`);
   }
 }
 

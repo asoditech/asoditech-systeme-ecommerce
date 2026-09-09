@@ -28,14 +28,26 @@ export async function listShipmentProviderOptions() {
 export async function listShipments(params: {
   status?: ShipmentStatus;
   providerId?: string;
+  search?: string;
   dateFrom?: Date;
   dateTo?: Date;
   page?: number;
 }) {
   const page = Math.max(1, params.page ?? 1);
+  const q = params.search?.trim();
   const where: Prisma.ShipmentWhereInput = {
     ...(params.status ? { status: params.status } : {}),
     ...(params.providerId ? { providerId: params.providerId } : {}),
+    ...(q
+      ? {
+          OR: [
+            { trackingNumber: { contains: q, mode: "insensitive" } },
+            { order: { customer: { fullName: { contains: q, mode: "insensitive" } } } },
+            { order: { customer: { phone: { contains: q, mode: "insensitive" } } } },
+            ...(/^\d+$/.test(q) ? [{ order: { orderNumber: Number(q) } }] : []),
+          ],
+        }
+      : {}),
     ...(params.dateFrom || params.dateTo
       ? {
           createdAt: {
