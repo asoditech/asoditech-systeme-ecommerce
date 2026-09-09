@@ -34,4 +34,11 @@ export const updateUserRoleSchema = z.object({
   role: userRoleSchema,
 });
 
+export const deleteUserSchema = z.object({
+  id: z.string().min(1),
+  // Typed confirmation — the client sends the exact e-mail of the account
+  // being deleted, so a mis-click on the wrong row can't destroy an account.
+  confirmEmail: z.string().trim().min(1),
+});
+
 export type InviteUserInput = z.infer<typeof inviteUserSchema>;

@@ -61,7 +61,7 @@ export default async function UtilisateursPage() {
                 <TableCell className="text-muted-foreground">{u.email}</TableCell>
                 <TableCell>
                   {canManage ? (
-                    <UserRowControls userId={u.id} role={u.role} status={u.status} />
+                    <UserRowControls userId={u.id} name={u.name} email={u.email} role={u.role} status={u.status} />
                   ) : (
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary">{USER_ROLE_LABELS[u.role]}</Badge>

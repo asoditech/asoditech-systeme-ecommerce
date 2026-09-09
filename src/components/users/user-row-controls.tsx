@@ -3,8 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { KeyRound, Copy } from "lucide-react";
-import { updateUserRoleAction, updateUserStatusAction } from "@/actions/users";
+import { KeyRound, Copy, Trash2 } from "lucide-react";
+import { deleteUserAction, updateUserRoleAction, updateUserStatusAction } from "@/actions/users";
 import { adminResetPasswordAction } from "@/actions/password-reset";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -16,10 +16,41 @@ import type { UserRole, UserStatus } from "@prisma/client";
 
 const ASSIGNABLE_ROLES = Object.entries(USER_ROLE_LABELS).filter(([value]) => value !== "OWNER");
 
-export function UserRowControls({ userId, role, status }: { userId: string; role: UserRole; status: UserStatus }) {
+export function UserRowControls({
+  userId,
+  name,
+  email,
+  role,
+  status,
+}: {
+  userId: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  status: UserStatus;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [resetLink, setResetLink] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [confirmEmail, setConfirmEmail] = useState("");
+
+  function deleteUser() {
+    startTransition(async () => {
+      const formData = new FormData();
+      formData.set("id", userId);
+      formData.set("confirmEmail", confirmEmail);
+      const result = await deleteUserAction(formData);
+      if (result.ok) {
+        toast.success("Utilisateur supprimé.");
+        setDeleteOpen(false);
+        setConfirmEmail("");
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  }
 
   function resetPassword() {
     startTransition(async () => {
@@ -101,6 +132,68 @@ export function UserRowControls({ userId, role, status }: { userId: string; role
       >
         <KeyRound className="size-4" />
       </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        disabled={isPending}
+        onClick={() => {
+          setConfirmEmail("");
+          setDeleteOpen(true);
+        }}
+        title="Supprimer l'utilisateur"
+        className="text-destructive hover:text-destructive"
+      >
+        <Trash2 className="size-4" />
+      </Button>
+
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open);
+          if (!open) setConfirmEmail("");
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Supprimer l&apos;utilisateur</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-muted-foreground">
+            <p>
+              Le compte de <span className="font-medium text-foreground">{name}</span> ({email}) sera{" "}
+              <span className="font-medium text-foreground">définitivement supprimé</span>, ainsi que ses sessions, ses
+              notifications et son profil d&apos;agent de commission s&apos;il n&apos;a aucun historique.
+            </p>
+            <p>
+              Les commandes, produits, clients et écritures créés par cet utilisateur sont{" "}
+              <span className="font-medium text-foreground">conservés</span> — seule leur attribution à cet utilisateur
+              est effacée.
+            </p>
+            <p>
+              Pour confirmer, saisissez son e-mail&nbsp;: <span className="font-mono text-foreground">{email}</span>
+            </p>
+            <Input
+              value={confirmEmail}
+              onChange={(e) => setConfirmEmail(e.target.value)}
+              placeholder={email}
+              autoComplete="off"
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setDeleteOpen(false)} disabled={isPending}>
+              Annuler
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isPending || confirmEmail.trim().toLowerCase() !== email.toLowerCase()}
+              onClick={deleteUser}
+            >
+              {isPending ? "Suppression..." : "Supprimer définitivement"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={resetLink !== null} onOpenChange={(open) => !open && setResetLink(null)}>
         <DialogContent>

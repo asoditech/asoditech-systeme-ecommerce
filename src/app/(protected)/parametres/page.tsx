@@ -20,7 +20,7 @@ export default async function ParametresPage() {
   return (
     <div>
       <PageHeader title="Paramètres" description="Informations de l'entreprise et préférences générales." />
-      <div className="max-w-2xl">
+      <div className="max-w-3xl">
         {canManage ? (
           <BusinessSettingsForm settings={settings} />
         ) : (

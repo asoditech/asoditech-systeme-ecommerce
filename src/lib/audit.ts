@@ -16,6 +16,7 @@ export type AuditAction =
   | "user.created"
   | "user.role_changed"
   | "user.status_changed"
+  | "user.deleted"
   | "tenant.created"
   | "tenant.activated"
   | "tenant.suspended"

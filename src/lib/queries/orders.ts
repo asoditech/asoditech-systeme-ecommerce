@@ -73,7 +73,11 @@ export async function listOrders(filters: OrderListFilters) {
   const [orders, total] = await Promise.all([
     prisma.order.findMany({
       where,
-      orderBy: { placedAt: "desc" },
+      // Most-recently-added first: a freshly imported or manually created
+      // order shows at the top of the list immediately, regardless of its
+      // customer-facing order date. `placedAt` is still what the date
+      // filter and the visible "Date" column use.
+      orderBy: [{ createdAt: "desc" }, { placedAt: "desc" }],
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       include: { customer: true, _count: { select: { items: true } } },

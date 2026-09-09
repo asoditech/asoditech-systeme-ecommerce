@@ -3,11 +3,12 @@
 import { useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { Building2, Phone, SlidersHorizontal } from "lucide-react";
 import { updateBusinessSettingsAction } from "@/actions/settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LogoField } from "@/components/settings/logo-field";
 import type { BusinessSettings } from "@prisma/client";
 import type { ActionResult } from "@/actions/types";
@@ -30,89 +31,123 @@ export function BusinessSettingsForm({ settings }: { settings: BusinessSettings 
   }, [state, router]);
 
   return (
-    <form action={formAction} className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Identité de l&apos;entreprise</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="companyName">Nom de l&apos;entreprise</Label>
-              <Input id="companyName" name="companyName" defaultValue={settings.companyName} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="currency">Devise</Label>
-              <Input id="currency" name="currency" maxLength={3} defaultValue={settings.currency} />
-            </div>
-            <LogoField defaultValue={settings.logoUrl} />
-          </div>
-        </CardContent>
-      </Card>
+    <form action={formAction} className="space-y-5">
+      {/* Currency is fixed per deployment — not operator-editable — but the
+          action still expects the field, so round-trip the stored value. */}
+      <input type="hidden" name="currency" value={settings.currency} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Coordonnées</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="email">E-mail de contact</Label>
-              <Input id="email" name="email" type="email" defaultValue={settings.email ?? ""} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="phone">Téléphone</Label>
-              <Input id="phone" name="phone" defaultValue={settings.phone ?? ""} />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="address">Adresse</Label>
-              <Input id="address" name="address" defaultValue={settings.address ?? ""} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="city">Ville</Label>
-              <Input id="city" name="city" defaultValue={settings.city ?? ""} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="country">Pays</Label>
-              <Input id="country" name="country" defaultValue={settings.country} />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <SettingsCard
+        icon={<Building2 className="size-4" />}
+        title="Identité de l'entreprise"
+        description="Nom et logo utilisés sur les documents imprimés (rapports, factures de livraison)."
+      >
+        <div className="space-y-5">
+          <LogoField defaultValue={settings.logoUrl} />
+          <Field label="Nom de l'entreprise" htmlFor="companyName">
+            <Input id="companyName" name="companyName" defaultValue={settings.companyName} />
+          </Field>
+        </div>
+      </SettingsCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Préférences</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="timezone">Fuseau horaire</Label>
-              <Input id="timezone" name="timezone" defaultValue={settings.timezone} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="lowStockDefaultThreshold">Seuil de stock faible par défaut</Label>
-              <Input
-                id="lowStockDefaultThreshold"
-                name="lowStockDefaultThreshold"
-                type="number"
-                min="0"
-                defaultValue={settings.lowStockDefaultThreshold}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="orderNumberPrefix">Préfixe des numéros de commande</Label>
-              <Input id="orderNumberPrefix" name="orderNumberPrefix" defaultValue={settings.orderNumberPrefix} />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <SettingsCard
+        icon={<Phone className="size-4" />}
+        title="Coordonnées"
+        description="Apparaissent en en-tête des factures et rapports transmis à vos clients."
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="E-mail de contact" htmlFor="email">
+            <Input id="email" name="email" type="email" defaultValue={settings.email ?? ""} />
+          </Field>
+          <Field label="Téléphone" htmlFor="phone">
+            <Input id="phone" name="phone" defaultValue={settings.phone ?? ""} />
+          </Field>
+          <Field label="Adresse" htmlFor="address" className="sm:col-span-2">
+            <Input id="address" name="address" defaultValue={settings.address ?? ""} />
+          </Field>
+          <Field label="Ville" htmlFor="city">
+            <Input id="city" name="city" defaultValue={settings.city ?? ""} />
+          </Field>
+          <Field label="Pays" htmlFor="country">
+            <Input id="country" name="country" defaultValue={settings.country} />
+          </Field>
+        </div>
+      </SettingsCard>
 
-      <div className="flex justify-end">
+      <SettingsCard
+        icon={<SlidersHorizontal className="size-4" />}
+        title="Préférences générales"
+        description="Réglages par défaut appliqués à l'ensemble du système."
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Fuseau horaire" htmlFor="timezone">
+            <Input id="timezone" name="timezone" defaultValue={settings.timezone} />
+          </Field>
+          <Field label="Seuil de stock faible par défaut" htmlFor="lowStockDefaultThreshold">
+            <Input
+              id="lowStockDefaultThreshold"
+              name="lowStockDefaultThreshold"
+              type="number"
+              min="0"
+              defaultValue={settings.lowStockDefaultThreshold}
+            />
+          </Field>
+          <Field label="Préfixe des numéros de commande" htmlFor="orderNumberPrefix">
+            <Input id="orderNumberPrefix" name="orderNumberPrefix" defaultValue={settings.orderNumberPrefix} />
+          </Field>
+        </div>
+      </SettingsCard>
+
+      <div className="sticky bottom-0 flex justify-end border-t bg-background/95 py-3 backdrop-blur">
         <Button type="submit" disabled={isPending}>
-          {isPending ? "Enregistrement..." : "Enregistrer"}
+          {isPending ? "Enregistrement..." : "Enregistrer les modifications"}
         </Button>
       </div>
     </form>
+  );
+}
+
+function SettingsCard({
+  icon,
+  title,
+  description,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <span className="flex size-7 items-center justify-center rounded-md bg-muted text-muted-foreground">
+            {icon}
+          </span>
+          {title}
+        </CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+}
+
+function Field({
+  label,
+  htmlFor,
+  className,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={`space-y-1.5${className ? ` ${className}` : ""}`}>
+      <Label htmlFor={htmlFor}>{label}</Label>
+      {children}
+    </div>
   );
 }

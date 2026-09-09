@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { updateUserStatusAction, updateUserRoleAction } from "@/actions/users";
+import { updateUserStatusAction, updateUserRoleAction, deleteUserAction } from "@/actions/users";
 import { createSession } from "@/lib/auth/session";
 import { resetDb } from "../helpers/db";
 import { loginAsTestUser, createTestUser } from "../helpers/auth";
@@ -112,6 +112,80 @@ describe("users.ts — users.manage enforcement (OWNER + ADMIN)", () => {
 
     const row = await prisma.user.findUniqueOrThrow({ where: { id: otherOwner.id } });
     expect(row.role).toBe("OWNER");
+  });
+});
+
+describe("deleteUserAction", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  it("rejects deleteUserAction from a role without users.manage", async () => {
+    await loginAsTestUser({ role: "CONFIRMATION" });
+    const target = await createTestUser({ role: "CONFIRMATION" });
+    await expect(
+      deleteUserAction(formData({ id: target.id, confirmEmail: target.email }))
+    ).rejects.toThrow(/non autorisé/i);
+  });
+
+  it("deletes the account and cascades its own dependent rows, but preserves records it created", async () => {
+    const target = await createTestUser({ role: "CONFIRMATION" });
+    await createSession(target.id);
+    const customer = await prisma.customer.create({
+      data: { fullName: "Client X", createdById: target.id },
+    });
+
+    await loginAsTestUser({ role: "ADMIN" });
+    const result = await deleteUserAction(formData({ id: target.id, confirmEmail: target.email }));
+    expect(result.ok).toBe(true);
+
+    expect(await prisma.user.findUnique({ where: { id: target.id } })).toBeNull();
+    expect(await prisma.session.count({ where: { userId: target.id } })).toBe(0);
+    const survivingCustomer = await prisma.customer.findUniqueOrThrow({ where: { id: customer.id } });
+    expect(survivingCustomer.createdById).toBeNull();
+  });
+
+  it("refuses when the typed e-mail confirmation does not match", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const target = await createTestUser({ role: "CONFIRMATION" });
+
+    const result = await deleteUserAction(formData({ id: target.id, confirmEmail: "wrong@asoditech.test" }));
+    expect(result.ok).toBe(false);
+    expect(await prisma.user.findUnique({ where: { id: target.id } })).not.toBeNull();
+  });
+
+  it("cannot delete the OWNER, and cannot delete yourself", async () => {
+    const me = await loginAsTestUser({ role: "OWNER" });
+    const owner = await createTestUser({ role: "OWNER" });
+
+    expect((await deleteUserAction(formData({ id: owner.id, confirmEmail: owner.email }))).ok).toBe(false);
+    expect((await deleteUserAction(formData({ id: me.id, confirmEmail: me.email }))).ok).toBe(false);
+    expect(await prisma.user.findUnique({ where: { id: owner.id } })).not.toBeNull();
+    expect(await prisma.user.findUnique({ where: { id: me.id } })).not.toBeNull();
+  });
+
+  it("refuses to delete a commission agent that already has ledger entries", async () => {
+    const target = await createTestUser({ role: "CONFIRMATION" });
+    const agent = await prisma.commissionAgent.create({
+      data: { userId: target.id, ratePerOrder: 10 },
+    });
+    const customer = await prisma.customer.create({ data: { fullName: "Client Y" } });
+    const order = await prisma.order.create({
+      data: { customerId: customer.id, status: "LIVREE", subtotal: 100, total: 100, currency: "MAD" },
+    });
+    await prisma.commissionEntry.create({
+      data: { agentId: agent.id, orderId: order.id, type: "EARNED", amount: 10, rateApplied: 10 },
+    });
+
+    await loginAsTestUser({ role: "ADMIN" });
+    const result = await deleteUserAction(formData({ id: target.id, confirmEmail: target.email }));
+    expect(result.ok).toBe(false);
+    expect(await prisma.user.findUnique({ where: { id: target.id } })).not.toBeNull();
   });
 });
 
