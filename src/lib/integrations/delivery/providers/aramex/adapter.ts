@@ -100,6 +100,7 @@ function clientFor(credentials: DeliveryCredentials, config: DeliveryProviderCon
     client: new AramexClient(creds, {
       timeoutMs: cfg.requestTimeoutMs,
       source: cfg.source,
+      sandbox: cfg.sandbox,
       shippingBaseUrl: cfg.shippingBaseUrl,
       trackingBaseUrl: cfg.trackingBaseUrl,
       rateBaseUrl: cfg.rateBaseUrl,

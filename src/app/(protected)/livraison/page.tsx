@@ -46,6 +46,7 @@ const TERMINAL_SHIPMENT_STATUSES = ["LIVRE", "ANNULE", "RETOURNE"];
 /** Carrier connector key → its brand logo (public/brands/). */
 const PROVIDER_BRANDS: Partial<Record<string, BrandKey>> = {
   ozonexpress: "ozonexpress",
+  aramex: "aramex",
   ameex: "ameex",
   speedaf: "speedaf",
 };

@@ -40,9 +40,20 @@ OzonExpress client's path-secrecy rule).
 
 **Error signalling.** HTTP 200 with `{ "HasErrors": true, "Notifications":
 [ { "Code", "Message" } ] }`. `assertNoApiError` in `client.ts` raises a
-typed `DeliveryProviderError` from that; `errors.ts` maps the auth /
-config / not-found message substrings and surfaces anything else as a
-sanitised `DeliveryUnavailableError`.
+typed `DeliveryProviderError` from that; `errors.ts` classifies **by
+notification code first** (`REQxx` missing-field, `ERR01` bad
+credentials, `ERR02`/`ERR03` invalid/blocked account, `ERR30` duplicate
+reference, `ERR52` unresolved address, `ERR38`/`ERR39` pickup out of
+hours — from Appendix F, see `docs/aramex_carrier_integration_doc.md` §6),
+then falls back to message substrings, then to a sanitised
+`DeliveryUnavailableError`.
+
+**Sandbox.** Aramex publishes a full test environment on
+`ws.dev.aramex.net` with the same paths. The connector config flag
+`sandbox: true` routes every call there; an explicit `*BaseUrl` override
+still wins. Aramex's shared test credentials (`AccountCountryCode: GB`,
+`AccountEntity: LON`, `AccountNumber: 102331`, …) are in the reference
+doc — never use them against the live host.
 
 **Request field names** come verbatim from Aramex's official sample
 (`aramex/shipping-services-api-sample-code/createShipmentsPHP.txt`):
@@ -60,13 +71,41 @@ CashOnDeliveryAmount,…}`, top-level `Transaction` and `LabelInfo`.
 - `FETCH_CITIES` — Aramex addresses by free-text city + ISO country code,
   with no mandatory numeric city id, so the city-mapping layer
   (ADR 0018) is not needed. The order's city string is sent as-is.
-- `GENERATE_MANIFEST` — no equivalent of OzonExpress's "bon de livraison"
-  multi-step API in the JSON services we use.
-- `WEBHOOKS` — Aramex push notifications need separate provisioning we
-  don't have.
+- `GENERATE_MANIFEST` — Aramex's handover concept is `CreatePickup`
+  (schedule a pickup), not OzonExpress's "bon de livraison" document. The
+  platform has no pickup capability yet and the manifest UI is unwired for
+  *both* carriers, so this is a shared follow-up, not a per-carrier gap
+  (see the parity table below).
+- `WEBHOOKS` — Aramex has none (confirmed by the owner reference doc §1);
+  status is refreshed by polling, exactly like OzonExpress.
 
 Undeclared capabilities hit the shared typed "unsupported" error, never a
 silent local action.
+
+### Cross-carrier feature parity
+
+The platform's user-facing delivery workflow is **carrier-agnostic** — the
+active carrier is only ever an implementation detail behind
+`DeliveryProviderAdapter`. What matters for consistency (and where each
+carrier stands) is:
+
+| Platform feature | Where it lives | OzonExpress | Aramex | Notes |
+| --- | --- | --- | --- | --- |
+| Create shipment from an order | `createShipmentViaProvider` → `adapter.createShipment` | ✅ | ✅ | Same "À expédier" flow, same `Shipment` row. |
+| Delivery-status tracking → order + commission | `syncShipmentStatus` → `adapter.fetchStatus` + `adapter.mapStatus` | ✅ | ✅ | Aramex uses its **real** Tracking API (`TrackShipments`). The status → `LIVRE` → order `LIVREE` → `reconcileOrderCommission` chain is identical and has **zero carrier-specific code**. |
+| Delivery cost on the shipment | ride-along on `createShipment` / `fetchStatus` results | ✅ (`DELIVERED-PRICE`) | ✅ (`CalculateRate`, best-effort) | |
+| Statistics / dashboard (`getDeliveryStats`, `/rapports/livraison`) | local `Shipment` table only | ✅ | ✅ | Neither carrier is queried for stats — everything is computed from persisted shipment rows. |
+| Delivery invoice (`/livraison/factures`) | local data, by `shipmentId` | ✅ | ✅ | Carrier-agnostic. |
+| Commission per confirmation agent | `reconcileOrderCommission`, order-status driven | ✅ | ✅ | Not carrier-aware at all. |
+| Public tracking URL | `adapter` result | ✅ (none — OzonExpress documents no pattern) | ✅ (`www.aramex.com/track/results`) | |
+| Cancel a created shipment | `CANCEL_SHIPMENT` capability | ❌ (no endpoint) | ❌ (pickup-scoped only) | **Consistent** — neither supports it; both return the typed "unsupported" error. |
+| Carrier city catalogue / city-id mapping | `FETCH_CITIES` + ADR 0018 | ✅ (needs numeric city ids) | — not applicable (free-text city) | Not a missing feature: Aramex has no city-id concept, so the mapping layer is correctly bypassed. |
+| Bon de livraison / manifest handover | `GENERATE_MANIFEST` (+ `manifest-builder.tsx`, **not yet wired into any page**) | ⚠️ built, dormant | ❌ (Aramex uses `CreatePickup` instead) | When this is surfaced, both carriers get their handover form (OzonExpress: delivery note; Aramex: pickup request). Tracked as a follow-up, not a per-carrier gap today. |
+| Webhooks (push status) | `WEBHOOKS` capability | ❌ | ❌ | **Consistent.** Status is refreshed by polling / the "Rafraîchir les statuts" button for both. |
+
+The only genuine build-time follow-up for full parity is the handover
+document (manifest vs pickup) — and it is unbuilt for *both* carriers, so
+it is not a discrepancy the operator can see today.
 
 ### Origin (shipper) address in config, not per order
 `CreateShipments` needs a full `Shipper` address + contact on every
@@ -118,9 +157,14 @@ src/lib/integrations/delivery/providers/aramex/
   index.ts    registerAramexProvider()
 ```
 Registered from `src/lib/integrations/delivery/providers/index.ts`.
-Operator setup guide: `src/components/delivery/delivery-docs.tsx`
-(`AramexGuide`). Tests: `tests/lib/aramex-mapper.test.ts`,
+Provider brand logo wired in `src/app/(protected)/livraison/page.tsx`
+(`PROVIDER_BRANDS`) alongside OzonExpress. Operator setup guide:
+`src/components/delivery/delivery-docs.tsx` (`AramexGuide`). Tests:
+`tests/lib/aramex-mapper.test.ts`, `tests/lib/aramex-errors.test.ts`,
 `tests/lib/delivery-production-registry.test.ts`.
+
+Owner-provided API reference: `docs/aramex_carrier_integration_doc.md`
+(capabilities, environments, field mapping, error codes, limitations).
 
 ## Consequences
 - Aramex is selectable in "Livraison → Prestataires" and can be

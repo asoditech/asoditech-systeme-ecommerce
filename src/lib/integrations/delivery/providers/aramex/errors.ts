@@ -24,6 +24,53 @@ function sanitize(message: string): string {
   return out.length > 240 ? out.slice(0, 240) + "…" : out;
 }
 
+/**
+ * Aramex notification codes worth acting on, from Appendix F of the
+ * official guide (see docs/aramex_carrier_integration_doc.md §6). Aramex
+ * returns 61 codes; these are the ones with a distinct user action.
+ *   REQxx  — a required field was empty (validation should have caught it)
+ *   ERR01  — wrong Username/Password
+ *   ERR02  — account invalid
+ *   ERR03  — account blocked
+ *   ERR30  — duplicate ForeignHAWB (idempotency clash)
+ *   ERR52  — address could not be resolved (City / PostCode / CountryCode)
+ *   ERR38/ERR39 — pickup time outside working hours (pickup requests only)
+ */
+function classifyByCode(code: string): DeliveryProviderError | null {
+  const c = code.trim().toUpperCase();
+  if (/^REQ\d+$/.test(c)) {
+    return new DeliveryConfigError(
+      `Aramex signale un champ obligatoire manquant (${c}). Complétez les informations de la commande et de l'adresse d'expédition, puis réessayez.`
+    );
+  }
+  if (c === "ERR01") {
+    return new DeliveryAuthError(
+      "Authentification refusée par Aramex (ERR01) — nom d'utilisateur ou mot de passe API incorrect."
+    );
+  }
+  if (c === "ERR02" || c === "ERR03") {
+    return new DeliveryAuthError(
+      `Compte Aramex non utilisable (${c}) — le compte est invalide ou bloqué. Contactez votre représentant Aramex.`
+    );
+  }
+  if (c === "ERR30") {
+    return new DeliveryNotFoundError(
+      "Aramex a déjà un envoi avec cette référence (ERR30). L'expédition a probablement déjà été créée — vérifiez l'onglet « Expéditions »."
+    );
+  }
+  if (c === "ERR52") {
+    return new DeliveryConfigError(
+      "Aramex n'a pas pu résoudre l'adresse de livraison (ERR52) — vérifiez la ville, le code postal et le code pays de la commande."
+    );
+  }
+  if (c === "ERR38" || c === "ERR39") {
+    return new DeliveryConfigError(
+      `Créneau d'enlèvement Aramex hors des heures ouvrables (${c}).`
+    );
+  }
+  return null;
+}
+
 /** Aramex `Notifications` entries — `{ Code, Message }`. Maps the codes /
  * message substrings that are safe to act on to a typed error; everything
  * else surfaces Aramex's own sanitised message as a generic unavailable
@@ -31,6 +78,13 @@ function sanitize(message: string): string {
 export function errorForNotifications(
   notifications: { Code?: string | number; Message?: string }[]
 ): DeliveryProviderError {
+  // 1. Explicit code match wins — the codes are stable, the wording drifts.
+  for (const n of notifications) {
+    if (n.Code === undefined || n.Code === null) continue;
+    const byCode = classifyByCode(String(n.Code));
+    if (byCode) return byCode;
+  }
+
   const messages = notifications
     .map((n) => n.Message?.trim())
     .filter((m): m is string => Boolean(m));

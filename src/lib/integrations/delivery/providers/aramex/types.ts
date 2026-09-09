@@ -121,6 +121,12 @@ export const aramexConfigSchema = z.object({
   labelReportType: z.enum(["URL", "RPT"]).optional(),
   source: z.number().int().positive().max(9999).optional(),
 
+  /** Route every call to Aramex's `ws.dev.aramex.net` sandbox instead of
+   * the live hosts (docs/aramex_carrier_integration_doc.md §2). Use it to
+   * validate the whole flow with Aramex's shared test account before
+   * going live. An explicit `*BaseUrl` override still wins. */
+  sandbox: z.boolean().optional(),
+
   /** When the storefront's own Aramex plugin already creates the AWB at
    * checkout, set this so ASODITECH links the existing waybill (manual
    * shipment creation) instead of creating a duplicate. */

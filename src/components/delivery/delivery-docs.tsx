@@ -232,12 +232,19 @@ function AramexGuide() {
   "productType": "OND",
   "paymentType": "P",
   "defaultWeightKg": 0.5,
-  "defaultGoodsDescription": "Vêtements"
+  "defaultGoodsDescription": "Vêtements",
+  "sandbox": true
 }`}
           </pre>
           <p>
             <span className="text-foreground">productType « OND »</span> est le type domestique avec paiement à la
             livraison (COD). Le montant à encaisser est repris automatiquement depuis la commande.
+          </p>
+          <p>
+            Gardez <span className="text-foreground">&quot;sandbox&quot;: true</span> pour tester tout le flux sur
+            l&apos;environnement d&apos;essai d&apos;Aramex (<span className="font-mono">ws.dev.aramex.net</span>), puis
+            passez à <span className="text-foreground">false</span> (ou retirez la ligne) une fois vos identifiants de
+            production Aramex Maroc obtenus.
           </p>
         </section>
 

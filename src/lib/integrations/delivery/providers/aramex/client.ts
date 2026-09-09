@@ -23,9 +23,15 @@ import { aramexEnvelopeSchema, type AramexCredentials } from "./types";
  * notification text. See docs/adr/0028-aramex-integration.md ("Credentials").
  */
 
+// Live hosts. Aramex also publishes a full sandbox on `ws.dev.aramex.net`
+// with the same paths (docs/aramex_carrier_integration_doc.md §2) — used
+// when the connector config sets `sandbox: true`.
 const PRODUCTION_SHIPPING_BASE_URL = "https://ws.aramex.net/ShippingAPI.V2/Shipping";
 const PRODUCTION_TRACKING_BASE_URL = "https://ws.aramex.net/ShippingAPI/Tracking";
 const PRODUCTION_RATE_BASE_URL = "https://ws.aramex.net/ShippingAPI.V2/RateCalculator";
+const SANDBOX_SHIPPING_BASE_URL = "https://ws.dev.aramex.net/ShippingAPI.V2/Shipping";
+const SANDBOX_TRACKING_BASE_URL = "https://ws.dev.aramex.net/ShippingAPI/Tracking";
+const SANDBOX_RATE_BASE_URL = "https://ws.dev.aramex.net/ShippingAPI.V2/RateCalculator";
 const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 const DEFAULT_SOURCE = 24;
 const MAX_RETRIES = 3;
@@ -53,6 +59,9 @@ export function parseMoney(value: unknown): number | null {
 interface AramexClientOptions {
   timeoutMs?: number;
   source?: number;
+  /** Route every call to Aramex's `ws.dev.aramex.net` sandbox. An explicit
+   * `*BaseUrl` override still wins over this. */
+  sandbox?: boolean;
   shippingBaseUrl?: string;
   trackingBaseUrl?: string;
   rateBaseUrl?: string;
@@ -82,10 +91,14 @@ export class AramexClient {
       return base;
     };
 
+    const [shippingFallback, trackingFallback, rateFallback] = options.sandbox
+      ? [SANDBOX_SHIPPING_BASE_URL, SANDBOX_TRACKING_BASE_URL, SANDBOX_RATE_BASE_URL]
+      : [PRODUCTION_SHIPPING_BASE_URL, PRODUCTION_TRACKING_BASE_URL, PRODUCTION_RATE_BASE_URL];
+
     this.bases = {
-      shipping: normalizeBase(options.shippingBaseUrl, PRODUCTION_SHIPPING_BASE_URL, "d'expédition"),
-      tracking: normalizeBase(options.trackingBaseUrl, PRODUCTION_TRACKING_BASE_URL, "de suivi"),
-      rate: normalizeBase(options.rateBaseUrl, PRODUCTION_RATE_BASE_URL, "de tarification"),
+      shipping: normalizeBase(options.shippingBaseUrl, shippingFallback, "d'expédition"),
+      tracking: normalizeBase(options.trackingBaseUrl, trackingFallback, "de suivi"),
+      rate: normalizeBase(options.rateBaseUrl, rateFallback, "de tarification"),
     };
 
     this.clientInfo = {
