@@ -494,6 +494,9 @@ describe("WooCommerce integration", () => {
       expect(order.items[0].discount.toString()).not.toBeNull();
       expect(order.customer.fullName).toBe("Amine Tazi");
       expect(order.customer.source).toBe("WOOCOMMERCE");
+      // The name shown for the order is the order's own billing snapshot,
+      // not the (possibly shared) customer account name — docs/adr/0030.
+      expect(order.shippingName).toBe("Amine Tazi");
 
       // docs/adr/0016-notifications.md — a recently-placed imported order
       // notifies exactly like a manually-created one (fixture date is
@@ -502,6 +505,55 @@ describe("WooCommerce integration", () => {
       expect(notification.type).toBe("NOUVELLE_COMMANDE");
       expect(notification.message).toContain("Amine Tazi");
       expect(notification.message).toContain("WooCommerce");
+    });
+
+    /**
+     * Live-testing report: a shop that places every order under one
+     * WooCommerce account (the store admin) had different customers'
+     * names collapse to one on the orders list, because the list showed
+     * the linked Customer's name. Fixed by snapshotting the order's own
+     * billing name onto `Order.shippingName` (docs/adr/0030).
+     */
+    it("keeps each order's own billing name even when several orders share one customer account", async () => {
+      await seedProductWithCost();
+      const base = {
+        status: "processing",
+        date_paid: null,
+        customer_id: 1,
+        total: "50.00",
+        shipping_total: "0.00",
+        discount_total: "0.00",
+        payment_method: "cod",
+        shipping: {},
+        line_items: [
+          { id: 1, name: "Thé vert", product_id: 501, sku: "THE-VERT", quantity: 1, price: "50.00", subtotal: "50.00", total: "50.00" },
+        ],
+      };
+      state.orders = [
+        {
+          ...base,
+          id: 9310,
+          number: "9310",
+          date_created: futureIso(1),
+          billing: { first_name: "Ayman", last_name: "", email: "shop@example.com", phone: "0611111111", city: "Casablanca", country: "MA", address_1: "Rue 1" },
+        },
+        {
+          ...base,
+          id: 9311,
+          number: "9311",
+          date_created: futureIso(2),
+          billing: { first_name: "Ayoub", last_name: "", email: "shop@example.com", phone: "0622222222", city: "Casablanca", country: "MA", address_1: "Rue 2" },
+        },
+      ];
+
+      const result = await syncWooCommerceOrdersAction();
+      expect(result.ok).toBe(true);
+
+      const a = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "9310" }, include: { customer: true } });
+      const b = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "9311" }, include: { customer: true } });
+      expect(a.customerId).toBe(b.customerId); // one shared customer
+      expect(a.shippingName).toBe("Ayman");
+      expect(b.shippingName).toBe("Ayoub");
     });
 
     /**

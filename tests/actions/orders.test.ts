@@ -8,6 +8,7 @@ import {
   updateOrderPaymentStatusAction,
   updateOrderShippingAddressAction,
   cancelOrderAction,
+  reopenOrderAction,
   createRefundAction,
   updateRefundStatusAction,
 } from "@/actions/orders";
@@ -89,9 +90,9 @@ describe("createOrderAction", () => {
     ).rejects.toThrow(/non autorisé/i);
   });
 
-  it("creates an order, snapshots product price/cost, and reserves stock without touching on-hand", async () => {
+  it("creates a NOUVELLE order that snapshots price/cost but reserves NO stock (reservation is taken at confirmation — ADR 0030)", async () => {
     const { customer, product } = await seedOrderable();
-    await loginAsTestUser({ role: "CONFIRMATION" });
+    await loginAsTestUser({ role: "OWNER" });
 
     const result = await createOrderAction({
       customerId: customer.id,
@@ -117,7 +118,18 @@ describe("createOrderAction", () => {
     expect(order.total.toString()).toBe("320");
     expect(order.items[0].costSnapshot?.toString()).toBe("40");
 
-    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    let item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityOnHand).toBe(10);
+    expect(item.quantityReserved).toBe(0);
+
+    // Confirming the order is what reserves the stock.
+    const fd = new FormData();
+    fd.set("id", order.id);
+    fd.set("status", "CONFIRMEE");
+    const confirmed = await updateOrderStatusAction(fd);
+    expect(confirmed.ok).toBe(true);
+
+    item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
     expect(item.quantityOnHand).toBe(10);
     expect(item.quantityReserved).toBe(3);
   });
@@ -264,15 +276,17 @@ describe("createOrderAction — fulfilment warehouse (Phase 32b)", () => {
     ...extra,
   });
 
-  it("O1/O8 — defaults to getDefaultWarehouseId(), reserves there, and records it in the audit metadata", async () => {
+  it("O1/O8 — defaults to getDefaultWarehouseId(); confirmation reserves there; records it in the audit metadata", async () => {
     const { customer, product, warehouse } = await seedOrderable();
-    await loginAsTestUser({ role: "CONFIRMATION" });
+    await loginAsTestUser({ role: "OWNER" });
     const r = await createOrderAction(orderInput(customer.id, product.id));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
 
     const order = await prisma.order.findUniqueOrThrow({ where: { id: r.data.id } });
     expect(order.fulfillmentWarehouseId).toBe(warehouse.id);
+
+    await updateOrderStatusAction(formData({ id: r.data.id, status: "CONFIRMEE" }));
     const item = await prisma.inventoryItem.findFirstOrThrow({ where: { warehouseId: warehouse.id, productId: product.id } });
     expect(item.quantityReserved).toBe(2);
 
@@ -285,11 +299,12 @@ describe("createOrderAction — fulfilment warehouse (Phase 32b)", () => {
     const second = await prisma.warehouse.create({ data: { name: "Dépôt Sud", type: "ENTREPOT" } });
     await prisma.inventoryItem.create({ data: { warehouseId: second.id, productId: product.id, quantityOnHand: 30 } });
 
-    await loginAsTestUser({ role: "CONFIRMATION" });
+    await loginAsTestUser({ role: "OWNER" });
     const r = await createOrderAction(orderInput(customer.id, product.id, { fulfillmentWarehouseId: second.id }));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
 
+    await updateOrderStatusAction(formData({ id: r.data.id, status: "CONFIRMEE" }));
     const secondItem = await prisma.inventoryItem.findFirstOrThrow({ where: { warehouseId: second.id, productId: product.id } });
     const defaultItem = await prisma.inventoryItem.findFirstOrThrow({ where: { warehouseId: warehouse.id, productId: product.id } });
     expect(secondItem.quantityReserved).toBe(2);
@@ -457,10 +472,14 @@ describe("updateOrderStatusAction — state machine", () => {
     if (!created.ok) return;
     const orderId = created.data.id;
 
+    // NOUVELLE holds no reservation (ADR 0030) — confirmation takes it.
     let row = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: varItem.id } });
-    expect(row).toMatchObject({ quantityOnHand: 12, quantityReserved: 3 });
+    expect(row).toMatchObject({ quantityOnHand: 12, quantityReserved: 0 });
 
     await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
+    row = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: varItem.id } });
+    expect(row).toMatchObject({ quantityOnHand: 12, quantityReserved: 3 });
+
     await updateOrderStatusAction(formData({ id: orderId, status: "EN_PREPARATION" }));
     const shipped = await updateOrderStatusAction(formData({ id: orderId, status: "EXPEDIEE" }));
     expect(shipped.ok).toBe(true);
@@ -485,6 +504,36 @@ describe("updateOrderStatusAction — state machine", () => {
     const result = await updateOrderStatusAction(formData({ id: orderId, status: "LIVREE" }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/transition/i);
+  });
+
+  it("reopenOrderAction undoes a wrong NOUVELLE→ANNULEE cancellation with no stock movement", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { orderId, product } = await createTestOrder();
+
+    // Cancel it straight from NOUVELLE (no reservation held).
+    await cancelOrderAction(formData({ id: orderId, reason: "" }));
+
+    const reopened = await reopenOrderAction(formData({ id: orderId }));
+    expect(reopened.ok).toBe(true);
+
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(order.status).toBe("NOUVELLE");
+    expect(order.cancelledAt).toBeNull();
+    expect(await prisma.inventoryMovement.count({ where: { orderId } })).toBe(0);
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityReserved).toBe(0);
+  });
+
+  it("reopenOrderAction refuses an order that was shipped", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { orderId } = await createTestOrder();
+    await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
+    await updateOrderStatusAction(formData({ id: orderId, status: "EN_PREPARATION" }));
+    await updateOrderStatusAction(formData({ id: orderId, status: "EXPEDIEE" }));
+    await cancelOrderAction(formData({ id: orderId, reason: "" }));
+
+    const res = await reopenOrderAction(formData({ id: orderId }));
+    expect(res.ok).toBe(false);
   });
 
   it("fulfills stock (deducts on-hand, releases reservation) when moving to EXPEDIEE", async () => {

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
-import { releaseStockForOrder, InsufficientStockError } from "@/lib/inventory";
+import { reserveStockForOrder, InsufficientStockError } from "@/lib/inventory";
 import { resolveNotifications } from "@/lib/notifications";
 import { pushStockAfterLocalChange, pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
 import { reconcileOrderCommission } from "@/lib/commissions";
@@ -101,10 +101,13 @@ export async function recordConfirmationAttemptAction(
         });
         if (moved.count === 0) throw new OrderRaceError();
 
-        if (terminal === "ANNULEE") {
-          // A NOUVELLE order is reserved, never fulfilled — release, don't return.
-          await releaseStockForOrder(tx, id, lines, user.id);
+        if (terminal === "CONFIRMEE") {
+          // Stock is reserved at confirmation, not at order creation
+          // (docs/adr/0030). Reserving never fails (backorders allowed).
+          await reserveStockForOrder(tx, id, lines, user.id);
         }
+        // ANNULE from NOUVELLE: nothing to release — a NOUVELLE order
+        // never held a reservation.
       }
     });
   } catch (error) {
@@ -130,11 +133,15 @@ export async function recordConfirmationAttemptAction(
     await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: id });
     await reconcileOrderCommission(id, user.id);
   }
-  if (terminal === "ANNULEE") {
+  if (terminal === "CONFIRMEE") {
+    // Confirmation just reserved stock — a linked store's sellable number
+    // must reflect that.
     await pushStockAfterLocalChange({
       productIds: lines.map((l) => l.productId),
       variationIds: lines.map((l) => l.variationId),
     });
+  }
+  if (terminal === "ANNULEE") {
     await pushOrderStatusToWooCommerce(id);
   }
 

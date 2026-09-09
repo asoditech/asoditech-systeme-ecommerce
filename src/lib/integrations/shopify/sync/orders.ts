@@ -172,12 +172,16 @@ async function resolveCustomerForOrder(order: ShopifyOrder, actor: SyncActor): P
 
 function mappedOrderFields(order: ShopifyOrder) {
   const address = order.shippingAddress ?? order.billingAddress;
+  const recipient =
+    [address?.firstName, address?.lastName].filter(Boolean).join(" ").trim() ||
+    [order.customer?.firstName, order.customer?.lastName].filter(Boolean).join(" ").trim();
   return {
     subtotal: order.subtotalPriceSet.amount,
     discountTotal: order.totalDiscountsSet?.amount ?? 0,
     shippingCost: order.totalShippingPriceSet.amount,
     total: order.currentTotalPriceSet.amount,
     currency: order.currentTotalPriceSet.currency,
+    shippingName: recipient || null,
     shippingAddressLine1: address?.address1 ?? null,
     shippingAddressLine2: address?.address2 ?? null,
     shippingCity: address?.city ?? null,
@@ -229,6 +233,7 @@ async function createImportedOrder(
       shippingCost: fields.shippingCost,
       total: fields.total,
       currency: fields.currency,
+      shippingName: fields.shippingName,
       shippingAddressLine1: fields.shippingAddressLine1,
       shippingAddressLine2: fields.shippingAddressLine2,
       shippingCity: fields.shippingCity,
@@ -306,7 +311,12 @@ async function updateExistingOrder(
     const placedAtChanged = existing.placedAt.getTime() !== wantedPlacedAt.getTime();
     const totalsChanged =
       Number(existing.total) !== fields.total || Number(existing.subtotal) !== fields.subtotal || Number(existing.shippingCost) !== fields.shippingCost;
-    if (totalsChanged || existing.notes !== fields.notes || placedAtChanged) {
+    if (
+      totalsChanged ||
+      existing.notes !== fields.notes ||
+      placedAtChanged ||
+      existing.shippingName !== fields.shippingName
+    ) {
       await tx.order.update({
         where: { id: orderId },
         data: {
@@ -315,6 +325,7 @@ async function updateExistingOrder(
           discountTotal: fields.discountTotal,
           shippingCost: fields.shippingCost,
           total: fields.total,
+          shippingName: fields.shippingName,
           shippingAddressLine1: fields.shippingAddressLine1,
           shippingAddressLine2: fields.shippingAddressLine2,
           shippingCity: fields.shippingCity,

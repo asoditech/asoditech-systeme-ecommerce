@@ -14,9 +14,13 @@ export const orderStatusSchema = z.enum([
 export type OrderStatusValue = z.infer<typeof orderStatusSchema>;
 
 /**
- * Explicit, code-enforced state machine — see docs/adr/0002-domain-model.md.
- * ANNULEE/REMBOURSEE are terminal. A shipment carrier failure moves EXPEDIEE
- * -> ECHEC, which staff can retry back to EN_PREPARATION.
+ * Explicit, code-enforced state machine — see docs/adr/0002-domain-model.md
+ * and docs/adr/0030 (stock reservation moved to CONFIRMEE).
+ * REMBOURSEE is terminal. A shipment carrier failure moves EXPEDIEE ->
+ * ECHEC, which staff can retry back to EN_PREPARATION. `ANNULEE ->
+ * NOUVELLE` exists ONLY as the "undo a wrong cancellation" path
+ * (reopenOrderAction) and only when the order was never shipped — no
+ * stock action, since a NOUVELLE order holds no reservation.
  */
 export const ORDER_STATUS_TRANSITIONS: Record<OrderStatusValue, OrderStatusValue[]> = {
   NOUVELLE: ["CONFIRMEE", "ANNULEE"],
@@ -26,13 +30,27 @@ export const ORDER_STATUS_TRANSITIONS: Record<OrderStatusValue, OrderStatusValue
   LIVREE: ["RETOUR"],
   ECHEC: ["EN_PREPARATION", "ANNULEE"],
   RETOUR: ["REMBOURSEE"],
-  ANNULEE: [],
+  ANNULEE: ["NOUVELLE"],
   REMBOURSEE: [],
 };
 
 export function canTransitionOrderStatus(from: OrderStatusValue, to: OrderStatusValue): boolean {
   if (from === to) return false;
   return ORDER_STATUS_TRANSITIONS[from].includes(to);
+}
+
+/**
+ * Statuses in which an order holds a stock RESERVATION (docs/adr/0030):
+ * reservation is taken when the order is CONFIRMED, converted to an
+ * on-hand deduction when it ships. A NOUVELLE order — confirmed or not —
+ * holds nothing, so an unconfirmed / never-answered order never ties up
+ * stock. `ECHEC` is excluded: it is only reachable from EXPEDIEE, i.e.
+ * the stock was already deducted, not merely reserved.
+ */
+export const RESERVED_ORDER_STATUSES: OrderStatusValue[] = ["CONFIRMEE", "EN_PREPARATION"];
+
+export function orderHoldsReservation(status: OrderStatusValue): boolean {
+  return RESERVED_ORDER_STATUSES.includes(status);
 }
 
 export const orderPaymentStatusSchema = z.enum([

@@ -43,20 +43,22 @@ The single writer. Order must be `NOUVELLE` (the queue never shows
 anything else). In one transaction: append the attempt, bump the two
 denormalised columns, then:
 - `CONFIRME` → conditional `updateMany(status: NOUVELLE → CONFIRMEE)`
-  (same race guard as `updateOrderStatusAction`), set `confirmedAt`. **Auto-credit:**
-  if the order has no `confirmationAgentId` *and* the caller has a
-  `CommissionAgent` row, set it to that agent. A missing agent record is
-  "no credit", never an error.
-- `ANNULE` → conditional `updateMany(→ ANNULEE)`, `cancelledAt`, and
-  `releaseStockForOrder` (a NOUVELLE order is reserved, never fulfilled).
+  (same race guard as `updateOrderStatusAction`), set `confirmedAt`, and
+  `reserveStockForOrder` (reservation is taken at confirmation now, not at
+  order creation — see ADR 0030). **Auto-credit:** if the order has no
+  `confirmationAgentId` *and* the caller has a `CommissionAgent` row, set
+  it to that agent. A missing agent record is "no credit", never an error.
+- `ANNULE` → conditional `updateMany(→ ANNULEE)`, `cancelledAt`. No stock
+  action — a NOUVELLE order never held a reservation (ADR 0030).
 - others → attempt logged, order stays in the queue.
 
 After commit (best-effort, never fails the caller): audit
 `order.confirmation_attempt`; on a terminal outcome resolve the
 `NOUVELLE_COMMANDE` notification and run `reconcileOrderCommission`; on
-`ANNULE` also push stock + order status to a linked store. Mirrors
-`updateOrderStatusAction`'s side-effect list — it does **not** call that
-action (kept independent so the order state machine is untouched).
+`CONFIRME` push the new sellable stock to a linked store; on `ANNULE`
+push the order status. Mirrors `updateOrderStatusAction`'s side-effect
+list — it does **not** call that action (kept independent so the order
+state machine is untouched).
 
 ### UI
 - `/confirmation` — the shared queue. Every `NOUVELLE` order,

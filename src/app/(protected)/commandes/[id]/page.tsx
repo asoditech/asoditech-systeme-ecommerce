@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { OrderStatusControl, OrderPaymentStatusControl } from "@/components/orders/order-status-control";
 import { CancelOrderButton } from "@/components/orders/cancel-order-button";
+import { ReopenOrderButton } from "@/components/orders/reopen-order-button";
 import { RefundForm } from "@/components/orders/refund-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -18,7 +19,7 @@ import { AssignAgentControl } from "@/components/commissions/assign-agent-contro
 import { getOrderCommission, listAssignableCommissionAgents } from "@/lib/queries/commissions";
 import { getOrderConfirmationAttempts } from "@/lib/queries/order-confirmation";
 import { computeOrderProfit } from "@/lib/profitability";
-import { formatCurrency, formatDateTime, displayOrderNumber, displayOrderChannel } from "@/lib/format";
+import { formatCurrency, formatDateTime, displayOrderNumber, displayOrderChannel, displayOrderRecipient } from "@/lib/format";
 import { humanizeAuditAction } from "@/lib/audit-labels";
 import { CONFIRMATION_OUTCOME_LABELS } from "@/lib/status-labels";
 import {
@@ -110,6 +111,9 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
             <OrderStatusControl orderId={order.id} currentStatus={order.status as OrderStatusValue} canEdit={canEdit} />
             {canCancel && !["ANNULEE", "REMBOURSEE"].includes(order.status) && (
               <CancelOrderButton orderId={order.id} />
+            )}
+            {(canEdit || canConfirm) && order.status === "ANNULEE" && order.shippedAt === null && (
+              <ReopenOrderButton orderId={order.id} />
             )}
           </div>
         }
@@ -302,8 +306,13 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
               <CardTitle>Client</CardTitle>
             </CardHeader>
             <CardContent className="space-y-1 text-sm">
-              <p className="font-medium">{order.customer.fullName}</p>
-              {order.customer.phone && <p className="text-muted-foreground">{order.customer.phone}</p>}
+              <p className="font-medium">{displayOrderRecipient(order)}</p>
+              {order.shippingName && order.shippingName.trim() !== order.customer.fullName && (
+                <p className="text-xs text-muted-foreground">Compte client : {order.customer.fullName}</p>
+              )}
+              {(order.shippingPhone || order.customer.phone) && (
+                <p className="text-muted-foreground">{order.shippingPhone ?? order.customer.phone}</p>
+              )}
               {order.customer.email && <p className="text-muted-foreground">{order.customer.email}</p>}
               <p className="border-t pt-2 text-muted-foreground">
                 Canal : <span className="text-foreground">{displayOrderChannel(order)}</span>

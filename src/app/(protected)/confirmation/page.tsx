@@ -11,7 +11,7 @@ import {
   getMyConfirmationStats,
   CONFIRMATION_RETRY_FLAG,
 } from "@/lib/queries/order-confirmation";
-import { displayOrderNumber, formatCurrency } from "@/lib/format";
+import { displayOrderNumber, displayOrderRecipient, formatCurrency } from "@/lib/format";
 
 export const metadata = { title: "Confirmation — ASODITECH Gestion E-commerce" };
 
@@ -33,8 +33,8 @@ export default async function ConfirmationPage({
   const queueOrders: ConfirmationQueueOrder[] = orders.map((o) => ({
     id: o.id,
     displayNumber: displayOrderNumber(o),
-    customerName: o.customer.fullName,
-    customerPhone: o.customer.phone ?? o.shippingPhone ?? null,
+    customerName: displayOrderRecipient(o),
+    customerPhone: o.shippingPhone ?? o.customer.phone ?? null,
     total: o.total.toString(),
     currency: o.currency,
     placedAt: o.placedAt.toISOString(),

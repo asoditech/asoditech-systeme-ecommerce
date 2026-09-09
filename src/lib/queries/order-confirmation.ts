@@ -14,9 +14,9 @@ const PAGE_SIZE = 30;
 export const CONFIRMATION_RETRY_FLAG = 3;
 
 /**
- * The shared confirmation queue: every NOUVELLE order, least-recently-tried
- * first (an order never called yet sorts before one tried an hour ago),
- * then oldest order first.
+ * The shared confirmation queue: every NOUVELLE order. Never-called orders
+ * come first (so nothing is forgotten), newest first within that group;
+ * then previously-tried orders, least-recently-retried first.
  */
 export async function listOrdersAwaitingConfirmation(params: { page?: number; search?: string } = {}) {
   const page = Math.max(1, params.page ?? 1);
@@ -37,7 +37,7 @@ export async function listOrdersAwaitingConfirmation(params: { page?: number; se
   const [orders, total] = await Promise.all([
     prisma.order.findMany({
       where,
-      orderBy: [{ lastConfirmationAttemptAt: { sort: "asc", nulls: "first" } }, { placedAt: "asc" }],
+      orderBy: [{ lastConfirmationAttemptAt: { sort: "asc", nulls: "first" } }, { placedAt: "desc" }],
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       include: {

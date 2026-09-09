@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requirePermissionForAction } from "@/lib/auth/guards";
+import { requirePermissionForAction, requireUserForAction } from "@/lib/auth/guards";
+import { hasPermission } from "@/lib/auth/permissions";
 import { recordAuditEvent } from "@/lib/audit";
 import {
   reserveStockForOrder,
@@ -32,6 +33,7 @@ import {
   updateRefundStatusSchema,
   canTransitionOrderStatus,
   canTransitionRefundStatus,
+  orderHoldsReservation,
   type CreateOrderInput,
 } from "@/lib/validation/order";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
@@ -258,6 +260,9 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
         currency: parsed.data.currency,
         notes: normalizeOptional(parsed.data.notes),
         internalNotes: normalizeOptional(parsed.data.internalNotes),
+        // Recipient snapshot (docs/adr/0030) — the manual order form has no
+        // separate recipient field, so the customer's name at creation.
+        shippingName: customer.fullName,
         shippingAddressLine1: normalizeOptional(parsed.data.shippingAddressLine1),
         shippingAddressLine2: normalizeOptional(parsed.data.shippingAddressLine2),
         shippingCity: normalizeOptional(parsed.data.shippingCity),
@@ -270,12 +275,10 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
       },
     });
 
-    await reserveStockForOrder(
-      tx,
-      created.id,
-      resolvedItems.map((i) => ({ productId: i.productId, variationId: i.variationId, quantity: i.quantity })),
-      user.id
-    );
+    // Stock is NOT reserved here any more (docs/adr/0030): a NOUVELLE order
+    // — which may never be confirmed — must not tie up inventory. The
+    // reservation is taken when the order is CONFIRMED
+    // (updateOrderStatusAction / recordConfirmationAttemptAction).
 
     const displayNumber = await claimTenantDisplayNumber(tx, created.tenantId, "order");
     return tx.order.update({ where: { id: created.id }, data: { displayNumber } });
@@ -355,12 +358,18 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
         throw new OrderConflictError();
       }
 
-      if (parsed.data.status === "EXPEDIEE") {
+      if (parsed.data.status === "CONFIRMEE") {
+        // Reservation is taken at confirmation now (docs/adr/0030), not at
+        // order creation — reserving never fails (backorders allowed).
+        await reserveStockForOrder(tx, parsed.data.id, lines, user.id);
+      } else if (parsed.data.status === "EXPEDIEE") {
         await fulfillStockForOrder(tx, parsed.data.id, lines, user.id);
       } else if (parsed.data.status === "ANNULEE") {
         if (wasFulfilled) {
           await returnStockForOrder(tx, parsed.data.id, lines, user.id, "Annulation après expédition");
-        } else {
+        } else if (orderHoldsReservation(existing.status)) {
+          // Only release when a reservation actually exists — a NOUVELLE
+          // order never reserved anything.
           await releaseStockForOrder(tx, parsed.data.id, lines, user.id);
         }
       } else if (parsed.data.status === "RETOUR") {
@@ -398,14 +407,19 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
     await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: order.id });
   }
 
-  if (parsed.data.status === "EXPEDIEE" || parsed.data.status === "ANNULEE" || parsed.data.status === "RETOUR") {
-    // Every one of these three transitions actually moved stock (a
-    // fulfillment decrement, or a cancellation/return restock/release
-    // above) — push the new sellable number to a linked store right
-    // away, and surface anything now low (only ever reachable on
-    // EXPEDIEE, the one transition that can bring stock down).
+  // Every one of these transitions actually moved stock — a reservation
+  // (CONFIRMEE), a fulfilment decrement (EXPEDIEE), or a
+  // cancellation/return restock/release — so push the new sellable number
+  // to a linked store, and surface anything now low (reachable on
+  // CONFIRMEE and EXPEDIEE, the two that reduce what's sellable).
+  const stockMoved =
+    (parsed.data.status === "CONFIRMEE" && existing.status === "NOUVELLE") ||
+    parsed.data.status === "EXPEDIEE" ||
+    (parsed.data.status === "ANNULEE" && (wasFulfilled || orderHoldsReservation(existing.status))) ||
+    parsed.data.status === "RETOUR";
+  if (stockMoved) {
     const refs = { productIds: lines.map((l) => l.productId), variationIds: lines.map((l) => l.variationId) };
-    if (parsed.data.status === "EXPEDIEE") {
+    if (parsed.data.status === "CONFIRMEE" || parsed.data.status === "EXPEDIEE") {
       await checkAndNotifyLowStock(refs);
     }
     await pushStockAfterLocalChange(refs);
@@ -529,7 +543,9 @@ export async function cancelOrderAction(formData: FormData): Promise<ActionResul
       }
       if (wasFulfilled) {
         await returnStockForOrder(tx, parsed.data.id, lines, user.id, parsed.data.reason ?? "Commande annulée");
-      } else {
+      } else if (orderHoldsReservation(existing.status)) {
+        // Only a CONFIRMEE/EN_PREPARATION order holds a reservation to
+        // release — a NOUVELLE one never reserved anything (docs/adr/0030).
         await releaseStockForOrder(tx, parsed.data.id, lines, user.id);
       }
       return tx.order.findUniqueOrThrow({ where: { id: parsed.data.id } });
@@ -573,6 +589,60 @@ export async function cancelOrderAction(formData: FormData): Promise<ActionResul
   revalidatePath("/commandes");
   revalidatePath(`/commandes/${order.id}`);
   return actionOk({ id: order.id });
+}
+
+/**
+ * "Undo a wrong cancellation" — moves an ANNULEE order that was never
+ * shipped back to NOUVELLE so it can be re-worked from the confirmation
+ * queue (docs/adr/0030). No stock action: a NOUVELLE order holds no
+ * reservation, and this order was never fulfilled. A cancelled order that
+ * WAS shipped is a return, not a mistake, and can't be reopened here.
+ *
+ * Held by `orders.edit` OR `orders.confirm` — a confirmateur who mis-tapped
+ * "Annuler" in the queue can fix it themselves.
+ */
+export async function reopenOrderAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const user = await requireUserForAction();
+  if (!hasPermission(user.role, "orders.edit") && !hasPermission(user.role, "orders.confirm")) {
+    return actionError("Vous n'avez pas la permission de rétablir une commande.");
+  }
+
+  const id = formData.get("id");
+  if (typeof id !== "string" || id.length === 0) return actionError("Commande introuvable.");
+
+  const existing = await prisma.order.findUnique({ where: { id } });
+  if (!existing) return actionError("Commande introuvable.");
+  if (existing.status !== "ANNULEE") {
+    return actionError("Seule une commande annulée peut être rétablie.");
+  }
+  if (existing.shippedAt !== null) {
+    return actionError("Cette commande a été expédiée — elle ne peut pas être rétablie depuis « Annulée ».");
+  }
+
+  const result = await prisma.order.updateMany({
+    where: { id, status: "ANNULEE" },
+    data: { status: "NOUVELLE", cancelledAt: null },
+  });
+  if (result.count === 0) {
+    return actionError("Cette commande a été modifiée entre-temps. Rechargez la page.");
+  }
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "order.status_changed",
+    entityType: "Order",
+    entityId: id,
+    previousValue: { status: "ANNULEE" },
+    newValue: { status: "NOUVELLE" },
+    metadata: { reason: "reopen" },
+  });
+
+  await pushOrderStatusToWooCommerce(id);
+  revalidatePath("/commandes");
+  revalidatePath("/confirmation");
+  revalidatePath(`/commandes/${id}`);
+  return actionOk({ id });
 }
 
 /**

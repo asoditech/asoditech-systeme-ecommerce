@@ -130,6 +130,7 @@ export interface MappedOrderFields {
   shippingCost: number;
   total: number;
   currency: string;
+  shippingName: string | null;
   shippingAddressLine1: string | null;
   shippingAddressLine2: string | null;
   shippingCity: string | null;
@@ -142,6 +143,11 @@ export interface MappedOrderFields {
 export function mapOrderFields(wc: WcOrder, status: OrderStatus): MappedOrderFields {
   const shipping = wc.shipping.address_1 ? wc.shipping : wc.billing;
   const subtotal = wc.line_items.reduce((sum, li) => sum + li.subtotal, 0);
+  // The name on THIS order (shipping recipient, else billing) — not the
+  // customer account's name, which is shared across a shop's orders.
+  const recipient =
+    [shipping.first_name, shipping.last_name].filter(Boolean).join(" ").trim() ||
+    [wc.billing.first_name, wc.billing.last_name].filter(Boolean).join(" ").trim();
   return {
     status,
     subtotal,
@@ -149,6 +155,7 @@ export function mapOrderFields(wc: WcOrder, status: OrderStatus): MappedOrderFie
     shippingCost: wc.shipping_total,
     total: wc.total,
     currency: wc.currency,
+    shippingName: recipient || null,
     shippingAddressLine1: shipping.address_1?.trim() || null,
     shippingAddressLine2: shipping.address_2?.trim() || null,
     shippingCity: shipping.city?.trim() || null,

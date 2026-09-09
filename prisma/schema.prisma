@@ -943,8 +943,13 @@ model Order {
   total         Decimal @db.Decimal(12, 2)
   currency      String  @default("MAD") @db.Char(3)
 
-  // Address snapshot at time of order — never a live FK, so editing/deleting
-  // a customer address later cannot rewrite order history.
+  // Address + recipient snapshot at time of order — never a live FK, so
+  // editing/deleting a customer later cannot rewrite order history. Two
+  // WooCommerce orders under one customer account can carry different
+  // billing names (a shop reusing a single login), so the name shown for
+  // an order is this snapshot, not `customer.fullName`. Null for
+  // pre-existing rows → display falls back to the customer.
+  shippingName         String?
   shippingAddressLine1 String?
   shippingAddressLine2 String?
   shippingCity         String?

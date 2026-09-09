@@ -69,6 +69,20 @@ export function displayOrderNumber(order: {
 }
 
 /**
+ * The name to show for an order — its own recipient snapshot
+ * (`shippingName`), taken at import/creation time, NOT the linked
+ * customer's canonical name: two orders under one WooCommerce account can
+ * carry different billing names. Falls back to the customer for
+ * pre-snapshot rows. See docs/adr/0030.
+ */
+export function displayOrderRecipient(order: {
+  shippingName?: string | null;
+  customer?: { fullName: string } | null;
+}): string {
+  return order.shippingName?.trim() || order.customer?.fullName || "Client";
+}
+
+/**
  * Where an order came from, for display — a WooCommerce/Shopify-imported
  * order derives it from `source` itself (the store IS the channel); a
  * manually-created order shows its own `channel` (Téléphone, WhatsApp,

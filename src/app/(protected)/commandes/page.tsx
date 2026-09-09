@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { listOrders } from "@/lib/queries/orders";
-import { formatCurrency, formatDate, displayOrderNumber, displayOrderChannel } from "@/lib/format";
+import { formatCurrency, formatDate, displayOrderNumber, displayOrderChannel, displayOrderRecipient } from "@/lib/format";
 import { ORDER_STATUS_LABELS, ORDER_PAYMENT_STATUS_LABELS } from "@/lib/status-labels";
 import type { OrderStatus, OrderPaymentStatus } from "@prisma/client";
 
@@ -198,7 +198,7 @@ export default async function CommandesPage({
                 <ClickableTableRow key={o.id} href={`/commandes/${o.id}`}>
                   <TableCell className="font-medium">{displayOrderNumber(o)}</TableCell>
                   <TableCell>
-                    <span className="block max-w-[8rem] truncate">{o.customer.fullName}</span>
+                    <span className="block max-w-[8rem] truncate">{displayOrderRecipient(o)}</span>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     <span className="block max-w-[7rem] truncate">{o.shippingCity ?? "—"}</span>

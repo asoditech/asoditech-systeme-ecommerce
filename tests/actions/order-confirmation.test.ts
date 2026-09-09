@@ -114,11 +114,22 @@ describe("recordConfirmationAttemptAction", () => {
     expect(order.confirmationAgentId).toBe(otherAgent.id);
   });
 
-  it("ANNULE cancels the order and releases its reserved stock", async () => {
+  it("CONFIRME reserves stock; ANNULE from NOUVELLE touches no stock (ADR 0030)", async () => {
     const { orderId, product } = await seedNouvelleOrder(3);
-    const reserved = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
-    expect(reserved.quantityReserved).toBe(3);
+    // A NOUVELLE order reserves nothing.
+    let item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityReserved).toBe(0);
 
+    await loginAsTestUser({ role: "CONFIRMATION" });
+    const res = await recordConfirmationAttemptAction(fd({ id: orderId, outcome: "CONFIRME" }));
+    expect(res.ok).toBe(true);
+
+    item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityReserved).toBe(3);
+  });
+
+  it("ANNULE from NOUVELLE cancels the order without any stock movement", async () => {
+    const { orderId, product } = await seedNouvelleOrder(3);
     await loginAsTestUser({ role: "CONFIRMATION" });
     const res = await recordConfirmationAttemptAction(fd({ id: orderId, outcome: "ANNULE", note: "faux client" }));
     expect(res.ok).toBe(true);
@@ -129,6 +140,7 @@ describe("recordConfirmationAttemptAction", () => {
 
     const after = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
     expect(after.quantityReserved).toBe(0);
+    expect(await prisma.inventoryMovement.count({ where: { orderId } })).toBe(0);
   });
 
   it("refuses to act on an order that is no longer NOUVELLE", async () => {

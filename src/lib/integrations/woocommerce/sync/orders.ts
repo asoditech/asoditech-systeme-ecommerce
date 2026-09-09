@@ -214,6 +214,7 @@ async function createImportedOrder(
       shippingCost: fields.shippingCost,
       total: fields.total,
       currency: fields.currency,
+      shippingName: fields.shippingName,
       shippingAddressLine1: fields.shippingAddressLine1,
       shippingAddressLine2: fields.shippingAddressLine2,
       shippingCity: fields.shippingCity,
@@ -302,7 +303,12 @@ async function updateExistingOrder(
       Number(existing.total) !== fields.total ||
       Number(existing.subtotal) !== fields.subtotal ||
       Number(existing.shippingCost) !== fields.shippingCost;
-    if (totalsChanged || existing.notes !== fields.notes || placedAtChanged) {
+    if (
+      totalsChanged ||
+      existing.notes !== fields.notes ||
+      placedAtChanged ||
+      existing.shippingName !== fields.shippingName
+    ) {
       await tx.order.update({
         where: { id: orderId },
         data: {
@@ -311,6 +317,7 @@ async function updateExistingOrder(
           discountTotal: fields.discountTotal,
           shippingCost: fields.shippingCost,
           total: fields.total,
+          shippingName: fields.shippingName,
           shippingAddressLine1: fields.shippingAddressLine1,
           shippingAddressLine2: fields.shippingAddressLine2,
           shippingCity: fields.shippingCity,
