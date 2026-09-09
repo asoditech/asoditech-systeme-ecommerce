@@ -96,7 +96,14 @@ export const BACKUP_MODELS_BY_KEY: ReadonlyMap<string, BackupModel> = new Map(
 
 type Row = Record<string, unknown>;
 
-const CONFIG_SECRET_KEY = /secret|token|password|passwd|\bpin\b|api[_-]?key|access[_-]?key|credential|client[_-]?secret/i;
+// Real `Integration.config` / `ShippingProvider.config` only ever hold
+// non-secret display/pagination data (siteUrl, shopDomain, sandbox flag,
+// resume cursors) — credentials always live in `credentialsEncrypted`.
+// This regex is defense-in-depth: any key whose name looks like credential
+// material (including a bare `…key`, from the acceptance-test review) is
+// dropped at any depth so an unusual config can never carry a secret.
+const CONFIG_SECRET_KEY =
+  /secret|token|password|passwd|\bpin\b|api[_-]?key|access[_-]?key|consumer[_-]?key|private[_-]?key|key$|credential|client[_-]?secret|passphrase/i;
 
 /** Defensive scrub of a (documented non-secret) `config` JSON blob — drops
  * any key that looks like a credential, at any depth. Returns a copy. */

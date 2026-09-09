@@ -4,6 +4,7 @@ import { sealBackup, openBackup, BackupContainerError } from "@/lib/backup/conta
 import { inspectBackup } from "@/lib/backup/import";
 import { validateManifest, canonicalDataJson, sha256Hex, buildManifest } from "@/lib/backup/manifest";
 import { BACKUP_FORMAT, BACKUP_FORMAT_VERSION } from "@/lib/backup/constants";
+import { scrubConfig, sanitizeForExport } from "@/lib/backup/models";
 
 /**
  * Backup & Portability — package format, encryption and integrity
@@ -134,6 +135,65 @@ describe("backup manifest — validation", () => {
     const pkg = sealBackup(JSON.stringify({ manifest, data })).container;
     const inspected = inspectBackup(pkg);
     expect(inspected.warnings.join(" ")).toMatch(/customers/);
+  });
+});
+
+describe("config / row sanitization (defense in depth)", () => {
+  it("scrubConfig drops any credential-looking key at any depth, keeps display data", () => {
+    const cleaned = scrubConfig({
+      siteUrl: "https://shop.example.com",
+      shopDomain: "acme.myshopify.com",
+      sandbox: true,
+      defaultCity: "Casablanca",
+      customerId: "CID-42",
+      accountId: "act_99",
+      productsResumePage: 3,
+      // credential-shaped — all must go
+      consumerKey: "ck_xxx",
+      consumerSecret: "cs_xxx",
+      webhookSecret: "whsec_xxx",
+      apiKey: "OZ_xxx",
+      accessToken: "EAAB_xxx",
+      privateKey: "-----BEGIN",
+      passphrase: "hunter2",
+      nested: { signingKey: "s", region: "eu" },
+    }) as Record<string, unknown>;
+    expect(cleaned).toEqual({
+      siteUrl: "https://shop.example.com",
+      shopDomain: "acme.myshopify.com",
+      sandbox: true,
+      defaultCity: "Casablanca",
+      customerId: "CID-42",
+      accountId: "act_99",
+      productsResumePage: 3,
+      nested: { region: "eu" },
+    });
+  });
+
+  it("sanitizeForExport strips User + connector secrets and scrubs config", () => {
+    const user = sanitizeForExport("User", {
+      id: "u1", email: "a@b.c", name: "A", role: "OWNER",
+      passwordHash: "$2a$12$abcdef", isPlatformAdmin: true,
+    });
+    expect(user.passwordHash).toBeUndefined();
+    expect(user.isPlatformAdmin).toBeUndefined();
+    expect(user.email).toBe("a@b.c");
+
+    const integ = sanitizeForExport("Integration", {
+      id: "i1", provider: "WOOCOMMERCE", status: "CONNECTE",
+      credentialsEncrypted: "iv:tag:ciphertext",
+      config: { siteUrl: "https://x.com", consumerSecret: "cs_secret" },
+    });
+    expect(integ.credentialsEncrypted).toBeUndefined();
+    expect(integ.config).toEqual({ siteUrl: "https://x.com" });
+
+    const prov = sanitizeForExport("ShippingProvider", {
+      id: "p1", name: "OzonExpress", type: "API",
+      credentialsEncrypted: "iv:tag:ciphertext",
+      config: { customerId: "CID", apiKey: "OZ_secret" },
+    });
+    expect(prov.credentialsEncrypted).toBeUndefined();
+    expect(prov.config).toEqual({ customerId: "CID" });
   });
 });
 

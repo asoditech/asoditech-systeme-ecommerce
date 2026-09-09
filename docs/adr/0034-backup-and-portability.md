@@ -153,6 +153,15 @@ Also never present, by virtue of the excluded models: password-reset,
 invitation and session token hashes. There is no code path that writes a
 secret VALUE into the manifest.
 
+`config` is documented non-secret (real rows only hold `siteUrl` /
+`shopDomain` / a sandbox flag / sync-resume cursors — every credential
+lives in `credentialsEncrypted`). `scrubConfig` is defence-in-depth on top
+of that: it drops, at any nesting depth, any key whose name matches
+`secret|token|password|pin|apiKey|accessKey|consumerKey|privateKey|…key|
+credential|clientSecret|passphrase`. Non-credential identifiers a restoring
+operator needs to recognise the connector (`siteUrl`, `customerId`,
+`accountId`) are kept; reconnection is required regardless.
+
 **After restore, every connector requires reconnection**: `Integration`
 comes back `DECONNECTE` with `credentialsEncrypted = null`;
 `ShippingProvider` comes back with `connectionStatus = DECONNECTE` and no
