@@ -69,6 +69,7 @@ export type AuditAction =
   | "shipment.cancellation_failed"
   | "shipment.deleted"
   | "shipment.cost_overridden"
+  | "shipment.tracking_refreshed"
   | "shipment.webhook_received"
   | "shipment.webhook_rejected"
   | "delivery_manifest.created"

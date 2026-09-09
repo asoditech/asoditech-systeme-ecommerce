@@ -21,12 +21,14 @@ describe("production delivery-provider registry", () => {
     expect(connector!.displayName).toBe("OzonExpress (Maroc)");
     expect(connector!.credentialFields.map((f) => f.name)).toEqual(["customerId", "apiKey"]);
     expect(connector!.credentialFields.find((f) => f.name === "apiKey")?.type).toBe("password");
-    // capabilities the documentation supports — no cancel, no webhooks
+    // capabilities the documentation supports — no cancel, no webhooks.
+    // FETCH_TRACKING added for the « Suivi » module (docs/adr/0033).
     expect([...connector!.capabilities].sort()).toEqual([
       "CREATE_SHIPMENT",
       "FETCH_CITIES",
       "FETCH_COST",
       "FETCH_STATUS",
+      "FETCH_TRACKING",
       "GENERATE_MANIFEST",
     ]);
   });
@@ -47,10 +49,12 @@ describe("production delivery-provider registry", () => {
     expect(connector!.credentialFields.find((f) => f.name === "password")?.type).toBe("password");
     expect(connector!.credentialFields.find((f) => f.name === "accountPin")?.type).toBe("password");
     // No cancel, no cities, no manifest, no webhooks — Aramex JSON API scope.
+    // FETCH_TRACKING added for the « Suivi » module (docs/adr/0033).
     expect([...connector!.capabilities].sort()).toEqual([
       "CREATE_SHIPMENT",
       "FETCH_COST",
       "FETCH_STATUS",
+      "FETCH_TRACKING",
     ]);
   });
 

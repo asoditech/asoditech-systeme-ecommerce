@@ -11,6 +11,7 @@ import type {
   DeliveryProviderConfig,
   FetchStatusAdapterInput,
   FetchStatusAdapterResult,
+  FetchTrackingAdapterResult,
   GenerateManifestAdapterInput,
   GenerateManifestAdapterResult,
 } from "@/lib/integrations/delivery/types";
@@ -23,6 +24,7 @@ import {
   parseAddParcelResponse,
   parseDeliveryNoteRef,
   parseOzonExpressCities,
+  parseTrackingDetail,
   parseTrackingResponse,
   providerCityDeliveredPrice,
   readCheckApiMessage,
@@ -125,7 +127,14 @@ function clientFor(credentials: DeliveryCredentials, config: DeliveryProviderCon
 export const ozonExpressAdapter: DeliveryProviderAdapter = {
   key: OZONEXPRESS_PROVIDER_KEY,
   displayName: "OzonExpress (Maroc)",
-  capabilities: ["CREATE_SHIPMENT", "FETCH_STATUS", "FETCH_COST", "FETCH_CITIES", "GENERATE_MANIFEST"],
+  capabilities: [
+    "CREATE_SHIPMENT",
+    "FETCH_STATUS",
+    "FETCH_TRACKING",
+    "FETCH_COST",
+    "FETCH_CITIES",
+    "GENERATE_MANIFEST",
+  ],
 
   credentialFields: [
     {
@@ -229,6 +238,21 @@ export const ozonExpressAdapter: DeliveryProviderAdapter = {
     const raw = await client.post("tracking", { "tracking-number": input.externalId });
     const parsed = parseTrackingResponse(raw);
     return { rawStatus: parsed.rawStatus, trackingUrl: null, cost: parsed.cost };
+  },
+
+  /**
+   * « Suivi » module (docs/adr/0033) — the full event history from the
+   * same `tracking` call `fetchStatus` uses. OzonExpress exposes no
+   * courier / structured location, so those are `null`.
+   */
+  async fetchTracking(
+    input: FetchStatusAdapterInput,
+    credentials: DeliveryCredentials,
+    config: DeliveryProviderConfig
+  ): Promise<FetchTrackingAdapterResult> {
+    const { client } = clientFor(credentials, config);
+    const raw = await client.post("tracking", { "tracking-number": input.externalId });
+    return parseTrackingDetail(raw);
   },
 
   /**

@@ -38,7 +38,14 @@ export type DeliveryCapability =
   // labels) the operator prints and gives the carrier. See
   // docs/adr/0015-delivery-manifest.md. Declared only by carriers whose
   // API genuinely has this workflow (OzonExpress does).
-  | "GENERATE_MANIFEST";
+  | "GENERATE_MANIFEST"
+  // The provider's tracking response carries a usable EVENT HISTORY (and
+  // possibly courier / location detail) beyond the single current status
+  // that FETCH_STATUS already handles. Consumed ONLY by the « Suivi »
+  // module (docs/adr/0033) via `fetchTracking` — the existing
+  // status-sync path is unchanged and never calls it. Never assumed:
+  // a provider without this capability simply shows no timeline.
+  | "FETCH_TRACKING";
 
 /**
  * Deliberately not modeled as a capability in this phase: updating an
@@ -142,6 +149,40 @@ export interface FetchStatusAdapterResult {
   cost: number | null;
 }
 
+// ── FETCH_TRACKING — the « Suivi » module only (docs/adr/0033) ─────────
+
+/**
+ * One normalized carrier tracking event. Everything past `rawStatus` is
+ * best-effort from what the carrier actually returned — `null` when the
+ * carrier gives none, NEVER fabricated.
+ */
+export interface AdapterTrackingEvent {
+  /** The carrier's own status string for this event, verbatim. */
+  rawStatus: string;
+  /** A human label from the carrier for this event, if distinct from
+   * `rawStatus` (e.g. a French comment). */
+  label: string | null;
+  description: string | null;
+  /** Free-text place from the carrier (city / depot / area). */
+  location: string | null;
+  /** ISO 8601, or `null` when the carrier gave no parseable time. */
+  timestamp: string | null;
+}
+
+export interface FetchTrackingAdapterResult {
+  /** The current status string, same value `fetchStatus` would return —
+   * so the caller can keep the two consistent without a second call. */
+  rawStatus: string;
+  /** Oldest-first. `[]` when the carrier exposes no history. */
+  events: AdapterTrackingEvent[];
+  /** The delivery person, IF the carrier API names one. `null` otherwise. */
+  courier: { name: string | null; phone: string | null } | null;
+  /** Current parcel location from the carrier, if any. */
+  location: { city: string | null; area: string | null } | null;
+  /** ISO 8601 of the most recent carrier update, if the carrier states one. */
+  lastUpdateAt: string | null;
+}
+
 export interface DeliveryWebhookEvent {
   /** The provider's own per-delivery id, used for replay protection —
    * required for any provider that claims WEBHOOKS. */
@@ -236,6 +277,16 @@ export interface DeliveryProviderAdapter {
     credentials: DeliveryCredentials,
     config: DeliveryProviderConfig
   ): Promise<FetchStatusAdapterResult>;
+
+  /** Richer read of the carrier's tracking response — event history and,
+   * where the carrier supplies them, courier / location. Consumed ONLY by
+   * the « Suivi » module (docs/adr/0033); the existing status-sync path
+   * never calls it. Declared via the `FETCH_TRACKING` capability. */
+  fetchTracking?(
+    input: FetchStatusAdapterInput,
+    credentials: DeliveryCredentials,
+    config: DeliveryProviderConfig
+  ): Promise<FetchTrackingAdapterResult>;
 
   /** Retrieves the carrier's authoritative destination catalogue (the set
    * of cities/areas it delivers to, with the carrier's own ids). Optional —

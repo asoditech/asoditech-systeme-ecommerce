@@ -7,6 +7,7 @@ import {
   parseCitiesResponse,
   parseOzonExpressCities,
   parseTrackingResponse,
+  parseTrackingDetail,
   resolveCity,
   resolveCityId,
   type OzonExpressCity,
@@ -286,6 +287,42 @@ describe("ozonexpress mapper — parseTrackingResponse (real CHECK_API / TRACKIN
 
   it("throws malformed (not 'unknown') when no status field is present at all", () => {
     expect(() => parseTrackingResponse({ TRACKING: { "TRACKING-NUMBER": "OZE1" } })).toThrow(
+      DeliveryMalformedResponseError
+    );
+  });
+});
+
+describe("ozonexpress mapper — parseTrackingDetail (« Suivi » module, docs/adr/0033)", () => {
+  it("maps TRACKING.HISTORY into ordered events with ISO timestamps and no invented courier", () => {
+    const detail = parseTrackingDetail({
+      CHECK_API: { RESULT: "SUCCESS", MESSAGE: "Valide API Key" },
+      TRACKING: {
+        "TRACKING-NUMBER": "OZE1",
+        HISTORY: [
+          { STATUT: "Nouveau Colis", COMMENT: "Colis enregistré", TIME_STR: "2026-08-08 09:00:00" },
+          { STATUT: "Mise en distribution", COMMENT: "En cours de livraison", TIME_STR: "2026-08-09 11:30:00" },
+        ],
+        LAST_TRACKING: { STATUT: "Mise en distribution", TIME_STR: "2026-08-09 11:30:00" },
+      },
+    });
+    expect(detail.events).toHaveLength(2);
+    expect(detail.events[0].rawStatus).toBe("Nouveau Colis");
+    expect(detail.events[0].timestamp).toBe(new Date("2026-08-08T09:00:00").toISOString());
+    expect(detail.events[1].description).toBe("En cours de livraison");
+    expect(detail.courier).toBeNull();
+    expect(detail.location).toBeNull();
+    expect(detail.lastUpdateAt).toBe(detail.events[1].timestamp);
+  });
+
+  it("accepts a PHP-style object HISTORY and skips entries with no status", () => {
+    const detail = parseTrackingDetail({
+      TRACKING: { HISTORY: { "1": { STATUT: "Reçu" }, "2": { STATUT: "" }, "3": { STATUT: "Livré" } } },
+    });
+    expect(detail.events.map((e) => e.rawStatus)).toEqual(["Reçu", "Livré"]);
+  });
+
+  it("throws malformed on an unusable envelope, same as parseTrackingResponse", () => {
+    expect(() => parseTrackingDetail({ TRACKING: { "TRACKING-NUMBER": "OZE1" } })).toThrow(
       DeliveryMalformedResponseError
     );
   });

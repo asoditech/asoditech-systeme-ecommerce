@@ -32,9 +32,10 @@ export type OrderShippingAddress = {
 };
 
 /** True when the error is something the operator can fix on the spot —
- * an incomplete address, or a city the carrier doesn't recognise. */
+ * an incomplete address, a city the carrier doesn't recognise, or a
+ * badly-formatted phone number. */
 function isFixableAddressError(message: string): boolean {
-  return /adresse de livraison|ville|city/i.test(message);
+  return /adresse de livraison|ville|city|phone|téléphone|numéro/i.test(message);
 }
 
 /**

@@ -136,6 +136,7 @@ describe("OzonExpress connector — Server Action layer", () => {
         "FETCH_CITIES",
         "FETCH_COST",
         "FETCH_STATUS",
+        "FETCH_TRACKING",
         "GENERATE_MANIFEST",
       ]);
       // The read-only verification facts are safe to keep in the audit trail.

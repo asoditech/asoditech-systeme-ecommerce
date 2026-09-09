@@ -88,6 +88,11 @@ export function EditShippingAddressDialog({ orderId, address }: { orderId: strin
             <strong>Ville :</strong> écrivez-la exactement comme chez la société de livraison (OzonExpress), sinon le
             colis ne pourra pas être créé.
           </p>
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+            <strong>Téléphone :</strong> format local marocain à 10 chiffres, ex.{" "}
+            <span className="font-mono">0612345678</span> (le connecteur convertit automatiquement{" "}
+            <span className="font-mono">+212…</span>). Un numéro incomplet ou étranger est refusé par le transporteur.
+          </p>
           {state && !state.ok && <p className="text-sm text-destructive">{state.error}</p>}
           <DialogFooter>
             <Button type="submit" disabled={isPending}>

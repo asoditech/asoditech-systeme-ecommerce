@@ -20,6 +20,7 @@ import type {
   DeliveryWebhookEvent,
   FetchStatusAdapterInput,
   FetchStatusAdapterResult,
+  FetchTrackingAdapterResult,
   GenerateManifestAdapterInput,
   GenerateManifestAdapterResult,
 } from "@/lib/integrations/delivery/types";
@@ -140,6 +141,7 @@ export const referenceDeliveryProvider: DeliveryProviderAdapter = {
     "CREATE_SHIPMENT",
     "CANCEL_SHIPMENT",
     "FETCH_STATUS",
+    "FETCH_TRACKING",
     "FETCH_COST",
     "WEBHOOKS",
     "GENERATE_MANIFEST",
@@ -198,6 +200,40 @@ export const referenceDeliveryProvider: DeliveryProviderAdapter = {
     const parsed = statusResponseSchema.safeParse(raw);
     if (!parsed.success) throw new DeliveryMalformedResponseError("Réponse de statut invalide.");
     return { rawStatus: parsed.data.status, trackingUrl: parsed.data.tracking_url, cost: parsed.data.cost };
+  },
+
+  async fetchTracking(input: FetchStatusAdapterInput, credentials, config): Promise<FetchTrackingAdapterResult> {
+    const { apiKey } = parseCredentials(credentials);
+    const { baseUrl } = parseConfig(config);
+    const raw = await request(baseUrl, `/shipments/${input.externalId}/tracking`, apiKey);
+    const parsed = z
+      .object({
+        raw_status: z.string(),
+        events: z.array(
+          z.object({
+            status: z.string(),
+            description: z.string().nullable(),
+            location: z.string().nullable(),
+            at: z.string().nullable(),
+          })
+        ),
+        courier: z.object({ name: z.string().nullable(), phone: z.string().nullable() }).nullable(),
+      })
+      .safeParse(raw);
+    if (!parsed.success) throw new DeliveryMalformedResponseError("Réponse de suivi invalide.");
+    return {
+      rawStatus: parsed.data.raw_status,
+      events: parsed.data.events.map((e) => ({
+        rawStatus: e.status,
+        label: e.description,
+        description: e.description,
+        location: e.location,
+        timestamp: e.at,
+      })),
+      courier: parsed.data.courier,
+      location: null,
+      lastUpdateAt: parsed.data.events.at(-1)?.at ?? null,
+    };
   },
 
   async generateManifest(

@@ -93,6 +93,7 @@ const AUDIT_ACTION_META: Record<string, AuditActionMeta> = {
   "shipment.status_changed": { label: "Statut d'expédition modifié", category: "livraison" },
   "shipment.status_sync_failed": { label: "Échec de synchronisation du statut d'expédition", category: "livraison" },
   "shipment.cost_overridden": { label: "Coût d'expédition corrigé", category: "livraison" },
+  "shipment.tracking_refreshed": { label: "Suivi d'expédition actualisé", category: "livraison" },
   "shipping_provider.api_configured": { label: "Prestataire de livraison configuré", category: "livraison" },
   "shipping_provider.pricing_updated": { label: "Tarification prestataire modifiée", category: "livraison" },
   "shipping_provider.connection_test_failed": { label: "Test de connexion prestataire échoué", category: "livraison" },

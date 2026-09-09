@@ -1426,6 +1426,26 @@ model Shipment {
   // which also changes on a staff-entered manual status change.
   lastSyncedAt      DateTime?
 
+  // --- « Suivi » module (docs/adr/0033-tracking-module.md). Additive,
+  // all-nullable, populated only by the NEW /livraison/suivi refresh flow
+  // via the adapter's optional FETCH_TRACKING capability. NOTHING in the
+  // existing delivery / status-sync / cost / invoice paths reads or writes
+  // these — the old tracking is untouched.
+  //   trackingEvents     — normalized carrier event history as last synced,
+  //                        an array of { rawStatus, code, label, description,
+  //                        location, timestamp }. Never fabricated; empty
+  //                        when the carrier gives none.
+  //   courierName/Phone  — the delivery person, IF the carrier API reports
+  //                        one (neither current carrier does today).
+  //   lastTrackingSyncAt — rate-limit / "il y a 2 min" anchor.
+  //   trackingSyncError  — last FETCH_TRACKING failure message; the events
+  //                        above are kept as the last-known-good.
+  trackingEvents     Json?
+  courierName        String?
+  courierPhone       String?
+  lastTrackingSyncAt DateTime?
+  trackingSyncError  String?
+
   // The delivery manifest (Bon de Livraison) this parcel was handed over
   // on, if any — see docs/adr/0015-delivery-manifest.md. Set once, when a
   // manifest is generated for a batch of EN_ATTENTE API shipments; a

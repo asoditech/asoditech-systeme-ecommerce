@@ -7,6 +7,7 @@ import {
   parseCalculateRateResponse,
   parseCreateShipmentResponse,
   parseTrackingResponse,
+  parseTrackingDetail,
 } from "@/lib/integrations/delivery/providers/aramex/mapper";
 import { aramexConfigSchema } from "@/lib/integrations/delivery/providers/aramex/types";
 import type { CreateShipmentAdapterInput } from "@/lib/integrations/delivery/types";
@@ -166,6 +167,49 @@ describe("aramex mapper — response parsing", () => {
   it("reads a total amount from CalculateRate, or null when absent", () => {
     expect(parseCalculateRateResponse({ TotalAmount: { Value: "35.50", CurrencyCode: "MAD" } })).toBe(35.5);
     expect(parseCalculateRateResponse({ HasErrors: false })).toBeNull();
+  });
+
+  describe("parseTrackingDetail (« Suivi » module, docs/adr/0033)", () => {
+    it("maps TrackShipments updates into events, keeping UpdateLocation and no invented courier", () => {
+      const detail = parseTrackingDetail(
+        {
+          HasErrors: false,
+          TrackingResults: [
+            {
+              Key: "44175881212",
+              Value: [
+                {
+                  UpdateCode: "SH014",
+                  UpdateDescription: "Shipment picked up",
+                  UpdateLocation: "Casablanca",
+                  UpdateDateTime: "/Date(1786089600000)/",
+                },
+                {
+                  UpdateCode: "SH006",
+                  UpdateDescription: "Delivered",
+                  UpdateLocation: "Rabat",
+                  UpdateDateTime: "/Date(1786262400000)/",
+                },
+              ],
+            },
+          ],
+        },
+        "44175881212",
+        config
+      );
+      expect(detail.rawStatus).toBe("Delivered");
+      expect(detail.events).toHaveLength(2);
+      expect(detail.events[0]).toMatchObject({ rawStatus: "Shipment picked up", location: "Casablanca" });
+      expect(detail.events[0].timestamp).toBe(new Date(1786089600000).toISOString());
+      expect(detail.courier).toBeNull();
+      expect(detail.location).toEqual({ city: "Rabat", area: null });
+    });
+
+    it("throws malformed when the waybill is reported non-existing", () => {
+      expect(() =>
+        parseTrackingDetail({ HasErrors: false, NonExistingWaybills: ["44175881212"] }, "44175881212", config)
+      ).toThrow(DeliveryMalformedResponseError);
+    });
   });
 });
 

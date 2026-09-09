@@ -10,6 +10,7 @@ import type {
   DeliveryProviderConfig,
   FetchStatusAdapterInput,
   FetchStatusAdapterResult,
+  FetchTrackingAdapterResult,
 } from "@/lib/integrations/delivery/types";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
 import { AramexClient } from "./client";
@@ -19,6 +20,7 @@ import {
   mapAramexStatus,
   parseCalculateRateResponse,
   parseCreateShipmentResponse,
+  parseTrackingDetail,
   parseTrackingResponse,
 } from "./mapper";
 import {
@@ -111,7 +113,7 @@ function clientFor(credentials: DeliveryCredentials, config: DeliveryProviderCon
 export const aramexAdapter: DeliveryProviderAdapter = {
   key: ARAMEX_PROVIDER_KEY,
   displayName: "Aramex",
-  capabilities: ["CREATE_SHIPMENT", "FETCH_STATUS", "FETCH_COST"],
+  capabilities: ["CREATE_SHIPMENT", "FETCH_STATUS", "FETCH_TRACKING", "FETCH_COST"],
 
   credentialFields: [
     {
@@ -240,6 +242,24 @@ export const aramexAdapter: DeliveryProviderAdapter = {
     const parsed = parseTrackingResponse(raw, input.externalId, cfg);
     // Aramex tracking updates don't carry a shipping charge — never estimated.
     return { rawStatus: parsed.rawStatus, trackingUrl: parsed.trackingUrl, cost: null };
+  },
+
+  /**
+   * « Suivi » module (docs/adr/0033) — Aramex's full `TrackShipments`
+   * update list, with the per-update location string. No courier field.
+   */
+  async fetchTracking(
+    input: FetchStatusAdapterInput,
+    credentials: DeliveryCredentials,
+    config: DeliveryProviderConfig
+  ): Promise<FetchTrackingAdapterResult> {
+    const { cfg, client } = clientFor(credentials, config);
+    const raw = await client.post("tracking", TRACK_ENDPOINT, {
+      Shipments: [input.externalId],
+      Transaction: { Reference1: "tracking-detail" },
+      GetLastTrackingUpdateOnly: false,
+    });
+    return parseTrackingDetail(raw, input.externalId, cfg);
   },
 
   mapStatus(rawStatus: string): ShipmentStatusValue | null {

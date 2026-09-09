@@ -399,6 +399,86 @@ export function parseTrackingResponse(raw: unknown): ParsedTrackingResult {
 }
 
 // ---------------------------------------------------------------------------
+// Inbound: tracking response → rich detail (« Suivi » module, docs/adr/0033)
+// ---------------------------------------------------------------------------
+
+/** OzonExpress date strings ("2026-08-08 15:20:10" or a "1723...") →
+ * ISO 8601, or null. */
+function ozTimestampToIso(entry: { TIME?: string | number; TIME_STR?: string }): string | null {
+  const str = entry.TIME_STR?.trim();
+  if (str) {
+    const d = new Date(str.includes("T") ? str : str.replace(" ", "T"));
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+  }
+  const t = entry.TIME;
+  if (t !== undefined && t !== null && t !== "") {
+    const n = Number(t);
+    if (Number.isFinite(n) && n > 0) {
+      const d = new Date(n < 1e12 ? n * 1000 : n); // seconds vs ms
+      if (!Number.isNaN(d.getTime())) return d.toISOString();
+    }
+  }
+  return null;
+}
+
+/**
+ * Builds the full normalized tracking detail from the OzonExpress
+ * `tracking` response. OzonExpress's `TRACKING.HISTORY` is
+ * `[{STATUT, TIME, TIME_STR, COMMENT}, …]` (oldest-first). It carries NO
+ * courier or structured location — those come back `null`, never guessed.
+ * Throws the same malformed-response error as `parseTrackingResponse` when
+ * the envelope is unusable.
+ */
+export function parseTrackingDetail(raw: unknown): {
+  rawStatus: string;
+  events: {
+    rawStatus: string;
+    label: string | null;
+    description: string | null;
+    location: string | null;
+    timestamp: string | null;
+  }[];
+  courier: { name: string | null; phone: string | null } | null;
+  location: { city: string | null; area: string | null } | null;
+  lastUpdateAt: string | null;
+} {
+  const base = parseTrackingResponse(raw); // reuse — same validation + status/cost logic
+  const parsed = ozonExpressTrackingResponseSchema.safeParse(raw);
+  const t = parsed.success ? parsed.data.TRACKING : undefined;
+
+  const historyEntries = t?.HISTORY
+    ? Array.isArray(t.HISTORY)
+      ? t.HISTORY
+      : Object.values(t.HISTORY)
+    : [];
+
+  const events = historyEntries
+    .map((e) => {
+      const statut = (e.STATUT ?? e.STATUS ?? "").trim();
+      if (!statut) return null;
+      const comment = e.COMMENT?.trim() || null;
+      return {
+        rawStatus: statut,
+        label: comment && comment.toLowerCase() !== statut.toLowerCase() ? comment : null,
+        description: comment,
+        location: null as string | null,
+        timestamp: ozTimestampToIso(e),
+      };
+    })
+    .filter((e): e is NonNullable<typeof e> => e !== null);
+
+  const lastUpdateAt = events.length > 0 ? events[events.length - 1].timestamp : ozTimestampToIso(t?.LAST_TRACKING ?? {});
+
+  return {
+    rawStatus: base.rawStatus,
+    events,
+    courier: null, // OzonExpress's tracking response documents no courier field
+    location: null,
+    lastUpdateAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Status vocabulary
 // ---------------------------------------------------------------------------
 

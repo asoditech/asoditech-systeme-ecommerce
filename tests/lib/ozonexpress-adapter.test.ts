@@ -61,6 +61,7 @@ describe("ozonExpressAdapter (fixture)", () => {
       "FETCH_CITIES",
       "FETCH_COST",
       "FETCH_STATUS",
+      "FETCH_TRACKING",
       "GENERATE_MANIFEST",
     ]);
     expect(() => assertCapability(ozonExpressAdapter, "CANCEL_SHIPMENT")).toThrow();

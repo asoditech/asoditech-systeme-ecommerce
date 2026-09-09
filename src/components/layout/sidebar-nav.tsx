@@ -15,6 +15,7 @@ import {
   ArrowLeftRight,
   ClipboardCheck,
   Truck,
+  Radar,
   LineChart,
   FileBarChart,
   Wallet,
@@ -53,6 +54,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/confirmation", label: "Confirmation", icon: PhoneCall, permission: "orders.confirm" },
       { href: "/clients", label: "Clients", icon: Users, permission: "customers.view" },
       { href: "/livraison", label: "Livraison", icon: Truck, permission: "delivery.view" },
+      { href: "/livraison/suivi", label: "Suivi", icon: Radar, permission: "delivery.view" },
     ],
   },
   {
@@ -97,6 +99,9 @@ export function SidebarNav({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+  // Every nav href, so a parent (e.g. /livraison) doesn't stay highlighted
+  // when a more specific sibling (e.g. /livraison/suivi) is the real match.
+  const allHrefs = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href));
   const groups = NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter((item) => permissions.has(item.permission)),
@@ -110,7 +115,15 @@ export function SidebarNav({
             {group.label}
           </p>
           {group.items.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+            const isActive =
+              pathname === item.href ||
+              (pathname.startsWith(item.href + "/") &&
+                !allHrefs.some(
+                  (href) =>
+                    href !== item.href &&
+                    href.startsWith(item.href + "/") &&
+                    (pathname === href || pathname.startsWith(href + "/"))
+                ));
             const Icon = item.icon;
             return (
               <Link

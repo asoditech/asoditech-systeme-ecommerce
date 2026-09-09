@@ -283,6 +283,95 @@ export function parseTrackingResponse(raw: unknown, waybill: string, config: Ara
 }
 
 // ---------------------------------------------------------------------------
+// TrackShipments response → rich detail (« Suivi » module, docs/adr/0033)
+// ---------------------------------------------------------------------------
+
+/** Aramex JSON dates are `/Date(1723...)/` (ms), sometimes a plain ISO
+ * string. → ISO 8601, or null. */
+function aramexDateToIso(raw: string | undefined): string | null {
+  const s = raw?.trim();
+  if (!s) return null;
+  const m = s.match(/\/Date\((-?\d+)([+-]\d+)?\)\//);
+  if (m) {
+    const d = new Date(Number(m[1]));
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/**
+ * The full normalized tracking detail from an Aramex `TrackShipments`
+ * response. Aramex's per-waybill `Value` is a list of updates
+ * `{UpdateCode, UpdateDescription, UpdateDateTime, UpdateLocation,
+ * Comments}` (oldest-first). It carries a location string but no courier —
+ * courier comes back `null`, never guessed. Same malformed-response
+ * errors as `parseTrackingResponse`.
+ */
+export function parseTrackingDetail(
+  raw: unknown,
+  waybill: string,
+  config: AramexConfig
+): {
+  rawStatus: string;
+  events: {
+    rawStatus: string;
+    label: string | null;
+    description: string | null;
+    location: string | null;
+    timestamp: string | null;
+  }[];
+  courier: { name: string | null; phone: string | null } | null;
+  location: { city: string | null; area: string | null } | null;
+  lastUpdateAt: string | null;
+} {
+  const base = parseTrackingResponse(raw, waybill, config); // reuse validation + status
+  const parsed = aramexTrackShipmentsResponseSchema.safeParse(raw);
+  const results = parsed.success ? parsed.data.TrackingResults : undefined;
+
+  let updates: {
+    UpdateCode?: string | number;
+    UpdateDescription?: string;
+    UpdateDateTime?: string;
+    UpdateLocation?: string;
+    Comments?: string;
+  }[] = [];
+  if (Array.isArray(results)) {
+    const pair = results.find((p) => String(p.Key ?? "") === String(waybill)) ?? results[0];
+    const value = pair?.Value;
+    updates = value ? (Array.isArray(value) ? value : [value]) : [];
+  } else if (results && typeof results === "object") {
+    const value = (results as Record<string, unknown>)[String(waybill)] ?? Object.values(results)[0];
+    updates = Array.isArray(value) ? value : value ? [value as (typeof updates)[number]] : [];
+  }
+
+  const events = updates
+    .map((u) => {
+      const desc = u.UpdateDescription?.trim() || (u.UpdateCode ? String(u.UpdateCode) : "");
+      if (!desc) return null;
+      const comment = u.Comments?.trim() || null;
+      return {
+        rawStatus: desc,
+        label: comment && comment.toLowerCase() !== desc.toLowerCase() ? comment : null,
+        description: comment,
+        location: u.UpdateLocation?.trim() || null,
+        timestamp: aramexDateToIso(u.UpdateDateTime),
+      };
+    })
+    .filter((e): e is NonNullable<typeof e> => e !== null);
+
+  const lastCity = events.length > 0 ? events[events.length - 1].location : null;
+
+  return {
+    rawStatus: base.rawStatus,
+    events,
+    courier: null,
+    location: lastCity ? { city: lastCity, area: null } : null,
+    lastUpdateAt: events.length > 0 ? events[events.length - 1].timestamp : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // CalculateRate — FETCH_COST
 // ---------------------------------------------------------------------------
 

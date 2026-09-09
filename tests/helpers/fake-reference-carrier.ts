@@ -40,6 +40,16 @@ export interface FakeCarrierState {
    * the historical default (25.5); set `null` to test "the carrier
    * returned no price" (ASODITECH must NOT invent one). */
   reportedCost?: number | null;
+  /** GET /shipments/:id/tracking — event list the carrier reports. `[]` by
+   * default (carrier gives no detailed history). */
+  trackingEvents?: { status: string; description: string | null; location: string | null; at: string | null }[];
+  /** Courier the carrier reports on the tracking call. `null` by default
+   * (no carrier field) — never fabricated. */
+  trackingCourier?: { name: string | null; phone: string | null } | null;
+  /** When set, GET /shipments/:id/tracking responds with this HTTP status —
+   * used to test "a tracking failure must NOT wipe the last-known
+   * status/events". */
+  forceTrackingStatus?: number;
 }
 
 export function emptyFakeCarrierState(): FakeCarrierState {
@@ -119,6 +129,18 @@ export function installFakeReferenceCarrier(state: FakeCarrierState) {
         if (!record) return jsonResponse({ error: "not found" }, 404);
         record.status = "cancelled";
         return jsonResponse({ ok: true });
+      }
+
+      const trackingMatch = path.match(/^\/shipments\/([^/]+)\/tracking$/);
+      if (trackingMatch && method === "GET") {
+        if (state.forceTrackingStatus) return jsonResponse({ error: "forced" }, state.forceTrackingStatus);
+        const record = state.shipments.get(trackingMatch[1]);
+        if (!record) return jsonResponse({ error: "not found" }, 404);
+        return jsonResponse({
+          raw_status: record.status,
+          events: state.trackingEvents ?? [],
+          courier: state.trackingCourier ?? null,
+        });
       }
 
       const statusMatch = path.match(/^\/shipments\/([^/]+)$/);
