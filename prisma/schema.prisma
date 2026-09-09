@@ -105,6 +105,7 @@ model Tenant {
   auditEvents               AuditEvent[]
   invitations               Invitation[]
   passwordResetTokens       PasswordResetToken[]
+  backupRuns                BackupRun[]
 
   @@map("tenants")
 }
@@ -181,6 +182,7 @@ model User {
   commissionStatementsClosed CommissionStatement[]      @relation("CommissionStatementClosedBy")
   commissionStatementsPaid   CommissionStatement[]      @relation("CommissionStatementPaidBy")
   confirmationAttempts       OrderConfirmationAttempt[] @relation("ConfirmationAttemptAgent")
+  backupRunsCreated          BackupRun[]                @relation("BackupRunCreatedBy")
 
   // Phase 3 (docs/adr/0025): email is unique PER TENANT, not globally — two
   // tenants may have a user with the same email. Login (src/actions/auth.ts)
@@ -1898,4 +1900,72 @@ model AuditEvent {
   @@index([actorUserId])
   @@index([tenantId])
   @@map("audit_events")
+}
+
+// ---------------------------------------------------------------------------
+// Backup & Portability — Phase 1 (docs/adr/0034-backup-and-portability.md).
+//
+// An INDEPENDENT module: a tenant can export ONLY their own business data
+// as a versioned, authenticated-encrypted `.asb` package, download it, and
+// restore it. Nothing here changes Orders / Stock / Delivery / Finance /
+// RBAC / multi-tenant behaviour. This table is the ONLY schema addition.
+//
+// `payload` holds the sealed container bytes so a generated backup can be
+// re-downloaded and so the mandatory pre-restore safety snapshot is a real,
+// retrievable artifact. It is NEVER itself included in any backup. Rows are
+// pruned aggressively (see src/lib/backup/*): superseded MANUAL_EXPORT and
+// consumed RESTORE_UPLOAD payloads are nulled; PRE_RESTORE_SNAPSHOT rows
+// carry an `expiresAt`.
+// ---------------------------------------------------------------------------
+
+enum BackupRunType {
+  // A backup the tenant generated on demand ("Sauvegarder maintenant").
+  MANUAL_EXPORT
+  // Auto-generated snapshot of the tenant's current data taken immediately
+  // BEFORE a restore, so a bad restore is always recoverable.
+  PRE_RESTORE_SNAPSHOT
+  // A package uploaded by the tenant, validated and held server-side
+  // between the restore "preview" and "confirm" steps.
+  RESTORE_UPLOAD
+}
+
+enum BackupRunStatus {
+  PENDING
+  READY
+  RESTORED
+  FAILED
+  EXPIRED
+}
+
+model BackupRun {
+  id             String          @id @default(cuid())
+  tenantId       String          @default("default")
+  type           BackupRunType
+  status         BackupRunStatus @default(PENDING)
+  // The ASODITECH backup FORMAT version (src/lib/backup/constants.ts),
+  // independent of appVersion / schemaVersion below.
+  formatVersion  Int
+  appVersion     String
+  // The latest applied DB migration at creation time — best-effort, for
+  // diagnostics and future cross-deployment compatibility checks.
+  schemaVersion  String
+  // Per-model row counts { "products": 0, "orders": 0, … }.
+  counts         Json
+  sizeBytes      Int             @default(0)
+  checksumSha256 String          @default("")
+  // Sealed `.asb` container (AES-256-GCM). Nulled once superseded/consumed.
+  payload        Bytes?
+  error          String?
+  note           String?
+  createdById    String?
+  createdAt      DateTime        @default(now())
+  // Set on RESTORE_UPLOAD / PRE_RESTORE_SNAPSHOT rows — retained only briefly.
+  expiresAt      DateTime?
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  createdBy User?  @relation("BackupRunCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, type, createdAt])
+  @@index([tenantId])
+  @@map("backup_runs")
 }

@@ -39,6 +39,11 @@ interface AuditActionMeta {
 
 const AUDIT_ACTION_META: Record<string, AuditActionMeta> = {
   "ai.query": { label: "Question posée à l'assistant IA", category: "parametres" },
+  "backup.created": { label: "Sauvegarde générée", category: "parametres" },
+  "backup.downloaded": { label: "Sauvegarde téléchargée", category: "parametres" },
+  "backup.restore_previewed": { label: "Restauration prévisualisée", category: "parametres" },
+  "backup.restored": { label: "Sauvegarde restaurée", category: "parametres" },
+  "backup.restore_failed": { label: "Échec de restauration de sauvegarde", category: "parametres" },
   "category.created": { label: "Catégorie créée", category: "produits_stock" },
   "commission.agent_created": { label: "Agent de confirmation ajouté", category: "finance" },
   "commission.agent_updated": { label: "Agent de confirmation modifié", category: "finance" },

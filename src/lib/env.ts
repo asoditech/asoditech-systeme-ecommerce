@@ -27,6 +27,24 @@ const envSchema = z.object({
   // until an operator deliberately turns real delivery on.
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
+  // Dedicated base64 32-byte key for the Backup & Portability module's
+  // `.asb` package encryption (src/lib/backup/container.ts,
+  // docs/adr/0034-backup-and-portability.md). OPTIONAL: when unset the
+  // module reuses INTEGRATION_ENCRYPTION_KEY, so no existing environment —
+  // this test suite included — needs a new value. A deployment that relies
+  // on backups SHOULD set a distinct key so rotating one domain's key
+  // never invalidates the other's ciphertext. Same format/validation as
+  // INTEGRATION_ENCRYPTION_KEY.
+  BACKUP_ENCRYPTION_KEY: z
+    .string()
+    .refine((value) => {
+      try {
+        return Buffer.from(value, "base64").length === 32;
+      } catch {
+        return false;
+      }
+    }, "BACKUP_ENCRYPTION_KEY must be a base64-encoded 32-byte key")
+    .optional(),
 });
 
 function loadEnv() {

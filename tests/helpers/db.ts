@@ -22,6 +22,9 @@ export const DEFAULT_TENANT_ID = "default";
 export async function resetDb() {
   await prisma.$transaction(async (tx) => {
     await tx.auditEvent.deleteMany();
+    // Backup & Portability (docs/adr/0034): backup_runs has a RESTRICT fk to
+    // tenants — a leftover row blocks the non-default tenant.deleteMany below.
+    await tx.backupRun.deleteMany();
     // Phase 5 (docs/adr/0027-tenant-provisioning.md): invitations has a
     // RESTRICT fk to tenants, so a leftover row would block the non-default
     // tenant.deleteMany below.

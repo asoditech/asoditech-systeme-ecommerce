@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/page-header";
 import { BusinessSettingsForm } from "@/components/settings/business-settings-form";
+import { SettingsNav } from "@/components/settings/settings-nav";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/prisma";
@@ -21,6 +22,7 @@ export default async function ParametresPage() {
     <div>
       <PageHeader title="Paramètres" description="Informations de l'entreprise et préférences générales." />
       <div className="max-w-3xl">
+        <SettingsNav canManage={canManage} />
         {canManage ? (
           <BusinessSettingsForm settings={settings} />
         ) : (
