@@ -9,6 +9,7 @@ import { ShipmentStatusSelect } from "@/components/delivery/shipment-status-sele
 import { ProviderForm } from "@/components/delivery/provider-form";
 import { ProviderConnectionStatus, ProviderConnectionControls } from "@/components/delivery/provider-connection";
 import { CityMappingDialog } from "@/components/delivery/city-mapping-dialog";
+import { ProviderPricingDialog } from "@/components/delivery/provider-pricing-dialog";
 import { ShipmentProviderControls } from "@/components/delivery/shipment-provider-controls";
 import { RefreshStatusesButton } from "@/components/delivery/refresh-statuses-button";
 import { RetryShipmentButton } from "@/components/delivery/retry-shipment-button";
@@ -452,6 +453,13 @@ export default async function LivraisonPage({
                                 <CityMappingDialog providerId={p.id} providerName={p.name} />
                               </>
                             )}
+                            <ProviderPricingDialog
+                              providerId={p.id}
+                              providerName={p.name}
+                              isApiProvider={p.type === "API"}
+                              returnCost={p.returnCost?.toString() ?? null}
+                              failureCost={p.failureCost?.toString() ?? null}
+                            />
                             <ConfirmActionButton
                               label="Supprimer"
                               variant="ghost"

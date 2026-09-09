@@ -1,13 +1,76 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
-import type { Prisma, OrderStatus } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { OrderStatus, ShipmentCostSource } from "@prisma/client";
 import { canTransitionOrderStatus } from "@/lib/validation/order";
 import { canTransitionShipmentStatus, type ShipmentStatusValue } from "@/lib/validation/delivery";
 import { reconcileOrderCommission } from "@/lib/commissions";
 
 /** Thrown when a conditional status-transition update matches 0 rows. */
 export class ShipmentConflictError extends Error {}
+
+/**
+ * Statuses in which a shipment's cost becomes financially final — see
+ * docs/adr/0032-delivery-cost-rules.md. Once reached, `costFinalizedAt` is
+ * set and neither a later carrier re-fetch nor a provider-rule change may
+ * rewrite the recorded cost.
+ */
+export const FINAL_SHIPMENT_STATUSES: ShipmentStatusValue[] = ["LIVRE", "ECHEC", "RETOURNE", "ANNULE"];
+
+export function isFinalShipmentStatus(status: ShipmentStatusValue): boolean {
+  return FINAL_SHIPMENT_STATUSES.includes(status);
+}
+
+export interface ProviderCostRules {
+  returnCost: Prisma.Decimal | number | null;
+  failureCost: Prisma.Decimal | number | null;
+  /** True for a `type: "API"` provider — the carrier is then the source
+   * of truth for a successful delivery's price. */
+  isApiProvider: boolean;
+  /** The shipment's current cost source, kept for a delivered shipment on
+   * a non-API provider (its cost is the operator-entered figure, which
+   * has no `ShipmentCostSource` enum value). */
+  currentCostSource: ShipmentCostSource | null;
+}
+
+/**
+ * The single decision point for "what does this shipment cost, now that it
+ * has reached a financially final state" (docs/adr/0032).
+ *
+ *  - `LIVRE` on an API provider → the carrier's own price (`carrierCost`).
+ *    NEVER invented: no carrier price ⇒ result stays `null` ("unknown"),
+ *    never a placeholder or a fallback figure.
+ *  - `LIVRE` on a manual provider → the cost the operator already entered
+ *    (`carrierCost` here is really `shipment.cost`), source unchanged.
+ *  - `RETOURNE` → the merchant's `provider.returnCost` (null ⇒ 0).
+ *  - `ECHEC` / `ANNULE` → the merchant's `provider.failureCost` (null ⇒ 0).
+ *
+ * Returns `null` for a non-final status (nothing to finalise yet).
+ */
+export function resolveFinalShipmentCost(
+  status: ShipmentStatusValue,
+  carrierCost: Prisma.Decimal | number | null,
+  rules: ProviderCostRules
+): { cost: Prisma.Decimal | null; costSource: ShipmentCostSource | null } | null {
+  const dec = (v: Prisma.Decimal | number | null): Prisma.Decimal | null =>
+    v === null || v === undefined ? null : v instanceof Prisma.Decimal ? v : new Prisma.Decimal(v);
+
+  switch (status) {
+    case "LIVRE": {
+      const c = dec(carrierCost);
+      if (c === null) return { cost: null, costSource: null };
+      return { cost: c, costSource: rules.isApiProvider ? "CARRIER_API" : rules.currentCostSource };
+    }
+    case "RETOURNE":
+      return { cost: dec(rules.returnCost) ?? new Prisma.Decimal(0), costSource: "RETURN_RULE" };
+    case "ECHEC":
+    case "ANNULE":
+      return { cost: dec(rules.failureCost) ?? new Prisma.Decimal(0), costSource: "FAILURE_RULE" };
+    default:
+      return null;
+  }
+}
 
 /**
  * A short, human-readable summary of an order's line items for a carrier's
@@ -61,7 +124,13 @@ export const SHIPPABLE_ORDER_STATUSES: OrderStatus[] = ["CONFIRMEE", "EN_PREPARA
 export const ACTIVE_SHIPMENT_STATUSES: ShipmentStatusValue[] = ["EN_ATTENTE", "EN_TRANSIT"];
 
 export type ShipmentTransitionResult =
-  | { ok: true }
+  | {
+      ok: true;
+      /** The cost that was frozen onto the shipment by this transition,
+       * if it reached a financially final state — for the caller's audit
+       * event. Absent when no finalisation happened. */
+      finalizedCost?: { cost: number | null; costSource: ShipmentCostSource | null };
+    }
   | { ok: false; reason: "invalid_transition" | "conflict" };
 
 /**
@@ -83,6 +152,10 @@ export async function applyShipmentStatusTransition(params: {
   newStatus: ShipmentStatusValue;
   updatedById: string | null;
   failedReason?: string | null;
+  /** The freshest carrier-reported delivery price known to the caller
+   * (e.g. from the status-fetch that triggered this transition). Only
+   * consulted when `newStatus` is `LIVRE` — see docs/adr/0032. */
+  carrierCost?: Prisma.Decimal | number | null;
   /** Extra columns to set atomically with the status change (e.g.
    * providerStatusRaw, lastSyncedAt) — never a second, uncoordinated write. */
   extraData?: Prisma.ShipmentUpdateManyMutationInput;
@@ -95,8 +168,44 @@ export async function applyShipmentStatusTransition(params: {
   if (params.newStatus === "EN_TRANSIT") timestamps.shippedAt = new Date();
   if (params.newStatus === "LIVRE") timestamps.deliveredAt = new Date();
 
+  let finalizedCost: { cost: number | null; costSource: ShipmentCostSource | null } | undefined;
+
   try {
     await prisma.$transaction(async (tx) => {
+      // Cost finalisation (docs/adr/0032): the moment a shipment reaches a
+      // financially final state, freeze its cost from the right source —
+      // the carrier's own price for a delivery, the provider's own rule
+      // for a return / failure. Never recomputed once `costFinalizedAt` is
+      // set (a later carrier re-fetch or a rule change can't touch it).
+      let costData: Prisma.ShipmentUpdateManyMutationInput = {};
+      if (isFinalShipmentStatus(params.newStatus)) {
+        const current = await tx.shipment.findUnique({
+          where: { id: params.shipmentId },
+          select: {
+            cost: true,
+            costSource: true,
+            costFinalizedAt: true,
+            provider: { select: { type: true, returnCost: true, failureCost: true } },
+          },
+        });
+        if (current && current.costFinalizedAt === null) {
+          const carrierCost = params.carrierCost ?? current.cost;
+          const resolved = resolveFinalShipmentCost(params.newStatus, carrierCost, {
+            returnCost: current.provider.returnCost,
+            failureCost: current.provider.failureCost,
+            isApiProvider: current.provider.type === "API",
+            currentCostSource: current.costSource,
+          });
+          if (resolved) {
+            costData = { cost: resolved.cost, costSource: resolved.costSource, costFinalizedAt: new Date() };
+            finalizedCost = {
+              cost: resolved.cost === null ? null : Number(resolved.cost),
+              costSource: resolved.costSource,
+            };
+          }
+        }
+      }
+
       // Same conditional-update + row-count-check concurrency pattern as
       // Order/Refund status transitions — see docs/adr/0002's audit
       // addendum.
@@ -108,6 +217,7 @@ export async function applyShipmentStatusTransition(params: {
           updatedById: params.updatedById,
           ...timestamps,
           ...params.extraData,
+          ...costData,
         },
       });
       if (result.count === 0) {
@@ -139,5 +249,5 @@ export async function applyShipmentStatusTransition(params: {
     await reconcileOrderCommission(params.orderId, params.updatedById ?? null);
   }
 
-  return { ok: true };
+  return { ok: true, finalizedCost };
 }

@@ -58,6 +58,34 @@ export const updateShipmentStatusSchema = z.object({
   failedReason: z.string().trim().max(1000).nullish().or(z.literal("")),
 });
 
+/** A blank/empty money field → `null` ("not configured"), else a
+ * non-negative number. Used by the provider pricing-rules form. */
+const optionalMoney = z
+  .union([z.literal(""), z.coerce.number().min(0, "Le montant ne peut pas être négatif.")])
+  .nullish()
+  .transform((v) => (v === "" || v === undefined ? null : v));
+
+/**
+ * Merchant rules for NON-successful delivery outcomes on a provider (docs/
+ * adr/0032). A successful delivery's price always comes from the carrier's
+ * API for an API provider — it is NOT set here.
+ */
+export const updateShippingProviderPricingSchema = z.object({
+  id: z.string().min(1),
+  returnCost: optionalMoney,
+  failureCost: optionalMoney,
+});
+
+/**
+ * Explicit accounting correction of a shipment's recorded cost (docs/adr/
+ * 0032). Permission-gated, audited, never an automatic fallback.
+ */
+export const overrideShipmentCostSchema = z.object({
+  id: z.string().min(1),
+  cost: z.coerce.number().min(0, "Le coût ne peut pas être négatif."),
+  reason: z.string().trim().min(3, "Indiquez le motif de la correction.").max(500),
+});
+
 /** "Lier un colis existant" — attach a parcel already created in the
  * carrier's own portal / by the storefront plugin to a local order, then
  * pull its current status. API providers only. */

@@ -4,6 +4,8 @@ import {
   createShippingProviderAction,
   createShipmentAction,
   updateShipmentStatusAction,
+  updateShippingProviderPricingAction,
+  overrideShipmentCostAction,
   deleteShippingProviderAction,
 } from "@/actions/delivery";
 import { updateOrderStatusAction, createOrderAction } from "@/actions/orders";
@@ -302,5 +304,89 @@ describe("deleteShippingProviderAction", () => {
     await loginAsTestUser({ role: "MANAGER" });
     const result = await deleteShippingProviderAction(formData({ id: "does-not-exist" }));
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("delivery cost rules — actions (ADR 0032)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  it("updateShippingProviderPricingAction sets the return/failure rules and audits the change", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const provider = await createShippingProviderAction(formData({ name: "OzonExpress", type: "MANUEL" }));
+    if (!provider.ok) throw new Error("setup failed");
+
+    const res = await updateShippingProviderPricingAction(
+      formData({ id: provider.data.id, returnCost: "10", failureCost: "0" })
+    );
+    expect(res.ok).toBe(true);
+
+    const row = await prisma.shippingProvider.findUniqueOrThrow({ where: { id: provider.data.id } });
+    expect(Number(row.returnCost)).toBe(10);
+    expect(Number(row.failureCost)).toBe(0);
+
+    const audit = await prisma.auditEvent.findFirst({
+      where: { action: "shipping_provider.pricing_updated", entityId: provider.data.id },
+    });
+    expect(audit).not.toBeNull();
+    expect(audit!.previousValue).toMatchObject({ returnCost: null, failureCost: null });
+    expect(audit!.newValue).toMatchObject({ returnCost: "10", failureCost: "0" });
+  });
+
+  it("updateShippingProviderPricingAction is denied without delivery.manage", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const provider = await createShippingProviderAction(formData({ name: "Prestataire test", type: "MANUEL" }));
+    if (!provider.ok) throw new Error("setup failed");
+    mockCookieStore.clear();
+    await loginAsTestUser({ role: "SUPPORT" });
+    await expect(
+      updateShippingProviderPricingAction(formData({ id: provider.data.id, returnCost: "5", failureCost: "" }))
+    ).rejects.toThrow();
+  });
+
+  it("overrideShipmentCostAction — finance.manage only, freezes the cost, and audits with the reason", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const orderId = await seedShippableOrder();
+    await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
+    const provider = await createShippingProviderAction(formData({ name: "Manuel", type: "MANUEL" }));
+    if (!provider.ok) throw new Error("setup failed");
+    const shipment = await createShipmentAction(formData({ orderId, providerId: provider.data.id, cost: "20" }));
+    if (!shipment.ok) throw new Error("setup failed");
+
+    // A plain manager (no finance.manage) cannot.
+    const denied = await overrideShipmentCostAction(
+      formData({ id: shipment.data.id, cost: "35", reason: "facture reçue" })
+    );
+    expect(denied.ok).toBe(false);
+
+    mockCookieStore.clear();
+    await loginAsTestUser({ role: "ACCOUNTANT" });
+    const ok = await overrideShipmentCostAction(
+      formData({ id: shipment.data.id, cost: "35", reason: "facture transporteur reçue" })
+    );
+    expect(ok.ok).toBe(true);
+
+    const s = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.data.id } });
+    expect(Number(s.cost)).toBe(35);
+    expect(s.costSource).toBe("MANUAL_OVERRIDE");
+    expect(s.costFinalizedAt).not.toBeNull();
+
+    const audit = await prisma.auditEvent.findFirst({
+      where: { action: "shipment.cost_overridden", entityId: shipment.data.id },
+    });
+    expect(audit).not.toBeNull();
+    expect(audit!.metadata).toMatchObject({ reason: "facture transporteur reçue" });
+  });
+
+  it("overrideShipmentCostAction requires a reason", async () => {
+    await loginAsTestUser({ role: "ACCOUNTANT" });
+    const res = await overrideShipmentCostAction(formData({ id: "x", cost: "10", reason: "" }));
+    expect(res.ok).toBe(false);
   });
 });

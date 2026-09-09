@@ -235,6 +235,105 @@ describe("delivery integration service (against the reference fixture adapter)",
     });
   });
 
+  describe("delivery cost rules (ADR 0032)", () => {
+    async function shippedShipment(providerData: Record<string, unknown> = {}) {
+      const provider = await prisma.shippingProvider.create({
+        data: {
+          name: "Transporteur ref",
+          type: "API",
+          providerKey: REFERENCE_PROVIDER_KEY,
+          credentialsEncrypted: encryptSecret(JSON.stringify({ apiKey: FAKE_API_KEY })),
+          connectionStatus: "CONFIGURE",
+          ...providerData,
+        },
+      });
+      const order = await seedOrderWithAddress();
+      const shipment = await createShipmentViaProvider({ order, providerId: provider.id, updatedById: testUserId, notes: null });
+      await prisma.shipment.update({ where: { id: shipment.id }, data: { status: "EN_TRANSIT" } });
+      await prisma.order.update({ where: { id: order.id }, data: { status: "EXPEDIEE" } });
+      return { provider, order, shipment };
+    }
+
+    async function sync(shipmentId: string) {
+      const fresh = await prisma.shipment.findUniqueOrThrow({ where: { id: shipmentId }, include: { order: true } });
+      return syncShipmentStatus({ shipment: fresh, order: fresh.order, updatedById: testUserId });
+    }
+
+    it("a successful delivery records the CARRIER's price and freezes it — ASODITECH never invents one", async () => {
+      const { shipment } = await shippedShipment();
+      carrierState.shipments.get(shipment.externalId!)!.status = "delivered";
+      await sync(shipment.id);
+
+      const s = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
+      expect(s.status).toBe("LIVRE");
+      expect(Number(s.cost)).toBe(25.5); // the fake carrier's reported cost
+      expect(s.costSource).toBe("CARRIER_API");
+      expect(s.costFinalizedAt).not.toBeNull();
+    });
+
+    it("a delivery with NO carrier price stays 'unknown' — no default, no previous price, no guess", async () => {
+      carrierState.reportedCost = null;
+      const { shipment } = await shippedShipment({ returnCost: 10, failureCost: 5 });
+      carrierState.shipments.get(shipment.externalId!)!.status = "delivered";
+      await sync(shipment.id);
+
+      const s = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
+      expect(s.status).toBe("LIVRE");
+      expect(s.cost).toBeNull();
+      expect(s.costSource).toBeNull();
+    });
+
+    it("a return uses the provider's configured return cost — independent of the delivery price", async () => {
+      const { shipment } = await shippedShipment({ returnCost: 10 });
+      carrierState.shipments.get(shipment.externalId!)!.status = "returned";
+      await sync(shipment.id);
+
+      const s = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
+      expect(s.status).toBe("RETOURNE");
+      expect(Number(s.cost)).toBe(10); // return rule, NOT the carrier's 25.5, NOT 12.75
+      expect(s.costSource).toBe("RETURN_RULE");
+      expect(s.costFinalizedAt).not.toBeNull();
+    });
+
+    it("a failure uses the provider's configured failure cost (0 when unset)", async () => {
+      const { shipment } = await shippedShipment(); // no failureCost configured
+      carrierState.shipments.get(shipment.externalId!)!.status = "failed";
+      await sync(shipment.id);
+
+      const s = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
+      expect(s.status).toBe("ECHEC");
+      expect(Number(s.cost)).toBe(0);
+      expect(s.costSource).toBe("FAILURE_RULE");
+    });
+
+    it("a historical shipment's cost never changes when the provider's rules change later", async () => {
+      const { provider, shipment } = await shippedShipment({ returnCost: 10 });
+      carrierState.shipments.get(shipment.externalId!)!.status = "returned";
+      await sync(shipment.id);
+      const before = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
+      expect(Number(before.cost)).toBe(10);
+
+      await prisma.shippingProvider.update({ where: { id: provider.id }, data: { returnCost: 25 } });
+
+      const after = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
+      expect(Number(after.cost)).toBe(10); // unchanged
+    });
+
+    it("a later carrier re-fetch never re-costs a shipment whose cost is already frozen", async () => {
+      const { shipment } = await shippedShipment();
+      carrierState.shipments.get(shipment.externalId!)!.status = "delivered";
+      await sync(shipment.id);
+      const frozen = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
+      expect(Number(frozen.cost)).toBe(25.5);
+
+      carrierState.shipments.get(shipment.externalId!)!.cost = 99;
+      await sync(shipment.id);
+
+      const still = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
+      expect(Number(still.cost)).toBe(25.5); // frozen
+    });
+  });
+
   describe("handleDeliveryWebhook", () => {
     function signedBody(body: object, secret: string) {
       const raw = JSON.stringify(body);

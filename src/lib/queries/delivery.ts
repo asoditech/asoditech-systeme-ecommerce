@@ -36,12 +36,12 @@ export async function listShipments(params: {
   const page = Math.max(1, params.page ?? 1);
   const q = params.search?.trim();
   const where: Prisma.ShipmentWhereInput = {
-    // A shipment that never got created at the carrier (ECHEC + no
-    // externalId) is a failed *attempt*, not a shipment — it clutters the
-    // list, and the order it belongs to is already back in « À expédier »
-    // (where the failure reason + fix actions live). Keep ECHEC rows that
-    // DID reach the carrier (they carry an externalId).
-    NOT: { status: "ECHEC", externalId: null },
+    // An API-provider shipment that never got created at the carrier
+    // (ECHEC + no externalId) is a failed *attempt*, not a shipment — it
+    // clutters the list, and the order is already back in « À expédier »
+    // (where the failure reason + fix actions live). A MANUEL provider's
+    // ECHEC is a real, deliberately-set failure and is kept.
+    NOT: { status: "ECHEC", externalId: null, provider: { type: "API" } },
     ...(params.status ? { status: params.status } : {}),
     ...(params.providerId ? { providerId: params.providerId } : {}),
     ...(q
@@ -83,7 +83,7 @@ export async function getDeliveryStats(dateFrom?: Date, dateTo?: Date) {
     // Exclude failed creation attempts (see listShipments) — they are not
     // real shipments and must not inflate "Échecs" or drag down the
     // success rate.
-    NOT: { status: "ECHEC", externalId: null },
+    NOT: { status: "ECHEC", externalId: null, provider: { type: "API" } },
     ...(dateFrom || dateTo
       ? { createdAt: { ...(dateFrom ? { gte: dateFrom } : {}), ...(dateTo ? { lte: dateTo } : {}) } }
       : {}),

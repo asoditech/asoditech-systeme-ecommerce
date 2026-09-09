@@ -27,6 +27,7 @@ import { listShipmentProviderOptions } from "@/lib/queries/delivery";
 import { buildParcelContentsSummary } from "@/lib/delivery";
 import { LinkShipmentDialog } from "@/components/delivery/link-shipment-dialog";
 import { EditShippingAddressDialog } from "@/components/orders/edit-shipping-address-dialog";
+import { OverrideShipmentCostDialog } from "@/components/delivery/override-shipment-cost-dialog";
 import { AssignAgentControl } from "@/components/commissions/assign-agent-control";
 import { getOrderCommission, listAssignableCommissionAgents } from "@/lib/queries/commissions";
 import { getOrderConfirmationAttempts } from "@/lib/queries/order-confirmation";
@@ -40,7 +41,7 @@ import {
   orderShippingCountry,
 } from "@/lib/format";
 import { humanizeAuditAction } from "@/lib/audit-labels";
-import { CONFIRMATION_OUTCOME_LABELS } from "@/lib/status-labels";
+import { CONFIRMATION_OUTCOME_LABELS, SHIPMENT_COST_SOURCE_LABELS } from "@/lib/status-labels";
 import {
   ORDER_STATUS_LABELS,
   ORDER_PAYMENT_STATUS_LABELS,
@@ -94,6 +95,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
   const canRefund = hasPermission(user.role, "orders.refund");
   const canManageDelivery = hasPermission(user.role, "delivery.manage");
   const canViewFinance = hasPermission(user.role, "finance.view");
+  const canManageFinance = hasPermission(user.role, "finance.manage");
   const profit = canViewFinance
     ? computeOrderProfit({
         status: order.status,
@@ -263,10 +265,21 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                           <TableCell>{s.provider.name}</TableCell>
                           <TableCell className="text-muted-foreground">{s.trackingNumber ?? "—"}</TableCell>
                           <TableCell className="text-muted-foreground">
-                            {s.cost !== null ? formatCurrency(s.cost.toString(), order.currency) : "—"}
+                            {s.cost !== null ? formatCurrency(s.cost.toString(), order.currency) : "— (inconnu)"}
+                            {s.costSource ? (
+                              <span className="block text-[11px] text-muted-foreground/70">
+                                {SHIPMENT_COST_SOURCE_LABELS[s.costSource] ?? s.costSource}
+                                {s.costFinalizedAt ? "" : " (estimation)"}
+                              </span>
+                            ) : null}
                             {s.providerStatusRaw ? (
                               <span className="block text-xs">Transporteur : {s.providerStatusRaw}</span>
                             ) : null}
+                            {canManageFinance && (
+                              <span className="mt-1 block">
+                                <OverrideShipmentCostDialog shipmentId={s.id} currentCost={s.cost?.toString() ?? null} />
+                              </span>
+                            )}
                           </TableCell>
                           <TableCell>
                             <StatusBadge status={s.status} labels={SHIPMENT_STATUS_LABELS} />

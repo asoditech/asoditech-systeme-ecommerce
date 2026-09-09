@@ -3,13 +3,16 @@
 import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requirePermissionForAction } from "@/lib/auth/guards";
+import { requirePermissionForAction, requireUserForAction } from "@/lib/auth/guards";
+import { hasPermission } from "@/lib/auth/permissions";
 import { recordAuditEvent } from "@/lib/audit";
 import { applyShipmentStatusTransition, SHIPPABLE_ORDER_STATUSES } from "@/lib/delivery";
 import {
   createShippingProviderSchema,
   createShipmentSchema,
   updateShipmentStatusSchema,
+  updateShippingProviderPricingSchema,
+  overrideShipmentCostSchema,
   configureDeliveryProviderApiSchema,
   createShipmentViaProviderSchema,
   linkExistingShipmentSchema,
@@ -253,8 +256,13 @@ export async function updateShipmentStatusAction(formData: FormData): Promise<Ac
     action: "shipment.status_changed",
     entityType: "Shipment",
     entityId: existing.id,
-    previousValue: { status: existing.status },
-    newValue: { status: parsed.data.status },
+    previousValue: { status: existing.status, cost: existing.cost?.toString() ?? null },
+    newValue: {
+      status: parsed.data.status,
+      ...(result.finalizedCost
+        ? { cost: result.finalizedCost.cost, costSource: result.finalizedCost.costSource }
+        : {}),
+    },
   });
 
   if (parsed.data.status === "ECHEC" && existing.status !== "ECHEC") {
@@ -268,6 +276,108 @@ export async function updateShipmentStatusAction(formData: FormData): Promise<Ac
   if (parsed.data.status === "LIVRE") {
     await pushOrderStatusToWooCommerce(existing.orderId);
   }
+
+  revalidatePath("/livraison");
+  revalidatePath(`/commandes/${existing.orderId}`);
+  return actionOk({ id: existing.id });
+}
+
+/**
+ * Sets a provider's merchant-controlled pricing rules for NON-successful
+ * outcomes (docs/adr/0032). A successful delivery's price always comes
+ * from the carrier's API for an API provider — this action can't touch it.
+ * Changing either value is audited with the old → new figures. Historical
+ * shipments already frozen (`costFinalizedAt` set) are unaffected.
+ */
+export async function updateShippingProviderPricingAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("delivery.manage");
+
+  const parsed = updateShippingProviderPricingSchema.safeParse({
+    id: formData.get("id"),
+    returnCost: formData.get("returnCost") ?? "",
+    failureCost: formData.get("failureCost") ?? "",
+  });
+  if (!parsed.success) {
+    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+
+  const existing = await prisma.shippingProvider.findUnique({ where: { id: parsed.data.id } });
+  if (!existing) return actionError("Prestataire de livraison introuvable.");
+
+  const prev = {
+    returnCost: existing.returnCost?.toString() ?? null,
+    failureCost: existing.failureCost?.toString() ?? null,
+  };
+  const next = {
+    returnCost: parsed.data.returnCost === null ? null : String(parsed.data.returnCost),
+    failureCost: parsed.data.failureCost === null ? null : String(parsed.data.failureCost),
+  };
+  if (prev.returnCost === next.returnCost && prev.failureCost === next.failureCost) {
+    return actionOk({ id: existing.id });
+  }
+
+  await prisma.shippingProvider.update({
+    where: { id: existing.id },
+    data: { returnCost: parsed.data.returnCost, failureCost: parsed.data.failureCost },
+  });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "shipping_provider.pricing_updated",
+    entityType: "ShippingProvider",
+    entityId: existing.id,
+    previousValue: prev,
+    newValue: next,
+  });
+
+  revalidatePath("/livraison");
+  return actionOk({ id: existing.id });
+}
+
+/**
+ * Explicit accounting correction of a shipment's recorded cost (docs/adr/
+ * 0032, §7). NOT an automatic fallback for a missing carrier price —
+ * `finance.manage` only, always audited, and it freezes the cost
+ * (`costFinalizedAt`) so a later sync can't undo it.
+ */
+export async function overrideShipmentCostAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const user = await requireUserForAction();
+  if (!hasPermission(user.role, "finance.manage")) {
+    return actionError("Seule la comptabilité peut corriger le coût d'une expédition.");
+  }
+
+  const parsed = overrideShipmentCostSchema.safeParse({
+    id: formData.get("id"),
+    cost: formData.get("cost"),
+    reason: formData.get("reason"),
+  });
+  if (!parsed.success) {
+    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+
+  const existing = await prisma.shipment.findUnique({ where: { id: parsed.data.id } });
+  if (!existing) return actionError("Expédition introuvable.");
+
+  await prisma.shipment.update({
+    where: { id: existing.id },
+    data: {
+      cost: parsed.data.cost,
+      costSource: "MANUAL_OVERRIDE",
+      costFinalizedAt: new Date(),
+    },
+  });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "shipment.cost_overridden",
+    entityType: "Shipment",
+    entityId: existing.id,
+    previousValue: { cost: existing.cost?.toString() ?? null, costSource: existing.costSource },
+    newValue: { cost: parsed.data.cost, costSource: "MANUAL_OVERRIDE" },
+    metadata: { reason: parsed.data.reason },
+  });
 
   revalidatePath("/livraison");
   revalidatePath(`/commandes/${existing.orderId}`);

@@ -145,10 +145,10 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
 
     case "livraison": {
       const r = await getDeliveryPerformanceReport(resolved.range);
-      const perfHeaders = ["Clé", "Expéditions", "Livrées", "Échecs", "Retours", "En transit", "Taux livraison", "Délai moyen (j)", "Coût livraison", "COD encaissé", "COD en attente"];
+      const perfHeaders = ["Clé", "Expéditions", "Livrées", "Échecs", "Retours", "En transit", "Taux livraison", "Délai moyen (j)", "Coût total", "Coût livraisons", "Coût retours", "Coût échecs", "COD encaissé", "COD en attente"];
       const perfRow = (x: (typeof r.byProvider)[number]) => [
         x.key, x.total, x.delivered, x.failed, x.returned, x.inTransit, fmtPct(x.successRate),
-        x.avgDeliveryDays ?? "—", x.shippingCost, x.codCollected, x.codPending,
+        x.avgDeliveryDays ?? "—", x.shippingCost, x.deliveryCost, x.returnCost, x.failureCost, x.codCollected, x.codPending,
       ];
       return csvDocumentResponse(
         `rapport-livraison-${stamp}`,

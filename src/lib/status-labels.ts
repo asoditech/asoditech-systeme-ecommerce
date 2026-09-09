@@ -77,6 +77,13 @@ export const DELIVERY_MANIFEST_STATUS_LABELS: Record<string, StatusMeta> = {
   ECHEC: { label: "Échec", variant: "destructive" },
 };
 
+export const SHIPMENT_COST_SOURCE_LABELS: Record<string, string> = {
+  CARRIER_API: "API transporteur",
+  RETURN_RULE: "Règle retour",
+  FAILURE_RULE: "Règle échec",
+  MANUAL_OVERRIDE: "Correction manuelle",
+};
+
 export const CONFIRMATION_OUTCOME_LABELS: Record<string, string> = {
   CONFIRME: "Confirmé",
   PAS_DE_REPONSE: "Pas de réponse",

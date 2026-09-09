@@ -421,7 +421,12 @@ export async function createShipmentViaProvider(params: {
       externalId: result.externalId,
       trackingNumber: result.trackingNumber,
       trackingUrl: result.trackingUrl,
+      // Whatever the carrier's own pricing returned — never an ASODITECH
+      // estimate (docs/adr/0032). `null` when the carrier gave no price;
+      // it is resolved on delivery, not guessed now. Not finalised yet —
+      // this is the in-flight estimate.
       cost: result.cost,
+      costSource: result.cost !== null ? "CARRIER_API" : null,
       providerStatusRaw: result.rawStatus,
       lastSyncedAt: new Date(),
     },
@@ -519,11 +524,15 @@ export async function syncShipmentStatus(params: {
 
   const mapped = adapter.mapStatus?.(fetched.rawStatus) ?? null;
 
+  // A shipment whose cost is already frozen (delivered / returned / failed
+  // / manual override — docs/adr/0032) is NEVER re-costed from a later
+  // carrier fetch. Its carrier estimate can still refresh while in flight.
+  const costFrozen = params.shipment.costFinalizedAt !== null;
   const extraData = {
     providerStatusRaw: fetched.rawStatus,
     lastSyncedAt: new Date(),
     ...(fetched.trackingUrl ? { trackingUrl: fetched.trackingUrl } : {}),
-    ...(fetched.cost !== null ? { cost: fetched.cost } : {}),
+    ...(fetched.cost !== null && !costFrozen ? { cost: fetched.cost } : {}),
   };
 
   if (!mapped) {
@@ -547,6 +556,8 @@ export async function syncShipmentStatus(params: {
     currentOrderStatus: params.order.status,
     newStatus: mapped,
     updatedById: params.updatedById,
+    // The freshest carrier price — used only to finalise a LIVRE cost.
+    carrierCost: fetched.cost,
     extraData,
   });
   if (!result.ok) {

@@ -24,7 +24,16 @@ export interface DeliveryPerfRow {
   inTransit: number;
   successRate: number | null;
   avgDeliveryDays: number | null;
+  /** Total recorded shipment cost — `deliveryCost + returnCost +
+   * failureCost` (docs/adr/0032). */
   shippingCost: number;
+  /** Successful-delivery carrier charges (CARRIER_API + in-flight carrier
+   * estimates / manual-provider entries / manual overrides). */
+  deliveryCost: number;
+  /** Return-rule charges. */
+  returnCost: number;
+  /** Failure-rule charges. */
+  failureCost: number;
   codCollected: number;
   codPending: number;
 }
@@ -41,6 +50,7 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 type ShipmentRow = {
   status: string;
   cost: unknown;
+  costSource: string | null;
   shippedAt: Date | null;
   deliveredAt: Date | null;
   provider: { name: string } | null;
@@ -52,14 +62,21 @@ function summarise(key: string, rows: ShipmentRow[]): DeliveryPerfRow {
   let failed = 0;
   let returned = 0;
   let inTransit = 0;
-  let shippingCost = 0;
+  let deliveryCost = 0;
+  let returnCost = 0;
+  let failureCost = 0;
   let codCollected = 0;
   let codPending = 0;
   let daysSum = 0;
   let daysN = 0;
 
   for (const s of rows) {
-    if (s.cost != null) shippingCost += Number(s.cost);
+    if (s.cost != null) {
+      const amt = Number(s.cost);
+      if (s.costSource === "RETURN_RULE") returnCost += amt;
+      else if (s.costSource === "FAILURE_RULE") failureCost += amt;
+      else deliveryCost += amt; // CARRIER_API, MANUAL_OVERRIDE, or null (estimate)
+    }
     if (s.status === "LIVRE") delivered += 1;
     else if (s.status === "ECHEC") failed += 1;
     else if (s.status === "RETOURNE") returned += 1;
@@ -86,7 +103,10 @@ function summarise(key: string, rows: ShipmentRow[]): DeliveryPerfRow {
     inTransit,
     successRate: rows.length > 0 ? round1((delivered / rows.length) * 100) : null,
     avgDeliveryDays: daysN > 0 ? round1(daysSum / daysN) : null,
-    shippingCost: round2(shippingCost),
+    shippingCost: round2(deliveryCost + returnCost + failureCost),
+    deliveryCost: round2(deliveryCost),
+    returnCost: round2(returnCost),
+    failureCost: round2(failureCost),
     codCollected: round2(codCollected),
     codPending: round2(codPending),
   };
@@ -94,10 +114,17 @@ function summarise(key: string, rows: ShipmentRow[]): DeliveryPerfRow {
 
 export async function getDeliveryPerformanceReport(range: PeriodRange): Promise<DeliveryPerformanceReport> {
   const shipments = (await prisma.shipment.findMany({
-    where: { createdAt: { gte: range.from, lte: range.to } },
+    where: {
+      createdAt: { gte: range.from, lte: range.to },
+      // Exclude failed API-creation attempts (docs/adr/0031) — a parcel
+      // that never reached the carrier. A MANUEL provider's ECHEC is a
+      // real, deliberately-set failure and is kept.
+      NOT: { status: "ECHEC", externalId: null, provider: { type: "API" } },
+    },
     select: {
       status: true,
       cost: true,
+      costSource: true,
       shippedAt: true,
       deliveredAt: true,
       provider: { select: { name: true } },

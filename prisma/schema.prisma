@@ -1291,6 +1291,15 @@ model ShippingProvider {
   lastSyncAt            DateTime?
   lastError             String?
 
+  // --- Merchant pricing rules for NON-successful outcomes (docs/adr/0032).
+  // A successful delivery's price ALWAYS comes from the carrier's API for
+  // an API provider — these two never touch it. `null` = not configured =
+  // treated as 0 for that outcome. Deliberately NOT "same as delivery
+  // cost" and NOT "a % of it" — an explicit amount the merchant sets.
+  // Changing either is audited (shipping_provider.pricing_updated).
+  returnCost  Decimal? @db.Decimal(12, 2)
+  failureCost Decimal? @db.Decimal(12, 2)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1358,21 +1367,47 @@ enum ShipmentStatus {
   ANNULE
 }
 
+/**
+ * Where `Shipment.cost` came from — see docs/adr/0032-delivery-cost-rules.md.
+ * For a successful delivery the carrier's API is the ONLY source of truth
+ * (`CARRIER_API`); ASODITECH never invents a delivery price. Return and
+ * failure outcomes use the merchant's own configured rules on the
+ * provider (`RETURN_RULE` / `FAILURE_RULE`). `MANUAL_OVERRIDE` is an
+ * explicit, permission-gated, audited accounting correction — never an
+ * automatic fallback when the carrier API fails.
+ */
+enum ShipmentCostSource {
+  CARRIER_API
+  RETURN_RULE
+  FAILURE_RULE
+  MANUAL_OVERRIDE
+}
+
 model Shipment {
-  id             String         @id @default(cuid())
-  tenantId       String         @default("default")
-  orderId        String
-  providerId     String
-  trackingNumber String?
-  trackingUrl    String?
-  status         ShipmentStatus @default(EN_ATTENTE)
-  cost           Decimal?       @db.Decimal(12, 2)
-  failedReason   String?
-  notes          String?
-  shippedAt      DateTime?
-  deliveredAt    DateTime?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id              String              @id @default(cuid())
+  tenantId        String              @default("default")
+  orderId         String
+  providerId      String
+  trackingNumber  String?
+  trackingUrl     String?
+  status          ShipmentStatus      @default(EN_ATTENTE)
+  // The delivery cost for this shipment. While in flight this holds the
+  // carrier's pre-delivery estimate (from its own pricing API/catalogue,
+  // never an ASODITECH guess); it is FROZEN — `costFinalizedAt` set — the
+  // moment the shipment reaches a financially final state (delivered →
+  // carrier price, returned → provider.returnCost, failed → provider.
+  // failureCost). Null means "unknown" — the carrier API gave no price —
+  // never a placeholder. Finance reads this stored value, so changing a
+  // provider's rules later never rewrites historical shipment costs.
+  cost            Decimal?            @db.Decimal(12, 2)
+  costSource      ShipmentCostSource?
+  costFinalizedAt DateTime?
+  failedReason    String?
+  notes           String?
+  shippedAt       DateTime?
+  deliveredAt     DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
 
   // --- API connector fields (Phase 22), see
   // docs/adr/0012-delivery-provider-integration.md. All null for shipments

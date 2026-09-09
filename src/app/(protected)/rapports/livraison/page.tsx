@@ -81,7 +81,12 @@ export default async function RapportLivraisonPage({
         <KpiCard label="Taux de livraison" value={pct(o.successRate)} tone="success"
           hint={`${o.delivered} livrées / ${o.failed} échecs / ${o.returned} retours`} />
         <KpiCard label="Délai moyen de livraison" value={days(o.avgDeliveryDays)} tone="info" />
-        <KpiCard label="Coût de livraison total" value={formatCurrency(o.shippingCost)} tone="warning" />
+        <KpiCard
+          label="Coût de livraison total"
+          value={formatCurrency(o.shippingCost)}
+          tone="warning"
+          hint={`Livraisons ${formatCurrency(o.deliveryCost)} · retours ${formatCurrency(o.returnCost)} · échecs ${formatCurrency(o.failureCost)}`}
+        />
         <KpiCard label="COD encaissé" value={formatCurrency(o.codCollected)} tone="success" />
         <KpiCard label="COD livré mais en attente" value={formatCurrency(o.codPending)} tone="danger"
           hint="Colis livrés dont le paiement n'est pas encore encaissé" />

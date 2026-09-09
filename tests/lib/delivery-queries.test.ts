@@ -157,7 +157,7 @@ describe("listShipments / getDeliveryStats — date range filter", () => {
   async function seedShipment(
     createdAt: Date,
     status: "EN_ATTENTE" | "LIVRE" | "ECHEC" = "EN_ATTENTE",
-    opts: { externalId?: string | null } = {}
+    opts: { externalId?: string | null; providerType?: "MANUEL" | "API" } = {}
   ) {
     const warehouse = await prisma.warehouse.create({ data: { name: `E-${Math.random()}`, isDefault: false } });
     const product = await prisma.product.create({ data: { name: "P", sku: `SKU-${Math.random()}`, price: 10, status: "ACTIF" } });
@@ -166,10 +166,12 @@ describe("listShipments / getDeliveryStats — date range filter", () => {
     const order = await prisma.order.create({
       data: { customerId: customer.id, subtotal: 10, total: 10, fulfillmentWarehouseId: warehouse.id },
     });
-    const provider = await prisma.shippingProvider.create({ data: { name: `Prov-${Math.random()}`, type: "MANUEL" } });
-    // A real shipment carries a carrier id; a failed *creation attempt*
-    // (ECHEC + null externalId) is excluded from the list and the stats
-    // (see listShipments / getDeliveryStats).
+    const provider = await prisma.shippingProvider.create({
+      data: { name: `Prov-${Math.random()}`, type: opts.providerType ?? "MANUEL" },
+    });
+    // A real shipment carries a carrier id; a failed API-*creation attempt*
+    // (ECHEC + null externalId + API provider) is excluded from the list
+    // and the stats (see listShipments / getDeliveryStats).
     const externalId = "externalId" in opts ? opts.externalId : `EXT-${Math.random()}`;
     return prisma.shipment.create({
       data: { orderId: order.id, providerId: provider.id, status, createdAt, externalId },
@@ -200,17 +202,18 @@ describe("listShipments / getDeliveryStats — date range filter", () => {
     expect(stats.failed).toBe(1);
   });
 
-  it("excludes failed creation attempts (ECHEC + no externalId) from the list and the stats", async () => {
+  it("excludes a failed API-creation attempt from the list and the stats, but keeps a real MANUEL failure", async () => {
     await seedShipment(new Date("2026-02-10"), "LIVRE");
-    await seedShipment(new Date("2026-02-11"), "ECHEC", { externalId: null }); // failed to create
-    await seedShipment(new Date("2026-02-12"), "ECHEC"); // carrier-reported failure (has an id)
+    await seedShipment(new Date("2026-02-11"), "ECHEC", { externalId: null, providerType: "API" }); // never reached carrier
+    await seedShipment(new Date("2026-02-12"), "ECHEC", { externalId: null, providerType: "MANUEL" }); // real, deliberate failure
+    await seedShipment(new Date("2026-02-13"), "ECHEC", { providerType: "API" }); // carrier-reported failure (has an id)
 
     const { total } = await listShipments({});
-    expect(total).toBe(2);
+    expect(total).toBe(3);
 
     const stats = await getDeliveryStats();
-    expect(stats.total).toBe(2);
-    expect(stats.failed).toBe(1);
+    expect(stats.total).toBe(3);
+    expect(stats.failed).toBe(2);
   });
 
   it("with no range given, both queries see every shipment (matches the pre-filter default)", async () => {

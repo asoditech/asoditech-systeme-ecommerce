@@ -125,6 +125,12 @@ export interface PeriodProfitability {
   advertisingCost: number;
   otherExpensesTotal: number;
   deliveryCostTotal: number;
+  /** `deliveryCostTotal` broken out by outcome (docs/adr/0032). Sum ==
+   * `deliveryCostTotal`. */
+  carrierDeliveryCost: number;
+  returnCostTotal: number;
+  failureCostTotal: number;
+  costOverrideTotal: number;
   netProfit: number | null;
   netMarginPct: number | null;
   avgOrderValue: number | null;
@@ -168,11 +174,31 @@ export async function computePeriodProfitability(
   }
   if (itemCount === 0) cogsComplete = false;
 
-  const deliveryAgg = await prisma.shipment.aggregate({
+  // Delivery cost broken down by where it came from (docs/adr/0032): a
+  // successful delivery's carrier price, a return-rule charge, a
+  // failure-rule charge, or a manual accounting correction. Reads the
+  // recorded per-shipment cost — never today's provider settings.
+  const deliveryBySource = await prisma.shipment.groupBy({
+    by: ["costSource"],
     where: { createdAt: { gte: period.from, lte: period.to }, cost: { not: null } },
     _sum: { cost: true },
   });
-  const deliveryCost = D(deliveryAgg._sum.cost);
+  let carrierDeliveryCost = D(0);
+  let returnCostTotal = D(0);
+  let failureCostTotal = D(0);
+  let overrideCostTotal = D(0);
+  for (const g of deliveryBySource) {
+    const amt = D(g._sum.cost);
+    if (g.costSource === "RETURN_RULE") returnCostTotal = returnCostTotal.plus(amt);
+    else if (g.costSource === "FAILURE_RULE") failureCostTotal = failureCostTotal.plus(amt);
+    else if (g.costSource === "MANUAL_OVERRIDE") overrideCostTotal = overrideCostTotal.plus(amt);
+    // CARRIER_API + null (in-flight carrier estimate / manual provider).
+    else carrierDeliveryCost = carrierDeliveryCost.plus(amt);
+  }
+  const deliveryCost = carrierDeliveryCost
+    .plus(returnCostTotal)
+    .plus(failureCostTotal)
+    .plus(overrideCostTotal);
 
   const expenses = await prisma.expense.findMany({
     where: { date: { gte: period.from, lte: period.to } },
@@ -205,6 +231,10 @@ export async function computePeriodProfitability(
     advertisingCost: money(advertisingCost),
     otherExpensesTotal: money(expensesTotal.minus(advertisingCost)),
     deliveryCostTotal: money(deliveryCost),
+    carrierDeliveryCost: money(carrierDeliveryCost),
+    returnCostTotal: money(returnCostTotal),
+    failureCostTotal: money(failureCostTotal),
+    costOverrideTotal: money(overrideCostTotal),
     netProfit: netProfit === null ? null : money(netProfit),
     netMarginPct: netProfit === null ? null : marginPct(netProfit, revenue),
     avgOrderValue: orders.length > 0 ? money(grossRevenue.div(orders.length)) : null,

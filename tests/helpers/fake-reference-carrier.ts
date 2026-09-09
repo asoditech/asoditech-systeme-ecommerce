@@ -36,6 +36,10 @@ export interface FakeCarrierState {
    * tests that never set this see the same behavior as before listCities
    * existed. */
   cities?: { id: string; name: string }[];
+  /** Cost the carrier reports on create + status fetch. `undefined` keeps
+   * the historical default (25.5); set `null` to test "the carrier
+   * returned no price" (ASODITECH must NOT invent one). */
+  reportedCost?: number | null;
 }
 
 export function emptyFakeCarrierState(): FakeCarrierState {
@@ -77,7 +81,8 @@ export function installFakeReferenceCarrier(state: FakeCarrierState) {
         if (state.forceCreateStatus) return jsonResponse({ error: "forced" }, state.forceCreateStatus);
         if (state.malformedCreateResponse) return jsonResponse({ unexpected: "shape" });
         const id = `ref-${state.nextId++}`;
-        const record = { id, status: "created", tracking_number: `TRK-${id}`, tracking_url: `https://example.com/track/${id}`, cost: 25.5 };
+        const cost = state.reportedCost === undefined ? 25.5 : state.reportedCost;
+        const record = { id, status: "created", tracking_number: `TRK-${id}`, tracking_url: `https://example.com/track/${id}`, cost };
         state.shipments.set(id, record);
         return jsonResponse(record);
       }
