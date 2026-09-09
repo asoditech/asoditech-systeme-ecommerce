@@ -267,7 +267,8 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
         shippingAddressLine2: normalizeOptional(parsed.data.shippingAddressLine2),
         shippingCity: normalizeOptional(parsed.data.shippingCity),
         shippingRegion: normalizeOptional(parsed.data.shippingRegion),
-        shippingCountry: normalizeOptional(parsed.data.shippingCountry),
+        // Blank country → Maroc, the app's only market (see DEFAULT_SHIPPING_COUNTRY).
+        shippingCountry: normalizeOptional(parsed.data.shippingCountry) ?? "Maroc",
         shippingPhone: normalizeOptional(parsed.data.shippingPhone),
         fulfillmentWarehouseId,
         createdById: user.id,

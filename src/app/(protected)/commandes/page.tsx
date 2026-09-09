@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { DisconnectedSourceBanner } from "@/components/integrations/disconnected-source-banner";
+import { SyncRefreshButton } from "@/components/sync-refresh-button";
+import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
@@ -36,6 +38,8 @@ export default async function CommandesPage({
   const user = await requirePermission("orders.view");
   const params = await searchParams;
   const page = Number(params.page) || 1;
+  const canSync =
+    hasPermission(user.role, "integrations.manage") && (await getConnectedCommercePlatforms()).length > 0;
 
   // "Tous les statuts" / "Tous les paiements" submit the sentinel "all";
   // only a real enum value is passed through to the query, otherwise
@@ -104,12 +108,15 @@ export default async function CommandesPage({
         title="Commandes"
         description="Toutes les commandes, leur statut et leur suivi de livraison."
         actions={
-          hasPermission(user.role, "orders.create") ? (
-            <Button render={<Link href="/commandes/nouvelle" />}>
-              <Plus className="size-4" />
-              Nouvelle commande
-            </Button>
-          ) : undefined
+          <div className="flex flex-wrap items-center gap-2">
+            <SyncRefreshButton resource="orders" canSync={canSync} />
+            {hasPermission(user.role, "orders.create") && (
+              <Button render={<Link href="/commandes/nouvelle" />}>
+                <Plus className="size-4" />
+                Nouvelle commande
+              </Button>
+            )}
+          </div>
         }
       />
 

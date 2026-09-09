@@ -69,6 +69,18 @@ export function displayOrderNumber(order: {
 }
 
 /**
+ * This deployment ships from and to Morocco. An order whose country was
+ * never captured (a WooCommerce checkout with no country field, an older
+ * manual order) is treated as Maroc rather than shown as "manquant" or
+ * blocking shipment creation.
+ */
+export const DEFAULT_SHIPPING_COUNTRY = "Maroc";
+
+export function orderShippingCountry(order: { shippingCountry?: string | null }): string {
+  return order.shippingCountry?.trim() || DEFAULT_SHIPPING_COUNTRY;
+}
+
+/**
  * The name to show for an order — its own recipient snapshot
  * (`shippingName`), taken at import/creation time, NOT the linked
  * customer's canonical name: two orders under one WooCommerce account can

@@ -9,9 +9,11 @@ import { Button } from "@/components/ui/button";
 import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { DisconnectedSourceBanner } from "@/components/integrations/disconnected-source-banner";
+import { SyncRefreshButton } from "@/components/sync-refresh-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
+import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
 import { listProducts, listCategories, type ProductSort, type ProductTypeFilter } from "@/lib/queries/products";
 import { formatCurrency } from "@/lib/format";
 import { PRODUCT_STATUS_LABELS } from "@/lib/status-labels";
@@ -47,7 +49,11 @@ export default async function ProduitsPage({
   const params = await searchParams;
   const page = Number(params.page) || 1;
 
-  const categories = await listCategories();
+  const [categories, connectedPlatforms] = await Promise.all([
+    listCategories(),
+    getConnectedCommercePlatforms(),
+  ]);
+  const canSync = hasPermission(user.role, "integrations.manage") && connectedPlatforms.length > 0;
 
   const statusFilter =
     params.status && PRODUCT_STATUS_LABELS[params.status] ? (params.status as ProductStatus) : undefined;
@@ -87,12 +93,15 @@ export default async function ProduitsPage({
         title="Produits"
         description="Catalogue produits, prix, coûts et suivi de stock."
         actions={
-          hasPermission(user.role, "products.create") ? (
-            <Button render={<Link href="/produits/nouveau" />}>
-              <Plus className="size-4" />
-              Nouveau produit
-            </Button>
-          ) : undefined
+          <div className="flex flex-wrap items-center gap-2">
+            <SyncRefreshButton resource="products" canSync={canSync} />
+            {hasPermission(user.role, "products.create") && (
+              <Button render={<Link href="/produits/nouveau" />}>
+                <Plus className="size-4" />
+                Nouveau produit
+              </Button>
+            )}
+          </div>
         }
       />
 

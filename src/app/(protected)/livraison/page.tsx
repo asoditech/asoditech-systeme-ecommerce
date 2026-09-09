@@ -35,7 +35,7 @@ import {
   listAvailableDeliveryConnectors,
 } from "@/lib/queries/delivery";
 import { deleteShippingProviderAction, deleteFailedShipmentAction } from "@/actions/delivery";
-import { formatCurrency, formatDateTime, displayOrderNumber, formatPercent } from "@/lib/format";
+import { formatCurrency, formatDateTime, displayOrderNumber, displayOrderRecipient, formatPercent } from "@/lib/format";
 import { SHIPMENT_STATUS_LABELS, SHIPPING_PROVIDER_TYPE_LABELS } from "@/lib/status-labels";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
 import { resolveDateRangePreset, DATE_RANGE_PRESET_LABELS, type DateRangePreset } from "@/lib/date-range-presets";
@@ -231,7 +231,7 @@ export default async function LivraisonPage({
                         </Link>
                       </TableCell>
                       <TableCell>
-                        <span className="block max-w-[8rem] truncate">{s.order.customer.fullName}</span>
+                        <span className="block max-w-[8rem] truncate">{displayOrderRecipient(s.order)}</span>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         <span className="block max-w-[9rem] truncate font-mono text-xs">
@@ -376,11 +376,20 @@ export default async function LivraisonPage({
                     displayNumber: o.displayNumber,
                     source: o.source,
                     externalNumber: o.externalNumber,
-                    customerName: o.customer.fullName,
+                    customerName: displayOrderRecipient(o),
                     total: o.total.toString(),
                     currency: o.currency,
                     placedAt: o.placedAt.toISOString(),
                     parcelContents: buildParcelContentsSummary(o.items) || null,
+                    failedReason: o.shipments[0]?.failedReason ?? null,
+                    address: {
+                      shippingAddressLine1: o.shippingAddressLine1,
+                      shippingAddressLine2: o.shippingAddressLine2,
+                      shippingCity: o.shippingCity,
+                      shippingRegion: o.shippingRegion,
+                      shippingCountry: o.shippingCountry,
+                      shippingPhone: o.shippingPhone,
+                    },
                   }))}
                   providers={shipmentProviderOptions}
                 />

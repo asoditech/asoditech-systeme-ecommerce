@@ -17,8 +17,25 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { EditShippingAddressDialog } from "@/components/orders/edit-shipping-address-dialog";
+import { CityMappingDialog } from "@/components/delivery/city-mapping-dialog";
 import type { ShippingProviderType, IntegrationStatus } from "@prisma/client";
 import type { ActionResult, IdResult } from "@/actions/types";
+
+export type OrderShippingAddress = {
+  shippingAddressLine1: string | null;
+  shippingAddressLine2: string | null;
+  shippingCity: string | null;
+  shippingRegion: string | null;
+  shippingCountry: string | null;
+  shippingPhone: string | null;
+};
+
+/** True when the error is something the operator can fix on the spot —
+ * an incomplete address, or a city the carrier doesn't recognise. */
+function isFixableAddressError(message: string): boolean {
+  return /adresse de livraison|ville|city/i.test(message);
+}
 
 /**
  * Deliberately narrow — never the full ShippingProvider row. That row
@@ -40,10 +57,12 @@ export function CreateShipmentDialog({
   orderId,
   providers,
   defaultNotes,
+  orderAddress,
 }: {
   orderId: string;
   providers: ShipmentProviderOption[];
   defaultNotes?: string;
+  orderAddress?: OrderShippingAddress;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -133,10 +152,28 @@ export function CreateShipmentDialog({
             </>
           )}
 
-          {state && !state.ok && <p className="text-sm text-destructive">{state.error}</p>}
+          {state && !state.ok && (
+            <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+              <p className="text-sm text-destructive">{state.error}</p>
+              {isFixableAddressError(state.error) && (
+                <div className="flex flex-wrap gap-2">
+                  {orderAddress && <EditShippingAddressDialog orderId={orderId} address={orderAddress} />}
+                  {selectedProvider?.type === "API" && (
+                    <CityMappingDialog
+                      providerId={selectedProvider.id}
+                      providerName={selectedProvider.name}
+                      defaultLocalCity={orderAddress?.shippingCity ?? undefined}
+                      triggerLabel="Corriger la ville"
+                      triggerVariant="outline"
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           <DialogFooter>
             <Button type="submit" disabled={isPending || (isApiProvider && !apiProviderReady)}>
-              {isPending ? "Création..." : "Créer"}
+              {isPending ? "Création..." : state && !state.ok ? "Réessayer" : "Créer"}
             </Button>
           </DialogFooter>
         </form>

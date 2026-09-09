@@ -36,6 +36,12 @@ export async function listShipments(params: {
   const page = Math.max(1, params.page ?? 1);
   const q = params.search?.trim();
   const where: Prisma.ShipmentWhereInput = {
+    // A shipment that never got created at the carrier (ECHEC + no
+    // externalId) is a failed *attempt*, not a shipment — it clutters the
+    // list, and the order it belongs to is already back in « À expédier »
+    // (where the failure reason + fix actions live). Keep ECHEC rows that
+    // DID reach the carrier (they carry an externalId).
+    NOT: { status: "ECHEC", externalId: null },
     ...(params.status ? { status: params.status } : {}),
     ...(params.providerId ? { providerId: params.providerId } : {}),
     ...(q
@@ -73,10 +79,15 @@ export async function listShipments(params: {
 }
 
 export async function getDeliveryStats(dateFrom?: Date, dateTo?: Date) {
-  const dateFilter: Prisma.ShipmentWhereInput =
-    dateFrom || dateTo
+  const dateFilter: Prisma.ShipmentWhereInput = {
+    // Exclude failed creation attempts (see listShipments) — they are not
+    // real shipments and must not inflate "Échecs" or drag down the
+    // success rate.
+    NOT: { status: "ECHEC", externalId: null },
+    ...(dateFrom || dateTo
       ? { createdAt: { ...(dateFrom ? { gte: dateFrom } : {}), ...(dateTo ? { lte: dateTo } : {}) } }
-      : {};
+      : {}),
+  };
 
   const [total, delivered, failed, inTransit] = await Promise.all([
     prisma.shipment.count({ where: dateFilter }),
@@ -155,6 +166,15 @@ export async function listOrdersAwaitingShipment(params: { page?: number; search
       include: {
         customer: true,
         items: { select: { nameSnapshot: true, quantity: true, variation: { select: { attributes: true } } } },
+        // Most recent failed creation attempt, if any — surfaced in the
+        // « À expédier » row so the operator can fix the city/address and
+        // retry without hunting through the shipments list.
+        shipments: {
+          where: { status: "ECHEC", externalId: null },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { failedReason: true },
+        },
       },
       // Newest first — a freshly confirmed order must appear at the top,
       // not fall off the end of the list behind a backlog of imported

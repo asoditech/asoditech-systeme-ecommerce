@@ -154,7 +154,11 @@ describe("listShipments / getDeliveryStats — date range filter", () => {
     mockCookieStore.clear();
   });
 
-  async function seedShipment(createdAt: Date, status: "EN_ATTENTE" | "LIVRE" | "ECHEC" = "EN_ATTENTE") {
+  async function seedShipment(
+    createdAt: Date,
+    status: "EN_ATTENTE" | "LIVRE" | "ECHEC" = "EN_ATTENTE",
+    opts: { externalId?: string | null } = {}
+  ) {
     const warehouse = await prisma.warehouse.create({ data: { name: `E-${Math.random()}`, isDefault: false } });
     const product = await prisma.product.create({ data: { name: "P", sku: `SKU-${Math.random()}`, price: 10, status: "ACTIF" } });
     await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 10 } });
@@ -163,8 +167,12 @@ describe("listShipments / getDeliveryStats — date range filter", () => {
       data: { customerId: customer.id, subtotal: 10, total: 10, fulfillmentWarehouseId: warehouse.id },
     });
     const provider = await prisma.shippingProvider.create({ data: { name: `Prov-${Math.random()}`, type: "MANUEL" } });
+    // A real shipment carries a carrier id; a failed *creation attempt*
+    // (ECHEC + null externalId) is excluded from the list and the stats
+    // (see listShipments / getDeliveryStats).
+    const externalId = "externalId" in opts ? opts.externalId : `EXT-${Math.random()}`;
     return prisma.shipment.create({
-      data: { orderId: order.id, providerId: provider.id, status, createdAt },
+      data: { orderId: order.id, providerId: provider.id, status, createdAt, externalId },
     });
   }
 
@@ -189,6 +197,19 @@ describe("listShipments / getDeliveryStats — date range filter", () => {
     const stats = await getDeliveryStats(new Date("2026-02-01"), new Date("2026-02-28T23:59:59"));
     expect(stats.total).toBe(2);
     expect(stats.delivered).toBe(1);
+    expect(stats.failed).toBe(1);
+  });
+
+  it("excludes failed creation attempts (ECHEC + no externalId) from the list and the stats", async () => {
+    await seedShipment(new Date("2026-02-10"), "LIVRE");
+    await seedShipment(new Date("2026-02-11"), "ECHEC", { externalId: null }); // failed to create
+    await seedShipment(new Date("2026-02-12"), "ECHEC"); // carrier-reported failure (has an id)
+
+    const { total } = await listShipments({});
+    expect(total).toBe(2);
+
+    const stats = await getDeliveryStats();
+    expect(stats.total).toBe(2);
     expect(stats.failed).toBe(1);
   });
 

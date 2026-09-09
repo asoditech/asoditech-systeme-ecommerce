@@ -56,6 +56,14 @@ export function mapProductFields(wc: WcProduct): MappedProductFields {
   };
 }
 
+/** Empty / "MA" / "MAR" / "Morocco" → "Maroc"; anything else kept as-is.
+ * This deployment ships only within Morocco (see DEFAULT_SHIPPING_COUNTRY). */
+function normalizeCountry(raw: string | null | undefined): string {
+  const v = (raw ?? "").trim();
+  if (!v) return "Maroc";
+  return /^(ma|mar|maroc|morocco)$/i.test(v) ? "Maroc" : v;
+}
+
 /** WooCommerce sends dates as `"2026-09-08T22:50:13"` (store timezone, no
  * offset). `new Date()` parses it; guard against a blank/garbage value. */
 function parseWcDate(value: string | null | undefined): Date | null {
@@ -160,7 +168,9 @@ export function mapOrderFields(wc: WcOrder, status: OrderStatus): MappedOrderFie
     shippingAddressLine2: shipping.address_2?.trim() || null,
     shippingCity: shipping.city?.trim() || null,
     shippingRegion: shipping.state?.trim() || null,
-    shippingCountry: shipping.country?.trim() || null,
+    // "MA" / empty → "Maroc" — this deployment's only market, and what the
+    // rest of the app displays (never a bare code or "manquant").
+    shippingCountry: normalizeCountry(shipping.country),
     shippingPhone: wc.billing.phone?.trim() || null,
     notes: wc.customer_note?.trim() || null,
   };

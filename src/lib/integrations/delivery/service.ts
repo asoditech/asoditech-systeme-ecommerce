@@ -10,6 +10,7 @@ import {
   SHIPPABLE_ORDER_STATUSES,
   ACTIVE_SHIPMENT_STATUSES,
 } from "@/lib/delivery";
+import { DEFAULT_SHIPPING_COUNTRY } from "@/lib/format";
 import { matchCityName } from "./city-match";
 import { resolveProviderCity, providerExposesCityCatalogue } from "./city-resolution";
 import { getDeliveryProvider, assertCapability } from "./registry";
@@ -283,9 +284,11 @@ export async function fetchProviderCityCatalogue(
 }
 
 function requireAddress(order: Order): OrderAddressIncompleteError | null {
-  if (!order.shippingAddressLine1 || !order.shippingCity || !order.shippingCountry) {
+  // Country is no longer required — a missing one defaults to Maroc
+  // (DEFAULT_SHIPPING_COUNTRY), this deployment's only market.
+  if (!order.shippingAddressLine1 || !order.shippingCity) {
     return new OrderAddressIncompleteError(
-      "L'adresse de livraison de la commande est incomplète (adresse, ville et pays sont requis)."
+      "L'adresse de livraison de la commande est incomplète — l'adresse et la ville sont requises."
     );
   }
   return null;
@@ -384,7 +387,7 @@ export async function createShipmentViaProvider(params: {
     city: params.order.shippingCity!,
     resolvedProviderCityId,
     region: params.order.shippingRegion,
-    country: params.order.shippingCountry!,
+    country: params.order.shippingCountry?.trim() || DEFAULT_SHIPPING_COUNTRY,
     phone: params.order.shippingPhone,
     codAmount: params.order.paymentMethod === "PAIEMENT_LIVRAISON" ? Number(params.order.total) : null,
     currency: params.order.currency,
@@ -412,7 +415,7 @@ export async function createShipmentViaProvider(params: {
     throw error;
   }
 
-  return prisma.shipment.update({
+  const created = await prisma.shipment.update({
     where: { id: pending.id },
     data: {
       externalId: result.externalId,
@@ -423,6 +426,15 @@ export async function createShipmentViaProvider(params: {
       lastSyncedAt: new Date(),
     },
   });
+
+  // Self-heal: this order now has a real shipment — clear any earlier
+  // failed creation attempts so they don't linger (they're hidden from
+  // the list anyway, but a stale row is still noise in the DB / an audit).
+  await prisma.shipment.deleteMany({
+    where: { orderId: params.order.id, status: "ECHEC", externalId: null, id: { not: created.id } },
+  });
+
+  return created;
 }
 
 /** Cancels a provider-backed shipment: calls the carrier first, only then

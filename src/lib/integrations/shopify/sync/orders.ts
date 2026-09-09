@@ -186,7 +186,8 @@ function mappedOrderFields(order: ShopifyOrder) {
     shippingAddressLine2: address?.address2 ?? null,
     shippingCity: address?.city ?? null,
     shippingRegion: address?.province ?? null,
-    shippingCountry: address?.country ?? null,
+    // Empty / MA / Morocco → "Maroc" — the app's only market.
+    shippingCountry: /^(|ma|mar|maroc|morocco)$/i.test((address?.country ?? "").trim()) ? "Maroc" : address!.country!,
     shippingPhone: address?.phone ?? null,
     notes: order.note?.trim() || null,
   };

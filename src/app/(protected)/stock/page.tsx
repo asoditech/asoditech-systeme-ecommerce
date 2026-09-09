@@ -4,6 +4,8 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { StockAdjustmentDialog } from "@/components/inventory/stock-adjustment-dialog";
+import { SyncRefreshButton } from "@/components/sync-refresh-button";
+import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FilterSelect } from "@/components/filter-select";
@@ -63,13 +65,19 @@ export default async function StockPage({
     page,
   });
   const canAdjust = hasPermission(user.role, "inventory.adjust");
+  const canSync =
+    hasPermission(user.role, "integrations.manage") && (await getConnectedCommercePlatforms()).length > 0;
 
   const hasActiveFilter = Boolean(params.q || warehouseId || categoryId || stockStatus !== "all" || params.sort);
   const paginationParams = { q: params.q, warehouseId, categoryId, stockStatus: params.stockStatus, sort: params.sort };
 
   return (
     <div>
-      <PageHeader title="Stock" description="Niveaux de stock par produit et par entrepôt." />
+      <PageHeader
+        title="Stock"
+        description="Niveaux de stock par produit et par entrepôt."
+        actions={<SyncRefreshButton resource="products" canSync={canSync} />}
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <FilterSearchInput placeholder="Produit ou SKU..." defaultValue={params.q} className="w-56" />

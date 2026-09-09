@@ -10,7 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { CreateShipmentDialog, type ShipmentProviderOption } from "@/components/delivery/create-shipment-dialog";
+import {
+  CreateShipmentDialog,
+  type ShipmentProviderOption,
+  type OrderShippingAddress,
+} from "@/components/delivery/create-shipment-dialog";
 import { CityMappingDialog } from "@/components/delivery/city-mapping-dialog";
 import { formatCurrency, formatDate, displayOrderNumber } from "@/lib/format";
 
@@ -25,6 +29,10 @@ export interface AwaitingOrderRow {
   currency: string;
   placedAt: string;
   parcelContents: string | null;
+  /** Reason the last shipment-creation attempt for this order failed, if
+   * any — shown inline so the operator can fix + retry. */
+  failedReason?: string | null;
+  address: OrderShippingAddress;
 }
 
 const BATCH = 6;
@@ -161,28 +169,35 @@ export function AwaitingShipmentTable({
           <TableBody>
             {orders.map((o) => (
               <TableRow key={o.id} data-state={selected.has(o.id) ? "selected" : undefined}>
-                <TableCell>
+                <TableCell className="align-top">
                   <Checkbox
                     checked={selected.has(o.id)}
                     onCheckedChange={() => toggle(o.id)}
                     aria-label={`Sélectionner ${displayOrderNumber(o)}`}
                   />
                 </TableCell>
-                <TableCell className="font-medium">
+                <TableCell className="font-medium align-top">
                   <Link href={`/commandes/${o.id}`} className="hover:underline">
                     {displayOrderNumber(o)}
                   </Link>
                 </TableCell>
-                <TableCell>
+                <TableCell className="align-top">
                   <span className="block max-w-[10rem] truncate">{o.customerName}</span>
+                  <span className="block max-w-[10rem] truncate text-xs text-muted-foreground">
+                    {o.address.shippingCity ?? "ville manquante"}
+                  </span>
+                  {o.failedReason && (
+                    <p className="mt-1 max-w-[18rem] text-[11px] leading-tight text-destructive">{o.failedReason}</p>
+                  )}
                 </TableCell>
-                <TableCell className="text-right tabular-nums">{formatCurrency(o.total, o.currency)}</TableCell>
-                <TableCell className="text-muted-foreground">{formatDate(o.placedAt)}</TableCell>
-                <TableCell>
+                <TableCell className="text-right tabular-nums align-top">{formatCurrency(o.total, o.currency)}</TableCell>
+                <TableCell className="text-muted-foreground align-top">{formatDate(o.placedAt)}</TableCell>
+                <TableCell className="align-top">
                   <CreateShipmentDialog
                     orderId={o.id}
                     providers={providers}
                     defaultNotes={o.parcelContents || undefined}
+                    orderAddress={o.address}
                   />
                 </TableCell>
               </TableRow>
