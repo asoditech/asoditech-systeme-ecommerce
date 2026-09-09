@@ -1,5 +1,6 @@
 import "server-only";
 
+import { registerAramexProvider } from "./aramex";
 import { registerOzonExpressProvider } from "./ozonexpress";
 
 /**
@@ -22,5 +23,15 @@ import { registerOzonExpressProvider } from "./ozonexpress";
  * real connection test transitions to CONNECTE. Its request/response field
  * schemas are still the Phase 23 resilient reconstruction pending a live
  * call. See docs/adr/0013-ozonexpress-integration.md.
+ *
+ * ── Aramex ───────────────────────────────────────────────────────────
+ * Registered so the owner can configure credentials (the six `ClientInfo`
+ * values) + the shipper address and run "Tester la connexion". Uses
+ * Aramex's JSON-over-HTTPS Shipping/Tracking/RateCalculator services.
+ * Same posture as OzonExpress: registration is CONFIGURE, only a real
+ * connection test transitions to CONNECTE. Request field names come from
+ * Aramex's official sample code; nothing has been run against a live
+ * Aramex account yet. See docs/adr/0028-aramex-integration.md.
  */
 registerOzonExpressProvider();
+registerAramexProvider();

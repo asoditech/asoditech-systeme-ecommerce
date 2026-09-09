@@ -28,6 +28,7 @@ import { ProductForm } from "@/components/products/product-form";
 import { BackfillCostButton } from "@/components/products/backfill-cost-button";
 import { RemoveProductButton } from "@/components/products/remove-product-button";
 import { VariationForm } from "@/components/products/variation-form";
+import { VariationCostCell } from "@/components/products/variation-cost-cell";
 import { OperationalSettingsForm } from "@/components/products/operational-settings-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -195,7 +196,36 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
   const economics = canViewFinance ? unitEconomics(product.price, product.cost) : null;
   const canEdit = hasPermission(user.role, "products.edit");
   const totalStock = product.inventoryItems.reduce((sum, i) => sum + i.quantityOnHand, 0);
-  const isLowStock = product.trackInventory && totalStock <= product.lowStockThreshold;
+
+  // A variable product keeps no price or stock of its own (WooCommerce
+  // puts both on the variations) — surface the aggregate so the header
+  // isn't a misleading "0,00 MAD / Non suivi".
+  const isVariable = product.variations.length > 0;
+  const variationPrices = product.variations
+    .map((v) => (v.price != null ? Number(v.price) : null))
+    .filter((n): n is number => n != null && n > 0);
+  const displayPriceLabel = isVariable
+    ? variationPrices.length > 0
+      ? (() => {
+          const lo = Math.min(...variationPrices);
+          const hi = Math.max(...variationPrices);
+          return lo === hi ? formatCurrency(String(lo)) : `${formatCurrency(String(lo))} – ${formatCurrency(String(hi))}`;
+        })()
+      : "—"
+    : formatCurrency(product.price.toString());
+  const variationStock = product.variations.reduce(
+    (sum, v) => sum + v.inventoryItems.reduce((n, i) => n + i.quantityOnHand, 0),
+    0
+  );
+  const variationStockTracked = product.variations.some((v) => v.inventoryItems.length > 0);
+  const displayStock = isVariable
+    ? variationStockTracked
+      ? variationStock
+      : null
+    : product.trackInventory
+      ? totalStock
+      : null;
+  const isLowStock = displayStock !== null && displayStock <= product.lowStockThreshold;
 
   // Product *definition* (name/sku/price/description/status/category) is
   // owned by WooCommerce/Shopify once a product is externally sourced —
@@ -240,12 +270,17 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Prix de vente" value={formatCurrency(product.price.toString())} icon={Tag} tone="primary" />
+        <KpiCard
+          label={isVariable ? "Prix de vente (fourchette)" : "Prix de vente"}
+          value={displayPriceLabel}
+          icon={Tag}
+          tone="primary"
+        />
         <KpiCard
           label="Stock disponible"
-          value={product.trackInventory ? String(totalStock) : null}
+          value={displayStock !== null ? String(displayStock) : null}
           unavailableReason="Non suivi"
-          hint={isLowStock ? "Stock faible" : undefined}
+          hint={isLowStock ? "Stock faible" : isVariable ? "Cumul des variations" : undefined}
           icon={Boxes}
           tone={isLowStock ? "danger" : "info"}
         />
@@ -381,36 +416,61 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
           {product.variations.length === 0 ? (
             <EmptyState icon={Boxes} title="Aucune variation pour ce produit." />
           ) : (
-            <div className="rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>SKU</TableHead>
-                    <TableHead>Attributs</TableHead>
-                    <TableHead>Prix</TableHead>
-                    <TableHead>Stock</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {product.variations.map((v) => (
-                    <TableRow key={v.id}>
-                      <TableCell className="font-medium">{v.sku}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {Object.entries(v.attributes as Record<string, string>).map(([k, val]) => (
-                            <Badge key={k} variant="outline">
-                              {k}: {val}
-                            </Badge>
-                          ))}
-                        </div>
-                      </TableCell>
-                      <TableCell>{formatCurrency((v.price ?? product.price).toString())}</TableCell>
-                      <TableCell>{v.inventoryItems.reduce((sum, i) => sum + i.quantityOnHand, 0)}</TableCell>
+            <>
+              {canViewFinance && (
+                <p className="text-xs text-muted-foreground">
+                  Pour un produit à variantes, le prix et le stock vivent sur chaque variante — et le coût d&apos;achat se
+                  saisit ici, par variante (le champ « coût » de l&apos;onglet Modifier ne s&apos;applique qu&apos;aux
+                  produits simples).
+                </p>
+              )}
+              <div className="overflow-x-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Attributs</TableHead>
+                      <TableHead className="text-right">Prix</TableHead>
+                      {canViewFinance && <TableHead className="text-right">Coût d&apos;achat</TableHead>}
+                      <TableHead className="text-right">Stock</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {product.variations.map((v) => (
+                      <TableRow key={v.id}>
+                        <TableCell className="font-medium">{v.sku}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(v.attributes as Record<string, string>).map(([k, val]) => (
+                              <Badge key={k} variant="outline">
+                                {k}: {val}
+                              </Badge>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatCurrency((v.price ?? product.price).toString())}
+                        </TableCell>
+                        {canViewFinance && (
+                          <TableCell className="text-right">
+                            {canEdit ? (
+                              <VariationCostCell variationId={v.id} cost={v.cost?.toString() ?? null} />
+                            ) : v.cost ? (
+                              formatCurrency(v.cost.toString())
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                        )}
+                        <TableCell className="text-right tabular-nums">
+                          {v.inventoryItems.reduce((sum, i) => sum + i.quantityOnHand, 0)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
           {/* Creating a new variation is catalog editing — for an
               externally-sourced product that belongs on the platform the
@@ -420,7 +480,51 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
         </TabsContent>
 
         <TabsContent value="stock">
-          {!product.trackInventory ? (
+          {isVariable ? (
+            variationStockTracked ? (
+              <div className="overflow-x-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Variante</TableHead>
+                      <TableHead>Emplacement</TableHead>
+                      <TableHead className="text-right">Stock physique</TableHead>
+                      <TableHead className="text-right">Réservé</TableHead>
+                      <TableHead className="text-right">Disponible</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {product.variations.flatMap((v) =>
+                      v.inventoryItems.length === 0
+                        ? [
+                            <TableRow key={v.id}>
+                              <TableCell className="font-medium">{v.sku}</TableCell>
+                              <TableCell colSpan={4} className="text-muted-foreground">
+                                Aucun enregistrement de stock.
+                              </TableCell>
+                            </TableRow>,
+                          ]
+                        : v.inventoryItems.map((i) => (
+                            <TableRow key={i.id}>
+                              <TableCell className="font-medium">{v.sku}</TableCell>
+                              <TableCell>{i.warehouse.name}</TableCell>
+                              <TableCell className="text-right tabular-nums">{i.quantityOnHand}</TableCell>
+                              <TableCell className="text-right tabular-nums">{i.quantityReserved}</TableCell>
+                              <TableCell className="text-right tabular-nums">{availableStock(i)}</TableCell>
+                            </TableRow>
+                          ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <EmptyState
+                icon={Boxes}
+                title="Stock des variantes pas encore synchronisé."
+                description="Le stock d'un produit à variantes est suivi par variante. Relancez « Synchroniser les produits » dans Intégrations une fois la connexion rétablie."
+              />
+            )
+          ) : !product.trackInventory ? (
             <EmptyState icon={Boxes} title="Le suivi de stock est désactivé pour ce produit." />
           ) : product.inventoryItems.length === 0 ? (
             <EmptyState icon={Boxes} title="Aucun enregistrement de stock." />

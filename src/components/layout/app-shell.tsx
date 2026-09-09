@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
+import { IntegrationsFooter } from "@/components/layout/integrations-footer";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { NotificationBell } from "@/components/layout/notification-bell";
@@ -45,6 +46,7 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
         </header>
         <main className="flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable] md:p-6">
           <div className="mx-auto w-full max-w-[1600px]">{children}</div>
+          <IntegrationsFooter />
         </main>
       </div>
     </div>

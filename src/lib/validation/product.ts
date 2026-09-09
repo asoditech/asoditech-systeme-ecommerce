@@ -72,6 +72,14 @@ export const updateProductOperationalSettingsSchema = z.object({
   lowStockThreshold: z.coerce.number().int().min(0).default(5),
 });
 
+/** ASODITECH-owned per-variation fields — editable even for a
+ * WooCommerce/Shopify variable product (cost is never synced, see each
+ * mapper's "Field ownership" note). */
+export const updateVariationOperationalSettingsSchema = z.object({
+  id: z.string().min(1),
+  cost: z.coerce.number().min(0).nullish(),
+});
+
 export const createProductVariationSchema = z.object({
   productId: z.string().min(1),
   sku: skuSchema,

@@ -31,6 +31,29 @@ describe("production delivery-provider registry", () => {
     ]);
   });
 
+  it("registers Aramex with its six ClientInfo credential fields (secrets masked)", () => {
+    expect(listDeliveryProviders().map((a) => a.key)).toContain("aramex");
+    const connector = listAvailableDeliveryConnectors().find((c) => c.key === "aramex");
+    expect(connector).toBeDefined();
+    expect(connector!.displayName).toBe("Aramex");
+    expect(connector!.credentialFields.map((f) => f.name)).toEqual([
+      "userName",
+      "password",
+      "accountNumber",
+      "accountPin",
+      "accountEntity",
+      "accountCountryCode",
+    ]);
+    expect(connector!.credentialFields.find((f) => f.name === "password")?.type).toBe("password");
+    expect(connector!.credentialFields.find((f) => f.name === "accountPin")?.type).toBe("password");
+    // No cancel, no cities, no manifest, no webhooks — Aramex JSON API scope.
+    expect([...connector!.capabilities].sort()).toEqual([
+      "CREATE_SHIPMENT",
+      "FETCH_COST",
+      "FETCH_STATUS",
+    ]);
+  });
+
   it("does NOT leak any test/fixture adapter into production", () => {
     expect(listDeliveryProviders().map((a) => a.key)).not.toContain("__test_reference__");
   });

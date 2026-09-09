@@ -86,7 +86,10 @@ export async function getProductDetail(id: string) {
     include: {
       category: true,
       images: { orderBy: { position: "asc" } },
-      variations: { include: { inventoryItems: true }, orderBy: { createdAt: "asc" } },
+      variations: {
+        include: { inventoryItems: { include: { warehouse: { select: { name: true } } } } },
+        orderBy: { createdAt: "asc" },
+      },
       inventoryItems: { include: { warehouse: true } },
       _count: { select: { orderItems: true } },
     },

@@ -45,3 +45,7 @@ next-env.d.ts
 
 # local design-reference bundle (preloader mockups, source logos) — not app code
 /nextjs_package
+
+# vendor SDK reference bundle (Aramex WSDL + PHP/C#/VB samples) — not app code.
+# The adapter under src/lib/integrations/delivery/providers/aramex is the source of truth.
+/aramex

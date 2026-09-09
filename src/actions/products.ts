@@ -9,6 +9,7 @@ import {
   createProductSchema,
   updateProductSchema,
   updateProductOperationalSettingsSchema,
+  updateVariationOperationalSettingsSchema,
   createCategorySchema,
   createProductVariationSchema,
 } from "@/lib/validation/product";
@@ -359,6 +360,47 @@ export async function updateProductOperationalSettingsAction(formData: FormData)
 
   revalidatePath(`/produits/${product.id}`);
   return actionOk({ id: product.id });
+}
+
+/**
+ * Per-variation `cost` — the only variation field ASODITECH owns for an
+ * externally-sourced variable product (WooCommerce/Shopify never sync it,
+ * see each mapper's "Field ownership" note). Lets the operator enter the
+ * purchase cost per colour/size so margin and realised profit work for
+ * variable products, not just simple ones. Also updates the parent
+ * product's audit trail so the change is traceable.
+ */
+export async function updateVariationOperationalSettingsAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("products.edit");
+
+  const parsed = updateVariationOperationalSettingsSchema.safeParse({
+    id: formData.get("id"),
+    cost: formData.get("cost") || undefined,
+  });
+  if (!parsed.success) {
+    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+
+  const existing = await prisma.productVariation.findUnique({ where: { id: parsed.data.id } });
+  if (!existing) return actionError("Variation introuvable.");
+
+  const variation = await prisma.productVariation.update({
+    where: { id: parsed.data.id },
+    data: { cost: parsed.data.cost ?? null },
+  });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "product.updated",
+    entityType: "Product",
+    entityId: variation.productId,
+    previousValue: { variation: existing.sku, cost: existing.cost?.toString() ?? null },
+    newValue: { variation: variation.sku, cost: variation.cost?.toString() ?? null },
+  });
+
+  revalidatePath(`/produits/${variation.productId}`);
+  return actionOk({ id: variation.id });
 }
 
 /**
