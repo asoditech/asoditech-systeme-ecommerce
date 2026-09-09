@@ -16,9 +16,11 @@ import { LinkShipmentDialog } from "@/components/delivery/link-shipment-dialog";
 import { EditShippingAddressDialog } from "@/components/orders/edit-shipping-address-dialog";
 import { AssignAgentControl } from "@/components/commissions/assign-agent-control";
 import { getOrderCommission, listAssignableCommissionAgents } from "@/lib/queries/commissions";
+import { getOrderConfirmationAttempts } from "@/lib/queries/order-confirmation";
 import { computeOrderProfit } from "@/lib/profitability";
 import { formatCurrency, formatDateTime, displayOrderNumber, displayOrderChannel } from "@/lib/format";
 import { humanizeAuditAction } from "@/lib/audit-labels";
+import { CONFIRMATION_OUTCOME_LABELS } from "@/lib/status-labels";
 import {
   ORDER_STATUS_LABELS,
   ORDER_PAYMENT_STATUS_LABELS,
@@ -83,10 +85,14 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
     : null;
   const canViewCommissions = hasPermission(user.role, "commissions.view");
   const canManageCommissions = hasPermission(user.role, "commissions.manage");
-  const [deliveryProviders, orderCommission, commissionAgents] = await Promise.all([
+  const canConfirm = hasPermission(user.role, "orders.confirm");
+  const [deliveryProviders, orderCommission, commissionAgents, confirmationAttempts] = await Promise.all([
     canManageDelivery ? listShipmentProviderOptions() : Promise.resolve([]),
     canViewCommissions ? getOrderCommission(order.id) : Promise.resolve(null),
     canManageCommissions ? listAssignableCommissionAgents() : Promise.resolve([]),
+    canConfirm && order.confirmationAttemptCount > 0
+      ? getOrderConfirmationAttempts(order.id)
+      : Promise.resolve([]),
   ]);
   const parcelContents = buildParcelContentsSummary(order.items);
   const refundedTotal = order.refunds.filter((r) => r.status === "COMPLETE").reduce((s, r) => s + Number(r.amount), 0);
@@ -337,6 +343,26 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                 ) : (
                   <p className="text-xs text-muted-foreground">Aucun agent assigné.</p>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {confirmationAttempts.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Historique de confirmation</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <ul className="space-y-1.5">
+                  {confirmationAttempts.map((a) => (
+                    <li key={a.id} className="border-l-2 border-muted pl-3">
+                      <span className="font-medium">{CONFIRMATION_OUTCOME_LABELS[a.outcome] ?? a.outcome}</span>
+                      {a.agent?.name ? <span className="text-muted-foreground"> — {a.agent.name}</span> : null}
+                      <span className="block text-xs text-muted-foreground">{formatDateTime(a.createdAt)}</span>
+                      {a.note ? <span className="block text-xs">« {a.note} »</span> : null}
+                    </li>
+                  ))}
+                </ul>
               </CardContent>
             </Card>
           )}

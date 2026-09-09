@@ -67,43 +67,44 @@ model Tenant {
   nextTransferNumber  Int @default(1)
   nextStocktakeNumber Int @default(1)
 
-  users                 User[]
-  customers             Customer[]
-  customerAddresses     CustomerAddress[]
-  categories            Category[]
-  products              Product[]
-  productImages         ProductImage[]
-  productVariations     ProductVariation[]
-  warehouses            Warehouse[]
-  inventoryItems        InventoryItem[]
-  inventoryMovements    InventoryMovement[]
-  stockTransfers        StockTransfer[]
-  stockTransferLines    StockTransferLine[]
-  stocktakeSessions     StocktakeSession[]
-  stocktakeLines        StocktakeLine[]
-  orders                Order[]
-  orderItems            OrderItem[]
-  refunds               Refund[]
-  commissionAgents      CommissionAgent[]
-  commissionEntries     CommissionEntry[]
-  commissionStatements  CommissionStatement[]
-  shippingProviders     ShippingProvider[]
-  deliveryCityMappings  DeliveryCityMapping[]
-  shipments             Shipment[]
-  deliveryManifests     DeliveryManifest[]
-  shipmentWebhookEvents ShipmentWebhookEvent[]
-  expenseCategories     ExpenseCategory[]
-  expenses              Expense[]
-  marketingChannels     MarketingChannel[]
-  marketingCampaigns    MarketingCampaign[]
-  integrations          Integration[]
-  syncRuns              SyncRun[]
-  webhookEvents         WebhookEvent[]
-  notifications         Notification[]
-  businessSettings      BusinessSettings[]
-  auditEvents           AuditEvent[]
-  invitations           Invitation[]
-  passwordResetTokens   PasswordResetToken[]
+  users                     User[]
+  customers                 Customer[]
+  customerAddresses         CustomerAddress[]
+  categories                Category[]
+  products                  Product[]
+  productImages             ProductImage[]
+  productVariations         ProductVariation[]
+  warehouses                Warehouse[]
+  inventoryItems            InventoryItem[]
+  inventoryMovements        InventoryMovement[]
+  stockTransfers            StockTransfer[]
+  stockTransferLines        StockTransferLine[]
+  stocktakeSessions         StocktakeSession[]
+  stocktakeLines            StocktakeLine[]
+  orders                    Order[]
+  orderItems                OrderItem[]
+  orderConfirmationAttempts OrderConfirmationAttempt[]
+  refunds                   Refund[]
+  commissionAgents          CommissionAgent[]
+  commissionEntries         CommissionEntry[]
+  commissionStatements      CommissionStatement[]
+  shippingProviders         ShippingProvider[]
+  deliveryCityMappings      DeliveryCityMapping[]
+  shipments                 Shipment[]
+  deliveryManifests         DeliveryManifest[]
+  shipmentWebhookEvents     ShipmentWebhookEvent[]
+  expenseCategories         ExpenseCategory[]
+  expenses                  Expense[]
+  marketingChannels         MarketingChannel[]
+  marketingCampaigns        MarketingCampaign[]
+  integrations              Integration[]
+  syncRuns                  SyncRun[]
+  webhookEvents             WebhookEvent[]
+  notifications             Notification[]
+  businessSettings          BusinessSettings[]
+  auditEvents               AuditEvent[]
+  invitations               Invitation[]
+  passwordResetTokens       PasswordResetToken[]
 
   @@map("tenants")
 }
@@ -134,13 +135,13 @@ enum UserStatus {
 }
 
 model User {
-  id           String     @id @default(cuid())
-  tenantId     String     @default("default")
-  email        String
-  name         String
-  passwordHash String
-  role         UserRole   @default(CONFIRMATION)
-  status       UserStatus @default(ACTIVE)
+  id              String     @id @default(cuid())
+  tenantId        String     @default("default")
+  email           String
+  name            String
+  passwordHash    String
+  role            UserRole   @default(CONFIRMATION)
+  status          UserStatus @default(ACTIVE)
   // Cross-tenant flag, deliberately NOT part of the per-tenant RBAC matrix
   // (docs/adr/0003) — grants access to the `/platform` area (Phase 5,
   // docs/adr/0027-tenant-provisioning.md), which manages OTHER tenants'
@@ -149,36 +150,37 @@ model User {
   // tenant-scoped action — only by direct DB access (this app's answer to
   // "who provisions the provisioner" while there is no billing/licensing
   // layer yet).
-  isPlatformAdmin Boolean  @default(false)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  lastLoginAt  DateTime?
+  isPlatformAdmin Boolean    @default(false)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  lastLoginAt     DateTime?
 
-  tenant                     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  tenant                     Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   sessions                   Session[]
-  invitationsSent            Invitation[]          @relation("InvitationInvitedBy")
-  invitationAccepted         Invitation?           @relation("InvitationAcceptedUser")
+  invitationsSent            Invitation[]               @relation("InvitationInvitedBy")
+  invitationAccepted         Invitation?                @relation("InvitationAcceptedUser")
   passwordResetTokens        PasswordResetToken[]
-  customersCreated           Customer[]            @relation("CustomerCreatedBy")
-  ordersCreated              Order[]               @relation("OrderCreatedBy")
-  productsCreated            Product[]             @relation("ProductCreatedBy")
-  warehousesCreated          Warehouse[]           @relation("WarehouseCreatedBy")
-  inventoryMovements         InventoryMovement[]   @relation("MovementPerformedBy")
-  expensesRecorded           Expense[]             @relation("ExpenseRecordedBy")
-  shipmentsUpdated           Shipment[]            @relation("ShipmentUpdatedBy")
-  manifestsCreated           DeliveryManifest[]    @relation("ManifestCreatedBy")
-  syncRunsTriggered          SyncRun[]             @relation("SyncRunTriggeredBy")
-  auditEvents                AuditEvent[]          @relation("AuditActorUser")
+  customersCreated           Customer[]                 @relation("CustomerCreatedBy")
+  ordersCreated              Order[]                    @relation("OrderCreatedBy")
+  productsCreated            Product[]                  @relation("ProductCreatedBy")
+  warehousesCreated          Warehouse[]                @relation("WarehouseCreatedBy")
+  inventoryMovements         InventoryMovement[]        @relation("MovementPerformedBy")
+  expensesRecorded           Expense[]                  @relation("ExpenseRecordedBy")
+  shipmentsUpdated           Shipment[]                 @relation("ShipmentUpdatedBy")
+  manifestsCreated           DeliveryManifest[]         @relation("ManifestCreatedBy")
+  syncRunsTriggered          SyncRun[]                  @relation("SyncRunTriggeredBy")
+  auditEvents                AuditEvent[]               @relation("AuditActorUser")
   notifications              Notification[]
-  stockTransfersCreated      StockTransfer[]       @relation("StockTransferCreatedBy")
-  stockTransfersDispatched   StockTransfer[]       @relation("StockTransferDispatchedBy")
-  stockTransfersReceived     StockTransfer[]       @relation("StockTransferReceivedBy")
-  stocktakesStarted          StocktakeSession[]    @relation("StocktakeStartedBy")
-  stocktakesClosed           StocktakeSession[]    @relation("StocktakeClosedBy")
-  stocktakesCounted          StocktakeLine[]       @relation("StocktakeCountedBy")
+  stockTransfersCreated      StockTransfer[]            @relation("StockTransferCreatedBy")
+  stockTransfersDispatched   StockTransfer[]            @relation("StockTransferDispatchedBy")
+  stockTransfersReceived     StockTransfer[]            @relation("StockTransferReceivedBy")
+  stocktakesStarted          StocktakeSession[]         @relation("StocktakeStartedBy")
+  stocktakesClosed           StocktakeSession[]         @relation("StocktakeClosedBy")
+  stocktakesCounted          StocktakeLine[]            @relation("StocktakeCountedBy")
   commissionAgent            CommissionAgent?
-  commissionStatementsClosed CommissionStatement[] @relation("CommissionStatementClosedBy")
-  commissionStatementsPaid   CommissionStatement[] @relation("CommissionStatementPaidBy")
+  commissionStatementsClosed CommissionStatement[]      @relation("CommissionStatementClosedBy")
+  commissionStatementsPaid   CommissionStatement[]      @relation("CommissionStatementPaidBy")
+  confirmationAttempts       OrderConfirmationAttempt[] @relation("ConfirmationAttemptAgent")
 
   // Phase 3 (docs/adr/0025): email is unique PER TENANT, not globally — two
   // tenants may have a user with the same email. Login (src/actions/auth.ts)
@@ -958,6 +960,13 @@ model Order {
   deliveredAt DateTime?
   cancelledAt DateTime?
 
+  // Order-confirmation call workflow (docs/adr/0029). Denormalised from
+  // `confirmationAttempts` so the shared confirmation queue can sort by
+  // "least recently tried" and flag orders past a retry threshold without
+  // an aggregate per row.
+  confirmationAttemptCount  Int       @default(0)
+  lastConfirmationAttemptAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   // When the customer actually placed the order — WooCommerce/Shopify
@@ -984,17 +993,18 @@ model Order {
   confirmationAgentId String?
 
   createdById          String?
-  tenant               Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  createdBy            User?               @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  customer             Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  fulfillmentWarehouse Warehouse?          @relation("OrderFulfillmentWarehouse", fields: [fulfillmentWarehouseId], references: [id], onDelete: SetNull)
-  confirmationAgent    CommissionAgent?    @relation(fields: [confirmationAgentId], references: [id], onDelete: SetNull)
+  tenant               Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  createdBy            User?                      @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  customer             Customer                   @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  fulfillmentWarehouse Warehouse?                 @relation("OrderFulfillmentWarehouse", fields: [fulfillmentWarehouseId], references: [id], onDelete: SetNull)
+  confirmationAgent    CommissionAgent?           @relation(fields: [confirmationAgentId], references: [id], onDelete: SetNull)
   items                OrderItem[]
   refunds              Refund[]
   shipments            Shipment[]
   movements            InventoryMovement[]
   commissionEntries    CommissionEntry[]
-  campaign             MarketingCampaign?  @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  confirmationAttempts OrderConfirmationAttempt[]
+  campaign             MarketingCampaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   campaignId           String?
 
   // Prevents a duplicate Order under a genuine race between the order
@@ -1014,7 +1024,49 @@ model Order {
   @@index([fulfillmentWarehouseId])
   @@index([confirmationAgentId])
   @@index([tenantId])
+  @@index([status, lastConfirmationAttemptAt])
   @@map("orders")
+}
+
+/**
+ * How a single confirmation-call attempt on an order turned out (docs/adr/
+ * 0029). `CONFIRME` and `ANNULE` are terminal — they move the order to
+ * CONFIRMEE / ANNULEE; the rest just log the attempt and leave the order
+ * in the queue.
+ */
+enum OrderConfirmationOutcome {
+  CONFIRME
+  PAS_DE_REPONSE
+  OCCUPE
+  RAPPELER
+  FAUX_NUMERO
+  ANNULE
+}
+
+/**
+ * Append-only log of confirmation-call attempts on an order — the "who
+ * called, when, and how it went" trail behind the shared confirmation
+ * queue (docs/adr/0029-order-confirmation-workflow.md). The denormalised
+ * `Order.confirmationAttemptCount` / `lastConfirmationAttemptAt` are kept
+ * in step by the action that writes here.
+ */
+model OrderConfirmationAttempt {
+  id          String                   @id @default(cuid())
+  tenantId    String                   @default("default")
+  orderId     String
+  agentUserId String?
+  outcome     OrderConfirmationOutcome
+  note        String?
+  createdAt   DateTime                 @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  agent  User?  @relation("ConfirmationAttemptAgent", fields: [agentUserId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([agentUserId])
+  @@index([tenantId])
+  @@map("order_confirmation_attempts")
 }
 
 model OrderItem {

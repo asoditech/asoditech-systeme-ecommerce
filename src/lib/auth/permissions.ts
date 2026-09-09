@@ -15,6 +15,12 @@ export const PERMISSIONS = [
   "orders.edit",
   "orders.cancel",
   "orders.refund",
+  // Work the shared order-confirmation queue: log a call attempt, confirm
+  // an order (→ CONFIRMEE, auto-credited as its confirmation agent), or
+  // cancel it after a failed call (docs/adr/0029). Narrower than
+  // orders.edit — the CONFIRMATION role holds this but not the full
+  // status machine.
+  "orders.confirm",
   "customers.view",
   "customers.create",
   "customers.edit",
@@ -82,6 +88,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     "orders.edit",
     "orders.cancel",
     "orders.refund",
+    "orders.confirm",
     "customers.view",
     "customers.create",
     "customers.edit",
@@ -109,6 +116,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     "orders.view",
     "orders.create",
     "orders.edit",
+    "orders.confirm",
     "customers.view",
     "customers.create",
     "customers.edit",

@@ -77,6 +77,15 @@ export const DELIVERY_MANIFEST_STATUS_LABELS: Record<string, StatusMeta> = {
   ECHEC: { label: "Échec", variant: "destructive" },
 };
 
+export const CONFIRMATION_OUTCOME_LABELS: Record<string, string> = {
+  CONFIRME: "Confirmé",
+  PAS_DE_REPONSE: "Pas de réponse",
+  OCCUPE: "Occupé",
+  RAPPELER: "À rappeler",
+  FAUX_NUMERO: "Faux numéro",
+  ANNULE: "Annulé",
+};
+
 export const REFUND_STATUS_LABELS: Record<string, StatusMeta> = {
   EN_ATTENTE: { label: "En attente", variant: "secondary" },
   APPROUVE: { label: "Approuvé", variant: "default" },

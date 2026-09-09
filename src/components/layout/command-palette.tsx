@@ -18,6 +18,7 @@ import type { Permission } from "@/lib/auth/permissions";
 const QUICK_LINKS: { label: string; href: string; permission: Permission }[] = [
   { label: "Tableau de bord", href: "/tableau-de-bord", permission: "dashboard.view" },
   { label: "Nouvelle commande", href: "/commandes/nouvelle", permission: "orders.create" },
+  { label: "File de confirmation", href: "/confirmation", permission: "orders.confirm" },
   { label: "Nouveau client", href: "/clients/nouveau", permission: "customers.create" },
   { label: "Nouveau produit", href: "/produits/nouveau", permission: "products.create" },
 ];

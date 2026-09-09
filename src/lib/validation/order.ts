@@ -125,6 +125,23 @@ export const cancelOrderSchema = z.object({
   reason: z.string().trim().max(2000).nullish().or(z.literal("")),
 });
 
+/** One confirmation-call attempt on an order (docs/adr/0029). */
+export const orderConfirmationOutcomeSchema = z.enum([
+  "CONFIRME",
+  "PAS_DE_REPONSE",
+  "OCCUPE",
+  "RAPPELER",
+  "FAUX_NUMERO",
+  "ANNULE",
+]);
+export type OrderConfirmationOutcomeValue = z.infer<typeof orderConfirmationOutcomeSchema>;
+
+export const recordConfirmationAttemptSchema = z.object({
+  id: z.string().min(1),
+  outcome: orderConfirmationOutcomeSchema,
+  note: z.string().trim().max(1000).nullish().or(z.literal("")),
+});
+
 /** Edit the frozen shipping-address snapshot on an existing order — mainly
  * to fix an incomplete or misspelt city that blocks shipment creation. */
 export const updateOrderShippingAddressSchema = z.object({

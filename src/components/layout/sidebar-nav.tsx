@@ -7,6 +7,7 @@ import type { Permission } from "@/lib/auth/permissions";
 import {
   LayoutDashboard,
   ShoppingCart,
+  PhoneCall,
   Users,
   Package,
   Boxes,
@@ -49,6 +50,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Ventes",
     items: [
       { href: "/commandes", label: "Commandes", icon: ShoppingCart, permission: "orders.view" },
+      { href: "/confirmation", label: "Confirmation", icon: PhoneCall, permission: "orders.confirm" },
       { href: "/clients", label: "Clients", icon: Users, permission: "customers.view" },
       { href: "/livraison", label: "Livraison", icon: Truck, permission: "delivery.view" },
     ],

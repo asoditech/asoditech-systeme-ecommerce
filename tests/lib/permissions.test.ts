@@ -59,6 +59,15 @@ describe("RBAC permission matrix", () => {
     expect(hasPermission("CONFIRMATION", "orders.refund")).toBe(false);
   });
 
+  it("grants orders.confirm to the confirmation workflow roles only (docs/adr/0029)", () => {
+    for (const role of ["OWNER", "ADMIN", "MANAGER", "CONFIRMATION"] as const) {
+      expect(hasPermission(role, "orders.confirm")).toBe(true);
+    }
+    for (const role of ["WAREHOUSE", "DELIVERY", "SUPPORT", "ACCOUNTANT"] as const) {
+      expect(hasPermission(role, "orders.confirm")).toBe(false);
+    }
+  });
+
   it("grants inventory.transfer to stock-moving roles only (Phase 32b)", () => {
     for (const role of ["OWNER", "ADMIN", "MANAGER", "WAREHOUSE"] as const) {
       expect(hasPermission(role, "inventory.transfer")).toBe(true);

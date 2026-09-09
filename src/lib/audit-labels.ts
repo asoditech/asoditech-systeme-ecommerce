@@ -79,6 +79,7 @@ const AUDIT_ACTION_META: Record<string, AuditActionMeta> = {
   "order.created": { label: "Commande créée", category: "commandes" },
   "order.updated": { label: "Commande mise à jour", category: "commandes" },
   "order.status_changed": { label: "Statut de commande modifié", category: "commandes" },
+  "order.confirmation_attempt": { label: "Tentative de confirmation", category: "commandes" },
   "order.refund.created": { label: "Remboursement créé", category: "commandes" },
   "order.refund.status_changed": { label: "Statut de remboursement modifié", category: "commandes" },
   "product.created": { label: "Produit créé", category: "produits_stock" },
