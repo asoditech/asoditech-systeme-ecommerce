@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { ClickableTableRow } from "@/components/clickable-table-row";
+import { StopPropagationLink } from "@/components/stop-propagation-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FilterSelect } from "@/components/filter-select";
@@ -254,13 +255,12 @@ export default async function CommandesPage({
                   <TableCell className="text-muted-foreground">
                     {o.confirmationAgent ? (
                       canViewCommissions ? (
-                        <Link
+                        <StopPropagationLink
                           href={`/commissions/${o.confirmationAgentId}`}
-                          onClick={(e) => e.stopPropagation()}
                           className="max-w-[7rem] truncate hover:underline"
                         >
                           👤 {o.confirmationAgent.user.name}
-                        </Link>
+                        </StopPropagationLink>
                       ) : (
                         <span className="block max-w-[7rem] truncate">👤 {o.confirmationAgent.user.name}</span>
                       )

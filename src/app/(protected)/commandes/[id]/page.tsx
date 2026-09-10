@@ -153,22 +153,20 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
         }
       />
 
-      {canViewCommissions && (
-        <Card className="mb-6">
-          <CardContent className="py-4">
-            <OrderLifecycleStepper
-              status={order.status}
-              placedAt={order.placedAt}
-              confirmedAt={order.confirmedAt}
-              shippedAt={order.shippedAt}
-              deliveredAt={order.deliveredAt}
-              cancelledAt={order.cancelledAt}
-              confirmationAgentName={orderCommission?.agentName ?? null}
-              commissionStatus={commissionStatus}
-            />
-          </CardContent>
-        </Card>
-      )}
+      <Card className="mb-6">
+        <CardContent className="py-4">
+          <OrderLifecycleStepper
+            status={order.status}
+            placedAt={order.placedAt}
+            confirmedAt={order.confirmedAt}
+            shippedAt={order.shippedAt}
+            deliveredAt={order.deliveredAt}
+            cancelledAt={order.cancelledAt}
+            confirmationAgentName={canViewCommissions ? orderCommission?.agentName ?? null : null}
+            commissionStatus={canViewCommissions ? commissionStatus : "none"}
+          />
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
