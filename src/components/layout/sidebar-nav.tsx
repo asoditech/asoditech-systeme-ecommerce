@@ -27,6 +27,7 @@ import {
   Bell,
   Sparkles,
   Settings,
+  BookOpen,
 } from "lucide-react";
 
 interface NavItem {
@@ -44,7 +45,10 @@ interface NavGroup {
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Aperçu",
-    items: [{ href: "/tableau-de-bord", label: "Tableau de bord", icon: LayoutDashboard, permission: "dashboard.view" }],
+    items: [
+      { href: "/tableau-de-bord", label: "Tableau de bord", icon: LayoutDashboard, permission: "dashboard.view" },
+      { href: "/documentation", label: "Documentation", icon: BookOpen, permission: "dashboard.view" },
+    ],
   },
   {
     label: "Ventes",

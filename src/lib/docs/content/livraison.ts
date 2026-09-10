@@ -1,0 +1,253 @@
+import type { DocArticle } from "../types";
+
+const LAST_UPDATED = "2026-09-10";
+
+export const livraisonArticles: DocArticle[] = [
+  {
+    slug: "livraison/transporteurs",
+    title: "Transporteurs",
+    category: "livraison",
+    tagline: "ASODITECH connecte des transporteurs par API (OzonExpress, Aramex), ou fonctionne avec un transporteur manuel / votre propre flotte.",
+    permission: "delivery.manage",
+    steps: [
+      "Ouvrir Livraison → Prestataires.",
+      "Ajouter un prestataire : choisir le type (connecteur API, Manuel, ou Flotte interne).",
+      "Pour un connecteur API, renseigner les identifiants demandés par ce transporteur.",
+      "Configurer les coûts de retour / d'échec par défaut de ce prestataire — ils servent de référence quand le transporteur ne facture pas explicitement ces cas.",
+    ],
+    body: [
+      {
+        type: "callout",
+        tone: "info",
+        text: "Un prestataire Manuel ou Flotte interne se pilote entièrement à la main (statut, coût) ; un connecteur API crée réellement le colis chez le transporteur et récupère automatiquement son statut.",
+      },
+    ],
+    related: ["livraison/creer-une-expedition", "livraison/villes-et-correspondances"],
+    tryNow: { label: "Ouvrir Livraison", href: "/livraison" },
+    lastUpdated: LAST_UPDATED,
+  },
+  {
+    slug: "livraison/villes-et-correspondances",
+    title: "Villes de livraison et correspondances transporteur",
+    category: "livraison",
+    tagline: "Chaque transporteur a son propre référentiel de villes — une correspondance permet de faire coïncider vos villes avec les siennes.",
+    permission: "delivery.manage",
+    prerequisites: [],
+    steps: [
+      "Ouvrir Livraison → Prestataires → « Correspondances de villes » pour le transporteur concerné.",
+      "Rechercher la ville telle qu'elle apparaît sur vos commandes.",
+      "Lui associer la ville exacte du référentiel du transporteur.",
+    ],
+    body: [
+      {
+        type: "p",
+        text: "Une correspondance explicite prévaut toujours. En son absence, ASODITECH tente une correspondance automatique par normalisation du nom (accents, majuscules, espaces) — si le résultat est ambigu ou introuvable, la création d'expédition échoue plutôt que de deviner.",
+      },
+    ],
+    troubleshooting: [
+      {
+        symptom: "Ville non reconnue par le transporteur",
+        cause: "La ville de la commande ne correspond exactement à aucune ville du référentiel du transporteur, et aucune correspondance n'a été enregistrée.",
+        check: "Vérifiez l'orthographe de la ville sur la commande, puis consultez Livraison → Prestataires → Correspondances de villes.",
+        solution: "Ajoutez une correspondance de ville précise pour cette ville et ce transporteur.",
+        expectedResult: "La création d'expédition réussit pour cette ville.",
+        errorStrings: [
+          "ne correspond à aucune ville desservie par OzonExpress",
+          "Vérifiez l'orthographe de la ville de la commande, ou ajoutez une correspondance depuis Livraison → Prestataires → « Correspondances de villes ».",
+        ],
+      },
+      {
+        symptom: "Plusieurs villes correspondent à la fois",
+        cause: "Le nom de ville saisi correspond à plusieurs entrées ambiguës du référentiel transporteur.",
+        check: "Consultez la liste des villes candidates affichée dans le message d'erreur.",
+        solution: "Ajoutez une correspondance de ville précise qui lève l'ambiguïté.",
+        expectedResult: "La création d'expédition réussit.",
+        errorStrings: ["correspond à plusieurs villes OzonExpress à la fois"],
+      },
+      {
+        symptom: "Le transporteur rejette la ville malgré une correspondance enregistrée",
+        cause: "L'identifiant de ville stocké dans la correspondance n'est plus reconnu par le transporteur (référentiel transporteur modifié).",
+        check: "Ouvrez la correspondance existante pour cette ville.",
+        solution: "Recréez la correspondance en choisissant à nouveau la ville dans le référentiel transporteur actuel.",
+        expectedResult: "La création d'expédition réussit.",
+        errorStrings: ["OzonExpress a rejeté la ville de livraison : l'identifiant de ville n'est pas reconnu."],
+      },
+    ],
+    related: ["livraison/creer-une-expedition"],
+    tryNow: { label: "Ouvrir Livraison", href: "/livraison" },
+    lastUpdated: LAST_UPDATED,
+    keywords: ["ville non reconnue", "ville introuvable"],
+  },
+  {
+    slug: "livraison/creer-une-expedition",
+    title: "Créer une expédition",
+    category: "livraison",
+    tagline: "Confier une commande à un transporteur pour qu'elle soit livrée au client.",
+    permission: "delivery.manage",
+    prerequisites: [
+      "La commande est Confirmée, En préparation, ou en Échec de livraison précédent.",
+      "L'adresse de livraison (adresse + ville) est renseignée.",
+      "La ville est reconnue par le transporteur choisi (voir Villes et correspondances).",
+      "Un prestataire de livraison est configuré.",
+    ],
+    steps: [
+      "Ouvrir la commande.",
+      "Cliquer sur « Créer une expédition ».",
+      "Choisir le prestataire.",
+      "Pour un prestataire connecté par API, l'expédition est créée directement chez le transporteur. Pour Manuel/Flotte interne, saisir vous-même le numéro de suivi.",
+      "Confirmer.",
+    ],
+    whatYouShouldSee: "L'expédition apparaît sur la commande et dans Livraison, au statut En attente ou En transit.",
+    body: [
+      {
+        type: "callout",
+        tone: "info",
+        text: "Le paiement à la livraison (COD) est transmis automatiquement au transporteur avec le montant total de la commande — rien à saisir en plus.",
+      },
+    ],
+    commonMistakes: [
+      "Essayer de créer une expédition via un connecteur API en utilisant le formulaire « Lier une expédition existante » — ce formulaire sert uniquement à rattacher un colis déjà créé chez le transporteur, pas à en créer un nouveau.",
+    ],
+    troubleshooting: [
+      {
+        symptom: "Impossible de créer la livraison",
+        cause: "La commande n'est pas dans un statut permettant de créer une expédition, ou son adresse de livraison est incomplète.",
+        check: "Vérifiez le statut de la commande et que l'adresse + la ville sont bien renseignées.",
+        solution: "Confirmez d'abord la commande si nécessaire, complétez l'adresse, puis réessayez.",
+        expectedResult: "L'expédition est créée.",
+        errorStrings: [
+          "Cette commande n'est pas dans un statut permettant de créer une expédition.",
+          "L'adresse de livraison de la commande est incomplète — l'adresse et la ville sont requises.",
+        ],
+      },
+      {
+        symptom: "« Ce prestataire est connecté par API : utilisez « Créer une expédition » depuis la commande… »",
+        cause: "Vous essayez de créer manuellement une expédition pour un prestataire qui est en réalité un connecteur API.",
+        check: "Vérifiez le type du prestataire dans Livraison → Prestataires.",
+        solution: "Utilisez le bouton « Créer une expédition » depuis la commande, qui passe par le vrai connecteur.",
+        expectedResult: "L'expédition est créée chez le transporteur.",
+        errorStrings: ["Ce prestataire est connecté par API : utilisez « Créer une expédition » depuis la commande pour passer par le connecteur réel."],
+      },
+      {
+        symptom: "« Ce numéro de suivi est déjà lié à une expédition… »",
+        cause: "Le numéro de suivi saisi est déjà utilisé, ou une expédition est déjà en cours pour cette commande.",
+        check: "Vérifiez les expéditions existantes de la commande.",
+        solution: "Utilisez le numéro correct, ou vérifiez qu'il n'existe pas déjà une expédition active à annuler d'abord.",
+        expectedResult: "L'expédition est liée.",
+        errorStrings: ["Ce numéro de suivi est déjà lié à une expédition, ou une expédition est déjà en cours pour cette commande."],
+      },
+    ],
+    related: ["livraison/villes-et-correspondances", "livraison/cod", "livraison/problemes-frequents"],
+    tryNow: { label: "Ouvrir Livraison", href: "/livraison" },
+    lastUpdated: LAST_UPDATED,
+    keywords: ["impossible d'envoyer la commande", "je ne peux pas envoyer la commande", "expédier"],
+  },
+  {
+    slug: "livraison/suivi",
+    title: "Suivi",
+    category: "livraison",
+    tagline: "Consulter l'historique détaillé d'une expédition, tel que transmis par le transporteur.",
+    permission: "delivery.view",
+    steps: ["Ouvrir Livraison → Suivi.", "Sélectionner une expédition pour voir son historique détaillé (statut, description, lieu, horodatage)."],
+    body: [
+      {
+        type: "callout",
+        tone: "info",
+        text: "Si le transporteur ne répond pas au moment du rafraîchissement, le dernier statut et l'historique déjà connus restent affichés tels quels — ASODITECH n'efface jamais une information de suivi à cause d'une erreur réseau ponctuelle.",
+      },
+      {
+        type: "p",
+        text: "Une expédition créée manuellement (sans connecteur API) n'a pas de suivi détaillé disponible — seul son statut, mis à jour à la main, est affiché.",
+      },
+    ],
+    troubleshooting: [
+      {
+        symptom: "« Cette expédition n'a pas été créée via un connecteur API. »",
+        cause: "L'expédition est en prestataire Manuel/Flotte interne — il n'y a pas de suivi transporteur à récupérer.",
+        check: "—",
+        solution: "Mettez à jour le statut manuellement depuis la commande.",
+        expectedResult: "—",
+        errorStrings: ["Cette expédition n'a pas été créée via un connecteur API."],
+      },
+    ],
+    related: ["livraison/creer-une-expedition"],
+    tryNow: { label: "Ouvrir le Suivi", href: "/livraison/suivi" },
+    lastUpdated: LAST_UPDATED,
+  },
+  {
+    slug: "livraison/cod",
+    title: "COD (paiement à la livraison)",
+    category: "livraison",
+    tagline: "Le montant à encaisser par le livreur est transmis automatiquement au transporteur.",
+    permission: "delivery.view",
+    body: [
+      { type: "p", text: "Une commande en paiement à la livraison affiche son montant dans la colonne « Encaissement » de Livraison ; une commande déjà payée affiche « — »." },
+    ],
+    related: ["rapports/livraison", "rapports/tresorerie"],
+    tryNow: { label: "Ouvrir Livraison", href: "/livraison" },
+    lastUpdated: LAST_UPDATED,
+  },
+  {
+    slug: "livraison/cycle-de-vie-dune-expedition",
+    title: "Livraison réussie, échec, retour et suppression",
+    category: "livraison",
+    tagline: "Ce qui se passe automatiquement selon la façon dont se termine une expédition.",
+    permission: "delivery.manage",
+    body: [
+      {
+        type: "table",
+        headers: ["Événement", "Conséquence"],
+        rows: [
+          ["Livré", "La commande passe automatiquement à Livrée, la commission de l'agent de confirmation est acquise, le coût de livraison réel (facturé par le transporteur) est figé."],
+          ["Échec", "Une notification est envoyée ; le statut de la commande n'est pas modifié automatiquement — vous pouvez réessayer ou traiter manuellement. Le coût d'échec par défaut du prestataire est appliqué."],
+          ["Retourné", "Le coût de retour par défaut du prestataire est appliqué. Le passage de la commande au statut Retour reste une action manuelle séparée, qui restitue le stock."],
+        ],
+      },
+    ],
+    steps: [
+      "Pour réessayer après un échec : utiliser « Réessayer » sur l'expédition — cela recrée une expédition pour la même commande (souvent après avoir corrigé une correspondance de ville).",
+      "Pour supprimer une tentative en échec qui n'a jamais atteint le transporteur : utiliser « Supprimer » sur cette expédition précise.",
+    ],
+    troubleshooting: [
+      {
+        symptom: "Suppression d'une expédition échouée impossible",
+        cause: "Seule une expédition au statut Échec et sans numéro de colis chez le transporteur (jamais réellement créée côté transporteur) peut être supprimée.",
+        check: "Vérifiez le statut exact et si un numéro de suivi a été attribué.",
+        solution: "Si le colis existe déjà chez le transporteur, annulez-le plutôt que de le supprimer, ou contactez le transporteur.",
+        expectedResult: "—",
+        errorStrings: ["Seule une tentative d'expédition en échec (sans colis chez le transporteur) peut être supprimée."],
+      },
+    ],
+    related: ["confirmation/workflow-de-confirmation", "finance/coup-produit", "livraison/problemes-frequents"],
+    tryNow: { label: "Ouvrir Livraison", href: "/livraison" },
+    lastUpdated: LAST_UPDATED,
+  },
+  {
+    slug: "livraison/problemes-frequents",
+    title: "Problèmes fréquents",
+    category: "livraison",
+    tagline: "Les blocages les plus courants côté livraison.",
+    permission: "delivery.view",
+    troubleshooting: [
+      {
+        symptom: "« Transition de statut invalide » sur une expédition",
+        cause: "Le changement de statut demandé n'est pas autorisé depuis le statut actuel de l'expédition (ex. une expédition Livrée ou Retournée est un état final).",
+        check: "Vérifiez le statut actuel de l'expédition.",
+        solution: "Une expédition à un statut final ne peut plus être modifiée — créez une nouvelle expédition si besoin.",
+        expectedResult: "—",
+        errorStrings: ["Transition de statut invalide"],
+      },
+      {
+        symptom: "« Cette expédition a été modifiée entre-temps. Rechargez la page et réessayez. »",
+        cause: "Le statut a changé entre l'ouverture de la page et l'action (souvent une synchronisation transporteur automatique concurrente).",
+        check: "Rechargez la page pour voir l'état à jour.",
+        solution: "Réessayez l'action.",
+        expectedResult: "—",
+        errorStrings: ["Cette expédition a été modifiée entre-temps. Rechargez la page et réessayez."],
+      },
+    ],
+    related: ["livraison/villes-et-correspondances", "livraison/creer-une-expedition"],
+    tryNow: { label: "Ouvrir Livraison", href: "/livraison" },
+    lastUpdated: LAST_UPDATED,
+  },
+];

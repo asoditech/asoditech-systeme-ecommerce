@@ -1,0 +1,143 @@
+import type { DocArticle } from "../types";
+
+const LAST_UPDATED = "2026-09-10";
+
+export const sauvegardeArticles: DocArticle[] = [
+  {
+    slug: "sauvegarde/backup-local",
+    title: "Backup local",
+    category: "sauvegarde",
+    tagline: "Générer et télécharger une sauvegarde complète et chiffrée de vos données, à tout moment.",
+    permission: "settings.manage",
+    steps: [
+      "Ouvrir Paramètres → Sauvegarde & Portabilité.",
+      "Cliquer sur « Sauvegarder maintenant » — un fichier .asb chiffré est généré et téléchargé automatiquement.",
+      "Pour retélécharger la dernière sauvegarde sans en régénérer une nouvelle, utiliser « Télécharger une sauvegarde ».",
+    ],
+    whatYouShouldSee: "Un fichier nommé ASODITECH_BACKUP_<votre-entreprise>_<date>.asb dans vos téléchargements.",
+    related: ["sauvegarde/securite", "sauvegarde/restaurer"],
+    tryNow: { label: "Ouvrir Sauvegarde", href: "/parametres/sauvegarde" },
+    lastUpdated: LAST_UPDATED,
+  },
+  {
+    slug: "sauvegarde/restaurer",
+    title: "Restaurer une sauvegarde",
+    category: "sauvegarde",
+    tagline: "Un aperçu détaillé est toujours affiché avant toute restauration — rien n'est remplacé sans confirmation explicite.",
+    permission: "settings.manage",
+    prerequisites: ["Un fichier .asb (sauvegarde ASODITECH), provenant du même compte."],
+    steps: [
+      "Ouvrir Paramètres → Sauvegarde & Portabilité.",
+      "Cliquer sur « Importer une sauvegarde » et choisir le fichier .asb.",
+      "Vérifier l'aperçu : version, date de création, nombre d'enregistrements par catégorie, entreprise d'origine, avertissements éventuels.",
+      "Cliquer sur « Restaurer maintenant » pour confirmer.",
+    ],
+    whatYouShouldSee: "Un instantané de sécurité de vos données actuelles est créé automatiquement avant que quoi que ce soit ne soit remplacé.",
+    body: [
+      {
+        type: "p",
+        text: "La restauration remplace les commandes, produits, stock, livraison et finance ; les comptes utilisateurs sont fusionnés (jamais supprimés). Les connecteurs (WooCommerce, Shopify, transporteurs, Google Drive) devront être reconnectés après une restauration, car leurs identifiants ne sont jamais inclus dans une sauvegarde.",
+      },
+      {
+        type: "callout",
+        tone: "danger",
+        title: "Tout ou rien",
+        text: "Si un problème survient pendant la restauration, absolument rien n'est changé — la vérification se fait avant toute application définitive.",
+      },
+    ],
+    troubleshooting: [
+      {
+        symptom: "« Cette sauvegarde provient d'un autre compte/déploiement. La restauration entre tenants n'est pas disponible dans cette version. »",
+        cause: "Le fichier .asb a été généré par une autre entreprise/un autre déploiement ASODITECH.",
+        check: "Vérifiez la provenance du fichier.",
+        solution: "Utilisez uniquement une sauvegarde générée par votre propre compte.",
+        expectedResult: "—",
+        errorStrings: ["Cette sauvegarde provient d'un autre compte/déploiement. La restauration entre tenants n'est pas disponible dans cette version."],
+      },
+    ],
+    related: ["sauvegarde/backup-local", "sauvegarde/securite"],
+    tryNow: { label: "Ouvrir Sauvegarde", href: "/parametres/sauvegarde" },
+    lastUpdated: LAST_UPDATED,
+    keywords: ["preview avant restauration"],
+  },
+  {
+    slug: "sauvegarde/securite",
+    title: "Sécurité",
+    category: "sauvegarde",
+    tagline: "Une sauvegarde ne contient jamais de secret — mots de passe, jetons et identifiants d'intégration en sont toujours retirés.",
+    permission: "settings.manage",
+    body: [
+      {
+        type: "p",
+        text: "Le fichier .asb est chiffré (AES-256-GCM). Il ne contient jamais les mots de passe des utilisateurs, ni les identifiants chiffrés des intégrations (WooCommerce, Shopify, transporteurs) — après restauration, ces connexions doivent être reconfigurées.",
+      },
+      { type: "p", text: "Sessions actives, invitations en attente et liens de réinitialisation ne sont jamais inclus non plus." },
+    ],
+    related: ["sauvegarde/restaurer"],
+    lastUpdated: LAST_UPDATED,
+  },
+  {
+    slug: "sauvegarde/google-drive",
+    title: "Google Drive",
+    category: "sauvegarde",
+    tagline: "Envoyer, télécharger et restaurer vos sauvegardes depuis un dossier Google Drive dédié à votre entreprise.",
+    permission: "settings.manage",
+    prerequisites: ["Google Drive doit être configuré sur ce déploiement (variables d'environnement Google)."],
+    steps: [
+      "Ouvrir Paramètres → Sauvegarde & Portabilité, section Google Drive.",
+      "Cliquer sur « Connecter » — vous êtes redirigé vers Google pour autoriser l'accès, limité aux fichiers créés par ASODITECH (aucun autre fichier de votre Drive n'est jamais accessible).",
+      "Une fois connecté, « Sauvegarder maintenant vers Google Drive » envoie une sauvegarde dans un dossier dédié.",
+      "Chaque sauvegarde listée peut être téléchargée (toujours via l'application, jamais un lien Drive direct) ou restaurée (même processus qu'une restauration locale, avec aperçu).",
+    ],
+    troubleshooting: [
+      {
+        symptom: "« Google Drive n'est pas configuré sur ce déploiement. »",
+        cause: "Les variables d'environnement Google nécessaires ne sont pas définies sur ce déploiement.",
+        check: "—",
+        solution: "Contactez votre administrateur système — ce réglage se fait au niveau du déploiement, pas de votre compte.",
+        expectedResult: "—",
+        errorStrings: ["Google Drive n'est pas configuré sur ce déploiement."],
+      },
+    ],
+    related: ["sauvegarde/backup-local", "sauvegarde/google-drive-deconnecte"],
+    tryNow: { label: "Ouvrir Sauvegarde", href: "/parametres/sauvegarde" },
+    lastUpdated: LAST_UPDATED,
+  },
+  {
+    slug: "sauvegarde/google-drive-deconnecte",
+    title: "Que faire si Google Drive est déconnecté",
+    category: "sauvegarde",
+    tagline: "La sauvegarde locale continue de fonctionner normalement même si Google Drive est déconnecté ou expiré.",
+    permission: "settings.manage",
+    troubleshooting: [
+      {
+        symptom: "« La connexion Google Drive a expiré ou a été révoquée. Reconnectez-vous pour reprendre les envois. »",
+        cause: "L'autorisation Google a expiré, ou a été révoquée côté compte Google.",
+        check: "—",
+        solution: "Cliquez sur « Reconnecter » dans la section Google Drive des paramètres.",
+        expectedResult: "L'envoi de sauvegardes vers Drive reprend normalement.",
+        errorStrings: ["La connexion Google Drive a expiré ou a été révoquée. Reconnectez-vous pour reprendre les envois."],
+      },
+      {
+        symptom: "« Connexion Google refusée ou révoquée. Réessayez. »",
+        cause: "L'autorisation a été refusée ou annulée pendant la procédure de connexion à Google.",
+        check: "—",
+        solution: "Relancez la connexion et acceptez l'autorisation demandée.",
+        expectedResult: "—",
+        errorStrings: ["Connexion Google refusée ou révoquée. Réessayez."],
+      },
+      {
+        symptom: "Bouton « Déconnecter » Google Drive",
+        cause: "Déconnexion volontaire.",
+        check: "—",
+        solution: "Aucune action nécessaire — vos données et sauvegardes locales restent intactes.",
+        expectedResult: "« Google Drive déconnecté. Vos données et sauvegardes locales sont intactes. »",
+        errorStrings: ["Google Drive déconnecté. Vos données et sauvegardes locales sont intactes."],
+      },
+    ],
+    related: ["sauvegarde/google-drive", "sauvegarde/backup-local"],
+    tryNow: { label: "Ouvrir Sauvegarde", href: "/parametres/sauvegarde" },
+    lastUpdated: LAST_UPDATED,
+    keywords: ["google drive déconnecté"],
+  },
+];
