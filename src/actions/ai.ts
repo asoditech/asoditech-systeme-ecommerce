@@ -7,7 +7,10 @@ import { getAiTool } from "@/lib/ai/tools";
 
 export async function runAiToolAction(
   toolId: string,
-): Promise<{ ok: true; answer: string } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; answer: string; href?: string; linkLabel?: string }
+  | { ok: false; error: string }
+> {
   const user = await requirePermissionForAction("ai.use");
 
   const tool = getAiTool(toolId);
@@ -36,5 +39,5 @@ export async function runAiToolAction(
     metadata: { question: tool.label },
   });
 
-  return { ok: true, answer };
+  return { ok: true, answer, href: tool.href, linkLabel: tool.linkLabel };
 }

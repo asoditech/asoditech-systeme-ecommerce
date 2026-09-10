@@ -72,7 +72,7 @@ export function SupportWidget({
           onClick={() => setOpen(true)}
           aria-label="Ouvrir le centre d'aide"
           className={cn(
-            "fixed right-4 bottom-4 z-40 flex items-center gap-2 rounded-full border border-border bg-primary px-4 py-3 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/25 transition-transform hover:scale-[1.03] focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none sm:right-6 sm:bottom-6 print:hidden",
+            "fixed right-4 bottom-12 z-40 flex items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/25 transition-transform hover:scale-[1.03] focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none sm:right-6 sm:bottom-14 print:hidden",
           )}
         >
           <LifeBuoy className="size-5" />
@@ -84,7 +84,7 @@ export function SupportWidget({
         <>
           {/* Mobile backdrop */}
           <div
-            className="fixed inset-0 z-40 bg-black/40 sm:hidden print:hidden"
+            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm sm:hidden print:hidden"
             onClick={() => setOpen(false)}
             aria-hidden="true"
           />
@@ -94,14 +94,16 @@ export function SupportWidget({
             aria-modal="false"
             aria-labelledby={titleId}
             className={cn(
-              "fixed z-50 flex flex-col overflow-hidden border border-border bg-popover text-popover-foreground shadow-2xl print:hidden",
+              "fixed z-50 flex flex-col overflow-hidden border border-border/70 text-popover-foreground shadow-2xl ring-1 ring-black/5 print:hidden",
+              // Frosted-glass panel — opaque fallback where backdrop-filter is unsupported.
+              "bg-popover/95 supports-backdrop-filter:bg-popover/75 supports-backdrop-filter:backdrop-blur-xl",
               // Mobile: bottom sheet
               "inset-x-0 bottom-0 max-h-[85vh] rounded-t-2xl",
-              // Desktop: compact bottom-right card
-              "sm:inset-x-auto sm:right-6 sm:bottom-6 sm:max-h-[min(620px,calc(100vh-6rem))] sm:w-[380px] sm:rounded-2xl",
+              // Desktop: compact bottom-right card, clear of the fixed footer
+              "sm:inset-x-auto sm:right-6 sm:bottom-14 sm:max-h-[min(620px,calc(100vh-7rem))] sm:w-[380px] sm:rounded-2xl",
             )}
           >
-            <header className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-4 py-3">
+            <header className="flex items-center justify-between gap-2 border-b border-border/60 bg-background/40 px-4 py-3">
               <div className="flex items-center gap-2">
                 <LifeBuoy className="size-4 text-primary" />
                 <div>

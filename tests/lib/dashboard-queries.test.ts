@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { getDashboardData } from "@/lib/queries/dashboard";
+import { getDashboardData, isDashboardPeriod } from "@/lib/queries/dashboard";
 import { displayOrderRecipient } from "@/lib/format";
 import { resetDb } from "../helpers/db";
 
@@ -87,5 +87,70 @@ describe("getDashboardData — per-order recipient", () => {
 
     const data = await getDashboardData("mois");
     expect(data.recentOrders.map((o) => displayOrderRecipient(o))).toEqual(["Client Historique"]);
+  });
+});
+
+/**
+ * Dashboard date filter — "Aujourd'hui" / "Hier" alongside the existing
+ * month/quarter/year options.
+ */
+describe("getDashboardData — day-scoped periods", () => {
+  beforeEach(async () => await resetDb());
+  afterEach(async () => await resetDb());
+
+  async function orderOn(placedAt: Date, total: number) {
+    const customer = await prisma.customer.create({ data: { fullName: "C" } });
+    const product = await prisma.product.create({
+      data: { name: "P", sku: `S-${Math.random()}`, price: total, cost: 1, status: "ACTIF" },
+    });
+    await prisma.order.create({
+      data: {
+        customerId: customer.id,
+        status: "LIVREE",
+        subtotal: total,
+        total,
+        currency: "MAD",
+        placedAt,
+        items: {
+          create: {
+            productId: product.id,
+            nameSnapshot: "P",
+            skuSnapshot: "S",
+            unitPrice: total,
+            quantity: 1,
+            total,
+            costSnapshot: 1,
+          },
+        },
+      },
+    });
+  }
+
+  it("isDashboardPeriod accepts the known keys and rejects others", () => {
+    for (const k of ["jour", "hier", "mois", "trimestre", "annee"]) {
+      expect(isDashboardPeriod(k)).toBe(true);
+    }
+    expect(isDashboardPeriod("semaine")).toBe(false);
+    expect(isDashboardPeriod(undefined)).toBe(false);
+  });
+
+  it("'jour' counts only today's orders, 'hier' only yesterday's", async () => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 12);
+    const lastWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7, 12);
+
+    await orderOn(today, 100);
+    await orderOn(yesterday, 200);
+    await orderOn(yesterday, 50);
+    await orderOn(lastWeek, 999);
+
+    const jour = await getDashboardData("jour");
+    expect(jour.finance.ordersCount).toBe(1);
+    expect(jour.finance.revenue).toBe(100);
+
+    const hier = await getDashboardData("hier");
+    expect(hier.finance.ordersCount).toBe(2);
+    expect(hier.finance.revenue).toBe(250);
   });
 });

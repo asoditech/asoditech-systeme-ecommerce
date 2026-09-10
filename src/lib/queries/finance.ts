@@ -96,6 +96,13 @@ export function currentDayRange(): PeriodRange {
   return { from, to };
 }
 
+export function yesterdayRange(): PeriodRange {
+  const now = new Date();
+  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const to = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59);
+  return { from, to };
+}
+
 export function currentMonthRange(): PeriodRange {
   const now = new Date();
   const from = new Date(now.getFullYear(), now.getMonth(), 1);

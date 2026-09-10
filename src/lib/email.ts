@@ -103,13 +103,17 @@ export async function sendSupportTicketEmail(input: {
   description: string;
   reporterName: string;
   reporterEmail: string;
+  reporterRole?: string | null;
   pageUrl?: string | null;
   contextLine?: string | null;
 }): Promise<void> {
+  const reporter = input.reporterRole
+    ? `${input.reporterName} — ${input.reporterRole} (${input.reporterEmail})`
+    : `${input.reporterName} (${input.reporterEmail})`;
   const contextLines = [
     `Entreprise : ${input.companyName}`,
     `Catégorie : ${input.categoryLabel}`,
-    `Signalé par : ${input.reporterName} (${input.reporterEmail})`,
+    `Signalé par : ${reporter}`,
     ...(input.pageUrl ? [`Page : ${input.pageUrl}`] : []),
     ...(input.contextLine ? [input.contextLine] : []),
   ];

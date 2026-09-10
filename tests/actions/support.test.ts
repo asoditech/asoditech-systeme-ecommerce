@@ -1,10 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { reportProblemAction } from "@/actions/support";
 import { updateBusinessSettingsAction } from "@/actions/settings";
 import { resetDb } from "../helpers/db";
 import { loginAsTestUser, createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
+
+// Capture the forwarded support email without hitting Resend.
+const { sendSupportTicketEmail } = vi.hoisted(() => ({ sendSupportTicketEmail: vi.fn() }));
+vi.mock("@/lib/email", () => ({ sendSupportTicketEmail }));
 
 function fd(fields: Record<string, string>) {
   const f = new FormData();
@@ -16,10 +20,35 @@ describe("reportProblemAction", () => {
   beforeEach(async () => {
     await resetDb();
     mockCookieStore.clear();
+    sendSupportTicketEmail.mockClear();
   });
   afterEach(async () => {
     await resetDb();
     mockCookieStore.clear();
+  });
+
+  it("forwards to the configured support email, with the reporter's role", async () => {
+    const owner = await loginAsTestUser({ role: "OWNER" });
+    await updateBusinessSettingsAction(fd({ companyName: "X", supportEmail: "help@boutique.ma" }));
+    mockCookieStore.clear();
+    await loginAsTestUser({ role: "CONFIRMATION" });
+
+    await reportProblemAction(fd({ category: "commande", description: "Une description assez longue pour passer." }));
+
+    expect(sendSupportTicketEmail).toHaveBeenCalledTimes(1);
+    expect(sendSupportTicketEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "help@boutique.ma", reporterRole: expect.any(String) }),
+    );
+    void owner;
+  });
+
+  it("falls back to asoditech@gmail.com when no support email is configured", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    await reportProblemAction(fd({ category: "autre", description: "Une description assez longue pour passer." }));
+
+    expect(sendSupportTicketEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "asoditech@gmail.com" }),
+    );
   });
 
   it("lets any authenticated user report — no special permission needed", async () => {

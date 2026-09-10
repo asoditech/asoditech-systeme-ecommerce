@@ -3,6 +3,8 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import {
   getFinanceSummary,
+  currentDayRange,
+  yesterdayRange,
   currentMonthRange,
   currentQuarterRange,
   currentYearRange,
@@ -12,13 +14,19 @@ import { getLowStockCount } from "@/lib/queries/inventory";
 import { getDeliveryStats } from "@/lib/queries/delivery";
 import type { RecordSource } from "@prisma/client";
 
-export type DashboardPeriod = "mois" | "trimestre" | "annee";
+export type DashboardPeriod = "jour" | "hier" | "mois" | "trimestre" | "annee";
 
 export const DASHBOARD_PERIOD_LABELS: Record<DashboardPeriod, string> = {
+  jour: "Aujourd'hui",
+  hier: "Hier",
   mois: "Ce mois",
   trimestre: "Ce trimestre",
   annee: "Cette année",
 };
+
+export function isDashboardPeriod(value: string | undefined): value is DashboardPeriod {
+  return value != null && value in DASHBOARD_PERIOD_LABELS;
+}
 
 // An order that has sat NOUVELLE/CONFIRMEE for longer than this is treated
 // as history (e.g. a fulfilled store order imported from WooCommerce), not
@@ -27,11 +35,15 @@ const ACTION_WINDOW_DAYS = 21;
 
 export async function getDashboardData(periodKey: DashboardPeriod = "mois", source?: RecordSource) {
   const period =
-    periodKey === "trimestre"
-      ? currentQuarterRange()
-      : periodKey === "annee"
-        ? currentYearRange()
-        : currentMonthRange();
+    periodKey === "jour"
+      ? currentDayRange()
+      : periodKey === "hier"
+        ? yesterdayRange()
+        : periodKey === "trimestre"
+          ? currentQuarterRange()
+          : periodKey === "annee"
+            ? currentYearRange()
+            : currentMonthRange();
   const previousPeriod = previousPeriodOfSameLength(period);
   const actionCutoff = new Date(Date.now() - ACTION_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 

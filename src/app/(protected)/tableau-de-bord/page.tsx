@@ -25,6 +25,7 @@ import {
   getRevenueTrend,
   DASHBOARD_PERIOD_LABELS,
   REVENUE_TREND_LABELS,
+  isDashboardPeriod,
   type DashboardPeriod,
   type RevenueTrendRange,
 } from "@/lib/queries/dashboard";
@@ -40,9 +41,11 @@ import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
 export const metadata = { title: "Tableau de bord — ASODITECH Gestion E-commerce" };
 
 const PERIOD_SUFFIX: Record<DashboardPeriod, string> = {
-  mois: "mois",
-  trimestre: "trim.",
-  annee: "année",
+  jour: "aujourd'hui",
+  hier: "hier",
+  mois: "ce mois",
+  trimestre: "ce trim.",
+  annee: "cette année",
 };
 
 function withParam(params: Record<string, string | undefined>, key: string, value: string | undefined) {
@@ -71,8 +74,7 @@ export default async function TableauDeBordPage({
 }) {
   const user = await requireUser();
   const params = await searchParams;
-  const periodKey: DashboardPeriod =
-    params.periode === "trimestre" || params.periode === "annee" ? params.periode : "mois";
+  const periodKey: DashboardPeriod = isDashboardPeriod(params.periode) ? params.periode : "mois";
   const chartRange: RevenueTrendRange =
     params.graphique && REVENUE_TREND_LABELS[params.graphique as RevenueTrendRange]
       ? (params.graphique as RevenueTrendRange)

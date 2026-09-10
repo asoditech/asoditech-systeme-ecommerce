@@ -70,7 +70,11 @@ describe("runAiToolAction — RBAC enforcement", () => {
 
     const result = await runAiToolAction("revenue-today");
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.answer).toContain("100");
+    if (result.ok) {
+      expect(result.answer).toContain("100");
+      expect(result.href).toBe("/finance");
+      expect(result.linkLabel).toBeTruthy();
+    }
   });
 
   it("records an ai.query audit event only on an authorised run", async () => {

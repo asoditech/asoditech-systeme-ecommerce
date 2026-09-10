@@ -65,4 +65,11 @@ describe("aiToolsForRole — RBAC gating of AI questions", () => {
       expect(Object.keys(q).sort()).toEqual(["id", "label"]);
     }
   });
+
+  it("every tool points its answer at an in-app route", () => {
+    for (const tool of AI_TOOLS) {
+      expect(tool.href, tool.id).toMatch(/^\/[a-z]/);
+      expect(tool.linkLabel, tool.id).toBeTruthy();
+    }
+  });
 });

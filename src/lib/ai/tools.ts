@@ -32,6 +32,11 @@ export interface AiTool {
   /** Extra permission required on top of `ai.use`. Omit for a tool anyone
    * with `ai.use` may run. */
   permission?: Permission;
+  /** Where the answer lives in full — the assistant / widget renders it as
+   * a "voir le détail" link next to the answer. Always an in-app route the
+   * tool's `permission` already covers. */
+  href?: string;
+  linkLabel?: string;
   run: () => Promise<string>;
 }
 
@@ -221,21 +226,21 @@ export async function toolRepeatCustomers(): Promise<string> {
 }
 
 export const AI_TOOLS: readonly AiTool[] = [
-  { id: "profit-today", label: "Profit aujourd'hui", permission: "finance.view", run: toolNetProfitToday },
-  { id: "revenue-today", label: "Chiffre d'affaires aujourd'hui", permission: "finance.view", run: toolRevenueToday },
-  { id: "orders-today", label: "Commandes aujourd'hui", permission: "orders.view", run: toolOrdersToday },
-  { id: "deliveries-in-transit", label: "Colis en livraison", permission: "delivery.view", run: toolDeliveriesInTransit },
-  { id: "delivery-performance", label: "Performance des livraisons", permission: "delivery.view", run: toolDeliveryPerformance },
-  { id: "returns-this-month", label: "Retours ce mois-ci", permission: "delivery.view", run: toolReturnsThisMonth },
-  { id: "low-stock", label: "Produits en stock faible", permission: "inventory.view", run: toolLowStockProducts },
-  { id: "top-products-today", label: "Meilleures ventes du jour", permission: "products.view", run: toolTopProductsToday },
-  { id: "revenue", label: "Chiffre d'affaires ce mois-ci", permission: "finance.view", run: toolRevenueThisMonth },
-  { id: "profit", label: "Bénéfice net ce mois-ci", permission: "finance.view", run: toolNetProfitThisMonth },
-  { id: "delivery-spend-month", label: "Coût de livraison ce mois-ci", permission: "finance.view", run: toolDeliverySpendThisMonth },
-  { id: "marketing-spend", label: "Dépenses publicitaires ce mois-ci", permission: "finance.view", run: toolMarketingSpendThisMonth },
-  { id: "top-product", label: "Produit le plus vendu", permission: "products.view", run: toolBestSellingProduct },
-  { id: "late-orders", label: "Commandes en retard", permission: "orders.view", run: toolLateOrders },
-  { id: "repeat-customers", label: "Clients fidèles", permission: "customers.view", run: toolRepeatCustomers },
+  { id: "profit-today", label: "Profit aujourd'hui", permission: "finance.view", href: "/finance", linkLabel: "Ouvrir la finance", run: toolNetProfitToday },
+  { id: "revenue-today", label: "Chiffre d'affaires aujourd'hui", permission: "finance.view", href: "/finance", linkLabel: "Ouvrir la finance", run: toolRevenueToday },
+  { id: "orders-today", label: "Commandes aujourd'hui", permission: "orders.view", href: "/commandes", linkLabel: "Voir les commandes", run: toolOrdersToday },
+  { id: "deliveries-in-transit", label: "Colis en livraison", permission: "delivery.view", href: "/livraison/suivi", linkLabel: "Suivi des colis", run: toolDeliveriesInTransit },
+  { id: "delivery-performance", label: "Performance des livraisons", permission: "delivery.view", href: "/rapports/livraison", linkLabel: "Rapport livraison", run: toolDeliveryPerformance },
+  { id: "returns-this-month", label: "Retours ce mois-ci", permission: "delivery.view", href: "/livraison/suivi?status=RETURNED", linkLabel: "Voir les retours", run: toolReturnsThisMonth },
+  { id: "low-stock", label: "Produits en stock faible", permission: "inventory.view", href: "/stock", linkLabel: "Voir le stock", run: toolLowStockProducts },
+  { id: "top-products-today", label: "Meilleures ventes du jour", permission: "products.view", href: "/produits", linkLabel: "Voir les produits", run: toolTopProductsToday },
+  { id: "revenue", label: "Chiffre d'affaires ce mois-ci", permission: "finance.view", href: "/finance", linkLabel: "Ouvrir la finance", run: toolRevenueThisMonth },
+  { id: "profit", label: "Bénéfice net ce mois-ci", permission: "finance.view", href: "/finance", linkLabel: "Ouvrir la finance", run: toolNetProfitThisMonth },
+  { id: "delivery-spend-month", label: "Coût de livraison ce mois-ci", permission: "finance.view", href: "/finance", linkLabel: "Ouvrir la finance", run: toolDeliverySpendThisMonth },
+  { id: "marketing-spend", label: "Dépenses publicitaires ce mois-ci", permission: "finance.view", href: "/depenses", linkLabel: "Voir les dépenses", run: toolMarketingSpendThisMonth },
+  { id: "top-product", label: "Produit le plus vendu", permission: "products.view", href: "/produits", linkLabel: "Voir les produits", run: toolBestSellingProduct },
+  { id: "late-orders", label: "Commandes en retard", permission: "orders.view", href: "/commandes", linkLabel: "Voir les commandes", run: toolLateOrders },
+  { id: "repeat-customers", label: "Clients fidèles", permission: "customers.view", href: "/clients", linkLabel: "Voir les clients", run: toolRepeatCustomers },
 ] as const;
 
 export function getAiTool(id: string): AiTool | undefined {

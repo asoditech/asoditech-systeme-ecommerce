@@ -1,9 +1,12 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { Loader2, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { ArrowUpRight, Loader2, Sparkles } from "lucide-react";
 import { runAiToolAction } from "@/actions/ai";
 import type { SupportContext } from "@/lib/support/context";
+
+type Answer = { text: string; href?: string; linkLabel?: string };
 
 /**
  * The support widget's AI quick actions. Reuses the existing controlled
@@ -19,7 +22,7 @@ export function SupportQuickActions({
   questions: { id: string; label: string }[];
   context: SupportContext;
 }) {
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<Record<string, Answer>>({});
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [showAll, setShowAll] = useState(false);
@@ -38,7 +41,12 @@ export function SupportQuickActions({
     setPendingId(id);
     startTransition(async () => {
       const result = await runAiToolAction(id);
-      setAnswers((prev) => ({ ...prev, [id]: result.ok ? result.answer : result.error }));
+      setAnswers((prev) => ({
+        ...prev,
+        [id]: result.ok
+          ? { text: result.answer, href: result.href, linkLabel: result.linkLabel }
+          : { text: result.error },
+      }));
       setPendingId(null);
     });
   }
@@ -65,7 +73,18 @@ export function SupportQuickActions({
               {pendingId === q.id && <Loader2 className="size-3.5 shrink-0 animate-spin" />}
             </button>
             {answers[q.id] && (
-              <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">{answers[q.id]}</p>
+              <div className="space-y-1.5 border-t border-border px-3 py-2">
+                <p className="text-xs text-muted-foreground">{answers[q.id].text}</p>
+                {answers[q.id].href && (
+                  <Link
+                    href={answers[q.id].href!}
+                    className="inline-flex items-center gap-0.5 text-xs font-medium text-primary hover:underline"
+                  >
+                    {answers[q.id].linkLabel ?? "Voir le détail"}
+                    <ArrowUpRight className="size-3" />
+                  </Link>
+                )}
+              </div>
             )}
           </div>
         ))}

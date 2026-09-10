@@ -51,10 +51,11 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
             <UserMenu name={user.name} role={USER_ROLE_LABELS[user.role]} />
           </div>
         </header>
-        <main className="flex flex-1 flex-col overflow-y-auto p-4 [scrollbar-gutter:stable] md:p-6">
-          <div className="mx-auto w-full max-w-[1600px] flex-1">{children}</div>
-          <IntegrationsFooter />
+        {/* pb clears the fixed IntegrationsFooter (h-9) so nothing hides behind it */}
+        <main className="flex-1 overflow-y-auto p-4 pb-14 [scrollbar-gutter:stable] md:p-6 md:pb-16">
+          <div className="mx-auto w-full max-w-[1600px]">{children}</div>
         </main>
+        <IntegrationsFooter />
       </div>
 
       <SupportWidget
