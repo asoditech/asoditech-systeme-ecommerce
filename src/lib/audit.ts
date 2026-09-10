@@ -120,7 +120,8 @@ export type AuditAction =
   | "integration.webhook_received"
   | "integration.webhook_rejected"
   | "settings.updated"
-  | "ai.query";
+  | "ai.query"
+  | "support.ticket_created";
 
 interface RecordAuditEventInput {
   actorType: AuditActorType;

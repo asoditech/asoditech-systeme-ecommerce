@@ -108,6 +108,7 @@ model Tenant {
   backupRuns                BackupRun[]
   googleDriveConnection     GoogleDriveConnection?
   googleOAuthStates         GoogleOAuthState[]
+  supportTickets            SupportTicket[]
 
   @@map("tenants")
 }
@@ -187,6 +188,7 @@ model User {
   backupRunsCreated          BackupRun[]                @relation("BackupRunCreatedBy")
   googleDriveConnected       GoogleDriveConnection[]    @relation("GoogleDriveConnectedBy")
   googleOAuthStates          GoogleOAuthState[]
+  supportTicketsReported     SupportTicket[]            @relation("SupportTicketReporter")
 
   // Phase 3 (docs/adr/0025): email is unique PER TENANT, not globally — two
   // tenants may have a user with the same email. Login (src/actions/auth.ts)
@@ -1801,6 +1803,8 @@ enum NotificationType {
   PROBLEME_PAIEMENT
   ERREUR_INTEGRATION
   ECHEC_SYNCHRONISATION
+  // A user reported a problem from the support widget (src/actions/support.ts).
+  SUPPORT_TICKET
 }
 
 // Per-user, in-app alert about a business event the recipient is
@@ -1850,25 +1854,76 @@ model Notification {
 // `id` — is the lookup key everywhere (src/actions/settings.ts,
 // src/app/(protected)/parametres/page.tsx).
 model BusinessSettings {
-  id                       String   @id @default(cuid())
-  tenantId                 String   @unique @default("default")
-  companyName              String   @default("")
-  currency                 String   @default("MAD") @db.Char(3)
+  id                       String  @id @default(cuid())
+  tenantId                 String  @unique @default("default")
+  companyName              String  @default("")
+  currency                 String  @default("MAD") @db.Char(3)
   address                  String?
   city                     String?
-  country                  String   @default("Maroc")
+  country                  String  @default("Maroc")
   phone                    String?
   email                    String?
   logoUrl                  String?
-  timezone                 String   @default("Africa/Casablanca")
-  locale                   String   @default("fr")
-  lowStockDefaultThreshold Int      @default(5)
-  orderNumberPrefix        String   @default("CMD")
-  updatedAt                DateTime @updatedAt
+  timezone                 String  @default("Africa/Casablanca")
+  locale                   String  @default("fr")
+  lowStockDefaultThreshold Int     @default(5)
+  orderNumberPrefix        String  @default("CMD")
+
+  // Support & Help Center contact points, surfaced by the floating support
+  // widget (src/components/support/). WhatsApp and phone are deliberately
+  // separate fields — a phone number is not automatically a WhatsApp
+  // number. All optional: an unset field simply hides that support action.
+  supportName     String?
+  supportWhatsapp String?
+  supportPhone    String?
+  supportEmail    String?
+  supportHours    String?
+
+  updatedAt DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@map("business_settings")
+}
+
+// ---------------------------------------------------------------------------
+// Support & Help Center — see src/components/support/ + src/actions/support.ts
+// ---------------------------------------------------------------------------
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+// A problem reported from the floating support widget's "Signaler un
+// problème" form. Deliberately minimal in this phase — no assignment,
+// threads or SLA — but persisted (not just emailed) so a real support
+// queue can grow on top of it later. `category` is a free string validated
+// against a curated list in src/lib/validation/support.ts so the set can
+// evolve without a migration.
+model SupportTicket {
+  id             String              @id @default(cuid())
+  tenantId       String              @default("default")
+  reporterUserId String?
+  category       String
+  description    String
+  // The page the user was on when they reported, and — when relevant — the
+  // order / shipment they were looking at. Context only, never a secret.
+  pageUrl        String?
+  contextType    String?
+  contextId      String?
+  status         SupportTicketStatus @default(OPEN)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  reporter User?  @relation("SupportTicketReporter", fields: [reporterUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId])
+  @@map("support_tickets")
 }
 
 // ---------------------------------------------------------------------------
@@ -1975,8 +2030,8 @@ model BackupRun {
   // this backup was uploaded to, in the tenant's own connected Drive. The
   // file id is ONLY ever used after re-verifying it belongs to the
   // authenticated tenant's Drive folder (src/lib/backup/google-drive-service.ts).
-  driveFileId    String?
-  driveFileName  String?
+  driveFileId     String?
+  driveFileName   String?
   driveUploadedAt DateTime?
 
   tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -2001,28 +2056,28 @@ model BackupRun {
 // ---------------------------------------------------------------------------
 
 model GoogleDriveConnection {
-  id       String            @id @default(cuid())
-  tenantId String            @unique @default("default")
+  id                    String            @id @default(cuid())
+  tenantId              String            @unique @default("default")
   // Mirrors IntegrationStatus semantics: CONNECTE only after a real token
   // exchange; ERREUR when the token was revoked/expired and a reconnect is
   // needed. Never CONNECTE just because a row exists.
-  status   IntegrationStatus @default(DECONNECTE)
+  status                IntegrationStatus @default(DECONNECTE)
   // AES-256-GCM ciphertext (src/lib/crypto.ts) of
   // { refreshToken, accessToken, accessTokenExpiresAt, scope }. NEVER
   // returned to the client, logged, put in a backup, or in an audit payload.
-  credentialsEncrypted String
+  credentialsEncrypted  String
   // Non-secret display data.
-  googleAccountEmail   String?
+  googleAccountEmail    String?
   // The dedicated Drive folder this tenant's backups go in (created via the
   // tenant's own OAuth). Backups are only ever listed/read from this folder.
-  driveFolderId        String?
-  driveFolderName      String?
+  driveFolderId         String?
+  driveFolderName       String?
   lastBackupAt          DateTime?
   lastConnectionCheckAt DateTime?
   lastError             String?
   connectedById         String?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
 
   tenant      Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   connectedBy User?  @relation("GoogleDriveConnectedBy", fields: [connectedById], references: [id], onDelete: SetNull)

@@ -7,14 +7,21 @@ import { NotificationBell } from "@/components/layout/notification-bell";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { UserMenu } from "@/components/layout/user-menu";
 import { BrandMark } from "@/components/brand-mark";
+import { SupportWidget } from "@/components/support/support-widget";
 import { getRecentNotifications } from "@/lib/queries/notifications";
-import { ROLE_PERMISSIONS } from "@/lib/auth/permissions";
+import { getSupportConfig } from "@/lib/queries/support";
+import { aiQuestionsForRole } from "@/lib/ai/tools";
+import { ROLE_PERMISSIONS, hasPermission } from "@/lib/auth/permissions";
 import { USER_ROLE_LABELS } from "@/lib/status-labels";
 import type { CurrentUser } from "@/lib/auth/session";
 
 export async function AppShell({ user, children }: { user: CurrentUser; children: React.ReactNode }) {
   const permissions = new Set(ROLE_PERMISSIONS[user.role]);
-  const { items, unreadCount } = await getRecentNotifications(user.id);
+  const [{ items, unreadCount }, supportConfig] = await Promise.all([
+    getRecentNotifications(user.id),
+    getSupportConfig(),
+  ]);
+  const canUseAi = hasPermission(user.role, "ai.use");
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -49,6 +56,12 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
           <IntegrationsFooter />
         </main>
       </div>
+
+      <SupportWidget
+        canUseAi={canUseAi}
+        questions={canUseAi ? aiQuestionsForRole(user.role) : []}
+        config={supportConfig}
+      />
     </div>
   );
 }

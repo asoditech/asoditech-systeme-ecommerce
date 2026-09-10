@@ -89,6 +89,13 @@ export async function listExpenseCategories() {
   return prisma.expenseCategory.findMany({ orderBy: { name: "asc" } });
 }
 
+export function currentDayRange(): PeriodRange {
+  const now = new Date();
+  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const to = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+  return { from, to };
+}
+
 export function currentMonthRange(): PeriodRange {
   const now = new Date();
   const from = new Date(now.getFullYear(), now.getMonth(), 1);

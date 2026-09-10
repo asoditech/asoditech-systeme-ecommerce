@@ -262,6 +262,28 @@ export async function notifyConnectionError(
 }
 
 /**
+ * A user reported a problem from the support widget
+ * (src/actions/support.ts). Goes to owners/admins (`settings.view`), the
+ * people who configure support and would triage an issue. One notification
+ * per ticket (`dedupeKey` on the ticket id), reporter excluded.
+ */
+export async function notifySupportTicket(
+  ticket: { id: string; categoryLabel: string; reporterName: string },
+  exceptUserId?: string | null
+): Promise<void> {
+  await notify({
+    type: "SUPPORT_TICKET",
+    title: `Problème signalé — ${ticket.categoryLabel}`,
+    message: `${ticket.reporterName} a signalé un problème depuis le centre d'aide.`,
+    entityType: "SupportTicket",
+    entityId: ticket.id,
+    dedupeKey: `support_ticket:${ticket.id}`,
+    recipientPermission: "settings.view",
+    exceptUserId,
+  });
+}
+
+/**
  * After a business action that may have reduced on-hand stock, checks the
  * affected products/variations and notifies for any now at or below its
  * `lowStockThreshold` (RUPTURE_STOCK at ≤ 0, STOCK_FAIBLE otherwise).

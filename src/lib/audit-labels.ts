@@ -98,6 +98,7 @@ const AUDIT_ACTION_META: Record<string, AuditActionMeta> = {
   "product.updated": { label: "Produit modifié", category: "produits_stock" },
   "product.archived": { label: "Produit archivé", category: "produits_stock" },
   "settings.updated": { label: "Paramètres modifiés", category: "parametres" },
+  "support.ticket_created": { label: "Problème signalé au support", category: "parametres" },
   "shipment.created": { label: "Expédition créée", category: "livraison" },
   "shipment.cancelled": { label: "Expédition annulée", category: "livraison" },
   "shipment.cancellation_failed": { label: "Échec de l'annulation de l'expédition", category: "livraison" },
@@ -182,6 +183,7 @@ export const AUDIT_ENTITY_LABELS: Record<string, string> = {
   MarketingChannel: "Canal marketing",
   User: "Utilisateur",
   Settings: "Paramètres",
+  SupportTicket: "Problème signalé",
 };
 
 export function humanizeAuditEntity(entityType: string): string {

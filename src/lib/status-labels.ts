@@ -206,4 +206,5 @@ export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   PROBLEME_PAIEMENT: "Problème de paiement",
   ERREUR_INTEGRATION: "Erreur d'intégration",
   ECHEC_SYNCHRONISATION: "Échec de synchronisation",
+  SUPPORT_TICKET: "Problème signalé",
 };

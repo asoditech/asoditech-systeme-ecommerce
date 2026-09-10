@@ -6,17 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { runAiToolAction } from "@/actions/ai";
 
-const QUESTIONS = [
-  { id: "revenue", label: "Combien ai-je vendu ce mois-ci ?" },
-  { id: "profit", label: "Quel est mon bénéfice net ce mois-ci ?" },
-  { id: "top-product", label: "Quel produit se vend le mieux ?" },
-  { id: "marketing-spend", label: "Combien ai-je dépensé en publicité ?" },
-  { id: "low-stock", label: "Quels sont mes produits en rupture prochaine ?" },
-  { id: "late-orders", label: "Combien de commandes sont en retard ?" },
-  { id: "repeat-customers", label: "Quels clients ont commandé plusieurs fois ?" },
-];
-
-export function AiAssistantPanel() {
+export function AiAssistantPanel({ questions }: { questions: { id: string; label: string }[] }) {
   const [history, setHistory] = useState<{ id: string; question: string; answer: string }[]>([]);
   const [isPending, startTransition] = useTransition();
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -44,7 +34,7 @@ export function AiAssistantPanel() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        {QUESTIONS.map((q) => (
+        {questions.map((q) => (
           <Button key={q.id} variant="outline" size="sm" disabled={isPending} onClick={() => ask(q.id, q.label)}>
             {pendingId === q.id && <Loader2 className="size-3.5 animate-spin" />}
             {q.label}

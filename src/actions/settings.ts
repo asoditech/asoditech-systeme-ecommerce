@@ -27,6 +27,11 @@ export async function updateBusinessSettingsAction(formData: FormData): Promise<
     timezone: formData.get("timezone") || "Africa/Casablanca",
     lowStockDefaultThreshold: formData.get("lowStockDefaultThreshold") || 5,
     orderNumberPrefix: formData.get("orderNumberPrefix") || "CMD",
+    supportName: formData.get("supportName"),
+    supportWhatsapp: formData.get("supportWhatsapp"),
+    supportPhone: formData.get("supportPhone"),
+    supportEmail: formData.get("supportEmail"),
+    supportHours: formData.get("supportHours"),
   });
   if (!parsed.success) {
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
@@ -50,8 +55,20 @@ export async function updateBusinessSettingsAction(formData: FormData): Promise<
       timezone: parsed.data.timezone,
       lowStockDefaultThreshold: parsed.data.lowStockDefaultThreshold,
       orderNumberPrefix: parsed.data.orderNumberPrefix,
+      supportName: normalizeOptional(parsed.data.supportName),
+      supportWhatsapp: normalizeOptional(parsed.data.supportWhatsapp),
+      supportPhone: normalizeOptional(parsed.data.supportPhone),
+      supportEmail: normalizeOptional(parsed.data.supportEmail),
+      supportHours: normalizeOptional(parsed.data.supportHours),
     },
-    create: { ...parsed.data },
+    create: {
+      ...parsed.data,
+      supportName: normalizeOptional(parsed.data.supportName),
+      supportWhatsapp: normalizeOptional(parsed.data.supportWhatsapp),
+      supportPhone: normalizeOptional(parsed.data.supportPhone),
+      supportEmail: normalizeOptional(parsed.data.supportEmail),
+      supportHours: normalizeOptional(parsed.data.supportHours),
+    },
   });
 
   await recordAuditEvent({

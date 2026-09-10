@@ -33,6 +33,8 @@ export async function resetDb() {
     // tenant.deleteMany below.
     await tx.passwordResetToken.deleteMany();
     await tx.invitation.deleteMany();
+    // Support & Help Center: support_tickets has a RESTRICT fk to tenants.
+    await tx.supportTicket.deleteMany();
     await tx.notification.deleteMany();
     await tx.webhookEvent.deleteMany();
     await tx.syncRun.deleteMany();

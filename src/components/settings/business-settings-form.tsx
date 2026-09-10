@@ -3,7 +3,7 @@
 import { useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Building2, Phone, SlidersHorizontal } from "lucide-react";
+import { Building2, Phone, SlidersHorizontal, LifeBuoy } from "lucide-react";
 import { updateBusinessSettingsAction } from "@/actions/settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,6 +69,56 @@ export function BusinessSettingsForm({ settings }: { settings: BusinessSettings 
           </Field>
           <Field label="Pays" htmlFor="country">
             <Input id="country" name="country" defaultValue={settings.country} />
+          </Field>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard
+        icon={<LifeBuoy className="size-4" />}
+        title="Support & assistance"
+        description="Coordonnées affichées dans le centre d'aide flottant. WhatsApp et téléphone sont indépendants — un numéro de téléphone n'est pas forcément joignable sur WhatsApp."
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Nom du support" htmlFor="supportName">
+            <Input
+              id="supportName"
+              name="supportName"
+              defaultValue={settings.supportName ?? ""}
+              placeholder="Ex. : YounessWeb Support"
+            />
+          </Field>
+          <Field label="Horaires du support" htmlFor="supportHours">
+            <Input
+              id="supportHours"
+              name="supportHours"
+              defaultValue={settings.supportHours ?? ""}
+              placeholder="Ex. : Lun–Sam, 9h–18h"
+            />
+          </Field>
+          <Field label="WhatsApp" htmlFor="supportWhatsapp">
+            <Input
+              id="supportWhatsapp"
+              name="supportWhatsapp"
+              defaultValue={settings.supportWhatsapp ?? ""}
+              placeholder="+212XXXXXXXXX"
+            />
+          </Field>
+          <Field label="Téléphone" htmlFor="supportPhone">
+            <Input
+              id="supportPhone"
+              name="supportPhone"
+              defaultValue={settings.supportPhone ?? ""}
+              placeholder="+212XXXXXXXXX"
+            />
+          </Field>
+          <Field label="E-mail du support" htmlFor="supportEmail" className="sm:col-span-2">
+            <Input
+              id="supportEmail"
+              name="supportEmail"
+              type="email"
+              defaultValue={settings.supportEmail ?? ""}
+              placeholder="support@example.com"
+            />
           </Field>
         </div>
       </SettingsCard>

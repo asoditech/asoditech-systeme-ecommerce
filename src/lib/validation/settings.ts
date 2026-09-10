@@ -18,6 +18,16 @@ const logoUrlSchema = z
   .nullish()
   .or(z.literal(""));
 
+/** A phone / WhatsApp number field: digits, spaces, dashes, parentheses
+ * and a single optional leading `+`. Empty is allowed (field unset). */
+const contactNumberSchema = z
+  .string()
+  .trim()
+  .max(30)
+  .refine((v) => v === "" || /^\+?[\d\s().-]{6,30}$/.test(v), "Numéro invalide.")
+  .nullish()
+  .or(z.literal(""));
+
 export const updateBusinessSettingsSchema = z.object({
   companyName: z.string().trim().max(200).default(""),
   currency: z.string().length(3).default("MAD"),
@@ -30,6 +40,14 @@ export const updateBusinessSettingsSchema = z.object({
   timezone: z.string().trim().max(64).default("Africa/Casablanca"),
   lowStockDefaultThreshold: z.coerce.number().int().min(0).default(5),
   orderNumberPrefix: z.string().trim().min(1).max(10).default("CMD"),
+
+  // Support & Help Center contact points (see src/components/support/).
+  // WhatsApp and phone stay separate fields on purpose.
+  supportName: z.string().trim().max(120).nullish().or(z.literal("")),
+  supportWhatsapp: contactNumberSchema,
+  supportPhone: contactNumberSchema,
+  supportEmail: z.email().nullish().or(z.literal("")),
+  supportHours: z.string().trim().max(200).nullish().or(z.literal("")),
 });
 
 export type UpdateBusinessSettingsInput = z.infer<typeof updateBusinessSettingsSchema>;

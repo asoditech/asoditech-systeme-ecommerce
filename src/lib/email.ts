@@ -6,8 +6,9 @@ import { USER_ROLE_LABELS } from "@/lib/status-labels";
 import type { UserRole } from "@prisma/client";
 
 /**
- * Transactional email — invitations and password resets only (see
- * docs/adr/0027-tenant-provisioning.md). Deliberately minimal: one
+ * Transactional email — invitations, password resets (see
+ * docs/adr/0027-tenant-provisioning.md) and forwarded support-widget
+ * problem reports. Deliberately minimal: one
  * provider (Resend — a plain HTTPS API, no SMTP config, already the
  * simplest option compatible with a Vercel deployment), plain template
  * strings, no queue, no retry. A failed send is logged and swallowed,
@@ -85,6 +86,42 @@ export async function sendInvitationEmail(input: {
     subject: "Vous êtes invité(e) sur ASODITECH",
     text: `Bonjour ${input.inviteeName},\n\nVous avez été invité(e) à rejoindre ASODITECH en tant que ${roleLabel}.\n\nCréez votre compte : ${url}\n\nCe lien expire dans 7 jours et ne peut être utilisé qu'une seule fois.`,
     html: `<p>Bonjour ${input.inviteeName},</p><p>Vous avez été invité(e) à rejoindre ASODITECH en tant que <strong>${roleLabel}</strong>.</p><p><a href="${url}">Créez votre compte</a></p><p>Ce lien expire dans 7 jours et ne peut être utilisé qu'une seule fois.</p>`,
+  });
+}
+
+/**
+ * A problem reported from the in-app support widget, forwarded to the
+ * tenant's configured support address. Best-effort, same as every other
+ * send here: the SupportTicket row is already committed and visible to
+ * admins in-app, so a failed forward never fails the report. No secrets —
+ * category, the user's own description, and the page they were on.
+ */
+export async function sendSupportTicketEmail(input: {
+  to: string;
+  companyName: string;
+  categoryLabel: string;
+  description: string;
+  reporterName: string;
+  reporterEmail: string;
+  pageUrl?: string | null;
+  contextLine?: string | null;
+}): Promise<void> {
+  const contextLines = [
+    `Entreprise : ${input.companyName}`,
+    `Catégorie : ${input.categoryLabel}`,
+    `Signalé par : ${input.reporterName} (${input.reporterEmail})`,
+    ...(input.pageUrl ? [`Page : ${input.pageUrl}`] : []),
+    ...(input.contextLine ? [input.contextLine] : []),
+  ];
+
+  await sendEmail({
+    to: input.to,
+    subject: `[Support ${input.companyName}] ${input.categoryLabel}`,
+    text: `${contextLines.join("\n")}\n\n---\n\n${input.description}`,
+    html: `<p>${contextLines.join("<br>")}</p><hr><p style="white-space:pre-wrap">${input.description
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")}</p>`,
   });
 }
 
