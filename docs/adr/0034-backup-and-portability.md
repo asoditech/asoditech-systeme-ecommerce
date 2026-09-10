@@ -276,10 +276,153 @@ table + its RLS policy).
 `.env.example`, `src/lib/audit.ts` / `src/lib/audit-labels.ts`
 (`backup.*` actions).
 
-## Future work (NOT in this ADR's scope)
+---
 
-- **Phase 2** — Google Drive as an optional replication *target* for the
-  same `.asb` package (OAuth per tenant; DB stays the source of truth).
+# Phase 2 — Google Drive as an external backup destination
+
+## Status
+Accepted (2026-09-11). Additive to Phase 1. **Postgres/Supabase is still
+the source of truth.** Google Drive is an *extra encrypted copy* of the
+exact same Phase-1 `.asb` package — a tenant can push their backup to
+their own Drive, list what is there, download it, delete it, and restore
+from it *through the unchanged Phase-1 pipeline*.
+
+## What is reused, unchanged
+
+- The `.asb` container (`src/lib/backup/container.ts`) — Drive stores the
+  byte-for-byte output of `buildTenantBackup`. **No second backup format.**
+- The entire restore pipeline — a "restore from Drive" downloads the
+  package server-side and feeds it into the existing `storeRestoreUpload`
+  → preview → `confirmRestoreAction`. `inspectBackup` (decrypt + GCM auth +
+  `data` checksum + version + `manifest.tenant.id === activeTenantId`)
+  runs exactly as for a file upload. Nothing is bypassed.
+- The Phase-1 `settings.manage` (OWNER / ADMIN) gate, on the page, every
+  route and every action.
+
+## Schema (additive)
+
+- `BackupRunType.DRIVE_EXPORT` + three nullable columns on `backup_runs`
+  (`driveFileId`, `driveFileName`, `driveUploadedAt`). A DRIVE_EXPORT row's
+  `payload` stays **null** — the bytes live in Drive.
+- `GoogleDriveConnection` — one row per tenant (`@@unique tenantId`).
+  `credentialsEncrypted` = AES-256-GCM of
+  `{ refreshToken, accessToken, accessTokenExpiresAt, scope }` (the minimum
+  needed for Drive API access). Plus `status` (`IntegrationStatus`),
+  `googleAccountEmail`, `driveFolderId` / `driveFolderName` (the tenant's
+  dedicated folder), `lastBackupAt`, `lastError`.
+
+### Drive folder layout
+
+Backups go in a **nested, app-created** folder — `ASODITECH Backups /
+<tenant-slug>` — never in the user's arbitrary Drive files. The root
+`ASODITECH Backups` folder and the `<tenant-slug>` child both carry
+`appProperties` markers (`tag=asoditech-backup`, and `tenantId` on the
+child), and are found by an `appProperties`-scoped query, so two tenants on
+the same Google account get **distinct** folders even if their slugs
+collide. `ensureBackupFolder` is idempotent and is re-run on every Drive
+call, so a folder deleted in Drive is simply re-created (`§failure
+behaviour`). Scope is `drive.file` — the app can only ever see the folders
+and files it created.
+- `GoogleOAuthState` — short-lived (10 min), single-use, `(tenantId,
+  userId)`-bound handshake state; stores only the HMAC hash of the `state`
+  string plus the PKCE `codeVerifier`.
+- Both new tables get the same RLS `tenant_isolation` policy as every other
+  tenant-scoped table. Migration `20260911000000_backup_google_drive`.
+
+## Security model
+
+| Requirement | How |
+|---|---|
+| Per-tenant, independent connection | `GoogleDriveConnection` unique per `tenantId`, RLS-scoped; each tenant runs its own OAuth |
+| Only OWNER/ADMIN (`settings.manage`) | `requirePermissionForAction` in every action; explicit `hasPermission` check in every route; the page is `requirePermission` |
+| Tokens encrypted, never exposed | `encryptSecret` at rest; actions/routes return only ids + safe metadata; `getDriveConnectionView` returns no token; audit `metadata` carries only fileId/size/counts; no token, code, or Google error body is ever logged |
+| OAuth `state` CSRF-protected + tenant-bound | `state` is a 256-bit random token; only its HMAC hash is stored; the row binds `(tenantId, userId)`; single-use (consumed on callback, even on failure); 10-min TTL. PKCE (S256) on top. |
+| Callback verifies authenticated context | `getCurrentUser()` + `hasPermission(settings.manage)` at the top of the callback; the tenant is taken **only** from the session |
+| Never trust a browser/callback tenant id | The tenant is always `getCurrentUser().tenantId`; the stored state's `tenantId`/`userId` must match it or the flow is rejected |
+| Never accept an arbitrary Drive `fileId` | Download / delete / restore take a `ref` that is resolved **first** to a tenant-scoped `BackupRun` DRIVE_EXPORT record (RLS + `findFirst` on `id`-or-`driveFileId`). A `fileId` with no record for the active tenant is rejected *before any Drive call*. |
+| A-user can't touch B's Drive backup | Layered: (1) RLS on `GoogleDriveConnection` + `backup_runs`; (2) the `ref` must resolve to one of **this tenant's own** `BackupRun` rows; (3) the resolved file is then re-fetched from Drive and refused unless `parents` contains this tenant's `driveFolderId`. Holds even when two tenants connected the *same* Google account. |
+| Size limits, no untrusted bytes in memory | `MAX_CONTAINER_BYTES` (25 MiB) checked against Drive's declared `size` *before* download, and enforced again while streaming (aborts mid-read); magic-bytes (`ASB1`) check before any Phase-1 parsing |
+| Expired/revoked token handled | `refreshAccessToken` maps `invalid_grant` to `GoogleDriveAuthError` → connection marked `ERREUR`, `backup.drive_token_error` audited, UI shows a "Reconnecter" banner |
+| Disconnect is non-destructive | Deletes only the `GoogleDriveConnection` row (best-effort token revoke); local tenant data and `DRIVE_EXPORT` records are untouched |
+| Every operation audited — success **and** failure | Success: `backup.drive_{connected,disconnected,uploaded,downloaded,deleted}`. Failure: `backup.drive_operation_failed` with `{ operation, error }` (sanitized, no token) from every action/route catch; a token revocation is logged once, as `backup.drive_token_error`. |
+
+## Upload integrity (before + after)
+
+1. `buildTenantBackup` → container; `inspectBackup(container).valid` must be
+   true (**checksum verified before upload**).
+2. Resumable upload into the tenant's folder.
+3. **After upload**: verify Drive's reported `size` == `container.length`,
+   Drive's `md5Checksum` == local md5, and `getFileMeta().parents` includes
+   the folder. Any mismatch → the just-uploaded file is deleted and the
+   operation fails with no `BackupRun` record.
+
+## Google OAuth setup required in production
+
+1. Google Cloud Console → APIs & Services → enable **Google Drive API**.
+2. OAuth consent screen: external, scopes `.../auth/drive.file`, `openid`,
+   `email`. (`drive.file` = app-created files only — the app never sees the
+   user's other Drive content.)
+3. Create an **OAuth client ID → Web application**. Authorized redirect
+   URI: `<APP_URL>/parametres/sauvegarde/google/callback`.
+4. Set `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` (and a real
+   `APP_URL`). Unset ⇒ the feature is inert and the UI shows "non
+   configuré".
+5. While the consent screen is in "Testing", only added test users can
+   connect; publish it for general availability.
+
+## Failure behaviour
+
+| Situation | Behaviour |
+|---|---|
+| OAuth denied / bad or replayed `state` / wrong user | Callback redirects to `?google=denied` or `?google=state`; nothing stored |
+| Refresh token revoked / expired (`invalid_grant`) | Connection → `ERREUR`, `backup.drive_token_error` audited, UI shows a "Reconnecter" banner; local backup/restore untouched |
+| Drive folder deleted in Drive | `ensureBackupFolder` re-creates it on the next call (idempotent, `appProperties`-scoped) |
+| Drive file deleted in Drive | Download/restore → `GoogleDriveApiError("Fichier introuvable…")`; the list marks it "fichier absent de Drive"; delete still expires the record |
+| Missing Drive permission / consent scope changed | Drive API `403` → `GoogleDriveApiError` ("autorisation") — retried by the user, no state change |
+| API rate limit (`403`/`429`) or `5xx` | mapped to `GoogleDriveApiError` ("Réessayez plus tard"); no partial write |
+| Network failure / timeout (30 s) | `GoogleDriveApiError` ("injoignable"); no partial write |
+| Upload interrupted / size or md5 mismatch | the just-uploaded file is deleted and **no `BackupRun` row is created** |
+| Google Drive disconnected entirely | local "Sauvegarder maintenant" + "Télécharger" + file-upload restore keep working exactly as in Phase 1 |
+
+## Files (Phase 2)
+
+**Schema/migration**: `prisma/schema.prisma`,
+`prisma/migrations/20260911000000_backup_google_drive/migration.sql`.
+**Engine**: `src/lib/backup/google-drive.ts` (dependency-free OAuth + Drive
+v3 client), `src/lib/backup/google-drive-service.ts` (DB orchestration +
+per-tenant guards). **Reused helper**: `buildRestorePreviewResponse` in
+`src/lib/backup/service.ts` (shared by the upload route + the Drive restore
+action). **Read model**: `getBackupStatus(tenantId)` extended.
+**Actions**: `src/actions/backup-google-drive.ts`. **Routes**:
+`.../google/start`, `.../google/callback`, `.../google/download`.
+**UI**: `src/components/settings/backup-panel.tsx` (+ Google Drive
+section), `src/app/(protected)/parametres/sauvegarde/page.tsx`.
+**Misc**: `src/lib/env.ts` / `.env.example` (`GOOGLE_OAUTH_*`),
+`src/lib/audit.ts` / `src/lib/audit-labels.ts` (`backup.drive_*` incl.
+`backup.drive_operation_failed`), `tests/helpers/db.ts`.
+**Tests**: `tests/lib/backup-google-drive.test.ts` (20) +
+`tests/helpers/fake-google-drive.ts` (in-memory fake Google).
+
+## Remaining limitations (Phase 2)
+
+- No scheduled/automatic Drive backups, no background jobs/queues, no
+  automatic retention/pruning of old Drive files (a tenant deletes them
+  manually). **Deferred to Phase 3.**
+- No cross-tenant / cross-deployment restore (unchanged from Phase 1).
+- Access-token refresh happens lazily on the next Drive call, not
+  proactively.
+- One Drive folder per tenant; a tenant that connects a *different* Google
+  account gets a fresh empty folder (old backups stay in the old account).
+- **Dependency choice**: the OAuth + Drive v3 calls are made with `fetch`
+  against fixed Google endpoints rather than the official `googleapis`
+  package (~1 MB+ of code, most of it unused). This matches how the
+  WooCommerce/Shopify/OzonExpress adapters already talk to their APIs and
+  keeps the bundle small; the trade-off is that Google API surface changes
+  are handled by hand. `google-auth-library` alone could replace the token
+  lifecycle later without touching the Drive layer.
+
+## Future work (NOT in scope)
+
 - **Phase 3** — scheduled backups + retention policy + pruning job.
 - Cross-tenant / cross-deployment restore (ID-remapping mode).
 - Background-job generation for tenants past the synchronous caps.

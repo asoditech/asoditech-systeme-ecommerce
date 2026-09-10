@@ -7,6 +7,7 @@ import { recordAuditEvent } from "@/lib/audit";
 import { BACKUP_FORMAT_VERSION, RESTORE_UPLOAD_TTL_MS, SAFETY_SNAPSHOT_TTL_MS } from "./constants";
 import { APP_VERSION, SCHEMA_VERSION } from "./manifest";
 import { buildTenantBackup } from "./export";
+import { BACKUP_MODELS_BY_KEY } from "./models";
 import {
   inspectBackup,
   restoreTenantBackup,
@@ -114,6 +115,54 @@ export async function getDownloadableBackup(params: {
 export interface StoredUpload {
   uploadId: string;
   inspected: InspectedBackup;
+}
+
+/** The exact JSON the restore-preview UI consumes. Built here so the file
+ * upload route and the "restore from Google Drive" action produce an
+ * identical shape and the client has one code path. */
+export interface RestorePreviewResponse {
+  uploadId: string;
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  totalRows: number;
+  manifest: {
+    format: string | null;
+    version: number | null;
+    createdAt: string | null;
+    appVersion: string | null;
+    schemaVersion: string | null;
+    tenant: { id: string; slug: string; name: string } | null;
+    sameTenant: boolean;
+  };
+  preview: { label: string; count: number }[];
+}
+
+export function buildRestorePreviewResponse(
+  stored: StoredUpload,
+  activeTenantId: string
+): RestorePreviewResponse {
+  const { uploadId, inspected } = stored;
+  return {
+    uploadId,
+    valid: inspected.valid,
+    errors: inspected.errors,
+    warnings: inspected.warnings,
+    totalRows: inspected.totalRows,
+    manifest: {
+      format: inspected.manifest?.format ?? null,
+      version: inspected.manifest?.version ?? null,
+      createdAt: inspected.manifest?.createdAt ?? null,
+      appVersion: inspected.manifest?.appVersion ?? null,
+      schemaVersion: inspected.manifest?.schemaVersion ?? null,
+      tenant: inspected.manifest?.tenant ?? null,
+      sameTenant: inspected.manifest?.tenant?.id === activeTenantId,
+    },
+    preview: Object.entries(inspected.counts)
+      .filter(([, n]) => n > 0)
+      .map(([key, n]) => ({ label: BACKUP_MODELS_BY_KEY.get(key)?.model ?? key, count: n }))
+      .sort((a, b) => b.count - a.count),
+  };
 }
 
 /** Validate an uploaded package and hold it server-side between the restore

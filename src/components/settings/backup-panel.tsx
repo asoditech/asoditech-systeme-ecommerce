@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Download, DatabaseBackup, Upload, ShieldAlert, Loader2, FileArchive } from "lucide-react";
+import { Download, DatabaseBackup, Upload, ShieldAlert, Loader2, FileArchive, Cloud, CloudOff, Trash2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,6 +15,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { confirmRestoreAction, discardRestoreUploadAction } from "@/actions/backup";
+import {
+  disconnectGoogleDriveAction,
+  pushBackupToDriveAction,
+  deleteDriveBackupAction,
+  restoreFromDriveAction,
+} from "@/actions/backup-google-drive";
 import type { BackupStatusView } from "@/lib/queries/backup";
 
 function formatBytes(n: number): string {
@@ -52,6 +58,8 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
   const [restoring, startRestore] = useTransition();
   const [discarding, startDiscard] = useTransition();
   const [preview, setPreview] = useState<UploadPreview | null>(null);
+  const [drivePending, startDrive] = useTransition();
+  const gd = status.googleDrive;
 
   async function generateNow() {
     startGenerate(async () => {
@@ -144,6 +152,58 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
   }
 
   const canConfirm = preview?.valid && preview.manifest.sameTenant && !restoring;
+
+  function driveBackupNow() {
+    startDrive(async () => {
+      const res = await pushBackupToDriveAction();
+      if (res.ok) {
+        toast.success(`Sauvegarde envoyée vers Google Drive (${res.data.totalRows} enreg., ${formatBytes(res.data.sizeBytes)}).`);
+        router.refresh();
+      } else {
+        toast.error(res.error);
+      }
+    });
+  }
+
+  function driveDisconnect() {
+    startDrive(async () => {
+      const res = await disconnectGoogleDriveAction();
+      if (res.ok) {
+        toast.success("Google Drive déconnecté. Vos données et sauvegardes locales sont intactes.");
+        router.refresh();
+      } else {
+        toast.error(res.error);
+      }
+    });
+  }
+
+  function driveDelete(recordId: string) {
+    startDrive(async () => {
+      const fd = new FormData();
+      fd.set("ref", recordId);
+      const res = await deleteDriveBackupAction(fd);
+      if (res.ok) {
+        toast.success("Sauvegarde supprimée de Google Drive.");
+        router.refresh();
+      } else {
+        toast.error(res.error);
+      }
+    });
+  }
+
+  function driveRestore(recordId: string) {
+    startDrive(async () => {
+      const fd = new FormData();
+      fd.set("ref", recordId);
+      const res = await restoreFromDriveAction(fd);
+      if (res.ok) {
+        setPreview(res.data);
+        router.refresh();
+      } else {
+        toast.error(res.error);
+      }
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -269,6 +329,121 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {/* Google Drive (Phase 2) */}
+      {gd.connection.configured && (
+        <section className="rounded-lg border p-4">
+          <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold">
+            <Cloud className="size-4" /> Google Drive
+          </h2>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Conservez une copie chiffrée (le même paquet <span className="font-mono">.asb</span>) dans le Google Drive de
+            votre entreprise. La base de données reste la source de vérité.
+          </p>
+
+          {!gd.connection.connected && gd.connection.status !== "ERREUR" && (
+            <Button type="button" variant="outline" render={<a href="/parametres/sauvegarde/google/start" />}>
+              <Cloud className="size-4" />
+              Connecter Google Drive
+            </Button>
+          )}
+
+          {gd.connection.status === "ERREUR" && (
+            <div className="space-y-2">
+              <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                La connexion Google Drive a expiré ou a été révoquée. Reconnectez-vous pour reprendre les envois.
+                {gd.connection.lastError ? ` (${gd.connection.lastError})` : ""}
+              </p>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" render={<a href="/parametres/sauvegarde/google/start" />}>
+                  <RotateCcw className="size-4" />
+                  Reconnecter
+                </Button>
+                <Button type="button" variant="ghost" disabled={drivePending} onClick={driveDisconnect}>
+                  Déconnecter
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {gd.connection.connected && (
+            <div className="space-y-3">
+              <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+                <Row label="Statut" value="Connecté" />
+                <Row label="Compte" value={gd.connection.accountEmail ?? "—"} />
+                <Row
+                  label="Dernier envoi"
+                  value={gd.connection.lastBackupAt ? formatDateTime(gd.connection.lastBackupAt) : "Jamais"}
+                />
+              </dl>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" disabled={drivePending} onClick={driveBackupNow}>
+                  {drivePending ? <Loader2 className="size-4 animate-spin" /> : <Cloud className="size-4" />}
+                  Sauvegarder maintenant vers Google Drive
+                </Button>
+                <Button type="button" variant="ghost" disabled={drivePending} onClick={driveDisconnect}>
+                  <CloudOff className="size-4" />
+                  Déconnecter
+                </Button>
+              </div>
+
+              {gd.listError && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Impossible de lister les sauvegardes Google Drive : {gd.listError}
+                </p>
+              )}
+
+              {gd.backups.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Aucune sauvegarde sur Google Drive.</p>
+              ) : (
+                <ul className="divide-y rounded-md border text-sm">
+                  {gd.backups.map((b) => (
+                    <li key={b.recordId} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate font-mono text-xs">{b.name}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {formatDateTime(b.createdAt)} · {formatBytes(b.sizeBytes)}
+                          {b.totalRows != null ? ` · ${b.totalRows} enreg.` : ""}
+                          {!b.existsOnDrive ? " · (fichier absent de Drive)" : ""}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {b.existsOnDrive ? (
+                          <a
+                            className="rounded px-2 py-1 text-xs text-primary hover:underline"
+                            href={`/parametres/sauvegarde/google/download?ref=${encodeURIComponent(b.recordId)}`}
+                          >
+                            <Download className="mr-1 inline size-3.5" />
+                            Télécharger
+                          </a>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={drivePending || !b.existsOnDrive}
+                          onClick={() => driveRestore(b.recordId)}
+                        >
+                          Restaurer
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={drivePending}
+                          onClick={() => driveDelete(b.recordId)}
+                        >
+                          <Trash2 className="size-3.5 text-destructive" />
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </section>
       )}
 

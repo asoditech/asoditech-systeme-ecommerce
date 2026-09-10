@@ -2,6 +2,12 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { BACKUP_MODELS_BY_KEY } from "@/lib/backup/models";
+import {
+  getDriveConnectionView,
+  listDriveBackups,
+  type DriveConnectionView,
+  type DriveBackupItem,
+} from "@/lib/backup/google-drive-service";
 
 /**
  * Read model for the « Sauvegarde & Portabilité » settings page. Tenant
@@ -36,6 +42,13 @@ export interface BackupStatusView {
     expiresAt: string | null;
     downloadable: boolean;
   }[];
+  /** Phase 2 — Google Drive. `connection.configured` is false when the
+   * deployment has no Google OAuth client; every Drive control is hidden. */
+  googleDrive: {
+    connection: DriveConnectionView;
+    backups: DriveBackupItem[];
+    listError: string | null;
+  };
 }
 
 function countsToBreakdown(counts: unknown): { label: string; count: number }[] {
@@ -51,8 +64,8 @@ function totalOf(counts: unknown): number {
   return Object.values(counts as Record<string, number>).reduce((a, b) => a + (typeof b === "number" ? b : 0), 0);
 }
 
-export async function getBackupStatus(): Promise<BackupStatusView> {
-  const [manual, pending, snapshots] = await Promise.all([
+export async function getBackupStatus(tenantId: string): Promise<BackupStatusView> {
+  const [manual, pending, snapshots, driveConn] = await Promise.all([
     prisma.backupRun.findFirst({
       where: { type: "MANUAL_EXPORT" },
       orderBy: { createdAt: "desc" },
@@ -78,7 +91,20 @@ export async function getBackupStatus(): Promise<BackupStatusView> {
       take: 5,
       select: { id: true, createdAt: true, sizeBytes: true, expiresAt: true, payload: true },
     }),
+    getDriveConnectionView(tenantId),
   ]);
+
+  // Only hit the Drive API when actually connected — and never let a Drive
+  // outage break the settings page.
+  let driveBackups: DriveBackupItem[] = [];
+  let driveListError: string | null = null;
+  if (driveConn.connected) {
+    try {
+      driveBackups = await listDriveBackups(tenantId);
+    } catch (err) {
+      driveListError = err instanceof Error ? err.message : "Liste Google Drive indisponible.";
+    }
+  }
 
   return {
     lastBackup: manual
@@ -110,5 +136,6 @@ export async function getBackupStatus(): Promise<BackupStatusView> {
       expiresAt: s.expiresAt?.toISOString() ?? null,
       downloadable: s.payload != null,
     })),
+    googleDrive: { connection: driveConn, backups: driveBackups, listError: driveListError },
   };
 }

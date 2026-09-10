@@ -45,6 +45,16 @@ const envSchema = z.object({
       }
     }, "BACKUP_ENCRYPTION_KEY must be a base64-encoded 32-byte key")
     .optional(),
+  // Backup Phase 2 — Google Drive as an external backup destination
+  // (docs/adr/0034 §"Phase 2"). BOTH optional: when either is unset the
+  // "Google Drive" section of Settings → Sauvegarde shows "non configuré"
+  // and every Drive code path is inert, so no existing environment — the
+  // test suite included — needs a value. The OAuth redirect URI is derived
+  // from APP_URL (`${APP_URL}/parametres/sauvegarde/google/callback`) and
+  // must be registered as an "Authorized redirect URI" in the Google Cloud
+  // OAuth client.
+  GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
 });
 
 function loadEnv() {

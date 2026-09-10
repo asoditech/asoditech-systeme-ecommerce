@@ -106,6 +106,8 @@ model Tenant {
   invitations               Invitation[]
   passwordResetTokens       PasswordResetToken[]
   backupRuns                BackupRun[]
+  googleDriveConnection     GoogleDriveConnection?
+  googleOAuthStates         GoogleOAuthState[]
 
   @@map("tenants")
 }
@@ -183,6 +185,8 @@ model User {
   commissionStatementsPaid   CommissionStatement[]      @relation("CommissionStatementPaidBy")
   confirmationAttempts       OrderConfirmationAttempt[] @relation("ConfirmationAttemptAgent")
   backupRunsCreated          BackupRun[]                @relation("BackupRunCreatedBy")
+  googleDriveConnected       GoogleDriveConnection[]    @relation("GoogleDriveConnectedBy")
+  googleOAuthStates          GoogleOAuthState[]
 
   // Phase 3 (docs/adr/0025): email is unique PER TENANT, not globally — two
   // tenants may have a user with the same email. Login (src/actions/auth.ts)
@@ -1927,6 +1931,11 @@ enum BackupRunType {
   // A package uploaded by the tenant, validated and held server-side
   // between the restore "preview" and "confirm" steps.
   RESTORE_UPLOAD
+  // Phase 2 (docs/adr/0034 §"Phase 2 — Google Drive"): a backup the tenant
+  // pushed to their own Google Drive. The `.asb` bytes live in Drive, NOT
+  // in `payload` (which stays null) — this row is just the metadata
+  // (`driveFileId`, checksum, counts) so the UI can list/verify it.
+  DRIVE_EXPORT
 }
 
 enum BackupRunStatus {
@@ -1962,10 +1971,84 @@ model BackupRun {
   // Set on RESTORE_UPLOAD / PRE_RESTORE_SNAPSHOT rows — retained only briefly.
   expiresAt      DateTime?
 
+  // Phase 2 — Google Drive. Set only on DRIVE_EXPORT rows: the Drive file
+  // this backup was uploaded to, in the tenant's own connected Drive. The
+  // file id is ONLY ever used after re-verifying it belongs to the
+  // authenticated tenant's Drive folder (src/lib/backup/google-drive-service.ts).
+  driveFileId    String?
+  driveFileName  String?
+  driveUploadedAt DateTime?
+
   tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   createdBy User?  @relation("BackupRunCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([tenantId, type, createdAt])
   @@index([tenantId])
+  @@index([tenantId, driveFileId])
   @@map("backup_runs")
+}
+
+// ---------------------------------------------------------------------------
+// Backup Phase 2 — Google Drive as an external backup DESTINATION
+// (docs/adr/0034 §"Phase 2"). Postgres stays the source of truth; Drive
+// holds an extra encrypted copy of the exact same `.asb` package.
+//
+// One connection per tenant, fully isolated: each tenant completes its own
+// Google OAuth, its tokens are AES-256-GCM-encrypted at rest, and every
+// Drive call resolves file ids through THIS tenant's connection + a
+// re-checked folder membership — a tenant can never see another tenant's
+// Drive files even if both connected the same Google account.
+// ---------------------------------------------------------------------------
+
+model GoogleDriveConnection {
+  id       String            @id @default(cuid())
+  tenantId String            @unique @default("default")
+  // Mirrors IntegrationStatus semantics: CONNECTE only after a real token
+  // exchange; ERREUR when the token was revoked/expired and a reconnect is
+  // needed. Never CONNECTE just because a row exists.
+  status   IntegrationStatus @default(DECONNECTE)
+  // AES-256-GCM ciphertext (src/lib/crypto.ts) of
+  // { refreshToken, accessToken, accessTokenExpiresAt, scope }. NEVER
+  // returned to the client, logged, put in a backup, or in an audit payload.
+  credentialsEncrypted String
+  // Non-secret display data.
+  googleAccountEmail   String?
+  // The dedicated Drive folder this tenant's backups go in (created via the
+  // tenant's own OAuth). Backups are only ever listed/read from this folder.
+  driveFolderId        String?
+  driveFolderName      String?
+  lastBackupAt          DateTime?
+  lastConnectionCheckAt DateTime?
+  lastError             String?
+  connectedById         String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  tenant      Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  connectedBy User?  @relation("GoogleDriveConnectedBy", fields: [connectedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@map("google_drive_connections")
+}
+
+// Short-lived, single-use OAuth handshake state. `state` (its HMAC hash is
+// stored) is the CSRF token; the row binds the flow to exactly one
+// (tenant, user). The callback refuses any state whose tenant/user does
+// not match the authenticated session. `codeVerifier` is the PKCE verifier.
+model GoogleOAuthState {
+  id           String   @id @default(cuid())
+  tenantId     String   @default("default")
+  userId       String
+  stateHash    String   @unique
+  codeVerifier String
+  redirectPath String   @default("/parametres/sauvegarde")
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([expiresAt])
+  @@map("google_oauth_states")
 }

@@ -24,6 +24,9 @@ export async function resetDb() {
     await tx.auditEvent.deleteMany();
     // Backup & Portability (docs/adr/0034): backup_runs has a RESTRICT fk to
     // tenants — a leftover row blocks the non-default tenant.deleteMany below.
+    // Phase 2 adds the two Google Drive tables (same RESTRICT fk).
+    await tx.googleOAuthState.deleteMany();
+    await tx.googleDriveConnection.deleteMany();
     await tx.backupRun.deleteMany();
     // Phase 5 (docs/adr/0027-tenant-provisioning.md): invitations has a
     // RESTRICT fk to tenants, so a leftover row would block the non-default
