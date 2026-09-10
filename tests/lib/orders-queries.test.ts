@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { listOrders, getOrderDetail } from "@/lib/queries/orders";
 import { resetDb } from "../helpers/db";
+import { createTestUser } from "../helpers/auth";
 
 /**
  * Regression: the /commandes filter form submits the sentinel "all" for
@@ -56,6 +57,19 @@ describe("listOrders — hardening against filter-form query strings", () => {
     await seedOrder({ total: 100 });
     const result = await listOrders({ minTotal: "abc" });
     expect(result.total).toBe(1);
+  });
+
+  it("filters by confirmationAgentId and includes the agent's name for the 'Confirmé par' column", async () => {
+    const user = await createTestUser({ role: "CONFIRMATION" });
+    const agent = await prisma.commissionAgent.create({ data: { userId: user.id, ratePerOrder: 10 } });
+    const owned = await seedOrder();
+    await prisma.order.update({ where: { id: owned.id }, data: { confirmationAgentId: agent.id } });
+    await seedOrder(); // unowned — must not match
+
+    const result = await listOrders({ confirmationAgentId: agent.id });
+    expect(result.total).toBe(1);
+    expect(result.orders[0].id).toBe(owned.id);
+    expect(result.orders[0].confirmationAgent?.user.name).toBe(user.name);
   });
 });
 

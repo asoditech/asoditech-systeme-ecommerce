@@ -17,12 +17,18 @@ export const CONFIRMATION_RETRY_FLAG = 3;
  * The shared confirmation queue: every NOUVELLE order. Never-called orders
  * come first (so nothing is forgotten), newest first within that group;
  * then previously-tried orders, least-recently-retried first.
+ *
+ * `onlyRetried` narrows the queue to orders that have already had at least
+ * one attempt — the "À rappeler" tab (a follow-up call is due).
  */
-export async function listOrdersAwaitingConfirmation(params: { page?: number; search?: string } = {}) {
+export async function listOrdersAwaitingConfirmation(
+  params: { page?: number; search?: string; onlyRetried?: boolean } = {}
+) {
   const page = Math.max(1, params.page ?? 1);
   const q = params.search?.trim();
   const where: Prisma.OrderWhereInput = {
     status: "NOUVELLE",
+    ...(params.onlyRetried ? { confirmationAttemptCount: { gt: 0 } } : {}),
     ...(q
       ? {
           OR: [
@@ -96,4 +102,87 @@ export async function getMyConfirmationStats(userId: string) {
     potentialCommission,
     isAgent: Boolean(agent),
   };
+}
+
+/** Compact, queue-wide KPIs for the Dashboard and the /confirmation header. */
+export async function getConfirmationDashboardSummary() {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const [toConfirm, toRecall, confirmedToday, confirmedThisMonth] = await Promise.all([
+    prisma.order.count({ where: { status: "NOUVELLE" } }),
+    prisma.order.count({ where: { status: "NOUVELLE", confirmationAttemptCount: { gt: 0 } } }),
+    prisma.orderConfirmationAttempt.count({
+      where: { outcome: "CONFIRME", createdAt: { gte: todayStart } },
+    }),
+    prisma.orderConfirmationAttempt.count({
+      where: { outcome: "CONFIRME", createdAt: { gte: monthStart } },
+    }),
+  ]);
+
+  return { toConfirm, toRecall, confirmedToday, confirmedThisMonth };
+}
+
+/**
+ * Orders owned by one confirmation agent, any status, most-recently-confirmed
+ * first — backs the "Mes confirmations" tab.
+ */
+export async function listOrdersConfirmedByAgent(agentId: string, params: { page?: number } = {}) {
+  const page = Math.max(1, params.page ?? 1);
+  const where: Prisma.OrderWhereInput = { confirmationAgentId: agentId };
+
+  const [orders, total] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      orderBy: [{ confirmedAt: { sort: "desc", nulls: "last" } }, { placedAt: "desc" }],
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+      include: { customer: true, _count: { select: { items: true } } },
+    }),
+    prisma.order.count({ where }),
+  ]);
+
+  return { orders, total, page, pageSize: PAGE_SIZE };
+}
+
+/**
+ * Orders that have left the queue on a positive outcome — the read-only
+ * "Confirmées" tab. Scoped to orders that actually went through at least
+ * one confirmation attempt (excludes manually-created orders that skipped
+ * the queue entirely, e.g. already CONFIRMEE on creation).
+ */
+export async function listRecentlyConfirmedOrders(params: { page?: number; search?: string } = {}) {
+  const page = Math.max(1, params.page ?? 1);
+  const q = params.search?.trim();
+  const where: Prisma.OrderWhereInput = {
+    status: { notIn: ["NOUVELLE", "ANNULEE"] },
+    confirmationAttemptCount: { gt: 0 },
+    ...(q
+      ? {
+          OR: [
+            { customer: { fullName: { contains: q, mode: "insensitive" } } },
+            { customer: { phone: { contains: q, mode: "insensitive" } } },
+            ...(/^\d+$/.test(q) ? [{ orderNumber: Number(q) }] : []),
+          ],
+        }
+      : {}),
+  };
+
+  const [orders, total] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      orderBy: [{ confirmedAt: { sort: "desc", nulls: "last" } }, { placedAt: "desc" }],
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+      include: {
+        customer: true,
+        _count: { select: { items: true } },
+        confirmationAgent: { include: { user: { select: { name: true } } } },
+      },
+    }),
+    prisma.order.count({ where }),
+  ]);
+
+  return { orders, total, page, pageSize: PAGE_SIZE };
 }

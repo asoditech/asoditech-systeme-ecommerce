@@ -25,6 +25,7 @@ export default async function CommissionsPage() {
   const currency = agents[0]?.currency ?? "MAD";
   const totalRemaining = agents.reduce((s, a) => s + a.totals.remaining, 0);
   const totalUnsettled = agents.reduce((s, a) => s + a.totals.unsettledNet, 0);
+  const totalPaid = agents.reduce((s, a) => s + a.totals.paidTotal, 0);
 
   return (
     <div>
@@ -36,19 +37,19 @@ export default async function CommissionsPage() {
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Agents</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Déjà payé</CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-semibold">{agents.filter((a) => a.isActive).length}</CardContent>
+          <CardContent className="text-2xl font-semibold">{formatCurrency(String(totalPaid), currency)}</CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Commissions non clôturées</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">À clôturer</CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-semibold">{formatCurrency(String(totalUnsettled), currency)}</CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Restant à payer</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total à payer</CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-semibold">{formatCurrency(String(totalRemaining), currency)}</CardContent>
         </Card>
@@ -74,7 +75,8 @@ export default async function CommissionsPage() {
               <TableRow>
                 <TableHead>Agent</TableHead>
                 <TableHead className="text-right">Taux / commande</TableHead>
-                <TableHead className="text-right">Livrées (en cours)</TableHead>
+                <TableHead className="text-right">Confirmées</TableHead>
+                <TableHead className="text-right">Livrées</TableHead>
                 <TableHead className="text-right">À clôturer</TableHead>
                 <TableHead className="text-right">Restant à payer</TableHead>
                 <TableHead />
@@ -95,10 +97,11 @@ export default async function CommissionsPage() {
                     <p className="text-xs text-muted-foreground">{a.userEmail}</p>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{formatCurrency(String(a.ratePerOrder), a.currency)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{a.pipeline.total}</TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {a.totals.unsettledEarnedCount}
-                    {a.totals.unsettledReversedCount > 0 && (
-                      <span className="text-xs text-destructive"> (−{a.totals.unsettledReversedCount})</span>
+                    {a.pipeline.delivered}
+                    {a.pipeline.confirmed > 0 && (
+                      <span className="text-xs text-muted-foreground"> ({a.pipeline.confirmed} en cours)</span>
                     )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{formatCurrency(String(a.totals.unsettledNet), a.currency)}</TableCell>

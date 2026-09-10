@@ -33,6 +33,7 @@ export default async function CommandesPage({
     dateTo?: string;
     all?: string;
     page?: string;
+    confirmationAgent?: string;
   }>;
 }) {
   const user = await requirePermission("orders.view");
@@ -40,6 +41,7 @@ export default async function CommandesPage({
   const page = Number(params.page) || 1;
   const canSync =
     hasPermission(user.role, "integrations.manage") && (await getConnectedCommercePlatforms()).length > 0;
+  const canViewCommissions = hasPermission(user.role, "commissions.view");
 
   // "Tous les statuts" / "Tous les paiements" submit the sentinel "all";
   // only a real enum value is passed through to the query, otherwise
@@ -68,12 +70,16 @@ export default async function CommandesPage({
     paymentStatus: paymentStatusFilter,
     dateFrom: effectiveDateFrom,
     dateTo: effectiveDateTo,
+    confirmationAgentId: params.confirmationAgent,
     page,
   });
+  const confirmationAgentName = params.confirmationAgent
+    ? orders.find((o) => o.confirmationAgent)?.confirmationAgent?.user.name ?? "cet agent"
+    : null;
 
   const isThisMonth = effectiveDateFrom === monthFrom && effectiveDateTo === monthTo;
   const hasActiveFilter = Boolean(
-    params.q || statusFilter || paymentStatusFilter || params.dateFrom || params.dateTo || isAll
+    params.q || statusFilter || paymentStatusFilter || params.dateFrom || params.dateTo || isAll || params.confirmationAgent
   );
 
   // The default scope is "this month". After a first import (or for a
@@ -82,22 +88,36 @@ export default async function CommandesPage({
   // whether widening the date scope would actually show something and
   // point the operator straight at it instead of a dead end.
   const olderOrdersExist =
-    orders.length === 0 && isThisMonth && !params.q && !statusFilter && !paymentStatusFilter
+    orders.length === 0 && isThisMonth && !params.q && !statusFilter && !paymentStatusFilter && !params.confirmationAgent
       ? (await listOrders({ page: 1 })).total > 0
       : false;
 
-  // Preserves q/status/paymentStatus while switching only the date scope.
+  // Preserves q/status/paymentStatus/confirmationAgent while switching only the date scope.
   function dateScopeHref(opts: { dateFrom?: string; dateTo?: string; all?: boolean }) {
     const sp = new URLSearchParams();
     if (params.q) sp.set("q", params.q);
     if (statusFilter) sp.set("status", statusFilter);
     if (paymentStatusFilter) sp.set("paymentStatus", paymentStatusFilter);
+    if (params.confirmationAgent) sp.set("confirmationAgent", params.confirmationAgent);
     if (opts.all) {
       sp.set("all", "1");
     } else if (opts.dateFrom && opts.dateTo) {
       sp.set("dateFrom", opts.dateFrom);
       sp.set("dateTo", opts.dateTo);
     }
+    const qs = sp.toString();
+    return qs ? `/commandes?${qs}` : "/commandes";
+  }
+
+  // Drops only the confirmationAgent param, keeping every other active filter.
+  function clearConfirmationAgentHref() {
+    const sp = new URLSearchParams();
+    if (params.q) sp.set("q", params.q);
+    if (statusFilter) sp.set("status", statusFilter);
+    if (paymentStatusFilter) sp.set("paymentStatus", paymentStatusFilter);
+    if (params.dateFrom) sp.set("dateFrom", params.dateFrom);
+    if (params.dateTo) sp.set("dateTo", params.dateTo);
+    if (isAll) sp.set("all", "1");
     const qs = sp.toString();
     return qs ? `/commandes?${qs}` : "/commandes";
   }
@@ -167,6 +187,17 @@ export default async function CommandesPage({
         ) : null}
       </div>
 
+      {params.confirmationAgent && (
+        <div className="mb-4">
+          <Link
+            href={clearConfirmationAgentHref()}
+            className="inline-flex items-center gap-1.5 rounded-full border bg-muted px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            Filtré par agent : <span className="font-medium text-foreground">{confirmationAgentName}</span> ×
+          </Link>
+        </div>
+      )}
+
       {orders.length === 0 ? (
         olderOrdersExist ? (
           <EmptyState
@@ -197,6 +228,7 @@ export default async function CommandesPage({
                 <TableHead>Statut</TableHead>
                 <TableHead>Paiement</TableHead>
                 <TableHead>Canal</TableHead>
+                <TableHead>Confirmé par</TableHead>
                 <TableHead>Date</TableHead>
               </TableRow>
             </TableHeader>
@@ -219,6 +251,23 @@ export default async function CommandesPage({
                     <StatusBadge status={o.paymentStatus} labels={ORDER_PAYMENT_STATUS_LABELS} />
                   </TableCell>
                   <TableCell className="text-muted-foreground">{displayOrderChannel(o)}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {o.confirmationAgent ? (
+                      canViewCommissions ? (
+                        <Link
+                          href={`/commissions/${o.confirmationAgentId}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="max-w-[7rem] truncate hover:underline"
+                        >
+                          👤 {o.confirmationAgent.user.name}
+                        </Link>
+                      ) : (
+                        <span className="block max-w-[7rem] truncate">👤 {o.confirmationAgent.user.name}</span>
+                      )
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(o.placedAt)}</TableCell>
                 </ClickableTableRow>
               ))}
@@ -236,6 +285,7 @@ export default async function CommandesPage({
               dateFrom: params.dateFrom,
               dateTo: params.dateTo,
               all: params.all,
+              confirmationAgent: params.confirmationAgent,
             }}
           />
         </div>

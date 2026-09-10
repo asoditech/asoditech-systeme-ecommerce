@@ -9,6 +9,7 @@ export interface OrderListFilters {
   status?: OrderStatus;
   paymentStatus?: OrderPaymentStatus;
   customerId?: string;
+  confirmationAgentId?: string;
   q?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -42,6 +43,7 @@ export async function listOrders(filters: OrderListFilters) {
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.paymentStatus ? { paymentStatus: filters.paymentStatus } : {}),
     ...(filters.customerId ? { customerId: filters.customerId } : {}),
+    ...(filters.confirmationAgentId ? { confirmationAgentId: filters.confirmationAgentId } : {}),
     ...(filters.q
       ? {
           OR: [
@@ -81,7 +83,11 @@ export async function listOrders(filters: OrderListFilters) {
       orderBy: [{ placedAt: "desc" }, { createdAt: "desc" }],
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
-      include: { customer: true, _count: { select: { items: true } } },
+      include: {
+        customer: true,
+        _count: { select: { items: true } },
+        confirmationAgent: { include: { user: { select: { name: true } } } },
+      },
     }),
     prisma.order.count({ where }),
   ]);

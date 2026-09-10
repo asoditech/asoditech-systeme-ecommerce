@@ -11,6 +11,7 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { getAgentCommissionDetail } from "@/lib/queries/commissions";
 import { closeCommissionStatementAction, markCommissionStatementPaidAction } from "@/actions/commissions";
 import { formatCurrency, formatDate, formatDateTime, displayOrderNumber } from "@/lib/format";
+import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
 import { AgentRateForm } from "@/components/commissions/agent-rate-form";
 import { FileText } from "lucide-react";
 
@@ -30,9 +31,15 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
   const detail = await getAgentCommissionDetail(agentId);
   if (!detail) notFound();
 
-  const { agent, totals, statements, openMonths, openEntries } = detail;
+  const { agent, totals, pipeline, breakdown, statements, openMonths, openEntries } = detail;
   const now = new Date();
   const currentPeriod = { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 };
+
+  // Same "Confirmées" definition as /confirmation/performance: every order
+  // that reached CONFIRMEE at least once, i.e. every pipeline bucket except
+  // "pending" (NOUVELLE — never actually confirmed).
+  const confirmedTotal = pipeline.total - pipeline.pending;
+  const conversion = confirmedTotal > 0 ? pipeline.delivered / confirmedTotal : null;
 
   return (
     <div>
@@ -40,7 +47,55 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
         title={agent.userName}
         breadcrumbs={[{ label: "Commissions", href: "/commissions" }, { label: agent.userName }]}
         description={`Taux actuel : ${formatCurrency(String(agent.ratePerOrder), agent.currency)} par commande livrée.`}
+        actions={
+          <Link href={`/commandes?confirmationAgent=${agent.id}`} className="text-sm text-primary hover:underline">
+            Voir les commandes confirmées →
+          </Link>
+        }
       />
+
+      <Card className="mb-6">
+        <CardHeader><CardTitle className="text-[15px]">Performance confirmation</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <p className="text-xs text-muted-foreground">Confirmées</p>
+              <p className="text-xl font-semibold">{confirmedTotal}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Livrées</p>
+              <p className="text-xl font-semibold">{pipeline.delivered}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Conversion</p>
+              <p className="text-xl font-semibold">{conversion !== null ? `${Math.round(conversion * 100)}%` : "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Retournées</p>
+              <p className="text-xl font-semibold">{pipeline.returned}</p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-4 border-t pt-4 sm:grid-cols-3">
+            <div>
+              <p className="text-xs text-muted-foreground">Commission acquise</p>
+              <p className="text-lg font-semibold">{formatCurrency(String(breakdown.earnedAmount), agent.currency)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Commission reversée</p>
+              <p className="text-lg font-semibold text-destructive">
+                {breakdown.reversedCount > 0 ? formatCurrency(String(Math.abs(breakdown.reversedAmount)), agent.currency) : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Net</p>
+              <p className="text-lg font-semibold">{formatCurrency(String(breakdown.netAmount), agent.currency)}</p>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            En cours (confirmée, non livrée ni retournée) : {pipeline.confirmed}
+          </p>
+        </CardContent>
+      </Card>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -215,6 +270,7 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
                 <TableHeader>
                   <TableRow>
                     <TableHead>Commande</TableHead>
+                    <TableHead>Statut</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead className="text-right">Montant</TableHead>
                     <TableHead>Date</TableHead>
@@ -232,6 +288,9 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
                             externalNumber: e.orderExternalNumber,
                           })}
                         </Link>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={e.orderStatus} labels={ORDER_STATUS_LABELS} />
                       </TableCell>
                       <TableCell className={e.type === "REVERSED" ? "text-destructive" : ""}>
                         {e.type === "EARNED" ? "Gagnée" : "Reprise"}

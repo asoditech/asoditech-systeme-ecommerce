@@ -10,6 +10,10 @@ import {
   Truck,
   Receipt,
   ShoppingBag,
+  PhoneCall,
+  CheckCircle2,
+  RotateCcw,
+  HandCoins,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
@@ -29,6 +33,8 @@ import {
   type DashboardPeriod,
   type RevenueTrendRange,
 } from "@/lib/queries/dashboard";
+import { getConfirmationDashboardSummary } from "@/lib/queries/order-confirmation";
+import { getCommissionDashboardSummary } from "@/lib/queries/commissions";
 import {
   formatCurrency,
   formatDate,
@@ -92,6 +98,12 @@ export default async function TableauDeBordPage({
   const canViewDelivery = hasPermission(user.role, "delivery.view");
   const canViewCustomers = hasPermission(user.role, "customers.view");
   const canViewAudit = hasPermission(user.role, "audit.view");
+  const canConfirm = hasPermission(user.role, "orders.confirm");
+  const canViewCommissions = hasPermission(user.role, "commissions.view");
+  const [confirmationSummary, commissionSummary] = await Promise.all([
+    canConfirm ? getConfirmationDashboardSummary() : Promise.resolve(null),
+    canViewCommissions ? getCommissionDashboardSummary() : Promise.resolve(null),
+  ]);
 
   return (
     <div>
@@ -174,6 +186,42 @@ export default async function TableauDeBordPage({
           />
         )}
       </div>
+
+      {(confirmationSummary || commissionSummary) && (
+        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {confirmationSummary && (
+            <>
+              <KpiCard label="À confirmer" value={String(confirmationSummary.toConfirm)} icon={PhoneCall} tone="primary" />
+              <KpiCard label="Confirmées ce mois" value={String(confirmationSummary.confirmedThisMonth)} icon={CheckCircle2} tone="success" />
+              <KpiCard label="À rappeler" value={String(confirmationSummary.toRecall)} icon={RotateCcw} tone="warning" />
+            </>
+          )}
+          {commissionSummary && (
+            <>
+              <KpiCard
+                label="Commission du mois"
+                value={formatCurrency(commissionSummary.earnedThisMonth, commissionSummary.currency)}
+                icon={HandCoins}
+                tone="info"
+              />
+              <KpiCard
+                label="À payer"
+                value={formatCurrency(commissionSummary.remainingTotal, commissionSummary.currency)}
+                icon={Wallet}
+                tone="violet"
+              />
+            </>
+          )}
+        </div>
+      )}
+
+      {canViewCommissions && (confirmationSummary || commissionSummary) && (
+        <div className="mb-6 -mt-2">
+          <Link href="/confirmation/performance" className="text-sm text-primary hover:underline">
+            Voir la performance confirmation →
+          </Link>
+        </div>
+      )}
 
       {canViewFinance && (
         <Card className="mb-6">

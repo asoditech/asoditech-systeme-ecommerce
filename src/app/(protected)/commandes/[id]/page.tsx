@@ -8,6 +8,7 @@ import {
   History,
   User,
   PhoneCall,
+  HandCoins,
   TrendingUp,
   MapPin,
   CreditCard,
@@ -30,6 +31,7 @@ import { LinkShipmentDialog } from "@/components/delivery/link-shipment-dialog";
 import { EditShippingAddressDialog } from "@/components/orders/edit-shipping-address-dialog";
 import { OverrideShipmentCostDialog } from "@/components/delivery/override-shipment-cost-dialog";
 import { AssignAgentControl } from "@/components/commissions/assign-agent-control";
+import { OrderLifecycleStepper, type OrderCommissionStatus } from "@/components/orders/order-lifecycle-stepper";
 import { getOrderCommission, listAssignableCommissionAgents } from "@/lib/queries/commissions";
 import { getOrderConfirmationAttempts } from "@/lib/queries/order-confirmation";
 import { computeOrderProfit } from "@/lib/profitability";
@@ -113,7 +115,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
     canManageDelivery ? listShipmentProviderOptions() : Promise.resolve([]),
     canViewCommissions ? getOrderCommission(order.id) : Promise.resolve(null),
     canManageCommissions ? listAssignableCommissionAgents() : Promise.resolve([]),
-    canConfirm && order.confirmationAttemptCount > 0
+    (canConfirm || canViewCommissions) && order.confirmationAttemptCount > 0
       ? getOrderConfirmationAttempts(order.id)
       : Promise.resolve([]),
   ]);
@@ -121,6 +123,16 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
   const refundedTotal = order.refunds.filter((r) => r.status === "COMPLETE").reduce((s, r) => s + Number(r.amount), 0);
   const codAmount =
     order.paymentMethod === "PAIEMENT_LIVRAISON" ? Number(order.total) - refundedTotal : null;
+
+  // Confirmation ≠ earned commission: derive an explicit status from the
+  // ledger data already fetched above (no new business logic, no writer).
+  const commissionStatus: OrderCommissionStatus = !orderCommission || !orderCommission.agentId
+    ? "none"
+    : !orderCommission.hasEntries
+      ? "pending"
+      : orderCommission.net > 0
+        ? "earned"
+        : "reversed";
 
   return (
     <div>
@@ -140,6 +152,23 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
           </div>
         }
       />
+
+      {canViewCommissions && (
+        <Card className="mb-6">
+          <CardContent className="py-4">
+            <OrderLifecycleStepper
+              status={order.status}
+              placedAt={order.placedAt}
+              confirmedAt={order.confirmedAt}
+              shippedAt={order.shippedAt}
+              deliveredAt={order.deliveredAt}
+              cancelledAt={order.cancelledAt}
+              confirmationAgentName={orderCommission?.agentName ?? null}
+              commissionStatus={commissionStatus}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
@@ -368,7 +397,45 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
           {canViewCommissions && orderCommission && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2"><PhoneCall className="size-4 text-muted-foreground" />Agent de confirmation</CardTitle>
+                <CardTitle className="flex items-center gap-2"><PhoneCall className="size-4 text-muted-foreground" />Confirmation</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <p className="font-medium">
+                  {order.status === "NOUVELLE" ? (
+                    <span className="text-muted-foreground">En attente de confirmation</span>
+                  ) : (
+                    <span>✓ Confirmée</span>
+                  )}
+                </p>
+                <Row label="Confirmée par" value={orderCommission.agentName ?? "—"} muted={!orderCommission.agentName} />
+                <Row
+                  label="Confirmée le"
+                  value={order.confirmedAt ? formatDateTime(order.confirmedAt) : "—"}
+                  muted={!order.confirmedAt}
+                />
+                <Row label="Tentatives" value={String(order.confirmationAttemptCount)} />
+                <Row
+                  label="Dernier résultat"
+                  value={
+                    confirmationAttempts[0]
+                      ? CONFIRMATION_OUTCOME_LABELS[confirmationAttempts[0].outcome] ?? confirmationAttempts[0].outcome
+                      : "—"
+                  }
+                  muted={confirmationAttempts.length === 0}
+                />
+                {confirmationAttempts.length > 0 && (
+                  <a href="#historique-confirmation" className="block text-xs text-primary hover:underline">
+                    Voir l&apos;historique →
+                  </a>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {canViewCommissions && orderCommission && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><HandCoins className="size-4 text-muted-foreground" />Commission</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 {canManageCommissions ? (
@@ -379,30 +446,61 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                     locked={orderCommission.hasEntries}
                   />
                 ) : (
-                  <p>
-                    <span className="text-muted-foreground">Agent : </span>
-                    {orderCommission.agentName ?? "—"}
-                  </p>
+                  <Row label="Confirmateur" value={orderCommission.agentName ?? "—"} muted={!orderCommission.agentName} />
                 )}
-                {orderCommission.hasEntries ? (
-                  <p className={orderCommission.net > 0 ? "text-foreground" : "text-destructive"}>
-                    Commission :{" "}
-                    <span className="font-medium">{formatCurrency(String(orderCommission.net), order.currency)}</span>
-                    {orderCommission.net <= 0 && " (reprise)"}
-                  </p>
-                ) : orderCommission.agentRate !== null ? (
-                  <p className="text-xs text-muted-foreground">
-                    {formatCurrency(String(orderCommission.agentRate), order.currency)} seront crédités à la livraison.
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">Aucun agent assigné.</p>
+
+                {commissionStatus === "none" && <p className="text-xs text-muted-foreground">Aucun agent assigné.</p>}
+
+                {commissionStatus === "pending" && (
+                  <>
+                    <p className="text-lg font-semibold">
+                      {formatCurrency(String(orderCommission.agentRate), order.currency)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">En attente de livraison</p>
+                    <p className="text-xs text-muted-foreground">
+                      La commission sera acquise uniquement après livraison.
+                    </p>
+                  </>
+                )}
+
+                {commissionStatus === "earned" && (
+                  <>
+                    <p className="text-lg font-semibold">{formatCurrency(String(orderCommission.net), order.currency)}</p>
+                    <p className="text-sm text-emerald-600 dark:text-emerald-400">✓ Commission acquise</p>
+                  </>
+                )}
+
+                {commissionStatus === "reversed" && (
+                  <>
+                    <p className="text-lg font-semibold text-destructive">
+                      {formatCurrency(String(orderCommission.net), order.currency)}
+                    </p>
+                    <p className="text-sm text-destructive">↩ Commission reversée</p>
+                  </>
+                )}
+
+                {orderCommission.hasEntries && (
+                  <div className="mt-2 space-y-0.5 border-t pt-2 text-xs text-muted-foreground">
+                    <p className="font-medium text-foreground">Pourquoi cette commission ?</p>
+                    <p>
+                      Confirmée par {orderCommission.agentName ?? "—"}
+                      {order.confirmedAt ? ` le ${formatDateTime(order.confirmedAt)}` : ""}.
+                    </p>
+                    {order.deliveredAt && <p>Livrée le {formatDateTime(order.deliveredAt)}.</p>}
+                    {commissionStatus === "reversed" && (
+                      <p>
+                        Commande passée à «&nbsp;{ORDER_STATUS_LABELS[order.status]?.label ?? order.status}&nbsp;» après
+                        livraison — la commission a été reprise.
+                      </p>
+                    )}
+                  </div>
                 )}
               </CardContent>
             </Card>
           )}
 
           {confirmationAttempts.length > 0 && (
-            <Card>
+            <Card id="historique-confirmation">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2"><PhoneCall className="size-4 text-muted-foreground" />Historique de confirmation</CardTitle>
               </CardHeader>
