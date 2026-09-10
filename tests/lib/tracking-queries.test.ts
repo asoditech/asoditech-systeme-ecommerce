@@ -125,6 +125,27 @@ describe("tracking queries (« Suivi » module, docs/adr/0033)", () => {
     expect(hidden.costSource).toBeNull();
   });
 
+  // Client feedback #7: the tracking list must carry the order amount as
+  // its own value, never conflated with a delivery / return / failure fee.
+  it("exposes the order amount separately from the delivery cost", async () => {
+    const p = await provider("OzonExpress");
+    await shipment({ providerId: p.id, status: "LIVRE", cost: 30, costSource: "CARRIER_API" });
+
+    const row = (await listTrackingRows({}, { includeCosts: true })).rows[0];
+    expect(row.orderTotal).toBe("200"); // the seeded order total
+    expect(row.deliveryCost).toBe("30");
+    expect(row.orderTotal).not.toBe(row.deliveryCost);
+  });
+
+  it("still exposes the order amount when the viewer cannot see costs", async () => {
+    const p = await provider("OzonExpress");
+    await shipment({ providerId: p.id, status: "LIVRE", cost: 30, costSource: "CARRIER_API" });
+
+    const row = (await listTrackingRows({}, { includeCosts: false })).rows[0];
+    expect(row.orderTotal).toBe("200");
+    expect(row.deliveryCost).toBeNull();
+  });
+
   it("shows a returned shipment's cost in the return column, from its recorded value", async () => {
     const p = await provider("OzonExpress", { returnCost: 12 });
     await shipment({ providerId: p.id, status: "RETOURNE", cost: 12, costSource: "RETURN_RULE" });

@@ -134,6 +134,34 @@ describe("getDeliveryPerformanceReport", () => {
     expect(report.overall.codPending).toBe(100); // delivered + payment EN_ATTENTE
     expect(report.byProvider[0].key).toBe("OzonExpress");
   });
+
+  // Client feedback #3: a cancelled order's parcel, or a cancelled
+  // shipment, completed no delivery service — its recorded cost must not
+  // land in the report's delivery-cost figure.
+  it("excludes a cancelled order's and a cancelled shipment's cost from deliveryCost", async () => {
+    const c = await customer("A", "Casablanca");
+    const delivered = await order({ customerId: c.id, total: 100, placedAt: new Date("2026-06-10") });
+    const cancelledOrder = await order({
+      customerId: c.id,
+      total: 200,
+      placedAt: new Date("2026-06-11"),
+      status: "ANNULEE",
+    });
+    const liveOrder = await order({ customerId: c.id, total: 150, placedAt: new Date("2026-06-12") });
+    const prov = await prisma.shippingProvider.create({ data: { name: "OzonExpress", type: "MANUEL" } });
+    await prisma.shipment.create({
+      data: { orderId: delivered.id, providerId: prov.id, status: "LIVRE", cost: 25, createdAt: new Date("2026-06-13") },
+    });
+    await prisma.shipment.create({
+      data: { orderId: cancelledOrder.id, providerId: prov.id, status: "EN_ATTENTE", cost: 40, createdAt: new Date("2026-06-13") },
+    });
+    await prisma.shipment.create({
+      data: { orderId: liveOrder.id, providerId: prov.id, status: "ANNULE", cost: 30, createdAt: new Date("2026-06-13") },
+    });
+
+    const report = await getDeliveryPerformanceReport(RANGE);
+    expect(report.overall.deliveryCost).toBe(25); // only the delivered parcel
+  });
 });
 
 describe("getCustomerReport", () => {

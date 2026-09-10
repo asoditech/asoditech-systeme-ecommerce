@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { syncWooCommerceOrdersAction, syncWooCommerceProductsAction } from "@/actions/woocommerce";
 import { syncShopifyOrdersAction, syncShopifyProductsAction } from "@/actions/shopify";
+import { isShopifyIntegrationEnabled } from "@/lib/integrations/shopify/feature-flag";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 
 /**
@@ -20,8 +21,13 @@ export interface CombinedSyncResult {
 }
 
 async function connectedProviders(): Promise<Set<"WOOCOMMERCE" | "SHOPIFY">> {
+  // Shopify is disabled for now (client feedback #10) — never pull it,
+  // even if a tenant had a CONNECTE Shopify row before it was disabled.
+  const providers: ("WOOCOMMERCE" | "SHOPIFY")[] = isShopifyIntegrationEnabled()
+    ? ["WOOCOMMERCE", "SHOPIFY"]
+    : ["WOOCOMMERCE"];
   const rows = await prisma.integration.findMany({
-    where: { provider: { in: ["WOOCOMMERCE", "SHOPIFY"] }, status: "CONNECTE" },
+    where: { provider: { in: providers }, status: "CONNECTE" },
     select: { provider: true },
   });
   return new Set(rows.map((r) => r.provider as "WOOCOMMERCE" | "SHOPIFY"));

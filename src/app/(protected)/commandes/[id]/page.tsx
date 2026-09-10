@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   Package,
@@ -158,10 +159,21 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {order.items.map((item) => (
+                  {order.items.map((item) => {
+                    const productId = item.productId ?? item.variation?.productId ?? null;
+                    return (
                     <TableRow key={item.id}>
                       <TableCell>
-                        <p className="font-medium">{item.nameSnapshot}</p>
+                        {productId ? (
+                          <Link
+                            href={`/produits/${productId}`}
+                            className="font-medium hover:underline"
+                          >
+                            {item.nameSnapshot}
+                          </Link>
+                        ) : (
+                          <p className="font-medium">{item.nameSnapshot}</p>
+                        )}
                         <p className="text-xs text-muted-foreground">{item.skuSnapshot}</p>
                       </TableCell>
                       <TableCell>{formatCurrency(item.unitPrice.toString(), order.currency)}</TableCell>
@@ -169,7 +181,8 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                       <TableCell>{formatCurrency(item.discount.toString(), order.currency)}</TableCell>
                       <TableCell>{formatCurrency(item.total.toString(), order.currency)}</TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
               <div className="mt-4 ml-auto max-w-56 space-y-1 text-sm">

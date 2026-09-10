@@ -7,6 +7,7 @@ import { recordAuditEvent } from "@/lib/audit";
 import { InvalidShopDomainError } from "@/lib/integrations/shopify/ssrf";
 import { ShopifyError } from "@/lib/integrations/shopify/errors";
 import { loadShopifyClient as loadShopifyClientOrNull } from "@/lib/integrations/shopify/client-loader";
+import { isShopifyIntegrationEnabled, SHOPIFY_DISABLED_MESSAGE } from "@/lib/integrations/shopify/feature-flag";
 import { syncLocations, syncProducts, syncOrders, pushStockToShopify } from "@/lib/integrations/shopify/sync";
 import type { SyncSummary } from "@/lib/integrations/shopify/sync";
 import { notifyConnectionError, notifySyncFailure } from "@/lib/notifications";
@@ -23,6 +24,12 @@ class NotConfiguredError extends Error {}
  * underlying loader and just silently no-op instead.
  */
 async function loadShopifyClient() {
+  // Shopify is disabled for now (client feedback #10) — every sync / test
+  // entry point funnels through here, so one guard blocks them all. The
+  // adapter code stays intact; flip SHOPIFY_INTEGRATION_ENABLED to restore.
+  if (!isShopifyIntegrationEnabled()) {
+    throw new NotConfiguredError(SHOPIFY_DISABLED_MESSAGE);
+  }
   const result = await loadShopifyClientOrNull();
   if (!result) {
     throw new NotConfiguredError("Aucune connexion Shopify configurée ou identifiants incomplets.");

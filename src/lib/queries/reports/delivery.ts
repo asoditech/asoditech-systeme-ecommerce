@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { PeriodRange } from "@/lib/queries/finance";
+import { shipmentIncursDeliveryCost } from "@/lib/profitability";
 
 /**
  * Delivery performance — by carrier and by destination city, over the
@@ -54,7 +55,7 @@ type ShipmentRow = {
   shippedAt: Date | null;
   deliveredAt: Date | null;
   provider: { name: string } | null;
-  order: { paymentStatus: string; total: unknown; shippingCity: string | null } | null;
+  order: { status: string; paymentStatus: string; total: unknown; shippingCity: string | null } | null;
 };
 
 function summarise(key: string, rows: ShipmentRow[]): DeliveryPerfRow {
@@ -71,7 +72,12 @@ function summarise(key: string, rows: ShipmentRow[]): DeliveryPerfRow {
   let daysN = 0;
 
   for (const s of rows) {
-    if (s.cost != null) {
+    // Client feedback #3: a cancelled order's parcel never reached the
+    // customer, and a cancelled shipment completed no delivery service —
+    // neither incurs a delivery deduction. RETURN_RULE / FAILURE_RULE
+    // charges belong to RETOUR / ECHEC orders and never carry an ANNULE
+    // status, so this guard leaves them untouched (docs/adr/0032).
+    if (s.cost != null && shipmentIncursDeliveryCost(s.order?.status, s.status)) {
       const amt = Number(s.cost);
       if (s.costSource === "RETURN_RULE") returnCost += amt;
       else if (s.costSource === "FAILURE_RULE") failureCost += amt;
@@ -128,7 +134,7 @@ export async function getDeliveryPerformanceReport(range: PeriodRange): Promise<
       shippedAt: true,
       deliveredAt: true,
       provider: { select: { name: true } },
-      order: { select: { paymentStatus: true, total: true, shippingCity: true } },
+      order: { select: { status: true, paymentStatus: true, total: true, shippingCity: true } },
     },
   })) as ShipmentRow[];
 

@@ -58,13 +58,17 @@ export async function getDashboardData(periodKey: DashboardPeriod = "mois", sour
       },
       orderBy: { placedAt: "asc" },
       take: 6,
-      include: { customer: true },
+      // Only the fallback name is needed — the dashboard shows each order's
+      // own `shippingName` snapshot via `displayOrderRecipient` (ADR 0030);
+      // narrowing the select keeps a future edit from reintroducing the
+      // "wrong customer name" bug by reaching for another customer field.
+      include: { customer: { select: { fullName: true } } },
     }),
     prisma.order.findMany({
       where: source ? { source } : {},
       orderBy: { placedAt: "desc" },
       take: 6,
-      include: { customer: true },
+      include: { customer: { select: { fullName: true } } },
     }),
     prisma.customer.count({
       where: { createdAt: { gte: period.from, lte: period.to }, ...(source ? { source } : {}) },
@@ -78,7 +82,7 @@ export async function getDashboardData(periodKey: DashboardPeriod = "mois", sour
       where: { status: "ECHEC" },
       orderBy: { updatedAt: "desc" },
       take: 5,
-      include: { order: { include: { customer: true } } },
+      include: { order: { include: { customer: { select: { fullName: true } } } } },
     }),
   ]);
 

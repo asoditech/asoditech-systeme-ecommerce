@@ -44,8 +44,8 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
             <UserMenu name={user.name} role={USER_ROLE_LABELS[user.role]} />
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable] md:p-6">
-          <div className="mx-auto w-full max-w-[1600px]">{children}</div>
+        <main className="flex flex-1 flex-col overflow-y-auto p-4 [scrollbar-gutter:stable] md:p-6">
+          <div className="mx-auto w-full max-w-[1600px] flex-1">{children}</div>
           <IntegrationsFooter />
         </main>
       </div>

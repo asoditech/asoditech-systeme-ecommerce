@@ -32,6 +32,18 @@ describe("RBAC permission matrix", () => {
     expect(hasPermission("DELIVERY", "finance.manage")).toBe(false);
   });
 
+  // Client feedback #8: the products table's "Coût d'achat" ("prix
+  // original") column is gated on `finance.view` — an agent or warehouse
+  // user must never see it.
+  it("gates product cost visibility (finance.view) to finance-facing roles only", () => {
+    for (const role of ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"] as const) {
+      expect(hasPermission(role, "finance.view")).toBe(true);
+    }
+    for (const role of ["CONFIRMATION", "WAREHOUSE", "DELIVERY", "SUPPORT"] as const) {
+      expect(hasPermission(role, "finance.view")).toBe(false);
+    }
+  });
+
   it("only grants inventory.adjust to roles responsible for stock", () => {
     expect(hasPermission("WAREHOUSE", "inventory.adjust")).toBe(true);
     expect(hasPermission("MANAGER", "inventory.adjust")).toBe(true);

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/prisma";
+import { isShopifyIntegrationEnabled } from "@/lib/integrations/shopify/feature-flag";
 import { INTEGRATION_PROVIDER_LABELS } from "@/lib/status-labels";
 import type { IntegrationProvider } from "@prisma/client";
 
@@ -20,10 +21,11 @@ export const maxDuration = 60;
 
 // Everything here is roadmap-only in this phase — no connection flow, no
 // credentials, nothing to configure yet. See
-// docs/adr/0004-integration-architecture.md. WooCommerce/Shopify (the two
-// providers with a real adapter) get their own dedicated cards above,
-// never this generic "planned" tile.
+// docs/adr/0004-integration-architecture.md. WooCommerce gets its own
+// dedicated card above; Shopify's adapter is built but disabled for now
+// (client feedback #10), so it sits here on the roadmap until re-enabled.
 const PLANNED_PROVIDER_BRANDS: Partial<Record<string, BrandKey>> = {
+  SHOPIFY: "shopify",
   META_ADS: "meta",
   GOOGLE_ADS: "google",
   TIKTOK_ADS: "tiktok",
@@ -37,21 +39,30 @@ export default async function IntegrationsPage() {
   const user = await requirePermission("integrations.view");
   const canManage = hasPermission(user.role, "integrations.manage");
   const integrations = await prisma.integration.findMany();
+  // Shopify is disabled for now (client feedback #10): no connection card,
+  // it shows on the roadmap instead. Flip SHOPIFY_INTEGRATION_ENABLED to
+  // restore its card.
+  const shopifyEnabled = isShopifyIntegrationEnabled();
 
+  const alwaysRoadmap = ["WOOCOMMERCE", ...(shopifyEnabled ? ["SHOPIFY"] : [])];
   const plannedRows = Object.entries(INTEGRATION_PROVIDER_LABELS).filter(
-    ([provider]) => provider !== "WOOCOMMERCE" && provider !== "SHOPIFY"
+    ([provider]) => !alwaysRoadmap.includes(provider)
   ) as [IntegrationProvider, string][];
 
   return (
     <div>
       <PageHeader
         title="Intégrations"
-        description="État des connexions externes. WooCommerce et Shopify disposent d'un adaptateur de synchronisation réel ; les autres intégrations restent au stade de configuration/planification — voir docs/adr/0010-woocommerce-integration.md et docs/adr/0011-shopify-integration.md."
+        description={
+          shopifyEnabled
+            ? "État des connexions externes. WooCommerce et Shopify disposent d'un adaptateur de synchronisation réel ; les autres intégrations restent au stade de configuration/planification — voir docs/adr/0010-woocommerce-integration.md et docs/adr/0011-shopify-integration.md."
+            : "État des connexions externes. WooCommerce dispose d'un adaptateur de synchronisation réel ; les autres intégrations restent au stade de configuration/planification — voir docs/adr/0010-woocommerce-integration.md."
+        }
       />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <WooCommerceCard canManage={canManage} />
-        <ShopifyCard canManage={canManage} />
+        {shopifyEnabled && <ShopifyCard canManage={canManage} />}
       </div>
 
       <div className="mt-8">

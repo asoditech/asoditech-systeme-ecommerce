@@ -38,17 +38,17 @@ describe("getConnectedCommercePlatforms", () => {
     ]);
   });
 
-  it("includes a real create URL for a connected Shopify store", async () => {
+  // Client feedback #10: Shopify is disabled for now. Even a pre-existing
+  // CONNECTE Shopify row must not be offered as a "create a product there"
+  // target while the integration is off.
+  it("does not offer Shopify while the integration is disabled", async () => {
     await prisma.integration.create({
       data: { provider: "SHOPIFY", status: "CONNECTE", config: { shopDomain: "https://mon-magasin.myshopify.com" } },
     });
-    const platforms = await getConnectedCommercePlatforms();
-    expect(platforms).toEqual([
-      { provider: "SHOPIFY", label: "Shopify", createUrl: "https://mon-magasin.myshopify.com/admin/products/new" },
-    ]);
+    expect(await getConnectedCommercePlatforms()).toEqual([]);
   });
 
-  it("offers both platforms, never guessing which one the operator means, when both are connected", async () => {
+  it("offers WooCommerce only, even when a disabled Shopify is also connected", async () => {
     await prisma.integration.create({
       data: { provider: "WOOCOMMERCE", status: "CONNECTE", config: { siteUrl: "https://maboutique.com" } },
     });
@@ -56,8 +56,7 @@ describe("getConnectedCommercePlatforms", () => {
       data: { provider: "SHOPIFY", status: "CONNECTE", config: { shopDomain: "https://mon-magasin.myshopify.com" } },
     });
     const platforms = await getConnectedCommercePlatforms();
-    expect(platforms).toHaveLength(2);
-    expect(platforms.map((p) => p.provider).sort()).toEqual(["SHOPIFY", "WOOCOMMERCE"]);
+    expect(platforms.map((p) => p.provider)).toEqual(["WOOCOMMERCE"]);
   });
 
   it("excludes a connected integration with no resolvable site config, rather than emitting a broken URL", async () => {

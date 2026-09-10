@@ -206,19 +206,29 @@ export default async function SuiviPage({
                   <TableHead>Commande</TableHead>
                   <TableHead>Client</TableHead>
                   <TableHead>Ville</TableHead>
+                  <TableHead className="text-right">Montant commande</TableHead>
                   <TableHead>Transporteur</TableHead>
                   <TableHead>N° de suivi</TableHead>
                   <TableHead>Statut suivi</TableHead>
                   <TableHead>Dernier évènement</TableHead>
-                  {includeCosts && <TableHead className="text-right">Coût</TableHead>}
+                  {includeCosts && <TableHead className="text-right">Frais transporteur</TableHead>}
                   <TableHead>Dernière synchro</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((r) => {
-                  const cost =
-                    r.deliveryCost ?? r.returnCost ?? r.failureCost ?? null;
+                  // The parcel's own recorded charge, by outcome — a
+                  // delivered parcel carries a delivery fee, a RETOUR /
+                  // ECHEC one its return / failure charge (docs/adr/0032).
+                  // Kept as one column so the order amount beside it is
+                  // never mistaken for a delivery cost (client feedback #7).
+                  const feeSource =
+                    r.costSource === "RETURN_RULE"
+                      ? { amount: r.returnCost, label: "Frais de retour" }
+                      : r.costSource === "FAILURE_RULE"
+                        ? { amount: r.failureCost, label: "Frais d'échec" }
+                        : { amount: r.deliveryCost, label: null as string | null };
                   return (
                     <TableRow key={r.shipmentId}>
                       <TableCell className="font-medium">
@@ -230,6 +240,9 @@ export default async function SuiviPage({
                         <span className="block max-w-[9rem] truncate">{r.customerName}</span>
                       </TableCell>
                       <TableCell className="text-muted-foreground">{r.city ?? "—"}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatCurrency(r.orderTotal, r.currency)}
+                      </TableCell>
                       <TableCell className="text-muted-foreground">{r.providerName}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         {r.trackingUrl ? (
@@ -262,7 +275,10 @@ export default async function SuiviPage({
                       </TableCell>
                       {includeCosts && (
                         <TableCell className="text-right tabular-nums text-muted-foreground">
-                          {cost !== null ? formatCurrency(cost, r.currency) : "—"}
+                          {feeSource.amount !== null ? formatCurrency(feeSource.amount, r.currency) : "—"}
+                          {feeSource.label && (
+                            <span className="block text-[11px] text-muted-foreground/70">{feeSource.label}</span>
+                          )}
                         </TableCell>
                       )}
                       <TableCell className="text-xs text-muted-foreground/70">

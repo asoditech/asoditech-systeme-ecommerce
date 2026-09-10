@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { RecordSource } from "@prisma/client";
+import { isShopifyIntegrationEnabled } from "@/lib/integrations/shopify/feature-flag";
 
 /**
  * Product-definition boundary (Phase 28 —
@@ -45,8 +46,13 @@ export interface ConnectedCommercePlatform {
  * ASODITECH-native creation form.
  */
 export async function getConnectedCommercePlatforms(): Promise<ConnectedCommercePlatform[]> {
+  // Shopify is disabled for now (client feedback #10) — don't offer it as
+  // a "create a product there" target even if a CONNECTE row predates it.
+  const providers: ("WOOCOMMERCE" | "SHOPIFY")[] = isShopifyIntegrationEnabled()
+    ? ["WOOCOMMERCE", "SHOPIFY"]
+    : ["WOOCOMMERCE"];
   const integrations = await prisma.integration.findMany({
-    where: { provider: { in: ["WOOCOMMERCE", "SHOPIFY"] }, status: "CONNECTE" },
+    where: { provider: { in: providers }, status: "CONNECTE" },
   });
 
   const platforms: ConnectedCommercePlatform[] = [];

@@ -42,6 +42,10 @@ describe("Shopify integration", () => {
   beforeEach(async () => {
     await resetDb();
     mockCookieStore.clear();
+    // The adapter itself is exercised with the integration enabled — the
+    // dedicated "disabled" block below flips it off. See
+    // src/lib/integrations/shopify/feature-flag.ts (client feedback #10).
+    vi.stubEnv("SHOPIFY_INTEGRATION_ENABLED", "true");
     state = emptyFakeShopifyStore();
     installFakeShopifyServer(state);
   });
@@ -50,6 +54,7 @@ describe("Shopify integration", () => {
     await resetDb();
     mockCookieStore.clear();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   describe("connectIntegrationAction — Shopify", () => {
@@ -767,6 +772,64 @@ describe("Shopify integration", () => {
       const integration = await prisma.integration.findFirstOrThrow({ where: { provider: "SHOPIFY" } });
       expect(integration.status).toBe("DECONNECTE");
       expect(integration.credentialsEncrypted).toBeNull();
+    });
+  });
+
+  /**
+   * Client feedback #10: Shopify is disabled for now. The adapter code
+   * stays intact (every test above still exercises it with the flag on),
+   * but users must not be able to start a connection, test it, or run a
+   * sync while it is off. Disconnecting a pre-existing connection stays
+   * allowed.
+   */
+  describe("Shopify disabled (SHOPIFY_INTEGRATION_ENABLED unset)", () => {
+    beforeEach(() => {
+      vi.stubEnv("SHOPIFY_INTEGRATION_ENABLED", "false");
+    });
+
+    it("refuses to start or configure a Shopify connection", async () => {
+      await loginAsTestUser({ role: "ADMIN" });
+      const result = await connectIntegrationAction(
+        formData({ provider: "SHOPIFY", siteUrl: FAKE_SHOP_DOMAIN, apiKey: FAKE_ACCESS_TOKEN, apiSecret: "" })
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/pas encore disponible/i);
+      expect(await prisma.integration.findFirst({ where: { provider: "SHOPIFY" } })).toBeNull();
+    });
+
+    it("refuses the connection test and every sync action", async () => {
+      await loginAsTestUser({ role: "ADMIN" });
+      // Seed a connection directly, bypassing the (now-blocked) connect action.
+      await prisma.integration.create({
+        data: {
+          provider: "SHOPIFY",
+          status: "CONNECTE",
+          config: { shopDomain: FAKE_SHOP_DOMAIN },
+        },
+      });
+
+      for (const action of [
+        testShopifyConnectionAction,
+        syncShopifyProductsAction,
+        syncShopifyOrdersAction,
+        pushShopifyStockAction,
+      ]) {
+        const result = await action();
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.error).toMatch(/pas encore disponible/i);
+      }
+    });
+
+    it("still lets an existing Shopify connection be disconnected", async () => {
+      await loginAsTestUser({ role: "ADMIN" });
+      await prisma.integration.create({
+        data: { provider: "SHOPIFY", status: "CONNECTE", config: { shopDomain: FAKE_SHOP_DOMAIN } },
+      });
+
+      const result = await disconnectIntegrationAction(formData({ provider: "SHOPIFY" }));
+      expect(result.ok).toBe(true);
+      const integration = await prisma.integration.findFirstOrThrow({ where: { provider: "SHOPIFY" } });
+      expect(integration.status).toBe("DECONNECTE");
     });
   });
 });

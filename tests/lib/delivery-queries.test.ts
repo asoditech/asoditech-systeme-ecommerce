@@ -191,6 +191,16 @@ describe("listShipments / getDeliveryStats — date range filter", () => {
     expect(shipments.map((s) => s.id)).toEqual([inRange.id]);
   });
 
+  // Client feedback #6: the shipment table shows a "Montant commande"
+  // column — the associated order's real total must reach the row.
+  it("listShipments carries the linked order's total and currency", async () => {
+    await seedShipment(new Date("2026-02-15"));
+    const { shipments } = await listShipments({});
+    expect(shipments).toHaveLength(1);
+    expect(Number(shipments[0].order.total)).toBe(10);
+    expect(shipments[0].order.currency).toBeTruthy();
+  });
+
   it("getDeliveryStats scopes every count to the given range", async () => {
     await seedShipment(new Date("2026-01-05"), "LIVRE"); // outside range
     await seedShipment(new Date("2026-02-10"), "LIVRE"); // inside range

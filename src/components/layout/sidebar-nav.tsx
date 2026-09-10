@@ -21,7 +21,6 @@ import {
   Wallet,
   Receipt,
   HandCoins,
-  Megaphone,
   UserCog,
   ScrollText,
   Plug,
@@ -42,7 +41,7 @@ interface NavGroup {
   items: NavItem[];
 }
 
-const NAV_GROUPS: NavGroup[] = [
+export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Aperçu",
     items: [{ href: "/tableau-de-bord", label: "Tableau de bord", icon: LayoutDashboard, permission: "dashboard.view" }],
@@ -75,7 +74,10 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/finance", label: "Finance", icon: Wallet, permission: "finance.view" },
       { href: "/depenses", label: "Dépenses", icon: Receipt, permission: "finance.view" },
       { href: "/commissions", label: "Commissions", icon: HandCoins, permission: "commissions.view" },
-      { href: "/marketing", label: "Marketing", icon: Megaphone, permission: "marketing.view" },
+      // Marketing is temporarily hidden from navigation (client feedback
+      // #9). The route, its `marketing.view` permission and the DB models
+      // are all intact — restore this entry to bring the section back.
+      // { href: "/marketing", label: "Marketing", icon: Megaphone, permission: "marketing.view" },
     ],
   },
   {

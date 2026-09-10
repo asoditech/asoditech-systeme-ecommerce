@@ -28,7 +28,13 @@ import {
   type DashboardPeriod,
   type RevenueTrendRange,
 } from "@/lib/queries/dashboard";
-import { formatCurrency, formatDate, formatDateTime, displayOrderNumber } from "@/lib/format";
+import {
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  displayOrderNumber,
+  displayOrderRecipient,
+} from "@/lib/format";
 import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
 
 export const metadata = { title: "Tableau de bord — ASODITECH Gestion E-commerce" };
@@ -91,19 +97,17 @@ export default async function TableauDeBordPage({
         title="Tableau de bord"
         description={`Bonjour ${user.name.split(" ")[0]}, voici l'état de votre activité.`}
         actions={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="flex gap-1">
-              {(Object.keys(DASHBOARD_PERIOD_LABELS) as DashboardPeriod[]).map((key) => (
-                <Button
-                  key={key}
-                  size="sm"
-                  variant={key === periodKey ? "default" : "outline"}
-                  render={<Link href={withParam(params, "periode", key === "mois" ? undefined : key)} />}
-                >
-                  {DASHBOARD_PERIOD_LABELS[key]}
-                </Button>
-              ))}
-            </div>
+          <div className="flex flex-wrap items-center gap-1">
+            {(Object.keys(DASHBOARD_PERIOD_LABELS) as DashboardPeriod[]).map((key) => (
+              <Button
+                key={key}
+                size="sm"
+                variant={key === periodKey ? "default" : "outline"}
+                render={<Link href={withParam(params, "periode", key === "mois" ? undefined : key)} />}
+              >
+                {DASHBOARD_PERIOD_LABELS[key]}
+              </Button>
+            ))}
           </div>
         }
       />
@@ -210,7 +214,7 @@ export default async function TableauDeBordPage({
                     <li key={o.id} className="flex items-center justify-between py-2.5 text-sm">
                       <Link href={`/commandes/${o.id}`} className="hover:underline">
                         <span className="font-medium">{displayOrderNumber(o)}</span>{" "}
-                        <span className="text-muted-foreground">— {o.customer.fullName}</span>
+                        <span className="text-muted-foreground">— {displayOrderRecipient(o)}</span>
                       </Link>
                       <StatusBadge status={o.status} labels={ORDER_STATUS_LABELS} />
                     </li>
@@ -238,7 +242,7 @@ export default async function TableauDeBordPage({
                     <li key={s.id} className="flex items-center justify-between py-2.5 text-sm">
                       <Link href={`/commandes/${s.orderId}`} className="hover:underline">
                         <span className="font-medium">{displayOrderNumber(s.order)}</span>{" "}
-                        <span className="text-muted-foreground">— {s.order.customer.fullName}</span>
+                        <span className="text-muted-foreground">— {displayOrderRecipient(s.order)}</span>
                       </Link>
                       <span className="text-xs text-muted-foreground">{formatDate(s.updatedAt)}</span>
                     </li>
@@ -266,7 +270,7 @@ export default async function TableauDeBordPage({
                     <li key={o.id} className="flex items-center justify-between py-2.5 text-sm">
                       <Link href={`/commandes/${o.id}`} className="hover:underline">
                         <span className="font-medium">{displayOrderNumber(o)}</span>{" "}
-                        <span className="text-muted-foreground">— {o.customer.fullName}</span>
+                        <span className="text-muted-foreground">— {displayOrderRecipient(o)}</span>
                       </Link>
                       <span>{formatCurrency(o.total.toString(), o.currency)}</span>
                     </li>

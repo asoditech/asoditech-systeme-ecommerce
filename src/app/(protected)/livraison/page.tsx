@@ -216,6 +216,7 @@ export default async function LivraisonPage({
                     <TableHead>Commande</TableHead>
                     <TableHead>Client</TableHead>
                     <TableHead>Suivi</TableHead>
+                    <TableHead className="text-right">Montant commande</TableHead>
                     <TableHead className="text-right">Frais</TableHead>
                     <TableHead className="text-right">COD</TableHead>
                     <TableHead>Statut</TableHead>
@@ -245,6 +246,9 @@ export default async function LivraisonPage({
                           )}
                         </span>
                         <span className="block text-[11px] text-muted-foreground/70">{s.provider.name}</span>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatCurrency(s.order.total.toString(), s.order.currency)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-muted-foreground">
                         {s.cost !== null ? formatCurrency(s.cost.toString(), s.order.currency) : "—"}

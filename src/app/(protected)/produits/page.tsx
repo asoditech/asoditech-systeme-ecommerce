@@ -48,6 +48,11 @@ export default async function ProduitsPage({
   const user = await requirePermission("products.view");
   const params = await searchParams;
   const page = Number(params.page) || 1;
+  // The purchase cost ("prix original" / coût d'achat) is financial data —
+  // only roles with `finance.view` (OWNER / ADMIN / MANAGER / ACCOUNTANT)
+  // may see it. The column is rendered server-side so its value never
+  // reaches the HTML for an agent or warehouse user (client feedback #8).
+  const canViewCost = hasPermission(user.role, "finance.view");
 
   const [categories, connectedPlatforms] = await Promise.all([
     listCategories(),
@@ -174,6 +179,7 @@ export default async function ProduitsPage({
                 <TableHead>SKU</TableHead>
                 <TableHead>Catégorie</TableHead>
                 <TableHead>Prix</TableHead>
+                {canViewCost && <TableHead>Coût d&apos;achat</TableHead>}
                 <TableHead>Stock</TableHead>
                 <TableHead>Statut</TableHead>
               </TableRow>
@@ -201,6 +207,25 @@ export default async function ProduitsPage({
                     : "—"
                   : formatCurrency(p.price.toString());
 
+                // Same min–max treatment as the price, over the variation
+                // costs — a variable parent carries no cost of its own.
+                const variationCosts = p.variations
+                  .map((v) => (v.cost != null ? Number(v.cost) : null))
+                  .filter((n): n is number => n != null && n > 0);
+                const costLabel = isVariable
+                  ? variationCosts.length > 0
+                    ? (() => {
+                        const min = Math.min(...variationCosts);
+                        const max = Math.max(...variationCosts);
+                        return min === max
+                          ? formatCurrency(String(min))
+                          : `${formatCurrency(String(min))} – ${formatCurrency(String(max))}`;
+                      })()
+                    : "—"
+                  : p.cost != null
+                    ? formatCurrency(p.cost.toString())
+                    : "—";
+
                 const stock = isVariable
                   ? p.variations.reduce(
                       (sum, v) => sum + v.inventoryItems.reduce((s, i) => s + i.quantityOnHand, 0),
@@ -226,6 +251,9 @@ export default async function ProduitsPage({
                     <TableCell className="text-muted-foreground">{p.sku}</TableCell>
                     <TableCell className="text-muted-foreground">{p.category?.name ?? "—"}</TableCell>
                     <TableCell>{priceLabel}</TableCell>
+                    {canViewCost && (
+                      <TableCell className="text-muted-foreground">{costLabel}</TableCell>
+                    )}
                     <TableCell>
                       {stock === null || (isVariable && !stockTracked) ? (
                         <span className="text-muted-foreground">Non suivi</span>

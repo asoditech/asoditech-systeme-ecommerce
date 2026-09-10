@@ -7,6 +7,7 @@ import { recordAuditEvent } from "@/lib/audit";
 import { encryptSecret } from "@/lib/crypto";
 import { validateStoreUrl, InvalidStoreUrlError } from "@/lib/integrations/woocommerce/ssrf";
 import { validateShopDomain, InvalidShopDomainError } from "@/lib/integrations/shopify/ssrf";
+import { isShopifyIntegrationEnabled, SHOPIFY_DISABLED_MESSAGE } from "@/lib/integrations/shopify/feature-flag";
 import { connectIntegrationSchema, disconnectIntegrationSchema } from "@/lib/validation/integration";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
 
@@ -35,6 +36,13 @@ export async function connectIntegrationAction(formData: FormData): Promise<Acti
   });
   if (!parsed.success) {
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+
+  // Shopify is disabled for now (client feedback #10) — refuse any attempt
+  // to start or reconfigure a connection. Disconnecting an existing one is
+  // still allowed (see disconnectIntegrationAction).
+  if (parsed.data.provider === "SHOPIFY" && !isShopifyIntegrationEnabled()) {
+    return actionError(SHOPIFY_DISABLED_MESSAGE);
   }
 
   let normalizedSiteUrl = parsed.data.siteUrl || null;

@@ -74,6 +74,10 @@ export async function listProducts(params: ProductListFilters) {
           select: {
             id: true,
             price: true,
+            // Purchase cost so an authorised viewer can see a variable
+            // product's cost range in the list — the caller gates this
+            // on `finance.view` before rendering it (client feedback #8).
+            cost: true,
             inventoryItems: { select: { quantityOnHand: true } },
           },
         },

@@ -17,6 +17,8 @@ async function seedSoldOrder(opts: {
   qty?: number;
   placedAt?: Date;
   shipmentCost?: number;
+  shipmentStatus?: string;
+  shipmentCostSource?: string;
   refund?: number;
 }) {
   const customer = await prisma.customer.create({ data: { fullName: "C" } });
@@ -48,7 +50,15 @@ async function seedSoldOrder(opts: {
   });
   if (opts.shipmentCost !== undefined) {
     const provider = await prisma.shippingProvider.create({ data: { name: "X", type: "MANUEL" } });
-    await prisma.shipment.create({ data: { orderId: order.id, providerId: provider.id, cost: opts.shipmentCost } });
+    await prisma.shipment.create({
+      data: {
+        orderId: order.id,
+        providerId: provider.id,
+        cost: opts.shipmentCost,
+        ...(opts.shipmentStatus ? { status: opts.shipmentStatus as never } : {}),
+        ...(opts.shipmentCostSource ? { costSource: opts.shipmentCostSource as never } : {}),
+      },
+    });
   }
   if (opts.refund !== undefined) {
     await prisma.refund.create({ data: { orderId: order.id, amount: opts.refund, status: "COMPLETE" } });
@@ -111,6 +121,30 @@ describe("computeOrderProfit", () => {
     expect(p.profitAfterDelivery).toBe(35);
   });
 
+  // Client feedback #3: a parcel that never completed a delivery service —
+  // because the order was cancelled before it reached the customer, or the
+  // shipment itself was cancelled — must not create a delivery deduction.
+  it("does not deduct delivery cost for a cancelled order", () => {
+    const p = computeOrderProfit({
+      status: "ANNULEE",
+      total: 100,
+      items: [{ costSnapshot: 40, quantity: 1 }],
+      shipments: [{ cost: 25 }],
+    });
+    expect(p.deliveryCost).toBe(0);
+  });
+
+  it("does not deduct the cost of a cancelled shipment on a live order", () => {
+    const p = computeOrderProfit({
+      status: "LIVREE",
+      total: 100,
+      items: [{ costSnapshot: 40, quantity: 1 }],
+      shipments: [{ cost: 25, status: "ANNULE" }, { cost: 30, status: "LIVRE" }],
+    });
+    expect(p.deliveryCost).toBe(30);
+    expect(p.profitAfterDelivery).toBe(30); // 60 gross − 30 delivered parcel
+  });
+
   it("is decimal-safe (no float drift)", () => {
     const p = computeOrderProfit({
       status: "LIVREE",
@@ -152,6 +186,28 @@ describe("computePeriodProfitability", () => {
     expect(p.expensesTotal).toBe(80);
     expect(p.grossProfit).toBe(200);
     expect(p.netProfit).toBe(120); // 200 − 80 expenses − 0 delivery
+  });
+
+  // Client feedback #3, at the period level: a cancelled order's in-flight
+  // carrier estimate was being deducted from net profit. A RETOUR order's
+  // return-rule charge is a separate concern and stays counted.
+  it("excludes a cancelled order's shipment cost but keeps a return-rule charge", async () => {
+    await seedSoldOrder({ price: 300, cost: 100, status: "LIVREE", shipmentCost: 20 });
+    await seedSoldOrder({ price: 999, cost: 500, status: "ANNULEE", shipmentCost: 40 });
+    await seedSoldOrder({
+      price: 999,
+      cost: 500,
+      status: "RETOUR",
+      shipmentCost: 15,
+      shipmentStatus: "RETOURNE",
+      shipmentCostSource: "RETURN_RULE",
+    });
+
+    const p = await computePeriodProfitability(PERIOD);
+    // 20 (delivered order) + 15 (return-rule) — never the 40 cancelled one.
+    expect(p.deliveryCostTotal).toBe(35);
+    expect(p.returnCostTotal).toBe(15);
+    expect(p.carrierDeliveryCost).toBe(20);
   });
 
   it("reports incomplete COGS rather than a false profit", async () => {

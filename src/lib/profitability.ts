@@ -64,7 +64,22 @@ interface OrderProfitInput {
   total: Prisma.Decimal | number | string;
   items: { costSnapshot: Prisma.Decimal | number | string | null; quantity: number }[];
   refunds?: { amount: Prisma.Decimal | number | string; status: string }[];
-  shipments?: { cost: Prisma.Decimal | number | string | null }[];
+  shipments?: { cost: Prisma.Decimal | number | string | null; status?: string }[];
+}
+
+/**
+ * A parcel that never completed a delivery service — the order was
+ * cancelled before it reached the customer, or the shipment itself was
+ * cancelled. No delivery deduction applies (client feedback #3). The
+ * return- and failure-rule charges for RETOUR / ECHEC orders are a
+ * separate concern, carried by their own `costSource` (RETURN_RULE /
+ * FAILURE_RULE) and untouched by this rule — see docs/adr/0032.
+ */
+export function shipmentIncursDeliveryCost(
+  orderStatus: OrderStatus | string | null | undefined,
+  shipmentStatus?: string | null,
+): boolean {
+  return orderStatus !== "ANNULEE" && shipmentStatus !== "ANNULE";
 }
 
 export function computeOrderProfit(order: OrderProfitInput): OrderProfit {
@@ -87,7 +102,9 @@ export function computeOrderProfit(order: OrderProfitInput): OrderProfit {
     cogs = cogs.plus(D(it.costSnapshot).mul(it.quantity));
   }
 
-  const deliveryCost = (order.shipments ?? []).reduce((s, sh) => s.plus(D(sh.cost)), D(0));
+  const deliveryCost = (order.shipments ?? [])
+    .filter((sh) => shipmentIncursDeliveryCost(order.status, sh.status))
+    .reduce((s, sh) => s.plus(D(sh.cost)), D(0));
   const grossProfit: Prisma.Decimal | null = counted && cogsComplete ? revenue.minus(cogs) : null;
 
   return {
@@ -180,7 +197,16 @@ export async function computePeriodProfitability(
   // recorded per-shipment cost — never today's provider settings.
   const deliveryBySource = await prisma.shipment.groupBy({
     by: ["costSource"],
-    where: { createdAt: { gte: period.from, lte: period.to }, cost: { not: null } },
+    where: {
+      createdAt: { gte: period.from, lte: period.to },
+      cost: { not: null },
+      // Client feedback #3: a cancelled order's parcel never reached the
+      // customer, and a cancelled shipment completed no delivery service —
+      // neither is a delivery deduction. Return / failure charges live on
+      // their own `costSource` for RETOUR / ECHEC orders and are unaffected.
+      status: { not: "ANNULE" },
+      order: { status: { not: "ANNULEE" } },
+    },
     _sum: { cost: true },
   });
   let carrierDeliveryCost = D(0);
