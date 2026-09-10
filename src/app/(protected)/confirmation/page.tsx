@@ -42,6 +42,8 @@ function toQueueOrders(orders: QueueSourceOrder[]): ConfirmationQueueOrder[] {
     displayNumber: displayOrderNumber(o),
     customerName: displayOrderRecipient(o),
     customerPhone: o.shippingPhone ?? o.customer.phone ?? null,
+    customerWhatsapp: o.customer.whatsapp ?? null,
+    city: o.shippingCity ?? o.customer.city ?? null,
     total: o.total.toString(),
     currency: o.currency,
     placedAt: o.placedAt.toISOString(),
