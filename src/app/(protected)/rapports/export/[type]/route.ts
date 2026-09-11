@@ -4,6 +4,7 @@ import { csvDocument, csvDocumentResponse, type CsvSection } from "@/lib/reports
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { getSalesReport } from "@/lib/queries/reports/sales";
 import { getProductProfitReport } from "@/lib/queries/reports/product-profit";
+import { getProfitabilityReport } from "@/lib/queries/reports/profitability";
 import { getStockValuationReport } from "@/lib/queries/reports/stock-valuation";
 import { getDeliveryPerformanceReport } from "@/lib/queries/reports/delivery";
 import { getCustomerReport } from "@/lib/queries/reports/customers";
@@ -108,6 +109,37 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
             heading: "Par produit",
             headers: ["Produit", "Unités", "CA", "Coût march.", "Marge brute", "Marge %", "Lignes sans coût"],
             rows: profitRows(r.products),
+          },
+        ])
+      );
+    }
+
+    case "profitabilite": {
+      const r = await getProfitabilityReport(resolved.range);
+      return csvDocumentResponse(
+        `rapport-profitabilite-${stamp}`,
+        doc("Rapport de profitabilité", [
+          {
+            heading: "Total",
+            headers: ["CA", "Coût produits", "Frais de livraison", "Profit", "Marge %"],
+            rows: [[
+              r.totals.revenue, r.totals.productCost ?? "—", r.totals.deliveryCost,
+              r.totals.profit ?? "—", fmtPct(r.totals.marginPct),
+            ]],
+          },
+          {
+            heading: "Par produit",
+            headers: ["Produit", "Quantité vendue", "CA", "Coût produits", "Frais de livraison attribués", "Profit", "Marge %", "Lignes sans coût"],
+            rows: r.byProduct.map((p) => [
+              p.name, p.unitsSold, p.revenue, p.productCost ?? "—", p.deliveryCost, p.profit ?? "—", fmtPct(p.marginPct), p.linesMissingCost,
+            ]),
+          },
+          {
+            heading: "Par campagne / source",
+            headers: ["Campagne / source", "Commandes", "CA", "Coût produits", "Frais de livraison", "Profit", "Marge %", "Lignes sans coût"],
+            rows: r.byCampaign.map((c) => [
+              c.name, c.ordersCount, c.revenue, c.productCost ?? "—", c.deliveryCost, c.profit ?? "—", fmtPct(c.marginPct), c.linesMissingCost,
+            ]),
           },
         ])
       );

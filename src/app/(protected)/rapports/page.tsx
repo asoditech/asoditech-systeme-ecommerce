@@ -10,6 +10,7 @@ import {
   Users,
   Wallet,
   FileText,
+  LineChart,
 } from "lucide-react";
 
 export const metadata = { title: "Rapports — ASODITECH Gestion E-commerce" };
@@ -26,6 +27,12 @@ const REPORTS = [
     icon: PackageMinus,
     title: "Rentabilité produit",
     description: "Chiffre d'affaires, coût des marchandises, marge brute et marge % par produit et par catégorie.",
+  },
+  {
+    href: "/rapports/profitabilite",
+    icon: LineChart,
+    title: "Profitabilité",
+    description: "CA, coût des produits et frais de livraison attribués, par produit et par campagne/source — avec détail des commandes.",
   },
   {
     href: "/rapports/stock",

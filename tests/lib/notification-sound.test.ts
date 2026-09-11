@@ -1,5 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { computeNewNotificationIds } from "@/lib/notification-sound";
+import { computeNewNotificationIds, isOrderRelatedNotification } from "@/lib/notification-sound";
+
+describe("isOrderRelatedNotification — which types get the audible chime", () => {
+  it("order events (new order, delivery failure, return) are order-related", () => {
+    expect(isOrderRelatedNotification("NOUVELLE_COMMANDE")).toBe(true);
+    expect(isOrderRelatedNotification("ECHEC_LIVRAISON")).toBe(true);
+    expect(isOrderRelatedNotification("COMMANDE_RETOURNEE")).toBe(true);
+  });
+
+  it("non-order types (stock, integration, support) are not", () => {
+    expect(isOrderRelatedNotification("STOCK_FAIBLE")).toBe(false);
+    expect(isOrderRelatedNotification("RUPTURE_STOCK")).toBe(false);
+    expect(isOrderRelatedNotification("PROBLEME_PAIEMENT")).toBe(false);
+    expect(isOrderRelatedNotification("ERREUR_INTEGRATION")).toBe(false);
+    expect(isOrderRelatedNotification("ECHEC_SYNCHRONISATION")).toBe(false);
+    expect(isOrderRelatedNotification("SUPPORT_TICKET")).toBe(false);
+  });
+});
 
 describe("computeNewNotificationIds — the pure new-notification detector", () => {
   it("the first sync (no baseline yet) never reports anything as new, however many items it sees", () => {

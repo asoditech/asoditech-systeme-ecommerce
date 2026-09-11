@@ -15,7 +15,7 @@ export function IntegrationsFooter() {
             href="https://www.younessweb.com/"
             target="_blank"
             rel="noopener noreferrer"
-            className="underline-offset-2 hover:text-foreground hover:underline"
+            className="underline underline-offset-2 hover:text-foreground"
           >
             YounessWeb
           </a>

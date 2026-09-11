@@ -28,6 +28,20 @@ export interface NotificationLike {
 }
 
 /**
+ * Notification types that represent an order event (new order, delivery
+ * failure, return) — the ones an order-confirmation agent actually needs
+ * an audible alert for. Everything else (stock, integration/sync errors,
+ * support tickets) still shows up in the bell as usual, just silently.
+ * Kept as plain strings (not the Prisma `NotificationType` enum) so this
+ * file never needs to import server/Prisma code into a client bundle.
+ */
+const ORDER_NOTIFICATION_TYPES = new Set(["NOUVELLE_COMMANDE", "ECHEC_LIVRAISON", "COMMANDE_RETOURNEE"]);
+
+export function isOrderRelatedNotification(type: string): boolean {
+  return ORDER_NOTIFICATION_TYPES.has(type);
+}
+
+/**
  * The new-notification detector. `previousIds === null` means "no
  * baseline yet" — the very first successful sync, which must never play
  * a sound no matter how many items it returns (see ADR 0016 addendum).

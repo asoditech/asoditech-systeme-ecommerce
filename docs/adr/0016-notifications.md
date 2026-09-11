@@ -184,6 +184,14 @@ change.
   login/refresh" without a server-side cursor or extra column.
 - **One sound per batch.** However many new ids one poll returns, the
   listener calls the play function at most once for that tick.
+- **Order events only.** The chime fires only when the new batch
+  includes an order-related type — `NOUVELLE_COMMANDE`,
+  `ECHEC_LIVRAISON`, or `COMMANDE_RETOURNEE`
+  (`isOrderRelatedNotification`, `src/lib/notification-sound.ts`).
+  Other types (`STOCK_FAIBLE`, `RUPTURE_STOCK`, `PROBLEME_PAIEMENT`,
+  `ERREUR_INTEGRATION`, `ECHEC_SYNCHRONISATION`, `SUPPORT_TICKET`) still
+  appear in the bell as usual, just silently — the sound is an alert for
+  agents confirming orders, not a general-purpose chime.
 - **Autoplay-safe.** The shared `<audio>` element is primed on the
   user's first real `pointerdown`/`keydown` (the standard browser-
   autoplay-unlock pattern); a still-blocked or later-rejected `play()`

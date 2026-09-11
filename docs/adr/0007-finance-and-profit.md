@@ -103,3 +103,32 @@ The pre-integration audit found two finance-integrity gaps:
   tracked per-campaign (`MarketingCampaign.spend`) but not yet rolled into
   `getFinanceSummary()`'s expense total — see
   `docs/adr/0008-marketing-and-attribution.md`.
+
+## Addendum — Profitability by product & by campaign/source (later phase)
+The first deferred item above is now built: `/rapports/profitabilite`
+(`src/lib/queries/reports/profitability.ts`), read-only, no schema change,
+no writer touched.
+
+- **COGS still comes exclusively from `OrderItem.costSnapshot`**, never
+  `Product.cost` — a line with no snapshot marks its product/campaign row
+  (and the report total) `dataComplete: false` instead of assuming zero.
+- **Revenue/COGS inclusion matches every other report**: counted only when
+  `isRevenueOrder(status)` (not ANNULEE/ECHEC/RETOUR/REMBOURSEE).
+- **Delivery cost is the one deliberate exception.** The base query is NOT
+  restricted to revenue-counted orders, because `shipmentIncursDeliveryCost`
+  (reused verbatim) must still apply its real rule: an ANNULEE order
+  contributes zero delivery cost, while a RETOUR/ECHEC order keeps whatever
+  its return/failure-rule charge was — even though that same order
+  contributes zero revenue and zero product cost to the report. A product
+  or campaign can therefore show a real "Frais de livraison" with no
+  matching "CA" — a failed/returned delivery that cost money but earned
+  none, which is the correct picture.
+- **Delivery cost is split across an order's lines by revenue share**
+  (line total ÷ sum of the order's line totals), per the brief's example —
+  falling back to an equal split only when every line in the order totals
+  zero.
+- **Drill-down reuses the aggregate, never recomputes it**: a product's or
+  campaign's detail page looks up its row from the same
+  `getProfitabilityReport()` call the list page renders, then only adds a
+  paginated (DB `skip`/`take`) list of contributing orders — so the two
+  screens can't drift apart.

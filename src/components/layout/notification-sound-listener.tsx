@@ -3,7 +3,12 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { getNotificationSoundSyncAction } from "@/actions/notifications";
-import { computeNewNotificationIds, playNotificationSound, unlockAudio } from "@/lib/notification-sound";
+import {
+  computeNewNotificationIds,
+  isOrderRelatedNotification,
+  playNotificationSound,
+  unlockAudio,
+} from "@/lib/notification-sound";
 
 /**
  * Mounted exactly once, inside AppShell (src/app/(protected)/layout.tsx),
@@ -20,6 +25,12 @@ import { computeNewNotificationIds, playNotificationSound, unlockAudio } from "@
  * addendum — so existing unread notifications never play a sound on
  * load or refresh; only ids that show up in a *later* poll do, batched
  * into a single sound no matter how many arrived since the last tick.
+ *
+ * The sound itself only fires for order events (new order, delivery
+ * failure, return — see `isOrderRelatedNotification`); other new
+ * notifications (stock, integration/sync errors, support tickets)
+ * still land in the bell silently. `router.refresh()` still runs for
+ * every new batch either way, so the badge/list stay in sync.
  */
 const POLL_INTERVAL_MS = 25_000;
 
@@ -59,7 +70,9 @@ export function NotificationSoundListener() {
       seenIdsRef.current = new Set(result.items.map((item) => item.id));
 
       if (!isBaseline && newIds.length > 0) {
-        playNotificationSound();
+        const newIdSet = new Set(newIds);
+        const hasOrderEvent = result.items.some((item) => newIdSet.has(item.id) && isOrderRelatedNotification(item.type));
+        if (hasOrderEvent) playNotificationSound();
         router.refresh(); // one batch, one sound — the bell's own badge/list catches up here
       }
     }
