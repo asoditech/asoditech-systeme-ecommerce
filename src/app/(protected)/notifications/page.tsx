@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { MarkAllReadButton } from "@/components/notifications/mark-all-read-button";
 import { DismissNotificationButton } from "@/components/notifications/dismiss-notification-button";
+import { SoundToggle } from "@/components/notifications/sound-toggle";
 import { requireUser } from "@/lib/auth/guards";
 import { prisma } from "@/lib/prisma";
 import { formatDateTime } from "@/lib/format";
@@ -25,7 +26,12 @@ export default async function NotificationsPage() {
       <PageHeader
         title="Notifications"
         description="Alertes de stock, commandes, livraisons et intégrations vous concernant."
-        actions={unreadCount > 0 ? <MarkAllReadButton /> : undefined}
+        actions={
+          <div className="flex items-center gap-4">
+            <SoundToggle />
+            {unreadCount > 0 && <MarkAllReadButton />}
+          </div>
+        }
       />
 
       {notifications.length === 0 ? (

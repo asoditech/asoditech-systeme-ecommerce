@@ -4,6 +4,7 @@ import { IntegrationsFooter } from "@/components/layout/integrations-footer";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { NotificationBell } from "@/components/layout/notification-bell";
+import { NotificationSoundListener } from "@/components/layout/notification-sound-listener";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { UserMenu } from "@/components/layout/user-menu";
 import { BrandMark } from "@/components/brand-mark";
@@ -46,6 +47,7 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
           <div className="ml-auto flex items-center gap-1">
             <CommandPalette permissions={permissions} />
             <ThemeToggle />
+            <NotificationSoundListener />
             <NotificationBell items={items} unreadCount={unreadCount} />
             <div className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
             <UserMenu name={user.name} role={USER_ROLE_LABELS[user.role]} />

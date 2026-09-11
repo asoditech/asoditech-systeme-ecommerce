@@ -156,3 +156,45 @@ error, sync failure), `tests/webhooks/woocommerce.test.ts` /
   fires from the two reachable paths (manual status change, manual
   "sync now"). Pre-existing gap from Phase 22, out of scope here — wiring
   a new HTTP route is not a notifications change.
+
+## Addendum — client-side notification sound (later phase)
+A short chime plays when a genuinely new `Notification` row shows up for
+the current user — pure client-side UX layered on top of everything
+above, not a second notification system. No schema/model/business-rule
+change.
+
+- **Detection, not realtime.** No realtime infra existed (no
+  WebSocket/SSE/pub-sub anywhere in the app), so
+  `NotificationSoundListener` (`src/components/layout/`) polls the exact
+  same tenant/permission-scoped read `getRecentNotifications` already
+  used by the bell's server render, via one new thin, read-only action
+  (`getNotificationSoundSyncAction`, `src/actions/notifications.ts`) —
+  every 25s, only while `document.visibilityState === "visible"`, paused
+  entirely while hidden and caught up once immediately on becoming
+  visible again. Mounted exactly once inside `AppShell`
+  (`src/app/(protected)/layout.tsx`'s shared layout), so it survives
+  client-side navigation instead of spawning a new loop per page.
+- **Id-set baseline, not a count.** `computeNewNotificationIds`
+  (`src/lib/notification-sound.ts`, pure/unit-tested) compares each
+  poll's returned ids against the previous poll's id set — never
+  `unreadCount`, which can shrink from a mark-read elsewhere with no
+  bearing on "is anything new." The very first poll after mount only
+  establishes that baseline and never sounds, however many unread rows
+  it sees — satisfying "don't sound for what was already unread at
+  login/refresh" without a server-side cursor or extra column.
+- **One sound per batch.** However many new ids one poll returns, the
+  listener calls the play function at most once for that tick.
+- **Autoplay-safe.** The shared `<audio>` element is primed on the
+  user's first real `pointerdown`/`keydown` (the standard browser-
+  autoplay-unlock pattern); a still-blocked or later-rejected `play()`
+  is caught and swallowed — the notification itself is never affected
+  either way.
+- **Multi-tab, best-effort.** A `localStorage` "last played at"
+  timestamp (not `BroadcastChannel`) lets a second open tab skip
+  sounding if another tab already did within the last few seconds.
+  Deliberately not a strict lock — see `src/lib/notification-sound.ts`.
+- **Preference is client-only.** A `🔊 Sons des notifications` switch on
+  `/notifications` (`SoundToggle`) stores enabled/disabled in
+  `localStorage`, defaulting to enabled. It only gates playback — it can
+  never affect whether a `Notification` row is created, fanned out, or
+  delivered.

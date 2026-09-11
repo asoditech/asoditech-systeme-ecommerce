@@ -4,6 +4,21 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUserForAction } from "@/lib/auth/guards";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
+import { getRecentNotifications } from "@/lib/queries/notifications";
+
+/**
+ * Polled by NotificationSoundListener (src/components/layout/) to detect
+ * newly-created notifications for the current user, so the app can play a
+ * short sound without a full page navigation. Read-only; reuses the exact
+ * same tenant/permission-scoped query the bell's server render already
+ * uses (`getRecentNotifications` — `where: { userId }` under the
+ * request's tenant-scoped Prisma client) — no new data exposure, no
+ * separate notification storage.
+ */
+export async function getNotificationSoundSyncAction() {
+  const user = await requireUserForAction();
+  return getRecentNotifications(user.id, 10);
+}
 
 export async function markNotificationReadAction(id: string): Promise<ActionResult<undefined>> {
   const user = await requireUserForAction();
