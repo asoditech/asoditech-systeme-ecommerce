@@ -9,16 +9,16 @@ import { cn } from "@/lib/utils";
  */
 const BRAND_SRC = {
   woocommerce: "/brands/woocommerce.webp",
-  shopify: "/brands/shopify.png",
+  shopify: "/brands/shopify.webp",
   whatsapp: "/brands/whatsapp.webp",
-  meta: "/brands/meta.png",
+  meta: "/brands/meta.webp",
   google: "/brands/google.webp",
   "google-sheets": "/brands/google-sheets.webp",
-  tiktok: "/brands/tiktok.png",
-  ozonexpress: "/brands/ozonexpress.png",
-  aramex: "/brands/aramex.png",
-  email: "/brands/email.png",
-  ai: "/brands/ai.png",
+  tiktok: "/brands/tiktok.webp",
+  ozonexpress: "/brands/ozonexpress.webp",
+  aramex: "/brands/aramex.webp",
+  email: "/brands/email.webp",
+  ai: "/brands/ai.webp",
   ameex: "/brands/ameex.png",
   speedaf: "/brands/speedaf.png",
   olivraison: "/brands/olivraison.png",
@@ -26,7 +26,7 @@ const BRAND_SRC = {
 
 export type BrandKey = keyof typeof BRAND_SRC;
 
-// A couple of the source files above (meta.png in particular) ship with a
+// A couple of the source files above (meta.webp in particular) ship with a
 // lot of transparent margin baked into the canvas itself — at any fixed
 // box size the mark renders visibly smaller than every sibling logo next
 // to it. Rather than re-export the asset, scale it up from its own
