@@ -288,3 +288,39 @@ export async function generateWooCommerceWebhookSecretAction(): Promise<ActionRe
   revalidatePath("/integrations");
   return actionOk({ secret });
 }
+
+/**
+ * Client preference (docs/adr/0010 addendum): when enabled, a first-time
+ * WooCommerce import that would otherwise land as CONFIRMEE ("processing")
+ * is created as NOUVELLE instead, so the confirmation team always phones
+ * the customer before the order counts as confirmed. Off by default —
+ * matches WooCommerce's own status as before. Stored on `Integration.config`
+ * (non-secret settings), applied in `importOrder` for both the bulk sync
+ * and the order webhook.
+ */
+export async function setWooCommerceForceNouvelleOnImportAction(enabled: boolean): Promise<ActionResult<{ enabled: boolean }>> {
+  const user = await requirePermissionForAction("integrations.manage");
+
+  const integration = await prisma.integration.findFirst({ where: { provider: "WOOCOMMERCE" } });
+  if (!integration) {
+    return actionError("Configurez d'abord la connexion WooCommerce.");
+  }
+
+  const config = (integration.config as Record<string, unknown> | null) ?? {};
+  await prisma.integration.update({
+    where: { id: integration.id },
+    data: { config: { ...config, forceNouvelleOnImport: enabled } },
+  });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "integration.updated",
+    entityType: "Integration",
+    entityId: integration.id,
+    metadata: { provider: "WOOCOMMERCE", change: "force_nouvelle_on_import", enabled },
+  });
+
+  revalidatePath("/integrations");
+  return actionOk({ enabled });
+}

@@ -5,6 +5,7 @@ import { ConnectIntegrationDialog } from "@/components/integrations/connect-inte
 import { ShopifyActions } from "@/components/integrations/shopify-actions";
 import { ConnectionStatusPill } from "@/components/integrations/connection-status-pill";
 import { SyncResourceRow } from "@/components/integrations/sync-resource-row";
+import { ForceNouvelleToggle } from "@/components/integrations/force-nouvelle-toggle";
 import { prisma } from "@/lib/prisma";
 import { formatDateTime } from "@/lib/format";
 
@@ -26,7 +27,7 @@ export async function ShopifyCard({ canManage }: { canManage: boolean }) {
     : [];
 
   const status = integration?.status ?? "DECONNECTE";
-  const config = (integration?.config as { shopDomain?: string } | null) ?? null;
+  const config = (integration?.config as { shopDomain?: string; forceNouvelleOnImport?: boolean } | null) ?? null;
   const hasCredentials = Boolean(integration?.credentialsEncrypted);
 
   return (
@@ -74,6 +75,10 @@ export async function ShopifyCard({ canManage }: { canManage: boolean }) {
             />
           ))}
         </div>
+
+        {canManage && hasCredentials && (
+          <ForceNouvelleToggle provider="SHOPIFY" checked={config?.forceNouvelleOnImport === true} />
+        )}
       </CardContent>
 
       {canManage && (

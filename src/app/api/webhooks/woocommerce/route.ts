@@ -293,7 +293,8 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
   }
 
   try {
-    await importOrder(parsed.data, { type: "INTEGRATION" });
+    const config = (integration.config as Record<string, unknown> | null) ?? {};
+    await importOrder(parsed.data, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: config.forceNouvelleOnImport === true });
     revalidateAfterImport("order");
     // Soft, informational only (docs/adr/0035) — a webhook-imported order
     // is never rejected or delayed because of a plan's order limit.

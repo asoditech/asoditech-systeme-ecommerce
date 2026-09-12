@@ -237,3 +237,35 @@ export async function pushShopifyStockAction(): Promise<ActionResult<{ summary: 
 
   return runSync(user, integration.id, "STOCK_ENVOI", "EXPORT", () => pushStockToShopify(client));
 }
+
+/**
+ * Client preference — see WooCommerce's identical action
+ * (`src/actions/woocommerce.ts`). Same `Integration.config.forceNouvelleOnImport`
+ * flag, same semantics, applied in Shopify's `importOrder`.
+ */
+export async function setShopifyForceNouvelleOnImportAction(enabled: boolean): Promise<ActionResult<{ enabled: boolean }>> {
+  const user = await requirePermissionForAction("integrations.manage");
+
+  const integration = await prisma.integration.findFirst({ where: { provider: "SHOPIFY" } });
+  if (!integration) {
+    return actionError("Configurez d'abord la connexion Shopify.");
+  }
+
+  const config = (integration.config as Record<string, unknown> | null) ?? {};
+  await prisma.integration.update({
+    where: { id: integration.id },
+    data: { config: { ...config, forceNouvelleOnImport: enabled } },
+  });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "integration.updated",
+    entityType: "Integration",
+    entityId: integration.id,
+    metadata: { provider: "SHOPIFY", change: "force_nouvelle_on_import", enabled },
+  });
+
+  revalidatePath("/integrations");
+  return actionOk({ enabled });
+}

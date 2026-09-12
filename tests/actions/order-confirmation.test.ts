@@ -128,6 +128,28 @@ describe("recordConfirmationAttemptAction", () => {
     expect(item.quantityReserved).toBe(3);
   });
 
+  // Audit fix (docs/adr/0030's own stated intent, not previously enforced):
+  // a WooCommerce/Shopify order's stock is already accounted for by the
+  // separate provider stock pull-sync — the store reduces its own stock the
+  // moment the order is paid/processing, and that gets mirrored into
+  // `quantityOnHand` directly. Reserving it AGAIN here double-deducted the
+  // same physical units once the order was later shipped through this
+  // queue (the "Stock insuffisant" incident this fixes).
+  it("CONFIRME does NOT reserve stock for a WooCommerce-sourced order (docs/adr/0030 audit fix)", async () => {
+    const { orderId, product } = await seedNouvelleOrder(3);
+    await prisma.order.update({ where: { id: orderId }, data: { source: "WOOCOMMERCE", externalId: "9001" } });
+
+    await loginAsTestUser({ role: "CONFIRMATION" });
+    const res = await recordConfirmationAttemptAction(fd({ id: orderId, outcome: "CONFIRME" }));
+    expect(res.ok).toBe(true);
+
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(order.status).toBe("CONFIRMEE");
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityReserved).toBe(0);
+    expect(await prisma.inventoryMovement.count({ where: { orderId } })).toBe(0);
+  });
+
   it("ANNULE from NOUVELLE cancels the order without any stock movement", async () => {
     const { orderId, product } = await seedNouvelleOrder(3);
     await loginAsTestUser({ role: "CONFIRMATION" });

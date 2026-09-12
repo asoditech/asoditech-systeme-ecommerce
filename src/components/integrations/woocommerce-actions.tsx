@@ -222,11 +222,12 @@ export function WooCommerceActions({ canManage, hasCredentials }: { canManage: b
           <DialogHeader>
             <DialogTitle>Secret webhook généré</DialogTitle>
             <DialogDescription>
-              Ce secret ne sera plus jamais affiché. Copiez-le maintenant et créez 4 webhooks dans WooCommerce
+              Ce secret ne sera plus jamais affiché. Copiez-le maintenant et créez 5 webhooks dans WooCommerce
               (Réglages → Avancé → Webhooks), tous avec l&apos;URL et le secret ci-dessous : « Commande créée »,
-              « Commande mise à jour », « Produit créé » et « Produit mis à jour ». Les deux premiers importent
-              les commandes en temps réel ; les deux derniers synchronisent produits et stock dès qu&apos;ils
-              changent sur la boutique, sans attendre un clic sur « Synchroniser les produits ».
+              « Commande mise à jour », « Produit créé », « Produit mis à jour » et « Produit supprimé ». Les deux
+              premiers importent les commandes en temps réel ; les trois derniers synchronisent produits et stock
+              dès qu&apos;ils changent sur la boutique (y compris un produit supprimé, alors archivé ici plutôt que
+              supprimé), sans attendre un clic sur « Synchroniser les produits ».
             </DialogDescription>
           </DialogHeader>
           {webhookDialog && (

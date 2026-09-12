@@ -10,12 +10,12 @@ import { installFakeShopifyServer, emptyFakeShopifyStore, FAKE_ACCESS_TOKEN, typ
 
 const WEBHOOK_SECRET = "test-shopify-client-secret";
 
-async function seedIntegration() {
+async function seedIntegration(configOverrides: Record<string, unknown> = {}) {
   return prisma.integration.create({
     data: {
       provider: "SHOPIFY",
       status: "CONNECTE",
-      config: { shopDomain: "https://boutique-test.myshopify.com" },
+      config: { shopDomain: "https://boutique-test.myshopify.com", ...configOverrides },
       credentialsEncrypted: encryptSecret(JSON.stringify({ apiKey: FAKE_ACCESS_TOKEN, apiSecret: WEBHOOK_SECRET })),
     },
   });
@@ -112,6 +112,31 @@ describe("POST /api/webhooks/shopify", () => {
     // docs/adr/0016-notifications.md — new wiring this phase.
     const notification = await prisma.notification.findFirstOrThrow({ where: { userId: staff.id } });
     expect(notification.type).toBe("NOUVELLE_COMMANDE");
+  });
+
+  it("forces a first-time import to NOUVELLE when forceNouvelleOnImport is enabled, even for a paid/unfulfilled order", async () => {
+    await seedIntegration({ forceNouvelleOnImport: true });
+    state.orders[0].displayFinancialStatus = "PAID";
+    const body = orderCreatePayload();
+    const response = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/create", "x-shopify-webhook-id": "d-force-nouvelle" }));
+    expect(response.status).toBe(200);
+
+    const order = await prisma.order.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/7001" } });
+    expect(order.status).toBe("NOUVELLE");
+
+    const audit = await prisma.auditEvent.findFirstOrThrow({ where: { action: "order.created", entityId: order.id } });
+    expect((audit.metadata as Record<string, unknown>).forcedNouvelleFromConfirmee).toBe(true);
+  });
+
+  it("does not force NOUVELLE when forceNouvelleOnImport is disabled (default)", async () => {
+    await seedIntegration();
+    state.orders[0].displayFinancialStatus = "PAID";
+    const body = orderCreatePayload();
+    const response = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/create", "x-shopify-webhook-id": "d-no-force" }));
+    expect(response.status).toBe(200);
+
+    const order = await prisma.order.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/7001" } });
+    expect(order.status).toBe("CONFIRMEE");
   });
 
   it("rejects an invalid signature with 401 and imports nothing", async () => {

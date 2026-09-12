@@ -37,9 +37,26 @@ import { isUniqueConstraintError } from "@/lib/prisma-errors";
  * (status where the transition is valid, totals, customer snapshot,
  * refund state) — never rewrites line items already recorded.
  */
+export interface ImportOrderOptions {
+  /**
+   * Client preference (`Integration.config.forceNouvelleOnImport`, opt-in,
+   * default off): a first-time import that would otherwise land as
+   * CONFIRMEE (WooCommerce "processing") is created as NOUVELLE instead,
+   * so the confirmation team always phones the customer before the order
+   * is treated as confirmed — even though WooCommerce itself already
+   * considers it paid/processing. Deliberately scoped to first-time
+   * creation only: a later re-sync/webhook update of an already-held
+   * order still applies the real WooCommerce status, and every other
+   * mapped status (NOUVELLE, LIVREE, ANNULEE, REMBOURSEE, ECHEC) is never
+   * touched by this — only CONFIRMEE is ever downgraded.
+   */
+  forceNouvelleOnFirstImport?: boolean;
+}
+
 export async function importOrder(
   wc: WcOrder,
-  actor: SyncActor
+  actor: SyncActor,
+  options?: ImportOrderOptions
 ): Promise<{ outcome: "imported" | "updated" | "unchanged" | "skipped"; reason?: string }> {
   const statusMapping = mapOrderStatus(wc.status);
   if (!statusMapping.ok) {
@@ -69,8 +86,11 @@ export async function importOrder(
     return updateExistingOrder(existing.id, wc, statusMapping.status, actor);
   }
 
+  const forcedToNouvelle = Boolean(options?.forceNouvelleOnFirstImport) && statusMapping.status === "CONFIRMEE";
+  const effectiveStatus: OrderStatus = forcedToNouvelle ? "NOUVELLE" : statusMapping.status;
+
   try {
-    return await createImportedOrder(wc, statusMapping.status, customerId, actor);
+    return await createImportedOrder(wc, effectiveStatus, customerId, actor, forcedToNouvelle ? wc.status : undefined);
   } catch (error) {
     // Backstop for a genuine race (the order.created webhook and a
     // concurrent manual "Synchroniser les commandes" both importing the
@@ -173,7 +193,12 @@ async function createImportedOrder(
   wc: WcOrder,
   status: OrderStatus,
   customerId: string,
-  actor: SyncActor
+  actor: SyncActor,
+  /** Set to the original WooCommerce status string only when
+   * `forceNouvelleOnFirstImport` downgraded CONFIRMEE to NOUVELLE — recorded
+   * on the audit event so staff can see why a "processing" order didn't
+   * land as Confirmée. */
+  downgradedFromWcStatus?: string
 ): Promise<{ outcome: "imported" }> {
   const fields = mapOrderFields(wc, status);
 
@@ -247,7 +272,11 @@ async function createImportedOrder(
     entityType: "Order",
     entityId: order.id,
     newValue: { total: fields.total.toString(), customerId },
-    metadata: { source: "WOOCOMMERCE", externalId: order.externalId },
+    metadata: {
+      source: "WOOCOMMERCE",
+      externalId: order.externalId,
+      ...(downgradedFromWcStatus ? { forcedNouvelleFromWcStatus: downgradedFromWcStatus } : {}),
+    },
   });
 
   // A webhook order.created is a real-time event — always alert. A manual
@@ -409,6 +438,7 @@ export async function syncOrders(
     typeof config.ordersResumePage === "number" && config.ordersResumePage > 0
       ? Math.floor(config.ordersResumePage)
       : 1;
+  const forceNouvelleOnFirstImport = config.forceNouvelleOnImport === true;
 
   let unreadable = 0;
   let importedThisRun = 0;
@@ -459,7 +489,7 @@ export async function syncOrders(
         break;
       }
       try {
-        const { outcome, reason } = await importOrder(wc, actor);
+        const { outcome, reason } = await importOrder(wc, actor, { forceNouvelleOnFirstImport });
         summary[outcome]++;
         if (outcome === "imported") importedThisRun++;
         if (reason) recordNote(summary, reason);

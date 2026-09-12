@@ -101,9 +101,15 @@ export async function recordConfirmationAttemptAction(
         });
         if (moved.count === 0) throw new OrderRaceError();
 
-        if (terminal === "CONFIRMEE") {
+        if (terminal === "CONFIRMEE" && existing.source === "INTERNE") {
           // Stock is reserved at confirmation, not at order creation
-          // (docs/adr/0030). Reserving never fails (backorders allowed).
+          // (docs/adr/0030) — but only for a manually-created (INTERNE)
+          // order. A WooCommerce/Shopify order's stock is already
+          // accounted for by the separate provider stock pull-sync
+          // (docs/adr/0030: "imported orders reconcile stock from the
+          // store's own numbers... untouched by this [ledger]"); reserving
+          // it here too double-deducted the same units once the order
+          // later shipped. Reserving never fails (backorders allowed).
           await reserveStockForOrder(tx, id, lines, user.id);
         }
         // ANNULE from NOUVELLE: nothing to release — a NOUVELLE order
@@ -133,9 +139,10 @@ export async function recordConfirmationAttemptAction(
     await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: id });
     await reconcileOrderCommission(id, user.id);
   }
-  if (terminal === "CONFIRMEE") {
+  if (terminal === "CONFIRMEE" && existing.source === "INTERNE") {
     // Confirmation just reserved stock — a linked store's sellable number
-    // must reflect that.
+    // must reflect that. (A WooCommerce/Shopify order didn't reserve
+    // anything here — see the guard above — so there's nothing new to push.)
     await pushStockAfterLocalChange({
       productIds: lines.map((l) => l.productId),
       variationIds: lines.map((l) => l.variationId),

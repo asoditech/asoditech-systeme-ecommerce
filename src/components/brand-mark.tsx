@@ -16,9 +16,18 @@ export function BrandMark({
   variant = "compact",
   className,
 }: {
-  variant?: "compact" | "full" | "wordmark";
+  variant?: "compact" | "full" | "wordmark" | "icon";
   className?: string;
 }) {
+  if (variant === "icon") {
+    return (
+      <div className={cn("flex items-center", className)}>
+        <Image src="/logos/IconA.png" alt="ASODITECH" width={740} height={740} priority unoptimized className="size-8 shrink-0 dark:hidden" />
+        <Image src="/logos/Icon white.png" alt="ASODITECH" width={740} height={740} priority unoptimized className="hidden size-8 shrink-0 dark:block" />
+      </div>
+    );
+  }
+
   if (variant === "full") {
     return (
       <div className={cn("flex items-center", className)}>

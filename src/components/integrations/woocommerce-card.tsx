@@ -5,6 +5,7 @@ import { ConnectIntegrationDialog } from "@/components/integrations/connect-inte
 import { WooCommerceActions } from "@/components/integrations/woocommerce-actions";
 import { ConnectionStatusPill } from "@/components/integrations/connection-status-pill";
 import { SyncResourceRow } from "@/components/integrations/sync-resource-row";
+import { ForceNouvelleToggle } from "@/components/integrations/force-nouvelle-toggle";
 import { prisma } from "@/lib/prisma";
 import { formatDateTime } from "@/lib/format";
 
@@ -33,7 +34,7 @@ export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
     : null;
 
   const status = integration?.status ?? "DECONNECTE";
-  const config = (integration?.config as { siteUrl?: string } | null) ?? null;
+  const config = (integration?.config as { siteUrl?: string; forceNouvelleOnImport?: boolean } | null) ?? null;
   const hasCredentials = Boolean(integration?.credentialsEncrypted);
 
   return (
@@ -90,6 +91,10 @@ export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
             />
           ))}
         </div>
+
+        {canManage && hasCredentials && (
+          <ForceNouvelleToggle provider="WOOCOMMERCE" checked={config?.forceNouvelleOnImport === true} />
+        )}
       </CardContent>
 
       {canManage && (

@@ -358,6 +358,21 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
 
   const lines = existing.items.map((i) => ({ productId: i.productId, variationId: i.variationId, quantity: i.quantity }));
   const wasFulfilled = existing.shippedAt !== null;
+  // Only a manually-created (INTERNE) order was ever meant to sit in this
+  // internal reservation/fulfilment ledger (docs/adr/0030): "imported
+  // orders reconcile stock from the store's own numbers
+  // (sync/stock.ts), untouched by this [ledger]." A WooCommerce/Shopify
+  // order's stock is already accounted for by that separate pull-sync —
+  // WooCommerce/Shopify reduces ITS OWN stock the moment the order is
+  // paid/processing, and reconcileStockFromProvider mirrors that number
+  // into `quantityOnHand` directly. Running this ledger too on the same
+  // order double-deducted the same physical units: once via the
+  // provider's own stock reduction (pulled in by the next products/stock
+  // sync), and again here when staff manually walk the order through
+  // Confirmée → Expédiée — the exact "Stock insuffisant" incident this
+  // guard fixes. See docs/adr/0030's own explicit intent, never
+  // previously enforced in code.
+  const isInternalOrder = existing.source === "INTERNE";
 
   let order;
   try {
@@ -385,22 +400,24 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
         throw new OrderConflictError();
       }
 
-      if (parsed.data.status === "CONFIRMEE") {
-        // Reservation is taken at confirmation now (docs/adr/0030), not at
-        // order creation — reserving never fails (backorders allowed).
-        await reserveStockForOrder(tx, parsed.data.id, lines, user.id);
-      } else if (parsed.data.status === "EXPEDIEE") {
-        await fulfillStockForOrder(tx, parsed.data.id, lines, user.id);
-      } else if (parsed.data.status === "ANNULEE") {
-        if (wasFulfilled) {
-          await returnStockForOrder(tx, parsed.data.id, lines, user.id, "Annulation après expédition");
-        } else if (orderHoldsReservation(existing.status)) {
-          // Only release when a reservation actually exists — a NOUVELLE
-          // order never reserved anything.
-          await releaseStockForOrder(tx, parsed.data.id, lines, user.id);
+      if (isInternalOrder) {
+        if (parsed.data.status === "CONFIRMEE") {
+          // Reservation is taken at confirmation now (docs/adr/0030), not at
+          // order creation — reserving never fails (backorders allowed).
+          await reserveStockForOrder(tx, parsed.data.id, lines, user.id);
+        } else if (parsed.data.status === "EXPEDIEE") {
+          await fulfillStockForOrder(tx, parsed.data.id, lines, user.id);
+        } else if (parsed.data.status === "ANNULEE") {
+          if (wasFulfilled) {
+            await returnStockForOrder(tx, parsed.data.id, lines, user.id, "Annulation après expédition");
+          } else if (orderHoldsReservation(existing.status)) {
+            // Only release when a reservation actually exists — a NOUVELLE
+            // order never reserved anything.
+            await releaseStockForOrder(tx, parsed.data.id, lines, user.id);
+          }
+        } else if (parsed.data.status === "RETOUR") {
+          await returnStockForOrder(tx, parsed.data.id, lines, user.id, "Retour client");
         }
-      } else if (parsed.data.status === "RETOUR") {
-        await returnStockForOrder(tx, parsed.data.id, lines, user.id, "Retour client");
       }
 
       return tx.order.findUniqueOrThrow({ where: { id: parsed.data.id } });
@@ -440,10 +457,11 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
   // to a linked store, and surface anything now low (reachable on
   // CONFIRMEE and EXPEDIEE, the two that reduce what's sellable).
   const stockMoved =
-    (parsed.data.status === "CONFIRMEE" && existing.status === "NOUVELLE") ||
-    parsed.data.status === "EXPEDIEE" ||
-    (parsed.data.status === "ANNULEE" && (wasFulfilled || orderHoldsReservation(existing.status))) ||
-    parsed.data.status === "RETOUR";
+    isInternalOrder &&
+    ((parsed.data.status === "CONFIRMEE" && existing.status === "NOUVELLE") ||
+      parsed.data.status === "EXPEDIEE" ||
+      (parsed.data.status === "ANNULEE" && (wasFulfilled || orderHoldsReservation(existing.status))) ||
+      parsed.data.status === "RETOUR");
   if (stockMoved) {
     const refs = { productIds: lines.map((l) => l.productId), variationIds: lines.map((l) => l.variationId) };
     if (parsed.data.status === "CONFIRMEE" || parsed.data.status === "EXPEDIEE") {
@@ -568,12 +586,17 @@ export async function cancelOrderAction(formData: FormData): Promise<ActionResul
       if (result.count === 0) {
         throw new OrderConflictError();
       }
-      if (wasFulfilled) {
-        await returnStockForOrder(tx, parsed.data.id, lines, user.id, parsed.data.reason ?? "Commande annulée");
-      } else if (orderHoldsReservation(existing.status)) {
-        // Only a CONFIRMEE/EN_PREPARATION order holds a reservation to
-        // release — a NOUVELLE one never reserved anything (docs/adr/0030).
-        await releaseStockForOrder(tx, parsed.data.id, lines, user.id);
+      // See updateOrderStatusAction's isInternalOrder comment — a
+      // WooCommerce/Shopify order was never in this ledger to begin with
+      // (docs/adr/0030), so cancelling one releases/returns nothing here.
+      if (existing.source === "INTERNE") {
+        if (wasFulfilled) {
+          await returnStockForOrder(tx, parsed.data.id, lines, user.id, parsed.data.reason ?? "Commande annulée");
+        } else if (orderHoldsReservation(existing.status)) {
+          // Only a CONFIRMEE/EN_PREPARATION order holds a reservation to
+          // release — a NOUVELLE one never reserved anything (docs/adr/0030).
+          await releaseStockForOrder(tx, parsed.data.id, lines, user.id);
+        }
       }
       return tx.order.findUniqueOrThrow({ where: { id: parsed.data.id } });
     });

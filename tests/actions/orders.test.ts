@@ -635,6 +635,202 @@ describe("updateOrderStatusAction — state machine", () => {
   });
 });
 
+// Audit fix (docs/adr/0030's own stated intent, never previously enforced
+// in code): "imported orders reconcile stock from the store's own numbers
+// (sync/stock.ts), untouched by this [reservation ledger]." A
+// WooCommerce/Shopify order's stock is already accounted for by that
+// separate provider pull-sync (the store reduces its own stock the moment
+// the order is paid/processing; reconcileStockFromProvider mirrors that
+// into `quantityOnHand` directly). updateOrderStatusAction/cancelOrderAction
+// used to run the internal reservation/fulfilment ledger on these orders
+// too, double-deducting the same physical units — once via the provider's
+// own reduction, once via this app's own Confirmée→Expédiée. These tests
+// cover the fix.
+describe("updateOrderStatusAction / cancelOrderAction — WooCommerce/Shopify orders never touch the internal stock ledger (docs/adr/0030 audit fix)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  async function createWooCommerceOrder(
+    productId: string,
+    customerId: string,
+    quantity: number,
+    externalId: string,
+    status: "NOUVELLE" | "EXPEDIEE" = "NOUVELLE"
+  ) {
+    return prisma.order.create({
+      data: {
+        customerId,
+        source: "WOOCOMMERCE",
+        externalId,
+        status,
+        subtotal: 100 * quantity,
+        total: 100 * quantity,
+        ...(status === "EXPEDIEE" ? { shippedAt: new Date() } : {}),
+        items: {
+          create: [
+            {
+              productId,
+              nameSnapshot: "Produit simple 01",
+              skuSnapshot: "SKU-ORD-1",
+              unitPrice: 100,
+              quantity,
+              total: 100 * quantity,
+            },
+          ],
+        },
+      },
+    });
+  }
+
+  it("does not reserve stock when confirming a WooCommerce-sourced order", async () => {
+    const { product, customer } = await seedOrderable();
+    const order = await createWooCommerceOrder(product.id, customer.id, 2, "9001");
+    await loginAsTestUser({ role: "MANAGER" });
+
+    const result = await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+    expect(result.ok).toBe(true);
+
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 10, quantityReserved: 0 });
+    expect(await prisma.inventoryMovement.count({ where: { orderId: order.id } })).toBe(0);
+  });
+
+  // Full reproduction of the reported incident: a WooCommerce order (16
+  // units) already had its stock silently pulled out of `quantityOnHand`
+  // by the provider stock sync (simulating WooCommerce's own "reduce stock
+  // on processing" behaviour, mirrored in here) BEFORE this app's own
+  // confirmation/shipment workflow ever touched it. A separate INTERNE
+  // order for 2 units ships normally in between. Under the old code,
+  // shipping the WooCommerce order then tried to deduct its 16 units a
+  // SECOND time from an on-hand pool that had already been reduced,
+  // failing with "Stock insuffisant : 13 unité(s) manquante(s)". Under the
+  // fix, shipping a WooCommerce order never touches on-hand at all.
+  it("ships a WooCommerce-sourced order without touching on-hand, even when the provider sync already reduced it (the exact reported incident)", async () => {
+    const { warehouse, product, customer } = await seedOrderable(); // onHand starts at 10
+    await prisma.inventoryItem.updateMany({ where: { warehouseId: warehouse.id, productId: product.id }, data: { quantityOnHand: 21 } });
+
+    // Simulates the WooCommerce product/stock pull-sync already having
+    // mirrored the store's own native stock reduction for this order's 16
+    // units (21 -> 5) — independent of, and before, this app's own order
+    // workflow ever runs.
+    await prisma.inventoryItem.updateMany({ where: { warehouseId: warehouse.id, productId: product.id }, data: { quantityOnHand: 5 } });
+
+    // A separate, purely internal order for 2 units ships normally.
+    await loginAsTestUser({ role: "MANAGER" });
+    const manual = await createOrderAction({
+      customerId: customer.id,
+      paymentMethod: "PAIEMENT_LIVRAISON",
+      shippingCost: 0,
+      discountTotal: 0,
+      currency: "MAD",
+      notes: "",
+      internalNotes: "",
+      shippingAddressLine1: "",
+      shippingAddressLine2: "",
+      shippingCity: "",
+      shippingRegion: "",
+      shippingCountry: "",
+      shippingPhone: "",
+      items: [{ productId: product.id, quantity: 2, unitPrice: 100, discount: 0 }],
+    });
+    if (!manual.ok) throw new Error("setup failed");
+    await updateOrderStatusAction(formData({ id: manual.data.id, status: "CONFIRMEE" }));
+    await updateOrderStatusAction(formData({ id: manual.data.id, status: "EN_PREPARATION" }));
+    await updateOrderStatusAction(formData({ id: manual.data.id, status: "EXPEDIEE" }));
+    let item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityOnHand).toBe(3); // 5 - 2
+
+    // Now walk the WooCommerce order (16 units) through the same workflow.
+    const wcOrder = await createWooCommerceOrder(product.id, customer.id, 16, "9002");
+    const confirmed = await updateOrderStatusAction(formData({ id: wcOrder.id, status: "CONFIRMEE" }));
+    expect(confirmed.ok).toBe(true);
+    await updateOrderStatusAction(formData({ id: wcOrder.id, status: "EN_PREPARATION" }));
+    const shipped = await updateOrderStatusAction(formData({ id: wcOrder.id, status: "EXPEDIEE" }));
+
+    // Before the fix this failed: "Stock insuffisant : 13 unité(s) manquante(s)".
+    expect(shipped.ok).toBe(true);
+
+    item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 3, quantityReserved: 0 }); // untouched by this app's ledger
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: wcOrder.id } });
+    expect(order.status).toBe("EXPEDIEE");
+    expect(await prisma.inventoryMovement.count({ where: { orderId: wcOrder.id } })).toBe(0);
+  });
+
+  it("does not release or return stock when cancelling a WooCommerce-sourced order", async () => {
+    const { product, customer } = await seedOrderable();
+    const order = await createWooCommerceOrder(product.id, customer.id, 2, "9003");
+    await loginAsTestUser({ role: "MANAGER" });
+    await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+
+    const result = await cancelOrderAction(formData({ id: order.id, reason: "" }));
+    expect(result.ok).toBe(true);
+
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 10, quantityReserved: 0 });
+    expect(await prisma.inventoryMovement.count({ where: { orderId: order.id } })).toBe(0);
+  });
+
+  it("does not restock on-hand when a WooCommerce-sourced order is marked RETOUR", async () => {
+    const { product, customer } = await seedOrderable();
+    const order = await createWooCommerceOrder(product.id, customer.id, 2, "9004", "EXPEDIEE");
+    await loginAsTestUser({ role: "MANAGER" });
+
+    const result = await updateOrderStatusAction(formData({ id: order.id, status: "RETOUR" }));
+    expect(result.ok).toBe(true);
+
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityOnHand).toBe(10); // unchanged — this app never deducted it to begin with
+    expect(await prisma.inventoryMovement.count({ where: { orderId: order.id } })).toBe(0);
+  });
+
+  // Sanity check that the fix is scoped correctly: a purely internal order
+  // still goes through the full ledger exactly as before (covered
+  // extensively above, in "updateOrderStatusAction — state machine" — this
+  // just confirms `source` defaults to INTERNE for createOrderAction).
+  it("still reserves and fulfills stock normally for a purely internal (non-imported) order", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { orderId, product } = await createTestOrder();
+
+    await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
+    let item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 10, quantityReserved: 2 });
+
+    await updateOrderStatusAction(formData({ id: orderId, status: "EN_PREPARATION" }));
+    await updateOrderStatusAction(formData({ id: orderId, status: "EXPEDIEE" }));
+    item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 8, quantityReserved: 0 });
+  });
+
+  async function createTestOrder() {
+    const { customer, product } = await seedOrderable();
+    const created = await createOrderAction({
+      customerId: customer.id,
+      paymentMethod: "PAIEMENT_LIVRAISON",
+      shippingCost: 0,
+      discountTotal: 0,
+      currency: "MAD",
+      notes: "",
+      internalNotes: "",
+      shippingAddressLine1: "",
+      shippingAddressLine2: "",
+      shippingCity: "",
+      shippingRegion: "",
+      shippingCountry: "",
+      shippingPhone: "",
+      items: [{ productId: product.id, quantity: 2, unitPrice: 100, discount: 0 }],
+    });
+    if (!created.ok) throw new Error("setup failed");
+    return { orderId: created.data.id, product };
+  }
+});
+
 describe("updateOrderPaymentStatusAction", () => {
   beforeEach(async () => {
     await resetDb();

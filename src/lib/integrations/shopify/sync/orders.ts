@@ -28,9 +28,19 @@ import type { Prisma, OrderStatus } from "@prisma/client";
  * refreshes order-level fields (status where the transition is valid,
  * totals, customer snapshot, refund state).
  */
+export interface ImportOrderOptions {
+  /** See WooCommerce's identical option
+   * (`src/lib/integrations/woocommerce/sync/orders.ts`) — same
+   * `Integration.config.forceNouvelleOnImport` client preference, same
+   * first-time-creation-only scope, same "only CONFIRMEE is ever
+   * downgraded" rule. */
+  forceNouvelleOnFirstImport?: boolean;
+}
+
 export async function importOrder(
   order: ShopifyOrder,
-  actor: SyncActor
+  actor: SyncActor,
+  options?: ImportOrderOptions
 ): Promise<{ outcome: "imported" | "updated" | "unchanged" | "skipped"; reason?: string }> {
   const statusMapping = mapOrderStatus(order.displayFinancialStatus, order.displayFulfillmentStatus, order.cancelledAt);
   if (!statusMapping.ok) {
@@ -58,8 +68,11 @@ export async function importOrder(
     return updateExistingOrder(existing.id, order, statusMapping.status, actor);
   }
 
+  const forcedToNouvelle = Boolean(options?.forceNouvelleOnFirstImport) && statusMapping.status === "CONFIRMEE";
+  const effectiveStatus: OrderStatus = forcedToNouvelle ? "NOUVELLE" : statusMapping.status;
+
   try {
-    return await createImportedOrder(order, statusMapping.status, customerId, actor);
+    return await createImportedOrder(order, effectiveStatus, customerId, actor, forcedToNouvelle ? true : undefined);
   } catch (error) {
     // Backstop for a genuine race (a webhook delivery and a concurrent
     // manual sync both importing the same new Shopify order for the first
@@ -197,7 +210,11 @@ async function createImportedOrder(
   order: ShopifyOrder,
   status: OrderStatus,
   customerId: string,
-  actor: SyncActor
+  actor: SyncActor,
+  /** True only when `forceNouvelleOnFirstImport` downgraded CONFIRMEE to
+   * NOUVELLE — recorded on the audit event so staff can see why an
+   * already-paid/processing order didn't land as Confirmée. */
+  forcedNouvelleFromConfirmee?: boolean
 ): Promise<{ outcome: "imported" }> {
   const fields = mappedOrderFields(order);
 
@@ -261,7 +278,11 @@ async function createImportedOrder(
     entityType: "Order",
     entityId: createdOrder.id,
     newValue: { total: fields.total.toString(), customerId },
-    metadata: { source: "SHOPIFY", externalId: createdOrder.externalId },
+    metadata: {
+      source: "SHOPIFY",
+      externalId: createdOrder.externalId,
+      ...(forcedNouvelleFromConfirmee ? { forcedNouvelleFromConfirmee: true } : {}),
+    },
   });
 
   // A webhook order.created is a real-time event — always alert. A manual
@@ -406,6 +427,7 @@ export async function syncOrders(
   const integration = await prisma.integration.findUniqueOrThrow({ where: { id: integrationId } });
   const config = (integration.config as Record<string, unknown> | null) ?? {};
   const startCursor = typeof config.ordersResumeCursor === "string" ? config.ordersResumeCursor : null;
+  const forceNouvelleOnFirstImport = config.forceNouvelleOnImport === true;
 
   let importedThisRun = 0;
   let fixedThisRun = 0;
@@ -450,7 +472,7 @@ export async function syncOrders(
         break;
       }
       try {
-        const { outcome, reason } = await importOrder(order, actor);
+        const { outcome, reason } = await importOrder(order, actor, { forceNouvelleOnFirstImport });
         summary[outcome]++;
         if (outcome === "imported") importedThisRun++;
         if (reason) recordNote(summary, reason);

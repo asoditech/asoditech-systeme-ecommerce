@@ -68,7 +68,7 @@ export default async function ConfirmationPerformancePage({
         }
       />
 
-      <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard label="Confirmées" value={String(totals.confirmed)} icon={PhoneCall} tone="primary" />
         <KpiCard label="Livrées" value={String(totals.delivered)} icon={CheckCircle2} tone="success" />
         <KpiCard

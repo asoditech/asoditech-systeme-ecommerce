@@ -46,14 +46,14 @@ export function KpiCard({
           <p className="truncate text-sm text-muted-foreground">{label}</p>
           {value === null ? (
             <>
-              <p className="text-lg font-medium text-muted-foreground">
+              <p className="line-clamp-2 text-base font-medium text-muted-foreground sm:text-lg">
                 {unavailableReason ?? "Données indisponibles"}
               </p>
               {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
             </>
           ) : (
             <>
-              <p className="text-2xl font-semibold tracking-tight">{value}</p>
+              <p className="truncate text-2xl font-semibold tracking-tight">{value}</p>
               {(hint || trend) && (
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   {trend && (

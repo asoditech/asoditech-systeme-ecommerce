@@ -9,12 +9,12 @@ import { mockCookieStore } from "../mocks/cookie-store";
 
 const WEBHOOK_SECRET = "test-webhook-secret";
 
-async function seedIntegration() {
+async function seedIntegration(configOverrides: Record<string, unknown> = {}) {
   return prisma.integration.create({
     data: {
       provider: "WOOCOMMERCE",
       status: "CONNECTE",
-      config: { siteUrl: "https://example.com" },
+      config: { siteUrl: "https://example.com", ...configOverrides },
       credentialsEncrypted: encryptSecret(
         JSON.stringify({ apiKey: "ck_x", apiSecret: "cs_x", webhookSecret: WEBHOOK_SECRET })
       ),
@@ -139,6 +139,33 @@ describe("POST /api/webhooks/woocommerce", () => {
     // notified, no one excepted.
     const notification = await prisma.notification.findFirstOrThrow({ where: { userId: staff.id } });
     expect(notification.type).toBe("NOUVELLE_COMMANDE");
+  });
+
+  it("forces a first-time import to NOUVELLE when forceNouvelleOnImport is enabled, even for a 'processing' order", async () => {
+    await seedIntegration({ forceNouvelleOnImport: true });
+    const body = orderPayload();
+    const response = await POST(
+      request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "d-force-nouvelle" })
+    );
+    expect(response.status).toBe(200);
+
+    const order = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
+    expect(order.status).toBe("NOUVELLE");
+
+    const audit = await prisma.auditEvent.findFirstOrThrow({ where: { action: "order.created", entityId: order.id } });
+    expect((audit.metadata as Record<string, unknown>).forcedNouvelleFromWcStatus).toBe("processing");
+  });
+
+  it("does not force NOUVELLE when forceNouvelleOnImport is disabled (default)", async () => {
+    await seedIntegration();
+    const body = orderPayload();
+    const response = await POST(
+      request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "d-no-force" })
+    );
+    expect(response.status).toBe(200);
+
+    const order = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
+    expect(order.status).toBe("CONFIRMEE");
   });
 
   it("rejects an invalid signature with 401 and creates no order", async () => {

@@ -100,9 +100,15 @@ export const NAV_GROUPS: NavGroup[] = [
 export function SidebarNav({
   permissions,
   onNavigate,
+  collapsed = false,
 }: {
   permissions: Set<Permission>;
   onNavigate?: () => void;
+  /** Icon-only mode for the desktop sidebar (docs — sidebar collapse
+   * toggle). Never passed by `MobileNav`'s drawer — a temporary overlay
+   * has no reason to hide its own labels. Purely visual: every href,
+   * permission, and active-state rule below is unchanged. */
+  collapsed?: boolean;
 }) {
   const pathname = usePathname();
   // Every nav href, so a parent (e.g. /livraison) doesn't stay highlighted
@@ -117,9 +123,11 @@ export function SidebarNav({
     <nav className="flex flex-col gap-4 p-3">
       {groups.map((group) => (
         <div key={group.label} className="flex flex-col gap-0.5">
-          <p className="px-2.5 pb-1 text-[0.65rem] font-semibold tracking-wider text-sidebar-foreground/45 uppercase">
-            {group.label}
-          </p>
+          {!collapsed && (
+            <p className="px-2.5 pb-1 text-[0.65rem] font-semibold tracking-wider text-sidebar-foreground/45 uppercase">
+              {group.label}
+            </p>
+          )}
           {group.items.map((item) => {
             const isActive =
               pathname === item.href ||
@@ -136,8 +144,10 @@ export function SidebarNav({
                 key={item.href}
                 href={item.href}
                 onClick={onNavigate}
+                title={collapsed ? item.label : undefined}
                 className={cn(
-                  "relative flex items-center gap-2.5 rounded-md py-1.5 pr-2.5 pl-3.5 text-sm font-medium transition-colors",
+                  "relative flex items-center gap-2.5 rounded-md py-1.5 text-sm font-medium transition-colors",
+                  collapsed ? "justify-center px-2" : "pr-2.5 pl-3.5",
                   isActive
                     ? "bg-sidebar-primary/12 text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -147,7 +157,7 @@ export function SidebarNav({
                   <span className="absolute inset-y-1 left-0 w-[3px] rounded-full bg-sidebar-primary" />
                 )}
                 <Icon className={cn("size-4 shrink-0", isActive && "text-sidebar-primary")} />
-                <span className="truncate">{item.label}</span>
+                {!collapsed && <span className="truncate">{item.label}</span>}
               </Link>
             );
           })}
