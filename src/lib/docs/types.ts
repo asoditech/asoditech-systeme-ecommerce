@@ -23,6 +23,7 @@ export type DocCategoryId =
   | "utilisateurs"
   | "sauvegarde"
   | "parametres"
+  | "abonnement"
   | "troubleshooting";
 
 export type CalloutTone = "info" | "warning" | "success" | "danger";

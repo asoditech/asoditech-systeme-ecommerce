@@ -6,7 +6,8 @@ import {
   setWarehouseActiveAction,
 } from "@/actions/warehouses";
 import { adjustInventoryAction } from "@/actions/inventory";
-import { resetDb } from "../helpers/db";
+import { changeTenantPlanAction } from "@/actions/plans";
+import { resetDb, DEFAULT_TENANT_ID } from "../helpers/db";
 import { loginAsTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 
@@ -148,5 +149,65 @@ describe("warehouse CRUD actions", () => {
       );
       expect(r).toMatchObject({ ok: false });
     });
+  });
+});
+
+describe("createWarehouseAction — plan limit enforcement (docs/adr/0035 'Limit behaviour')", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  it("blocks creating a warehouse beyond the BUSINESS plan's limit (3 active warehouses), with a friendly upgrade message", async () => {
+    await loginAsTestUser({ role: "OWNER" });
+    // resetDb's bootstrap tenant already has its one default warehouse.
+    const existing = await prisma.warehouse.count();
+    for (let i = existing; i < 3; i++) {
+      const r = await createWarehouseAction(formData({ name: `Entrepôt ${i}`, type: "ENTREPOT" }));
+      expect(r.ok).toBe(true);
+    }
+
+    const overLimit = await createWarehouseAction(formData({ name: "Un de trop", type: "ENTREPOT" }));
+    expect(overLimit.ok).toBe(false);
+    if (!overLimit.ok) {
+      expect(overLimit.error).toMatch(/forfait/i);
+      expect(overLimit.error).toMatch(/3/);
+    }
+
+    // Nothing was half-created.
+    expect(await prisma.warehouse.count({ where: { isActive: true } })).toBe(3);
+  });
+
+  it("never lets two concurrent createWarehouseAction calls both slip past the limit", async () => {
+    await loginAsTestUser({ role: "OWNER" });
+    const existing = await prisma.warehouse.count();
+    for (let i = existing; i < 2; i++) {
+      await createWarehouseAction(formData({ name: `Entrepôt ${i}`, type: "ENTREPOT" }));
+    }
+
+    const results = await Promise.all([
+      createWarehouseAction(formData({ name: "Concurrent A", type: "ENTREPOT" })),
+      createWarehouseAction(formData({ name: "Concurrent B", type: "ENTREPOT" })),
+    ]);
+    const succeeded = results.filter((r) => r.ok);
+    expect(succeeded.length).toBe(1);
+    expect(await prisma.warehouse.count({ where: { isActive: true } })).toBe(3);
+  });
+
+  it("a PRO tenant can create up to 10 active warehouses", async () => {
+    await loginAsTestUser({ role: "OWNER", isPlatformAdmin: true });
+    await changeTenantPlanAction(formData({ tenantId: DEFAULT_TENANT_ID, planCode: "PRO" }));
+
+    const existing = await prisma.warehouse.count();
+    for (let i = existing; i < 10; i++) {
+      const r = await createWarehouseAction(formData({ name: `Entrepôt ${i}`, type: "ENTREPOT" }));
+      expect(r.ok).toBe(true);
+    }
+    const overLimit = await createWarehouseAction(formData({ name: "Un de trop", type: "ENTREPOT" }));
+    expect(overLimit.ok).toBe(false);
   });
 });

@@ -35,6 +35,11 @@ export async function resetDb() {
     await tx.invitation.deleteMany();
     // Support & Help Center: support_tickets has a RESTRICT fk to tenants.
     await tx.supportTicket.deleteMany();
+    // Plans/Entitlements/Usage (docs/adr/0035): both have a RESTRICT fk to
+    // tenants. `plan` itself is a GLOBAL catalogue (no tenantId) — never
+    // wiped here, seeded once by its own migration and left alone.
+    await tx.usageAlertState.deleteMany();
+    await tx.tenantSubscription.deleteMany();
     await tx.notification.deleteMany();
     await tx.webhookEvent.deleteMany();
     await tx.syncRun.deleteMany();
@@ -86,5 +91,18 @@ export async function resetDb() {
     where: { id: DEFAULT_TENANT_ID },
     update: { nextOrderNumber: 1, nextTransferNumber: 1, nextStocktakeNumber: 1 },
     create: { id: DEFAULT_TENANT_ID, name: "ASODITECH", slug: "default" },
+  });
+
+  // Every tenant always has exactly one subscription row (docs/adr/0035) —
+  // resetDb() just wiped tenant_subscriptions above, so the bootstrap
+  // tenant needs one recreated, same BUSINESS/ACTIVE default its own
+  // migration seeds for a fresh install. `plans` itself is never wiped
+  // (global catalogue, seeded once by its migration), so it's always
+  // there to look up.
+  const businessPlan = await prisma.plan.findUniqueOrThrow({ where: { code: "BUSINESS" } });
+  await prisma.tenantSubscription.upsert({
+    where: { tenantId: DEFAULT_TENANT_ID },
+    update: { planId: businessPlan.id, status: "ACTIVE" },
+    create: { tenantId: DEFAULT_TENANT_ID, planId: businessPlan.id, status: "ACTIVE" },
   });
 }

@@ -10,6 +10,8 @@ import { importOrder, importProduct } from "@/lib/integrations/woocommerce/sync"
 import { wcOrderSchema, wcProductSchema } from "@/lib/integrations/woocommerce/types";
 import { loadWooCommerceClient } from "@/lib/integrations/woocommerce/client-loader";
 import { recordWebhookEventOnce } from "@/lib/integrations/shared";
+import { getTenantUsage } from "@/lib/entitlements/usage";
+import { checkAndNotifyUsageThreshold } from "@/lib/entitlements/alerts";
 
 /**
  * WooCommerce webhook receiver — the only route in this app authenticated
@@ -293,6 +295,10 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
   try {
     await importOrder(parsed.data, { type: "INTEGRATION" });
     revalidateAfterImport("order");
+    // Soft, informational only (docs/adr/0035) — a webhook-imported order
+    // is never rejected or delayed because of a plan's order limit.
+    const usage = await getTenantUsage(integration.tenantId);
+    await checkAndNotifyUsageThreshold(integration.tenantId, "ORDERS", usage.orders);
     const outcome = await recordWebhookEventOnce({
       integrationId: integration.id,
       provider: "WOOCOMMERCE",

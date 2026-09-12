@@ -19,6 +19,7 @@ export const ROLE_PATHS: RolePath[] = [
       "livraison/transporteurs",
       "finance/rentabilite",
       "rapports/ventes",
+      "abonnement/comprendre-votre-forfait",
     ],
   },
   {
@@ -33,6 +34,7 @@ export const ROLE_PATHS: RolePath[] = [
       "livraison/transporteurs",
       "finance/rentabilite",
       "rapports/ventes",
+      "abonnement/comprendre-votre-forfait",
     ],
   },
   {

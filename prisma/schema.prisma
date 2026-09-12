@@ -109,8 +109,166 @@ model Tenant {
   googleDriveConnection     GoogleDriveConnection?
   googleOAuthStates         GoogleOAuthState[]
   supportTickets            SupportTicket[]
+  subscription              TenantSubscription?
+  usageAlertStates          UsageAlertState[]
 
   @@map("tenants")
+}
+
+// ---------------------------------------------------------------------------
+// Plans, Subscriptions & Usage — the platform commercial layer.
+// See docs/adr/0035-plans-entitlements-usage.md.
+//
+// `Plan` is a GLOBAL catalogue — deliberately NOT tenant-scoped, exactly
+// like `Tenant` itself carries no `tenantId`. The tenant-isolation Prisma
+// Client Extension (src/lib/tenant/extension.ts) only touches models that
+// declare a `tenantId` field (discovered from the DMMF, docs/adr/0024) —
+// `Plan` has none, so it is read/written unscoped everywhere, by
+// construction, with no special-casing needed anywhere in that stack.
+// `TenantSubscription` and `UsageAlertState` DO carry `tenantId` and get
+// the identical RLS treatment as every other tenant-scoped table
+// (docs/adr/0026) in their migration.
+// ---------------------------------------------------------------------------
+
+// Two commercial plans exist today. CUSTOM is reserved for a future
+// per-client negotiated/enterprise plan — modeled so the architecture
+// doesn't need to change when that plan is introduced, but deliberately
+// never assigned, exposed in `/platform/plans`, or offered anywhere today
+// (see the task brief: "do not expose or implement an Enterprise
+// commercial plan now").
+enum PlanCode {
+  BUSINESS
+  PRO
+  CUSTOM
+}
+
+// The centralized plan/entitlement definition — the single place prices,
+// limits and feature access are declared. Nothing in the application code
+// should ever hardcode a price, a limit number, or `if (plan === "PRO")`;
+// every check goes through src/lib/entitlements/*, which reads this row.
+model Plan {
+  id        String   @id @default(cuid())
+  code      PlanCode @unique
+  name      String
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+
+  // One-time setup fee and recurring monthly fee, in MAD. Informational
+  // only — no payment processor is integrated (see the entitlements
+  // module's own doc comment). Shown to the client and to platform
+  // admins; never used to actually charge anyone yet.
+  installationPriceMad Decimal @db.Decimal(12, 2)
+  monthlyPriceMad      Decimal @db.Decimal(12, 2)
+
+  // Numeric resource caps. `null` = unlimited — never null for BUSINESS or
+  // PRO today (both are always given a real number), reserved for a
+  // future CUSTOM/enterprise plan that genuinely has no cap.
+  maxOrdersPerMonth Int?
+  maxUsers          Int?
+  maxWarehouses     Int?
+
+  // Feature entitlements as flat JSON — `{ [FeatureKey]: boolean | "standard" | "advanced" }`
+  // — rather than one boolean column per feature, so the catalogue in
+  // src/lib/entitlements/catalogue.ts can grow without a migration each
+  // time (the same reasoning as `Integration.config`). Validated against
+  // a fixed Zod schema in code, never trusted as arbitrary JSON at the
+  // call site.
+  features Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscriptions TenantSubscription[]
+
+  @@map("plans")
+}
+
+// Deliberately separate from `Tenant.status` (ACTIVE/SUSPENDED,
+// docs/adr/0027) — that flag is the hard login/access gate; this is a
+// commercial/billing state that does NOT by itself block anything. A
+// tenant can be `Tenant.status = ACTIVE` while `SubscriptionStatus =
+// PAST_DUE` — a platform admin decides separately, as a deliberate
+// action, whether that warrants suspension. No payment processor drives
+// this today: every transition here is a manual platform-admin action
+// (src/actions/plans.ts), but the shape is ready for a future Stripe
+// webhook to drive the same states without a redesign.
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+// One row per tenant (`@unique tenantId`, same singleton-per-tenant
+// convention as `BusinessSettings`) — a tenant's current plan assignment
+// and billing state. `provisionTenantBaseline` (src/lib/tenant/provision.ts)
+// creates this alongside the rest of a new tenant's baseline, defaulted to
+// BUSINESS/ACTIVE, so every tenant always has exactly one subscription row
+// — there is no "no plan assigned" state to handle throughout the app.
+model TenantSubscription {
+  id       String @id @default(cuid())
+  tenantId String @unique @default("default")
+  planId   String
+
+  status SubscriptionStatus @default(ACTIVE)
+  // When the tenant started on its CURRENT plan — reset on a plan change,
+  // untouched by a mere status change (e.g. ACTIVE -> PAST_DUE).
+  currentPlanSince DateTime  @default(now())
+  // Set only while status = TRIALING. Purely informational today — no
+  // automated job reads this to expire a trial (docs/adr "no fake cron").
+  trialEndsAt      DateTime?
+  // Set when status moves to CANCELED. Never triggers data deletion —
+  // see docs/adr/0035 "Plan change safety."
+  canceledAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  plan   Plan   @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([planId])
+  @@map("tenant_subscriptions")
+}
+
+// The three metered resources with a defined "period" (docs/adr/0035
+// "Usage metering"). ORDERS is monthly-recurring; USERS/WAREHOUSES are
+// point-in-time headcounts against a seat/capacity limit, not a monthly
+// quantity — `UsageAlertState.period` uses the literal `"current"` for
+// those two rather than a calendar month (see that model's own comment).
+enum UsageMetric {
+  ORDERS
+  USERS
+  WAREHOUSES
+}
+
+// Durable de-duplication state for usage-threshold alerts (docs/adr/0035
+// "Alerts"). No background job/cron system exists anywhere in this
+// codebase (confirmed repo-wide) — alerts are computed request-driven, at
+// the moment usage actually changes, mirroring the existing
+// `checkAndNotifyLowStock` precedent (docs/adr/0016). One row per
+// (tenant, metric, period); `highestThresholdNotified` is only ever
+// advanced when the newly-computed usage status is MORE severe than what
+// is already stored here, which is what makes a page refresh or an
+// unrelated write in the same period a no-op instead of a repeat alert.
+model UsageAlertState {
+  id       String      @id @default(cuid())
+  tenantId String      @default("default")
+  metric   UsageMetric
+  // "YYYY-MM" for ORDERS (the calendar month this row tracks); the
+  // literal string "current" for USERS/WAREHOUSES, which have no period.
+  period   String
+
+  // 80 | 90 | 100 — the highest threshold already notified for this
+  // (tenant, metric, period).
+  highestThresholdNotified Int
+  updatedAt                DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, metric, period])
+  @@index([tenantId])
+  @@map("usage_alert_states")
 }
 
 // ---------------------------------------------------------------------------
@@ -1038,6 +1196,10 @@ model Order {
   @@index([confirmationAgentId])
   @@index([tenantId])
   @@index([status, lastConfirmationAttemptAt])
+  // Covers the monthly-order-usage count (src/lib/entitlements/usage.ts) —
+  // one indexed range scan per tenant per period instead of a full-table
+  // scan, regardless of how many other tenants' orders exist.
+  @@index([tenantId, placedAt])
   @@map("orders")
 }
 
@@ -1805,6 +1967,9 @@ enum NotificationType {
   ECHEC_SYNCHRONISATION
   // A user reported a problem from the support widget (src/actions/support.ts).
   SUPPORT_TICKET
+  // A tenant's usage crossed an 80/90/100% threshold for a metered
+  // resource (src/lib/entitlements/alerts.ts, docs/adr/0035).
+  USAGE_LIMIT_ALERT
 }
 
 // Per-user, in-app alert about a business event the recipient is

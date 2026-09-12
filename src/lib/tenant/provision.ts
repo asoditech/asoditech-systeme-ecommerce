@@ -38,6 +38,7 @@ export interface TenantBaselineResult {
   warehouseCreated: boolean;
   businessSettingsCreated: boolean;
   expenseCategoriesCreated: number;
+  subscriptionCreated: boolean;
 }
 
 /**
@@ -61,6 +62,7 @@ export async function provisionTenantBaseline(
       warehouseCreated: false,
       businessSettingsCreated: false,
       expenseCategoriesCreated: 0,
+      subscriptionCreated: false,
     };
 
     const existingDefaultWarehouse = await prisma.warehouse.findFirst({ where: { isDefault: true } });
@@ -85,6 +87,21 @@ export async function provisionTenantBaseline(
         await prisma.expenseCategory.create({ data: { name, isSystem: true } });
         result.expenseCategoriesCreated++;
       }
+    }
+
+    // Every tenant always has exactly one subscription row (docs/adr/0035)
+    // — defaults to BUSINESS/ACTIVE, a safe, reversible starting point a
+    // platform admin can change per tenant at any time via
+    // /platform/plans. `Plan` is a global catalogue (no tenantId), so it
+    // passes through the tenant extension untouched regardless of which
+    // tenant is active here — same as any `prisma.tenant.*` call.
+    const existingSubscription = await prisma.tenantSubscription.findFirst();
+    if (!existingSubscription) {
+      const businessPlan = await prisma.plan.findUniqueOrThrow({ where: { code: "BUSINESS" } });
+      await prisma.tenantSubscription.create({
+        data: { planId: businessPlan.id, status: "ACTIVE" },
+      });
+      result.subscriptionCreated = true;
     }
 
     return result;

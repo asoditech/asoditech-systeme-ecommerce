@@ -12,6 +12,8 @@ import { loadWooCommerceClient as loadWooCommerceClientOrNull } from "@/lib/inte
 import { syncCategories, syncProducts, syncOrders, pushStockToWooCommerce } from "@/lib/integrations/woocommerce/sync";
 import type { SyncSummary } from "@/lib/integrations/woocommerce/sync";
 import { notifyConnectionError, notifySyncFailure } from "@/lib/notifications";
+import { getTenantUsage } from "@/lib/entitlements/usage";
+import { checkAndNotifyUsageThreshold } from "@/lib/entitlements/alerts";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import type { SyncDirection, SyncRunStatus } from "@prisma/client";
 import type { CurrentUser } from "@/lib/auth/session";
@@ -223,9 +225,17 @@ export async function syncWooCommerceOrdersAction(): Promise<ActionResult<{ summ
   // limit. A large first backfill completes over several runs, which the
   // client re-invokes automatically while summary.hasMore is true. See
   // docs/adr/0010-woocommerce-integration.md.
-  return runSync(user, integration.id, "COMMANDES", "IMPORT", () =>
+  const result = await runSync(user, integration.id, "COMMANDES", "IMPORT", () =>
     syncOrders(client, { type: "USER", userId: user.id }, integration.id)
   );
+  // Soft, informational only (docs/adr/0035) — a bulk import never fails
+  // or is throttled because of a plan's order limit; checked once per
+  // sync run rather than per imported order to stay cheap.
+  if (result.ok) {
+    const usage = await getTenantUsage(user.tenantId);
+    await checkAndNotifyUsageThreshold(user.tenantId, "ORDERS", usage.orders);
+  }
+  return result;
 }
 
 export async function pushWooCommerceStockAction(): Promise<ActionResult<{ summary: SyncSummary }>> {

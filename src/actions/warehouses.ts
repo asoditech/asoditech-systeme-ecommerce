@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
+import { requireEntitlement, withSeatLimit, PlanLimitReachedError, EntitlementDeniedError } from "@/lib/entitlements/checks";
+import { checkAndNotifyUsageThreshold } from "@/lib/entitlements/alerts";
+import { getTenantUsage } from "@/lib/entitlements/usage";
 import {
   createWarehouseSchema,
   updateWarehouseSchema,
@@ -27,6 +30,16 @@ function normalizeOptional(value: string | null | undefined): string | null {
   return value && value.trim().length > 0 ? value.trim() : null;
 }
 
+/**
+ * A deliberate, manual "add a warehouse" admin action — this is exactly
+ * the case docs/adr/0035 says to hard-block server-side, at the actual
+ * write path, once the plan's `maxWarehouses` is reached. `withSeatLimit`
+ * locks the tenant row and re-counts inside one transaction, so two
+ * concurrent creates can never both slip past the limit. This does NOT
+ * apply to warehouses a Shopify Location sync creates automatically
+ * (`src/lib/integrations/shopify/sync/locations.ts`) — see that file's
+ * own comment for why an external sync is never blocked by a plan limit.
+ */
 export async function createWarehouseAction(formData: FormData): Promise<ActionResult<IdResult>> {
   const user = await requirePermissionForAction("warehouses.manage");
 
@@ -39,27 +52,47 @@ export async function createWarehouseAction(formData: FormData): Promise<ActionR
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
 
-  const warehouse = await prisma.warehouse.create({
-    data: {
-      name: parsed.data.name,
-      type: parsed.data.type,
-      address: normalizeOptional(parsed.data.address),
-      createdById: user.id,
-    },
-  });
+  try {
+    await requireEntitlement(user.tenantId, "warehouses");
 
-  await recordAuditEvent({
-    actorType: "USER",
-    actorUserId: user.id,
-    action: "warehouse.created",
-    entityType: "Warehouse",
-    entityId: warehouse.id,
-    newValue: { name: warehouse.name, type: warehouse.type },
-  });
+    const warehouse = await withSeatLimit(user.tenantId, "warehouses", (tx) =>
+      tx.warehouse.create({
+        data: {
+          name: parsed.data.name,
+          type: parsed.data.type,
+          address: normalizeOptional(parsed.data.address),
+          createdById: user.id,
+        },
+      })
+    );
 
-  revalidatePath("/entrepots");
-  revalidatePath("/stock");
-  return actionOk({ id: warehouse.id });
+    await recordAuditEvent({
+      actorType: "USER",
+      actorUserId: user.id,
+      action: "warehouse.created",
+      entityType: "Warehouse",
+      entityId: warehouse.id,
+      newValue: { name: warehouse.name, type: warehouse.type },
+    });
+
+    const usage = await getTenantUsage(user.tenantId);
+    await checkAndNotifyUsageThreshold(user.tenantId, "WAREHOUSES", usage.warehouses);
+
+    revalidatePath("/entrepots");
+    revalidatePath("/stock");
+    return actionOk({ id: warehouse.id });
+  } catch (error) {
+    if (error instanceof PlanLimitReachedError) {
+      return actionError(
+        `Votre forfait est limité à ${error.limit} entrepôt${error.limit > 1 ? "s" : ""} actif${error.limit > 1 ? "s" : ""} ` +
+          `(${error.current}/${error.limit} déjà utilisés). Passez à un forfait supérieur pour en ajouter.`
+      );
+    }
+    if (error instanceof EntitlementDeniedError) {
+      return actionError("Cette fonctionnalité n'est pas incluse dans votre forfait actuel.");
+    }
+    throw error;
+  }
 }
 
 export async function updateWarehouseAction(formData: FormData): Promise<ActionResult<IdResult>> {

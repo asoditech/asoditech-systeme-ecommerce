@@ -18,7 +18,8 @@ export type AuditCategory =
   | "marketing"
   | "integrations"
   | "utilisateurs"
-  | "parametres";
+  | "parametres"
+  | "abonnement";
 
 export const AUDIT_CATEGORY_LABELS: Record<AuditCategory, string> = {
   commandes: "Commandes",
@@ -30,6 +31,7 @@ export const AUDIT_CATEGORY_LABELS: Record<AuditCategory, string> = {
   integrations: "Intégrations",
   utilisateurs: "Utilisateurs",
   parametres: "Paramètres",
+  abonnement: "Abonnement & forfait",
 };
 
 interface AuditActionMeta {
@@ -130,6 +132,13 @@ const AUDIT_ACTION_META: Record<string, AuditActionMeta> = {
   "warehouse.created": { label: "Entrepôt créé", category: "produits_stock" },
   "warehouse.deactivated": { label: "Entrepôt désactivé", category: "produits_stock" },
   "warehouse.updated": { label: "Entrepôt modifié", category: "produits_stock" },
+  "plan.assigned": { label: "Forfait attribué", category: "abonnement" },
+  "plan.changed": { label: "Forfait modifié", category: "abonnement" },
+  "subscription.activated": { label: "Abonnement activé", category: "abonnement" },
+  "subscription.suspended": { label: "Abonnement suspendu", category: "abonnement" },
+  "subscription.canceled": { label: "Abonnement résilié", category: "abonnement" },
+  "usage.threshold_reached": { label: "Seuil d'utilisation atteint", category: "abonnement" },
+  "upgrade.requested": { label: "Mise à niveau demandée", category: "abonnement" },
 };
 
 /** A plain-French phrase for an action code — never the raw dev code,
@@ -184,6 +193,8 @@ export const AUDIT_ENTITY_LABELS: Record<string, string> = {
   User: "Utilisateur",
   Settings: "Paramètres",
   SupportTicket: "Problème signalé",
+  Tenant: "Espace de travail",
+  TenantSubscription: "Abonnement",
 };
 
 export function humanizeAuditEntity(entityType: string): string {

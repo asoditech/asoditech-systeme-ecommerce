@@ -1007,3 +1007,69 @@ describe("refunds", () => {
     expect(second.ok).toBe(true);
   });
 });
+
+describe("createOrderAction — RBAC and entitlement are independent, both required (docs/adr/0035)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  const orderInput = (customerId: string, productId: string) => ({
+    customerId,
+    paymentMethod: "PAIEMENT_LIVRAISON" as const,
+    shippingCost: 0,
+    discountTotal: 0,
+    currency: "MAD",
+    notes: "",
+    internalNotes: "",
+    shippingAddressLine1: "",
+    shippingAddressLine2: "",
+    shippingCity: "",
+    shippingRegion: "",
+    shippingCountry: "",
+    shippingPhone: "",
+    items: [{ productId, quantity: 1, unitPrice: 100, discount: 0 }],
+  });
+
+  it("hasPermission(user, 'orders.create') fails first, regardless of the tenant's plan — a WAREHOUSE role is rejected even on a fully-entitled BUSINESS plan", async () => {
+    const { customer, product } = await seedOrderable();
+    await loginAsTestUser({ role: "WAREHOUSE" }); // no orders.create permission
+    await expect(createOrderAction(orderInput(customer.id, product.id))).rejects.toThrow(/non autorisé/i);
+  });
+
+  it("checkEntitlement(tenant, 'orders') fails even when RBAC passes — a permitted role on a plan that lacks the feature is still refused", async () => {
+    const { prismaBase } = await import("@/lib/prisma");
+    const { customer, product } = await seedOrderable();
+    const user = await loginAsTestUser({ role: "OWNER" }); // has orders.create
+
+    const plan = await prismaBase.plan.findUniqueOrThrow({ where: { code: "BUSINESS" } });
+    const originalFeatures = plan.features;
+    try {
+      await prismaBase.plan.update({
+        where: { id: plan.id },
+        data: { features: { ...(originalFeatures as object), orders: false } },
+      });
+
+      const result = await createOrderAction(orderInput(customer.id, product.id));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/forfait/i);
+
+      // Confirm RBAC alone (the user's role) is unaffected — the same user
+      // is still refused purely by entitlement, not by a permission change.
+      expect(user.role).toBe("OWNER");
+    } finally {
+      await prismaBase.plan.update({ where: { id: plan.id }, data: { features: originalFeatures as object } });
+    }
+  });
+
+  it("succeeds only when BOTH checks pass", async () => {
+    const { customer, product } = await seedOrderable();
+    await loginAsTestUser({ role: "OWNER" });
+    const result = await createOrderAction(orderInput(customer.id, product.id));
+    expect(result.ok).toBe(true);
+  });
+});

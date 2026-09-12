@@ -11,6 +11,8 @@ import { validateShopDomain } from "@/lib/integrations/shopify/ssrf";
 import { ShopifyClient } from "@/lib/integrations/shopify/client";
 import { importOrder, importProduct } from "@/lib/integrations/shopify/sync";
 import { recordWebhookEventOnce, reconcileStockFromProvider } from "@/lib/integrations/shared";
+import { getTenantUsage } from "@/lib/entitlements/usage";
+import { checkAndNotifyUsageThreshold } from "@/lib/entitlements/alerts";
 
 /**
  * Shopify webhook receiver — mirrors the WooCommerce webhook route's
@@ -340,6 +342,10 @@ async function handleShopifyWebhook(
 
     await importOrder(order, { type: "INTEGRATION" });
     revalidateAfterImport("order");
+    // Soft, informational only (docs/adr/0035) — a webhook-imported order
+    // is never rejected or delayed because of a plan's order limit.
+    const usage = await getTenantUsage(integration.tenantId);
+    await checkAndNotifyUsageThreshold(integration.tenantId, "ORDERS", usage.orders);
     const outcome = await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: orderGid, status: "TRAITE" });
     if (outcome === "recorded") {
       await recordAuditEvent({

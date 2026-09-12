@@ -43,7 +43,8 @@ async function main() {
       `  ${tenant.name} (${tenant.id}): ` +
         `warehouse ${r.warehouseCreated ? "created" : "ok"}, ` +
         `settings ${r.businessSettingsCreated ? "created" : "ok"}, ` +
-        `expense categories +${r.expenseCategoriesCreated}`
+        `expense categories +${r.expenseCategoriesCreated}, ` +
+        `subscription ${r.subscriptionCreated ? "created (BUSINESS)" : "ok"}`
     );
   }
 

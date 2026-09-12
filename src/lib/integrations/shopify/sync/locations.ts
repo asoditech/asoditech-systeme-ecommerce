@@ -45,6 +45,15 @@ export async function syncLocations(client: ShopifyClient): Promise<{ summary: S
           continue;
         }
 
+        // Deliberately NOT gated by the plan's warehouse limit
+        // (docs/adr/0035 "Limit behaviour"): this mirrors real locations
+        // the merchant already operates on Shopify — refusing to import
+        // one because of a plan limit would silently break inventory
+        // tracking for a location that genuinely exists, which is worse
+        // than a tenant temporarily running over their plan's warehouse
+        // count (visible either way on their usage page / the platform
+        // overview). The hard limit only applies to a deliberate, manual
+        // "add a warehouse" action (`createWarehouseAction`).
         const created = await prisma.warehouse.create({
           data: { name: location.name, source: "SHOPIFY", externalId: location.id, isDefault: false },
         });

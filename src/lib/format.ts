@@ -31,6 +31,15 @@ export function formatDateTime(date: Date | string): string {
   return new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" }).format(d);
 }
 
+/** "YYYY-MM" -> "septembre 2026" — the usage/billing period label
+ * (docs/adr/0035). Parsed as UTC noon to avoid a local-timezone rollover
+ * shifting the displayed month near midnight. */
+export function formatPeriodLabel(period: string): string {
+  const [year, month] = period.split("-").map(Number);
+  const d = new Date(Date.UTC(year, month - 1, 15, 12));
+  return new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" }).format(d);
+}
+
 export function formatOrderNumber(orderNumber: number, prefix = "CMD"): string {
   return `${prefix}-${orderNumber.toString().padStart(6, "0")}`;
 }

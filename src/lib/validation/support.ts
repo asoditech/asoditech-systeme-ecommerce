@@ -12,6 +12,7 @@ export const SUPPORT_TICKET_CATEGORIES = {
   finance: "Finance",
   bug: "Bug / erreur technique",
   compte: "Compte / accès",
+  upgrade: "Demande de mise à niveau",
   autre: "Autre",
 } as const;
 

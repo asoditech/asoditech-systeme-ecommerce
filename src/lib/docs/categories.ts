@@ -13,6 +13,7 @@ import {
   Shield,
   Settings,
   LifeBuoy,
+  Gauge,
   type LucideIcon,
 } from "lucide-react";
 import type { DocCategoryId } from "./types";
@@ -24,7 +25,7 @@ export interface DocCategory {
   icon: LucideIcon;
 }
 
-/** The 14 top-level sections (A–N) of the Documentation/Demo Center, in reading order. */
+/** The 15 top-level sections (A–O) of the Documentation/Demo Center, in reading order. */
 export const DOC_CATEGORIES: DocCategory[] = [
   { id: "bien-demarrer", label: "Bien démarrer", description: "Présentation, première connexion, checklist de démarrage.", icon: Rocket },
   { id: "integrations", label: "Boutique / Intégrations", description: "WooCommerce, Shopify, synchronisation, webhooks.", icon: Plug },
@@ -39,6 +40,7 @@ export const DOC_CATEGORIES: DocCategory[] = [
   { id: "utilisateurs", label: "Utilisateurs & permissions", description: "Rôles, invitations, mots de passe, accès.", icon: UserCog },
   { id: "sauvegarde", label: "Sauvegarde", description: "Backup local, Google Drive, restauration.", icon: Shield },
   { id: "parametres", label: "Paramètres", description: "Paramètres boutique et modules système.", icon: Settings },
+  { id: "abonnement", label: "Abonnement & Utilisation", description: "Forfaits Business et Pro, limites, utilisation, mise à niveau.", icon: Gauge },
   { id: "troubleshooting", label: "Résolution des problèmes", description: "Base de connaissances des erreurs et de leurs solutions.", icon: LifeBuoy },
 ];
 

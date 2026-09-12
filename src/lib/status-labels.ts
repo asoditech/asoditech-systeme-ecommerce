@@ -207,4 +207,30 @@ export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   ERREUR_INTEGRATION: "Erreur d'intégration",
   ECHEC_SYNCHRONISATION: "Échec de synchronisation",
   SUPPORT_TICKET: "Problème signalé",
+  USAGE_LIMIT_ALERT: "Utilisation du forfait",
+};
+
+export const PLAN_CODE_LABELS: Record<string, string> = {
+  BUSINESS: "Business",
+  PRO: "Pro",
+  CUSTOM: "Sur mesure",
+};
+
+export const SUBSCRIPTION_STATUS_LABELS: Record<string, StatusMeta> = {
+  TRIALING: { label: "Essai", variant: "secondary" },
+  ACTIVE: { label: "Actif", variant: "default" },
+  PAST_DUE: { label: "Paiement en retard", variant: "destructive" },
+  CANCELED: { label: "Résilié", variant: "outline" },
+};
+
+/** NORMAL/WARNING/CRITICAL/LIMIT_REACHED — the four usage states
+ * (docs/adr/0035). `Badge` has only two "colored" variants (default =
+ * brand orange, destructive = red), so CRITICAL and LIMIT_REACHED share
+ * `destructive`; the label text and the client-facing page's emoji
+ * indicators (🟢🟠🔴⚫) carry the finer distinction where it matters. */
+export const USAGE_STATUS_LABELS: Record<string, StatusMeta> = {
+  NORMAL: { label: "Normal", variant: "secondary" },
+  WARNING: { label: "Approche de la limite", variant: "default" },
+  CRITICAL: { label: "Critique", variant: "destructive" },
+  LIMIT_REACHED: { label: "Limite atteinte", variant: "destructive" },
 };

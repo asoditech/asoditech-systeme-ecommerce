@@ -239,3 +239,84 @@ describe("acceptInvitationAction", () => {
     expect(row.tokenHash).toBe(hashToken(token));
   });
 });
+
+describe("Invitation acceptance — plan seat-limit enforcement (docs/adr/0035 'Limit behaviour')", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  it("inviteUserAction gives an early warning once the tenant's active-user count reaches the BUSINESS limit (7)", async () => {
+    await loginAsTestUser({ role: "ADMIN" }); // 1 active user
+    for (let i = 0; i < 6; i++) {
+      await createTestUser({ status: "ACTIVE" });
+    } // 1 + 6 = 7/7
+
+    const result = await inviteUserAction(formData({ name: "Trop", email: "trop@test.local", role: "CONFIRMATION" }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/forfait/i);
+  });
+
+  it("acceptInvitationAction is the authoritative check: it refuses the 8th active user even if the invitation was already created", async () => {
+    const admin = await loginAsTestUser({ role: "ADMIN" }); // 1 active user
+    for (let i = 0; i < 6; i++) {
+      await createTestUser({ status: "ACTIVE" });
+    } // 1 + 6 = 7/7 — at the limit
+
+    // Simulate an invitation that was created before the tenant reached
+    // its limit (e.g. sent moments earlier) — bypass inviteUserAction's
+    // own early warning to reach acceptInvitationAction directly.
+    const { generateRawToken, hashToken: hash } = await import("@/lib/auth/tokens");
+    const rawToken = generateRawToken();
+    await prismaBase.invitation.create({
+      data: {
+        email: "eighth@test.local",
+        name: "Eighth",
+        role: "CONFIRMATION",
+        tokenHash: hash(rawToken),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        invitedById: admin.id,
+      },
+    });
+
+    mockCookieStore.clear();
+    const result = await acceptInvitationAction(undefined, formData({ token: rawToken, password: "correct-horse-battery-staple" }));
+    expect(result).toMatchObject({ ok: false });
+    if ("error" in result) expect(result.error).toMatch(/limite/i);
+
+    expect(await prismaBase.user.count({ where: { tenantId: DEFAULT_TENANT_ID, status: "ACTIVE" } })).toBe(7);
+    const noAccount = await prismaBase.user.findFirst({ where: { email: "eighth@test.local" } });
+    expect(noAccount).toBeNull();
+  });
+
+  it("never lets two concurrent invitation acceptances both slip past the seat limit", async () => {
+    await loginAsTestUser({ role: "ADMIN" }); // 1 active user
+    for (let i = 0; i < 5; i++) {
+      await createTestUser({ status: "ACTIVE" });
+    } // 1 + 5 = 6/7 — exactly one seat left
+
+    const inviteA = await inviteUserAction(formData({ name: "Race A", email: "race-a@test.local", role: "CONFIRMATION" }));
+    const inviteB = await inviteUserAction(formData({ name: "Race B", email: "race-b@test.local", role: "CONFIRMATION" }));
+    expect(inviteA.ok && inviteB.ok).toBe(true);
+    if (!inviteA.ok || !inviteB.ok) return;
+
+    mockCookieStore.clear();
+    const tokenA = tokenFromInviteUrl(inviteA.data.inviteUrl);
+    const tokenB = tokenFromInviteUrl(inviteB.data.inviteUrl);
+
+    const results = await Promise.allSettled([
+      acceptInvitationAction(undefined, formData({ token: tokenA, password: "correct-horse-battery-staple" })),
+      acceptInvitationAction(undefined, formData({ token: tokenB, password: "correct-horse-battery-staple" })),
+    ]);
+    // Exactly one accepts (and redirects, throwing RedirectSignal); the
+    // other resolves with an ok:false result (never both succeeding).
+    const redirected = results.filter((r) => r.status === "rejected" && r.reason instanceof RedirectSignal);
+    expect(redirected.length).toBe(1);
+
+    expect(await prismaBase.user.count({ where: { tenantId: DEFAULT_TENANT_ID, status: "ACTIVE" } })).toBe(7);
+  });
+});

@@ -11,6 +11,7 @@ export function SettingsNav({ canManage }: { canManage: boolean }) {
   const pathname = usePathname();
   const items = [
     { href: "/parametres", label: "Général" },
+    { href: "/parametres/abonnement", label: "Abonnement & Utilisation" },
     ...(canManage ? [{ href: "/parametres/sauvegarde", label: "Sauvegarde & Portabilité" }] : []),
   ];
   return (

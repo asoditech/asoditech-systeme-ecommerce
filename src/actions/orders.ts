@@ -23,6 +23,9 @@ import {
 import { pushStockAfterLocalChange, pushOrderPaymentToWooCommerce, pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
 import { reconcileOrderCommission } from "@/lib/commissions";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
+import { requireEntitlement, EntitlementDeniedError } from "@/lib/entitlements/checks";
+import { getTenantUsage } from "@/lib/entitlements/usage";
+import { checkAndNotifyUsageThreshold } from "@/lib/entitlements/alerts";
 import {
   createOrderSchema,
   updateOrderStatusSchema,
@@ -144,6 +147,23 @@ export async function searchProductsForOrderAction(query: string) {
 
 export async function createOrderAction(input: CreateOrderInput): Promise<ActionResult<IdResult>> {
   const user = await requirePermissionForAction("orders.create");
+
+  // hasPermission(user, "orders.create") AND checkEntitlement(tenant,
+  // "orders") — the RBAC/entitlement dual-check docs/adr/0035 names as the
+  // canonical example. Both plans include "orders" today, so this never
+  // actually blocks anyone yet, but the real enforcement point exists
+  // for the day a future plan genuinely lacks it. Orders themselves are
+  // deliberately never limited by COUNT server-side — see
+  // `checkAndNotifyUsageThreshold` below and docs/adr/0035 "Why orders
+  // are a soft limit, never blocking".
+  try {
+    await requireEntitlement(user.tenantId, "orders");
+  } catch (error) {
+    if (error instanceof EntitlementDeniedError) {
+      return actionError("Cette fonctionnalité n'est pas incluse dans votre forfait actuel.");
+    }
+    throw error;
+  }
 
   const parsed = createOrderSchema.safeParse(input);
   if (!parsed.success) {
@@ -306,6 +326,12 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
     },
     user.id
   );
+
+  // Soft, informational only — never blocks order creation (see the
+  // entitlement check above). Cheap: one indexed COUNT plus, at most, one
+  // de-duplicated notification insert.
+  const orderUsage = await getTenantUsage(user.tenantId);
+  await checkAndNotifyUsageThreshold(user.tenantId, "ORDERS", orderUsage.orders);
 
   revalidatePath("/commandes");
   return actionOk({ id: order.id });

@@ -12,6 +12,7 @@ import { rapportsArticles } from "./content/rapports";
 import { utilisateursArticles } from "./content/utilisateurs";
 import { sauvegardeArticles } from "./content/sauvegarde";
 import { parametresArticles } from "./content/parametres";
+import { abonnementArticles } from "./content/abonnement";
 import { troubleshootingArticles } from "./content/troubleshooting";
 
 /**
@@ -33,6 +34,7 @@ export const ALL_ARTICLES: DocArticle[] = [
   ...utilisateursArticles,
   ...sauvegardeArticles,
   ...parametresArticles,
+  ...abonnementArticles,
   ...troubleshootingArticles,
 ];
 
