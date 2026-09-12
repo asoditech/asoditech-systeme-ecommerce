@@ -21,6 +21,7 @@ export type AuditAction =
   | "tenant.created"
   | "tenant.activated"
   | "tenant.suspended"
+  | "tenant.deleted"
   | "tenant.baseline_provisioned"
   | "tenant.baseline_provisioning_failed"
   | "backup.created"

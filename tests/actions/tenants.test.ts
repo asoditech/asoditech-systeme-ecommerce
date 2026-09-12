@@ -4,6 +4,7 @@ import {
   createTenantAction,
   activateTenantAction,
   suspendTenantAction,
+  deleteTenantAction,
   listTenantsForPlatform,
 } from "@/actions/tenants";
 import { acceptInvitationAction } from "@/actions/invitations";
@@ -46,6 +47,9 @@ describe("createTenantAction / activateTenantAction / suspendTenantAction", () =
     ).rejects.toThrow(/non autorisé/i);
     await expect(activateTenantAction(formData({ id: DEFAULT_TENANT_ID }))).rejects.toThrow(/non autorisé/i);
     await expect(suspendTenantAction(formData({ id: DEFAULT_TENANT_ID }))).rejects.toThrow(/non autorisé/i);
+    await expect(
+      deleteTenantAction(formData({ id: DEFAULT_TENANT_ID, slugConfirmation: "default" }))
+    ).rejects.toThrow(/non autorisé/i);
   });
 
   it("a platform admin creates a tenant with a pending OWNER invitation, and it can be accepted", async () => {
@@ -157,5 +161,54 @@ describe("createTenantAction / activateTenantAction / suspendTenantAction", () =
     const ids = tenants.map((t) => t.id);
     expect(ids).toContain(DEFAULT_TENANT_ID);
     expect(ids).toContain(TENANT_B);
+  });
+});
+
+describe("deleteTenantAction", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  it("cannot delete the bootstrap tenant", async () => {
+    await loginAsTestUser({ role: "OWNER", isPlatformAdmin: true });
+    const result = await deleteTenantAction(formData({ id: DEFAULT_TENANT_ID, slugConfirmation: "default" }));
+    expect(result.ok).toBe(false);
+
+    expect(await prismaBase.tenant.findUnique({ where: { id: DEFAULT_TENANT_ID } })).not.toBeNull();
+  });
+
+  it("rejects a slug confirmation that doesn't match the tenant", async () => {
+    const TENANT_B = "tenant-b-delete-wrong-slug";
+    await prismaBase.tenant.create({ data: { id: TENANT_B, name: "Tenant B", slug: TENANT_B } });
+    await loginAsTestUser({ role: "OWNER", isPlatformAdmin: true });
+
+    const result = await deleteTenantAction(formData({ id: TENANT_B, slugConfirmation: "not-the-slug" }));
+    expect(result.ok).toBe(false);
+
+    expect(await prismaBase.tenant.findUnique({ where: { id: TENANT_B } })).not.toBeNull();
+  });
+
+  it("a platform admin deletes a tenant by typing its slug, and it is fully gone", async () => {
+    const TENANT_B = "tenant-b-delete-ok";
+    await prismaBase.tenant.create({ data: { id: TENANT_B, name: "Tenant B", slug: TENANT_B } });
+    const memberOfB = await createTestUser({ tenantId: TENANT_B, role: "ADMIN" });
+    const admin = await loginAsTestUser({ role: "OWNER", isPlatformAdmin: true });
+
+    const result = await deleteTenantAction(formData({ id: TENANT_B, slugConfirmation: TENANT_B }));
+    expect(result.ok).toBe(true);
+
+    expect(await prismaBase.tenant.findUnique({ where: { id: TENANT_B } })).toBeNull();
+    expect(await prismaBase.user.count({ where: { id: memberOfB.id } })).toBe(0);
+
+    const audit = await prismaBase.auditEvent.findFirst({
+      where: { action: "tenant.deleted", entityId: TENANT_B },
+    });
+    expect(audit).not.toBeNull();
+    expect(audit?.actorUserId).toBe(admin.id);
   });
 });

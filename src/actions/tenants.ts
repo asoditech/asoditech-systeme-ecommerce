@@ -10,8 +10,10 @@ import { recordAuditEvent } from "@/lib/audit";
 import { sendInvitationEmail } from "@/lib/email";
 import { createTenantSchema } from "@/lib/validation/tenant";
 import { provisionTenantBaseline } from "@/lib/tenant/provision";
+import { deleteTenantData, BootstrapTenantDeletionError, TenantNotFoundError } from "@/lib/tenant/delete";
+import { BOOTSTRAP_TENANT_ID } from "@/lib/tenant/resolve";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
-import { isUniqueConstraintError } from "@/lib/prisma-errors";
+import { isUniqueConstraintError, isForeignKeyConstraintError } from "@/lib/prisma-errors";
 
 /**
  * Tenant lifecycle — the `/platform` area (Phase 5, docs/adr/0027-tenant-
@@ -194,6 +196,59 @@ export async function suspendTenantAction(formData: FormData): Promise<ActionRes
     entityId: id,
     previousValue: { status: existing.status },
     newValue: { status: "SUSPENDED" },
+  });
+
+  revalidatePath("/platform");
+  return actionOk(undefined);
+}
+
+/**
+ * Irreversibly deletes a tenant and every row it owns
+ * (src/lib/tenant/delete.ts). Requires the caller to type the tenant's own
+ * slug as a confirmation — deliberately not just a checkbox, since there is
+ * no undo (no soft-delete, no trash). The bootstrap tenant is refused both
+ * here (fast, friendly error) and inside `deleteTenantData` itself (hard
+ * backstop).
+ */
+export async function deleteTenantAction(formData: FormData): Promise<ActionResult<undefined>> {
+  const actor = await requirePlatformAdminForAction();
+  const id = formData.get("id");
+  const slugConfirmation = formData.get("slugConfirmation");
+  if (typeof id !== "string" || !id) return actionError("Tenant invalide.");
+  if (typeof slugConfirmation !== "string") return actionError("Confirmation invalide.");
+  if (id === BOOTSTRAP_TENANT_ID) return actionError("Le tenant d'amorçage ne peut pas être supprimé.");
+
+  const existing = await prismaBase.tenant.findUnique({ where: { id } });
+  if (!existing) return actionError("Tenant introuvable.");
+  if (slugConfirmation.trim() !== existing.slug) {
+    return actionError("L'identifiant saisi ne correspond pas.", {
+      slugConfirmation: ["L'identifiant saisi ne correspond pas au tenant à supprimer."],
+    });
+  }
+
+  let result;
+  try {
+    result = await deleteTenantData(id);
+  } catch (error) {
+    if (error instanceof BootstrapTenantDeletionError || error instanceof TenantNotFoundError) {
+      return actionError(error.message);
+    }
+    if (isForeignKeyConstraintError(error)) {
+      return actionError(
+        "Suppression impossible : des données liées empêchent encore la suppression de ce tenant."
+      );
+    }
+    throw error;
+  }
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: actor.id,
+    action: "tenant.deleted",
+    entityType: "Tenant",
+    entityId: id,
+    previousValue: { name: existing.name, slug: existing.slug },
+    metadata: { deletedCounts: result.deletedCounts, totalDeleted: result.totalDeleted },
   });
 
   revalidatePath("/platform");

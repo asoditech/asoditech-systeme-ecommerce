@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/page-header";
 import { CreateTenantForm } from "@/components/platform/create-tenant-form";
 import { TenantRowControls } from "@/components/platform/tenant-row-controls";
 import { TenantPlanDialog } from "@/components/platform/tenant-plan-dialog";
+import { DeleteTenantButton } from "@/components/platform/delete-tenant-button";
 import { KpiCard } from "@/components/kpi-card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -97,7 +98,10 @@ export default async function PlatformPage() {
                   <TenantRowControls tenantId={row.id} status={row.tenantStatus} />
                 </TableCell>
                 <TableCell>
-                  <TenantPlanDialog tenantId={row.id} currentPlanCode={row.planCode} currentStatus={row.subscriptionStatus} />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <TenantPlanDialog tenantId={row.id} currentPlanCode={row.planCode} currentStatus={row.subscriptionStatus} />
+                    <DeleteTenantButton tenantId={row.id} tenantSlug={row.slug} tenantName={row.name} />
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
