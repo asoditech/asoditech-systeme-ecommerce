@@ -74,9 +74,20 @@ pnpm test:watch                                           # watch mode
 
 ## Deployment (Vercel)
 
-This system is deployed as **one Vercel project + one PostgreSQL database
-per client instance** (see `docs/adr/0002-domain-model.md` — isolation is
-at the deployment level, there is no `tenantId`).
+> **See `docs/CLIENT-DEPLOYMENT-RUNBOOK.md` for the current, complete
+> onboarding runbook.** The rest of this section predates
+> `docs/adr/0023` through `0027` (row-level multi-tenancy + Postgres RLS)
+> and only describes the one-deployment-per-client model below, which is
+> still fully supported but is no longer the only option — see
+> `docs/SHARED-VS-DEDICATED.md` for both models and how to choose.
+
+This system can be deployed as **one Vercel project + one PostgreSQL
+database per client instance** (see `docs/adr/0002-domain-model.md` —
+the original model, still valid: nothing prevents a deployment from
+using a single tenant forever) **or** as one shared deployment hosting
+several isolated tenants behind Postgres Row-Level Security (see
+`docs/adr/0023-multi-tenant-foundation.md` through
+`docs/adr/0027-tenant-provisioning.md`).
 
 1. **Provision a PostgreSQL database** the Vercel build and functions can
    reach (Neon, Supabase, Vercel Postgres, …).
