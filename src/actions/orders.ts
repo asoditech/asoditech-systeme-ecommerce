@@ -482,10 +482,9 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
 
   // Every one of these transitions actually moved stock — a reservation
   // or its release (any source, `quantityReserved` only) or a physical
-  // fulfilment/return/retour (INTERNE only, `quantityOnHand`) — so push
-  // the new sellable number to a linked store, and surface anything now
-  // low (reachable on CONFIRMEE and EXPEDIEE, the two that reduce what's
-  // sellable).
+  // fulfilment/return/retour (INTERNE only, `quantityOnHand`) — so surface
+  // anything now low (reachable on CONFIRMEE and EXPEDIEE, the two that
+  // reduce what's sellable).
   const reservationMoved =
     (parsed.data.status === "CONFIRMEE" && existing.status === "NOUVELLE") ||
     (parsed.data.status === "ANNULEE" && !wasFulfilled && orderHoldsReservation(existing.status)) ||
@@ -501,7 +500,19 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
     if (parsed.data.status === "CONFIRMEE" || parsed.data.status === "EXPEDIEE") {
       await checkAndNotifyLowStock(refs);
     }
-    await pushStockAfterLocalChange(refs);
+    // Only push to a linked store when THIS app actually moved
+    // `quantityOnHand` (INTERNE only — see physicalStockMoved above). A
+    // WooCommerce/Shopify order never moves `quantityOnHand` here: its own
+    // stock reduction already happened independently on the provider's
+    // side, and `quantityOnHand` is only ever refreshed by an explicit
+    // product sync (516e393), so it can be stale relative to what the
+    // provider already knows. Pushing our own (possibly stale)
+    // onHand-minus-reserved after a purely reservation-driven event
+    // silently overwrote the provider's own correct, more recent number —
+    // the exact #15623 incident this guard fixes (docs/adr/0030 addendum).
+    if (isInternalOrder) {
+      await pushStockAfterLocalChange(refs);
+    }
   }
   if (parsed.data.status === "RETOUR") {
     const customer = await prisma.customer.findUnique({ where: { id: existing.customerId }, select: { fullName: true } });
@@ -660,13 +671,18 @@ export async function cancelOrderAction(formData: FormData): Promise<ActionResul
     await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: order.id });
   }
 
-  // Cancelling put the reserved/returned units back — a linked store's
-  // displayed stock needs to reflect that too, not just this app's own —
-  // and its order should move to "cancelled".
-  await pushStockAfterLocalChange({
-    productIds: lines.map((l) => l.productId),
-    variationIds: lines.map((l) => l.variationId),
-  });
+  // Cancelling put the reserved/returned units back — but only push a
+  // linked store's displayed stock when THIS app actually owns
+  // `quantityOnHand` (INTERNE only). See updateOrderStatusAction's
+  // identical guard: a WooCommerce/Shopify order's stock was never moved
+  // here to begin with, and pushing our own possibly-stale number
+  // silently overwrote the provider's own correct one (#15623).
+  if (existing.source === "INTERNE") {
+    await pushStockAfterLocalChange({
+      productIds: lines.map((l) => l.productId),
+      variationIds: lines.map((l) => l.variationId),
+    });
+  }
   await pushOrderStatusToWooCommerce(order.id);
   // Cancelling a delivered order (LIVREE only reaches ANNULEE indirectly,
   // but a cancel from any state must undo any earned commission).

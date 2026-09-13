@@ -138,9 +138,14 @@ export async function recordConfirmationAttemptAction(
     await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: id });
     await reconcileOrderCommission(id, user.id);
   }
-  if (terminal === "CONFIRMEE") {
+  if (terminal === "CONFIRMEE" && existing.source === "INTERNE") {
     // Confirmation just reserved stock (any source now — see the guard
-    // above) — a linked store's sellable number must reflect that.
+    // above), but only push to a linked store when THIS app actually owns
+    // `quantityOnHand` (INTERNE only). A WooCommerce/Shopify order's own
+    // stock was already reduced independently on the provider's side;
+    // pushing our own possibly-stale onHand-minus-reserved here silently
+    // overwrote the provider's own correct, more recent number (#15623) —
+    // see updateOrderStatusAction's identical guard in orders.ts.
     await pushStockAfterLocalChange({
       productIds: lines.map((l) => l.productId),
       variationIds: lines.map((l) => l.variationId),

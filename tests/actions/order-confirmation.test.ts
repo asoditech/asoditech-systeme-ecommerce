@@ -1,10 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
+import { encryptSecret } from "@/lib/crypto";
 import { createOrderAction } from "@/actions/orders";
 import { recordConfirmationAttemptAction } from "@/actions/order-confirmation";
 import { resetDb } from "../helpers/db";
 import { loginAsTestUser, createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
+import { installFakeWooCommerceServer, emptyFakeStore, FAKE_STORE_URL, FAKE_CONSUMER_KEY, FAKE_CONSUMER_SECRET } from "../helpers/fake-woocommerce";
 
 function fd(fields: Record<string, string>) {
   const f = new FormData();
@@ -172,5 +174,62 @@ describe("recordConfirmationAttemptAction", () => {
 
     const res = await recordConfirmationAttemptAction(fd({ id: orderId, outcome: "PAS_DE_REPONSE" }));
     expect(res.ok).toBe(false);
+  });
+
+  // Regression coverage for order #15623 (docs/adr/0030's 2026-09-13
+  // addendum): confirming a WooCommerce-sourced order only ever moves
+  // `quantityReserved` here — the provider's own on-hand reduction already
+  // happened independently on its side. Pushing our own possibly-stale
+  // onHand-minus-reserved back to WooCommerce right after silently
+  // overwrote the provider's own correct, more recent number.
+  describe("stock push to WooCommerce at confirmation is INTERNE-only (#15623)", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    async function seedWooLinkedNouvelleOrder(qty: number, externalId: string) {
+      const warehouse = await prisma.warehouse.create({ data: { name: "Entrepôt principal", type: "ENTREPOT", isDefault: true } });
+      const product = await prisma.product.create({
+        data: { name: "T-shirt", sku: `SKU-${externalId}`, price: 100, status: "ACTIF", source: "WOOCOMMERCE", externalId, trackInventory: true },
+      });
+      await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 21 } });
+      const customer = await prisma.customer.create({ data: { fullName: "Client WC" } });
+      const order = await prisma.order.create({
+        data: {
+          customerId: customer.id,
+          source: "WOOCOMMERCE",
+          externalId,
+          status: "NOUVELLE",
+          subtotal: 100 * qty,
+          total: 100 * qty,
+          items: { create: [{ productId: product.id, nameSnapshot: "T-shirt", skuSnapshot: `SKU-${externalId}`, unitPrice: 100, quantity: qty, total: 100 * qty }] },
+        },
+      });
+      return { order, product };
+    }
+
+    async function connectFakeWooCommerce() {
+      const state = emptyFakeStore();
+      installFakeWooCommerceServer(state);
+      await prisma.integration.create({
+        data: {
+          provider: "WOOCOMMERCE",
+          status: "CONNECTE",
+          config: { siteUrl: FAKE_STORE_URL },
+          credentialsEncrypted: encryptSecret(JSON.stringify({ apiKey: FAKE_CONSUMER_KEY, apiSecret: FAKE_CONSUMER_SECRET })),
+        },
+      });
+      return state;
+    }
+
+    it("does not push stock to WooCommerce when CONFIRME reserves a WooCommerce-sourced order", async () => {
+      const { order } = await seedWooLinkedNouvelleOrder(6, "9201");
+      const state = await connectFakeWooCommerce();
+      await loginAsTestUser({ role: "CONFIRMATION" });
+
+      const res = await recordConfirmationAttemptAction(fd({ id: order.id, outcome: "CONFIRME" }));
+      expect(res.ok).toBe(true);
+      expect(state.stockUpdates).toHaveLength(0);
+    });
   });
 });

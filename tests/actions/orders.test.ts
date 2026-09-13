@@ -891,6 +891,135 @@ describe("updateOrderStatusAction / cancelOrderAction — WooCommerce/Shopify or
   }
 });
 
+// Regression coverage for order #15623: a WooCommerce order's own stock
+// reduction happens independently on the provider's side, and
+// `quantityOnHand` here is only ever refreshed by an explicit product
+// sync — so it can be stale. Pushing our own onHand-minus-reserved back
+// to WooCommerce after a purely reservation-driven event (confirm/ship/
+// cancel a provider order) silently overwrote the provider's own correct,
+// more recent number. See docs/adr/0030's 2026-09-13 addendum.
+describe("order-lifecycle stock push to WooCommerce is INTERNE-only (#15623)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+    vi.unstubAllGlobals();
+  });
+
+  async function seedWooLinkedProduct(externalId: string, onHand: number) {
+    const warehouse = await prisma.warehouse.create({
+      data: { name: "Entrepôt principal", type: "ENTREPOT", isDefault: true },
+    });
+    const product = await prisma.product.create({
+      data: { name: "T-shirt", sku: `SKU-${externalId}`, price: 100, status: "ACTIF", source: "WOOCOMMERCE", externalId, trackInventory: true },
+    });
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: onHand } });
+    const customer = await prisma.customer.create({ data: { fullName: "Client WC" } });
+    return { product, customer };
+  }
+
+  async function connectFakeWooCommerce() {
+    const state = emptyFakeStore();
+    installFakeWooCommerceServer(state);
+    await prisma.integration.create({
+      data: {
+        provider: "WOOCOMMERCE",
+        status: "CONNECTE",
+        config: { siteUrl: FAKE_STORE_URL },
+        credentialsEncrypted: encryptSecret(JSON.stringify({ apiKey: FAKE_CONSUMER_KEY, apiSecret: FAKE_CONSUMER_SECRET })),
+      },
+    });
+    return state;
+  }
+
+  async function createWooCommerceOrder(productId: string, customerId: string, quantity: number, externalId: string) {
+    return prisma.order.create({
+      data: {
+        customerId,
+        source: "WOOCOMMERCE",
+        externalId,
+        status: "NOUVELLE",
+        subtotal: 100 * quantity,
+        total: 100 * quantity,
+        items: {
+          create: [
+            { productId, nameSnapshot: "T-shirt", skuSnapshot: `SKU-${externalId}`, unitPrice: 100, quantity, total: 100 * quantity },
+          ],
+        },
+      },
+    });
+  }
+
+  it("does not push stock to WooCommerce when confirming a WooCommerce-sourced order (reservation-only)", async () => {
+    const { product, customer } = await seedWooLinkedProduct("15623", 21);
+    const state = await connectFakeWooCommerce();
+    const order = await createWooCommerceOrder(product.id, customer.id, 6, "9101");
+    await loginAsTestUser({ role: "MANAGER" });
+
+    const result = await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+    expect(result.ok).toBe(true);
+    expect(state.stockUpdates).toHaveLength(0);
+  });
+
+  it("does not push stock to WooCommerce when shipping (releasing reservation) a WooCommerce-sourced order", async () => {
+    const { product, customer } = await seedWooLinkedProduct("156232", 21);
+    const state = await connectFakeWooCommerce();
+    const order = await createWooCommerceOrder(product.id, customer.id, 6, "9102");
+    await loginAsTestUser({ role: "MANAGER" });
+
+    await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+    await updateOrderStatusAction(formData({ id: order.id, status: "EN_PREPARATION" }));
+    const shipped = await updateOrderStatusAction(formData({ id: order.id, status: "EXPEDIEE" }));
+    expect(shipped.ok).toBe(true);
+    expect(state.stockUpdates).toHaveLength(0);
+  });
+
+  it("does not push stock to WooCommerce when cancelling a confirmed WooCommerce-sourced order", async () => {
+    const { product, customer } = await seedWooLinkedProduct("156233", 21);
+    const state = await connectFakeWooCommerce();
+    const order = await createWooCommerceOrder(product.id, customer.id, 6, "9103");
+    await loginAsTestUser({ role: "MANAGER" });
+
+    await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+    const cancelled = await cancelOrderAction(formData({ id: order.id, reason: "" }));
+    expect(cancelled.ok).toBe(true);
+    expect(state.stockUpdates).toHaveLength(0);
+  });
+
+  it("still pushes stock to WooCommerce for a linked product when the order itself is INTERNE (physical stock actually moved)", async () => {
+    const { product, customer } = await seedWooLinkedProduct("156234", 21);
+    const state = await connectFakeWooCommerce();
+    await loginAsTestUser({ role: "MANAGER" });
+
+    const created = await createOrderAction({
+      customerId: customer.id,
+      paymentMethod: "PAIEMENT_LIVRAISON",
+      shippingCost: 0,
+      discountTotal: 0,
+      currency: "MAD",
+      notes: "",
+      internalNotes: "",
+      shippingAddressLine1: "",
+      shippingAddressLine2: "",
+      shippingCity: "",
+      shippingRegion: "",
+      shippingCountry: "",
+      shippingPhone: "",
+      items: [{ productId: product.id, quantity: 6, unitPrice: 100, discount: 0 }],
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    await updateOrderStatusAction(formData({ id: created.data.id, status: "CONFIRMEE" }));
+    await updateOrderStatusAction(formData({ id: created.data.id, status: "EN_PREPARATION" }));
+    const shipped = await updateOrderStatusAction(formData({ id: created.data.id, status: "EXPEDIEE" }));
+    expect(shipped.ok).toBe(true);
+    expect(state.stockUpdates.length).toBeGreaterThan(0);
+  });
+});
+
 describe("updateOrderPaymentStatusAction", () => {
   beforeEach(async () => {
     await resetDb();

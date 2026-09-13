@@ -338,3 +338,72 @@ WooCommerce's `EN_PREPARATION → ANNULEE` case; an order that was never
 confirmed is untouched) and a direct `tests/actions/orders.test.ts`
 regression for the exact reported sequence through pure ASODITECH UI
 actions only (proven already safe, and proven to stay safe).
+
+## Addendum (2026-09-13, 5th): order #15623 — a provider order's own
+## stock reduction silently overwritten back to its stale pre-order value
+
+**Reported incident.** WooCommerce order #15623 (T-shirt, size L):
+WooCommerce's own order note logged "Stock levels reduced: T-shirt – L
+(21→15)" at order placement, and the order reached "Completed" there.
+Yet the *current* WooCommerce variation stock was back at **21**, and
+ASODITECH's own dashboard also showed 21 (Réservé 0) — i.e. WooCommerce's
+own, correct, order-driven reduction had been silently reverted, with no
+corresponding WooCommerce-side note explaining the reversal.
+
+**Root cause.** Two earlier, individually-correct decisions from this
+same day combined into a third bug:
+- The reservation ledger reopened to WooCommerce/Shopify orders (this
+  ADR's very first entry, above): confirming/shipping/cancelling a
+  provider order now moves `quantityReserved` (never `quantityOnHand`)
+  through this app's own lifecycle.
+- The product-webhook stock **pull** was disabled (2026-09-13, 3rd
+  addendum, `516e393`): ASODITECH's own `quantityOnHand` for a
+  WooCommerce-linked product is now only ever refreshed by an explicit
+  "Synchroniser les produits" — never automatically. So the moment
+  WooCommerce reduces its own stock 21→15 for a real order, ASODITECH's
+  copy of `quantityOnHand` silently goes stale at 21 and stays there.
+
+Every one of the reservation-moving transitions above
+(`updateOrderStatusAction`, `cancelOrderAction`,
+`recordConfirmationAttemptAction`) unconditionally called
+`pushStockAfterLocalChange` afterward, which recomputes "sellable" as
+`quantityOnHand − quantityReserved` **from ASODITECH's own numbers** and
+pushes it to WooCommerce via `WooCommerceClient.updateStock()` — a raw
+product/variation `PUT`, bypassing WooCommerce's own order-processing
+stock-reduction hook entirely (which is why no WooCommerce order note
+ever explained the number changing back). Concretely, for #15623 (stale
+`quantityOnHand = 21`, 6 units ordered):
+- At `CONFIRMEE`: reserved 0→6, pushed `sellable = 21 − 6 = 15` — this
+  happened to numerically match WooCommerce's real, independently-reduced
+  value, purely by coincidence.
+- At `EXPEDIEE` (a provider order releases its reservation here rather
+  than fulfilling — see this ADR's very first entry): reserved 6→0,
+  pushed `sellable = 21 − 0 = 21` — **overwriting WooCommerce's correct
+  15 back up to 21.**
+
+**Fix.** The automatic push (`pushStockAfterLocalChange`) is no longer
+called from any order-lifecycle transition for a non-`INTERNE` order —
+only for an `INTERNE` order, whose `quantityOnHand` this app actually
+owns and just moved. Reservation changes on a WooCommerce/Shopify order
+no longer trigger a push at all, in `updateOrderStatusAction`,
+`cancelOrderAction`, and `recordConfirmationAttemptAction` alike. Manual
+"Pousser le stock" (`pushStockToWooCommerce`, bulk) is unaffected — an
+explicit, human-triggered push still works exactly as before. This
+mirrors, on the push side, the same principle the 3rd addendum already
+applied on the pull side: cross-provider stock reconciliation is
+manual-only, never automatic, because each side's own event stream isn't
+something the other can safely react to in real time.
+
+**Tradeoff.** A WooCommerce/Shopify-linked product that's also sold
+through another local channel ASODITECH can't see won't get its
+ASODITECH-computed "sellable" auto-pushed on a provider-order event
+anymore — only via an explicit sync or an INTERNE-side stock movement.
+Accepted as the correct, symmetric price of removing the auto-pull too.
+
+Tests: `tests/actions/orders.test.ts` ("order-lifecycle stock push to
+WooCommerce is INTERNE-only (#15623)") and
+`tests/actions/order-confirmation.test.ts` ("stock push to WooCommerce at
+confirmation is INTERNE-only (#15623)") — using the existing fake
+WooCommerce HTTP server, assert zero stock-update calls across
+confirm/ship/cancel of a WooCommerce-sourced order, and that an INTERNE
+order against the same WooCommerce-linked product still pushes normally.

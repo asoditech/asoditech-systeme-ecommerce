@@ -12,12 +12,23 @@ export interface StockChangeRefs {
 }
 
 /**
- * After a LOCAL stock mutation (manual adjustment, order fulfillment/
- * cancellation/return, a stock transfer, a stocktake close-out), pushes
- * the new sellable stock for every affected WooCommerce/Shopify-linked
- * product/variation back to its store — so "Pousser le stock" and
- * "Synchroniser les produits" become recovery/reconciliation tools, not
- * the only way the storefront ever finds out about a local change.
+ * After a LOCAL stock mutation (manual adjustment, an INTERNE order's
+ * fulfillment/cancellation/return, a stock transfer, a stocktake
+ * close-out), pushes the new sellable stock for every affected
+ * WooCommerce/Shopify-linked product/variation back to its store — so
+ * "Pousser le stock" and "Synchroniser les produits" become
+ * recovery/reconciliation tools, not the only way the storefront ever
+ * finds out about a local change.
+ *
+ * Callers on the order-lifecycle side (orders.ts, order-confirmation.ts)
+ * only invoke this for an INTERNE order's own `quantityOnHand` movement.
+ * A WooCommerce/Shopify order's `quantityReserved`-only movement (reserve
+ * at confirmation, release at cancel/expédition) must NOT reach here: the
+ * provider's own stock reduction already happened independently on its
+ * side, and `quantityOnHand` for that product is only ever refreshed by
+ * an explicit product sync, so pushing it back after a purely
+ * reservation-driven event can silently overwrite the provider's own
+ * correct, more recent number with a stale one (the #15623 incident).
  *
  * Same call convention as `checkAndNotifyLowStock` (product/variation ids,
  * not specific warehouse rows) — deliberately: WooCommerce has no
