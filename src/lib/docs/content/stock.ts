@@ -278,6 +278,13 @@ export const stockArticles: DocArticle[] = [
         solution: "Relancez une synchronisation depuis Intégrations si le délai semble anormal.",
         expectedResult: "Le stock affiché correspond à la boutique d'origine.",
       },
+      {
+        symptom: "Le stock physique (quantité en stock) d'un produit WooCommerce a diminué alors qu'aucune commande n'a été confirmée dans ASODITECH",
+        cause: "Une commande vient d'être passée sur la boutique WooCommerce sur un produit avec « Gérer le stock » activé — WooCommerce réduit alors son propre stock immédiatement, avant toute confirmation côté ASODITECH. Cela ne provient jamais des webhooks produit d'ASODITECH : depuis le correctif du 2026-09-13, ces webhooks ne resynchronisent plus le stock, uniquement le nom/prix/statut.",
+        check: "Consultez la quantité réservée du produit (colonne « Réservé » sur la page Stock) : si elle est à 0, la commande n'a pas encore été confirmée et n'a rien réservé côté ASODITECH — la baisse observée vient donc réellement de WooCommerce.",
+        solution: "C'est le comportement attendu de WooCommerce, pas un incident ASODITECH — le stock réservé par ASODITECH n'augmente qu'à la confirmation de la commande. Si le chiffre affiché sur la page Stock doit malgré tout refléter celui de WooCommerce, cliquez sur « Synchroniser les produits » dans Intégrations : c'est la seule action qui importe volontairement le stock physique de WooCommerce vers ASODITECH.",
+        expectedResult: "Le stock physique reste inchangé tant que la commande n'est pas confirmée ; une fois confirmée, le stock réservé augmente et le stock physique reste lui aussi inchangé (voir « Stock disponible »).",
+      },
     ],
     related: ["stock/stock-disponible", "integrations/synchronisation-produits"],
     tryNow: { label: "Ouvrir Stock", href: "/stock" },

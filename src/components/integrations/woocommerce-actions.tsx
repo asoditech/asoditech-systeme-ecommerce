@@ -164,6 +164,12 @@ export function WooCommerceActions({ canManage, hasCredentials }: { canManage: b
       <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={runProductsSync}>
         {busy === "products" ? "Synchronisation..." : "Synchroniser les produits"}
       </Button>
+      <p className="w-full text-xs text-muted-foreground">
+        « Synchroniser les produits » aligne aussi le stock physique sur le chiffre actuel de WooCommerce — une
+        resynchronisation volontaire (import initial, correction ponctuelle). Une commande en cours dans ASODITECH
+        (Nouvelle, non confirmée) n&apos;est jamais affectée par cette action ni par les webhooks produit : la
+        réservation ne se fait qu&apos;à la confirmation, à l&apos;intérieur d&apos;ASODITECH.
+      </p>
 
       <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={runOrdersSync}>
         {busy === "orders" ? "Synchronisation..." : "Synchroniser les commandes"}
@@ -225,9 +231,11 @@ export function WooCommerceActions({ canManage, hasCredentials }: { canManage: b
               Ce secret ne sera plus jamais affiché. Copiez-le maintenant et créez 5 webhooks dans WooCommerce
               (Réglages → Avancé → Webhooks), tous avec l&apos;URL et le secret ci-dessous : « Commande créée »,
               « Commande mise à jour », « Produit créé », « Produit mis à jour » et « Produit supprimé ». Les deux
-              premiers importent les commandes en temps réel ; les trois derniers synchronisent produits et stock
+              premiers importent les commandes en temps réel ; les trois derniers synchronisent nom/prix/statut
               dès qu&apos;ils changent sur la boutique (y compris un produit supprimé, alors archivé ici plutôt que
-              supprimé), sans attendre un clic sur « Synchroniser les produits ».
+              supprimé) — mais jamais le stock : WooCommerce réduit son propre stock dès qu&apos;une commande est
+              passée, avant toute confirmation dans ASODITECH, donc ces webhooks ne touchent jamais le stock
+              physique. Utilisez « Synchroniser les produits » pour une resynchronisation volontaire du stock.
             </DialogDescription>
           </DialogHeader>
           {webhookDialog && (

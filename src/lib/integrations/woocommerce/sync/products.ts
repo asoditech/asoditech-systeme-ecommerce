@@ -103,7 +103,10 @@ export async function syncProducts(
         break;
       }
       try {
-        await syncOneProduct(client, wc, categoryIdMap, warehouse?.id ?? null, actor, summary);
+        // Deliberate, operator-triggered sync — stock reconciliation is
+        // the whole point of the pull half (see this function's own doc
+        // comment): reconcile every pass.
+        await syncOneProduct(client, wc, categoryIdMap, warehouse?.id ?? null, actor, summary, true);
       } catch {
         recordNote(summary, `Produit WooCommerce #${wc.id} (${wc.sku || wc.name}) : échec de synchronisation.`);
         summary.failed++;
@@ -136,7 +139,22 @@ async function syncOneProduct(
   categoryIdMap: Map<number, string> | null,
   warehouseId: string | null,
   actor: SyncActor,
-  summary: SyncSummary
+  summary: SyncSummary,
+  /**
+   * `true` only for the deliberate, operator-triggered bulk sync
+   * (`syncProducts`) — never for the `product.updated`/`product.created`
+   * webhook path (`importProduct`). WooCommerce decrements its OWN
+   * `stock_quantity` the instant an order is placed on a "Manage stock"
+   * product, completely independent of ASODITECH's order/confirmation
+   * status — that decrement fires this exact webhook. Reconciling stock
+   * from it would silently write WooCommerce's pre-confirmation number
+   * into `quantityOnHand`, corrupting ASODITECH's own reservation-based
+   * physical stock for an order nobody has confirmed yet (2026-09-13
+   * incident — see docs/adr/0030's addendum). Real-time webhook handling
+   * of name/price/status/category is still fully live either way — only
+   * the stock-quantity pull is skipped.
+   */
+  reconcileStock: boolean
 ): Promise<void> {
   // A `product_variation` is NOT a catalogue product — it must only ever
   // become a `ProductVariation` row under its parent. WooCommerce's
@@ -230,7 +248,7 @@ async function syncOneProduct(
     summary.imported++;
   }
 
-  if (fields.trackInventory && wc.stock_quantity != null && warehouseId) {
+  if (reconcileStock && fields.trackInventory && wc.stock_quantity != null && warehouseId) {
     await reconcileStockFromWooCommerce({
       productId,
       warehouseId,
@@ -240,7 +258,7 @@ async function syncOneProduct(
   }
 
   if (wc.type === "variable" && wc.variations.length > 0) {
-    await syncVariationsForProduct(client, wc.id, productId, warehouseId, actor, summary);
+    await syncVariationsForProduct(client, wc.id, productId, warehouseId, actor, summary, reconcileStock);
   }
 }
 
@@ -250,14 +268,15 @@ async function syncVariationsForProduct(
   productId: string,
   warehouseId: string | null,
   actor: SyncActor,
-  summary: SyncSummary
+  summary: SyncSummary,
+  reconcileStock: boolean
 ): Promise<void> {
   const variationExternalIds: string[] = [];
   for await (const page of client.listAllProductVariations(wcProductId)) {
     for (const wcVar of page) {
       variationExternalIds.push(String(wcVar.id));
       try {
-        const outcome = await syncOneVariation(wcVar, productId, warehouseId, actor);
+        const outcome = await syncOneVariation(wcVar, productId, warehouseId, actor, reconcileStock);
         summary[outcome]++;
       } catch {
         recordNote(summary, `Variation WooCommerce #${wcVar.id} : échec de synchronisation.`);
@@ -316,7 +335,8 @@ async function syncOneVariation(
   wc: WcProductVariation,
   productId: string,
   warehouseId: string | null,
-  actor: SyncActor
+  actor: SyncActor,
+  reconcileStock: boolean
 ): Promise<"imported" | "updated" | "unchanged"> {
   const externalId = String(wc.id);
   const sku = wc.sku.trim() || `WC-VAR-${wc.id}`;
@@ -356,7 +376,7 @@ async function syncOneVariation(
     variationId = created.id;
   }
 
-  if (wc.manage_stock && wc.stock_quantity != null && warehouseId) {
+  if (reconcileStock && wc.manage_stock && wc.stock_quantity != null && warehouseId) {
     await reconcileStockFromWooCommerce({
       variationId,
       warehouseId,
@@ -371,12 +391,22 @@ async function syncOneVariation(
 /**
  * Single-product counterpart to `syncProducts`, for the product.created/
  * product.updated webhook path (see docs/adr/0010-woocommerce-integration.md
- * addendum): imports/updates and reconciles stock for exactly one product
- * (and its variations, if any) — the same `syncOneProduct` the bulk sync
- * uses, just without a pre-built category map (see its own doc comment)
- * and resolving the default warehouse itself. Real-time product/stock
- * sync layered on top of the resumable bulk sync as a safety net for a
- * missed or never-configured webhook, not a replacement for it.
+ * addendum): imports/updates exactly one product (and its variations, if
+ * any) — the same `syncOneProduct` the bulk sync uses, just without a
+ * pre-built category map (see its own doc comment) and resolving the
+ * default warehouse itself. Real-time product sync layered on top of the
+ * resumable bulk sync as a safety net for a missed or never-configured
+ * webhook, not a replacement for it.
+ *
+ * Deliberately does NOT reconcile stock (2026-09-13 fix — see
+ * `syncOneProduct`'s `reconcileStock` param doc comment): this webhook
+ * fires every time WooCommerce's own "Manage stock" auto-decrements on an
+ * order placement, which happens before ASODITECH has confirmed anything
+ * — pulling that number here would silently corrupt `quantityOnHand` for
+ * an order nobody has reviewed yet. Name/price/status/category still
+ * sync in real time either way. Stock reconciliation remains fully
+ * available via the explicit "Synchroniser les produits" bulk action
+ * (`syncProducts`), which a human deliberately triggers.
  */
 export async function importProduct(
   client: WooCommerceClient,
@@ -386,7 +416,7 @@ export async function importProduct(
   const warehouse = await prisma.warehouse.findFirst({ where: { isDefault: true } });
   const summary = emptySyncSummary();
   try {
-    await syncOneProduct(client, wc, null, warehouse?.id ?? null, actor, summary);
+    await syncOneProduct(client, wc, null, warehouse?.id ?? null, actor, summary, false);
   } catch {
     return { outcome: "failed" };
   }

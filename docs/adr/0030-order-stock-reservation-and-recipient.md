@@ -185,3 +185,87 @@ reporting the higher status doesn't promote the order) and both
 providers' action-test suites (the identical scenario through
 `importOrder` directly, matching what the bulk sync loop calls) — first
 import, later re-sync, and the explicit opt-out on both.
+
+## Addendum — WooCommerce's own order-driven stock decrement corrupted `quantityOnHand` (2026-09-13, third fix)
+
+Production report: a brand-new, unconfirmed WooCommerce order for qty 6
+(stock 20) made the ASODITECH stock page show 14 — with zero reservation
+movement, zero order-lifecycle action taken. Traced to a completely
+different mechanism than the two fixes above: the **product** stock pull
+sync, not the order import.
+
+**Root cause.** WooCommerce, independent of ASODITECH, decrements a
+"Manage stock" product's own `stock_quantity` the instant an order is
+placed on the store — before ASODITECH has even seen the order, let alone
+confirmed it. That decrement is a product mutation, so WooCommerce fires
+`product.updated`. ASODITECH's webhook handler (`importProduct` →
+`syncOneProduct`) unconditionally called `reconcileStockFromWooCommerce`
+for every product webhook, which writes the external `stock_quantity`
+straight into `quantityOnHand` (an `AJUSTEMENT_NEGATIF` movement,
+20 → 14). Same physical inventory, represented by two systems with two
+different "reservation" timings (WooCommerce reserves at placement;
+ASODITECH reserves at CONFIRMEE) — the pull sync had no way to tell "a
+genuine manual stock correction on WooCommerce's side" apart from "WooCommerce's
+own order-placement decrement," and blindly trusted both.
+
+**Fix — smallest safe change, no new inventory system.** `syncOneProduct`/
+`syncVariationsForProduct`/`syncOneVariation`
+(`src/lib/integrations/woocommerce/sync/products.ts`) take a new
+`reconcileStock: boolean` parameter:
+- `syncProducts` (the bulk "Synchroniser les produits" action, deliberately
+  triggered by a human) passes `true` — stock reconciliation there is
+  unchanged and still runs every pass, exactly as intended for onboarding
+  and deliberate resync.
+- `importProduct` (the `product.created`/`product.updated` webhook path)
+  passes `false` — name/price/status/category still sync in real time;
+  only the stock-quantity pull is skipped.
+
+No schema change, no new field, no new table — `quantityOnHand`,
+`quantityReserved`, `availableStock()`, `InventoryMovement`,
+`applyStockMovement`, `reserveStockForOrder`, `releaseStockForOrder` are
+all untouched. The order lifecycle (NOUVELLE holds nothing, CONFIRMEE
+reserves, ANNULEE releases) is unchanged — this fix is entirely on the
+product/stock **pull** side, orthogonal to the order/reservation ledger.
+
+**Accepted trade-off.** A brand-new product added on WooCommerce no
+longer gets its stock row seeded by the real-time webhook alone — it
+lands with no `InventoryItem` until the next "Synchroniser les produits"
+run. This matches the feature's own original framing ("a safety net for a
+missed or never-configured webhook, not a replacement for" the bulk
+sync) and is far preferable to the alternative (silent corruption on
+every order).
+
+**Shopify.** `src/lib/integrations/shopify/sync/products.ts`'s
+`importProduct` (webhook path) has the same unconditional
+`reconcileVariantStock` → `reconcileStockFromProvider` call shape,
+strongly suggesting the identical root cause — but this was not
+independently reproduced/proven for Shopify, and per explicit scope was
+left untouched. Flagged as a follow-up.
+
+**UI/docs**: `/integrations` → WooCommerce card's "Générer un secret
+webhook" dialog and the "Synchroniser les produits" button both corrected
+to state plainly that webhooks never touch stock and that the manual sync
+button is the sole intentional stock-reconciliation action
+(`src/components/integrations/woocommerce-actions.tsx`). In-app
+Documentation Center: new troubleshooting entry in
+`src/lib/docs/content/stock.ts` ("le stock physique a diminué sans
+commande confirmée") and a callout in
+`src/lib/docs/content/integrations.ts`'s "Synchronisation des produits"
+article.
+
+**Existing production data**: not touched by this fix, and not repaired
+by it — an `InventoryItem` row already corrupted by a past auto-webhook
+reconciliation stays at whatever value it was left at; this fix only
+stops the ongoing cause. No data was rewritten, inspected write-side, or
+guessed at as part of this change (see the session's own investigation
+notes — no production credentials were used).
+
+Tests: `tests/webhooks/woocommerce.test.ts`'s product-webhook suite
+rewritten for the new default (no stock touched; product fields still
+sync); new "root-cause regression" describe block reproducing the exact
+production sequence end-to-end (NEW order → the order-driven
+`product.updated` webhook → CONFIRM → CANCEL, asserting on-hand/reserved
+at every step) plus an idempotency test (repeated `product.updated`
+deliveries never drift); `tests/actions/woocommerce.test.ts`'s bulk-sync
+stock-reconciliation coverage re-verified unchanged (still green,
+untouched behavior).

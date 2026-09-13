@@ -3,9 +3,16 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma, prismaBase } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { POST } from "@/app/api/webhooks/woocommerce/route";
+import { updateOrderStatusAction, cancelOrderAction } from "@/actions/orders";
 import { DEFAULT_TENANT_ID, resetDb } from "../helpers/db";
-import { createTestUser } from "../helpers/auth";
+import { createTestUser, loginAsTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
+
+function formData(fields: Record<string, string>) {
+  const fd = new FormData();
+  for (const [key, value] of Object.entries(fields)) fd.set(key, value);
+  return fd;
+}
 
 const WEBHOOK_SECRET = "test-webhook-secret";
 
@@ -463,8 +470,12 @@ describe("POST /api/webhooks/woocommerce", () => {
     expect(order.status).toBe("LIVREE");
   });
 
-  describe("product.created / product.updated (real-time product + stock sync)", () => {
-    it("imports a new product from a product.created delivery, reconciling its stock", async () => {
+  describe("product.created / product.updated (real-time product sync)", () => {
+    // 2026-09-13 fix (docs/adr/0030's addendum): the webhook path no longer
+    // reconciles stock at all — see syncOneProduct's `reconcileStock` doc
+    // comment in src/lib/integrations/woocommerce/sync/products.ts. Product
+    // fields (name/price/sku/etc.) still import in real time.
+    it("imports a new product from a product.created delivery WITHOUT seeding stock — no InventoryItem row yet", async () => {
       await seedIntegration();
       await prisma.warehouse.create({ data: { id: "wh-default", name: "Entrepôt principal", isDefault: true } });
       const body = productPayload();
@@ -477,28 +488,31 @@ describe("POST /api/webhooks/woocommerce", () => {
       expect(product.sku).toBe("WEBHOOK-SKU");
       expect(Number(product.price)).toBe(42);
 
-      const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
-      expect(item.quantityOnHand).toBe(8);
+      // Stock seeding is deliberately deferred to the explicit "Synchroniser
+      // les produits" bulk action — see the root-cause fix.
+      const item = await prisma.inventoryItem.findFirst({ where: { productId: product.id } });
+      expect(item).toBeNull();
 
       const event = await prisma.webhookEvent.findFirstOrThrow({ where: { deliveryId: "p1" } });
       expect(event.status).toBe("TRAITE");
     });
 
-    it("updates an existing product's stock from a product.updated delivery — the real-time counterpart to re-running Synchroniser les produits", async () => {
+    // This is the exact root cause of the production incident: WooCommerce
+    // auto-decrements its OWN stock_quantity the instant an order is
+    // placed (before ASODITECH ever confirms anything) and fires
+    // product.updated as a side effect. Reconciling from that webhook used
+    // to silently overwrite quantityOnHand — this proves it no longer does.
+    it("does NOT change existing stock from a product.updated delivery — WooCommerce's own order-driven decrement must not corrupt ASODITECH's physical stock", async () => {
       await seedIntegration();
-      await prisma.warehouse.create({ data: { id: "wh-default", name: "Entrepôt principal", isDefault: true } });
-      const created = await POST(
-        request(productPayload(), {
-          "x-wc-webhook-signature": sign(productPayload()),
-          "x-wc-webhook-topic": "product.created",
-          "x-wc-webhook-delivery-id": "p2",
-        })
-      );
-      expect(created.status).toBe(200);
+      const warehouse = await prisma.warehouse.create({ data: { id: "wh-default", name: "Entrepôt principal", isDefault: true } });
+      const product = await prisma.product.create({
+        data: { name: "Produit webhook", sku: "WEBHOOK-SKU", price: 42, status: "ACTIF", source: "WOOCOMMERCE", externalId: "5001", trackInventory: true },
+      });
+      const item = await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 20, quantityReserved: 0 } });
 
-      // A real order on the store just sold 3 units — WooCommerce's own
-      // product.updated webhook fires with the new stock_quantity.
-      const updateBody = productPayload({ stock_quantity: 5 });
+      // WooCommerce reduced its own stock 20 -> 14 because an order was
+      // placed, and fires product.updated as a side effect.
+      const updateBody = productPayload({ stock_quantity: 14 });
       const response = await POST(
         request(updateBody, {
           "x-wc-webhook-signature": sign(updateBody),
@@ -508,9 +522,25 @@ describe("POST /api/webhooks/woocommerce", () => {
       );
       expect(response.status).toBe(200);
 
-      const product = await prisma.product.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "5001" } });
-      const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
-      expect(item.quantityOnHand).toBe(5);
+      const after = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+      expect(after).toMatchObject({ quantityOnHand: 20, quantityReserved: 0 });
+      expect(await prisma.inventoryMovement.count({ where: { inventoryItemId: item.id } })).toBe(0);
+    });
+
+    it("still updates the product's own fields (name/price/status) from product.updated, only stock is skipped", async () => {
+      await seedIntegration();
+      const warehouse = await prisma.warehouse.create({ data: { id: "wh-default", name: "Entrepôt principal", isDefault: true } });
+      const product = await prisma.product.create({
+        data: { name: "Ancien nom", sku: "WEBHOOK-SKU", price: 10, status: "ACTIF", source: "WOOCOMMERCE", externalId: "5001", trackInventory: true },
+      });
+      await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 20 } });
+
+      const updateBody = productPayload({ name: "Nouveau nom", regular_price: "99.00", stock_quantity: 14 });
+      await POST(request(updateBody, { "x-wc-webhook-signature": sign(updateBody), "x-wc-webhook-topic": "product.updated", "x-wc-webhook-delivery-id": "p3b" }));
+
+      const updated = await prisma.product.findUniqueOrThrow({ where: { id: product.id } });
+      expect(updated.name).toBe("Nouveau nom");
+      expect(Number(updated.price)).toBe(99);
     });
 
     it("rejects a well-formed JSON body that doesn't match the expected product shape", async () => {
@@ -521,5 +551,94 @@ describe("POST /api/webhooks/woocommerce", () => {
       );
       expect(response.status).toBe(400);
     });
+  });
+});
+
+// The exact reported production scenario, end to end, through the real
+// webhook route for both the order AND the product-stock side effect —
+// see docs/adr/0030's addendum for the full root-cause writeup.
+describe("root-cause regression: a NEW WooCommerce order survives its own order-driven product.updated stock webhook", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  it("NEW -> product.updated webhook (no-op) -> CONFIRM (reserves) -> CANCEL (releases) — physical stock never corrupted", async () => {
+    await seedIntegration();
+    const warehouse = await prisma.warehouse.create({ data: { id: "wh-default", name: "Entrepôt principal", isDefault: true } });
+    const product = await prisma.product.create({
+      data: { name: "Produit simple 01", sku: "SKU-501", price: 50, status: "ACTIF", source: "WOOCOMMERCE", externalId: "501", trackInventory: true },
+    });
+    const item = await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 20, quantityReserved: 0 } });
+
+    // 1. The NEW WooCommerce order (qty 6) is imported.
+    const orderBody = orderPayload({
+      status: "pending",
+      line_items: [{ id: 1, name: "Produit simple 01", product_id: 501, sku: "SKU-501", quantity: 6, price: "50.00", subtotal: "300.00", total: "300.00" }],
+    });
+    const orderResponse = await POST(
+      request(orderBody, { "x-wc-webhook-signature": sign(orderBody), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "prod-order" })
+    );
+    expect(orderResponse.status).toBe(200);
+    const order = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
+    expect(order.status).toBe("NOUVELLE");
+
+    let stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(stock).toMatchObject({ quantityOnHand: 20, quantityReserved: 0 }); // available = 20
+
+    // 2. WooCommerce auto-decremented its OWN stock for that same order
+    // (20 -> 14, "Manage stock" behaviour) and fires product.updated as a
+    // side effect — exactly the trigger behind the production incident.
+    const stockUpdateBody = productPayload({ id: 501, sku: "SKU-501", stock_quantity: 14 });
+    const stockResponse = await POST(
+      request(stockUpdateBody, { "x-wc-webhook-signature": sign(stockUpdateBody), "x-wc-webhook-topic": "product.updated", "x-wc-webhook-delivery-id": "prod-stock-update" })
+    );
+    expect(stockResponse.status).toBe(200);
+
+    stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(stock).toMatchObject({ quantityOnHand: 20, quantityReserved: 0 }); // untouched — the fix
+    expect(await prisma.inventoryMovement.count({ where: { inventoryItemId: item.id } })).toBe(0);
+
+    // 3. A human confirms the order inside ASODITECH — THIS is what reserves.
+    await loginAsTestUser({ role: "MANAGER" });
+    const confirmResult = await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+    expect(confirmResult.ok).toBe(true);
+
+    stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(stock).toMatchObject({ quantityOnHand: 20, quantityReserved: 6 }); // available = 14
+    let movements = await prisma.inventoryMovement.findMany({ where: { inventoryItemId: item.id }, orderBy: { createdAt: "asc" } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION"]);
+
+    // 4. Cancel before shipment — releases the reservation, physical untouched.
+    const cancelResult = await cancelOrderAction(formData({ id: order.id, reason: "" }));
+    expect(cancelResult.ok).toBe(true);
+
+    stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(stock).toMatchObject({ quantityOnHand: 20, quantityReserved: 0 }); // available = 20 again
+    movements = await prisma.inventoryMovement.findMany({ where: { inventoryItemId: item.id }, orderBy: { createdAt: "asc" } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "LIBERATION"]);
+  });
+
+  it("is idempotent: a repeated product.updated delivery for the same order-driven decrement never progressively corrupts stock", async () => {
+    await seedIntegration();
+    const warehouse = await prisma.warehouse.create({ data: { id: "wh-default", name: "Entrepôt principal", isDefault: true } });
+    const product = await prisma.product.create({
+      data: { name: "Produit simple 01", sku: "SKU-501", price: 50, status: "ACTIF", source: "WOOCOMMERCE", externalId: "501", trackInventory: true },
+    });
+    const item = await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 20 } });
+
+    for (const deliveryId of ["retry-1", "retry-2", "retry-3"]) {
+      const body = productPayload({ id: 501, sku: "SKU-501", stock_quantity: 14 });
+      const response = await POST(request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "product.updated", "x-wc-webhook-delivery-id": deliveryId }));
+      expect(response.status).toBe(200);
+    }
+
+    const stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(stock).toMatchObject({ quantityOnHand: 20, quantityReserved: 0 }); // never 26, never 14, never drifting
+    expect(await prisma.inventoryMovement.count({ where: { inventoryItemId: item.id } })).toBe(0);
   });
 });
