@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma, prismaBase } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { POST } from "@/app/api/webhooks/woocommerce/route";
-import { updateOrderStatusAction, cancelOrderAction } from "@/actions/orders";
+import { updateOrderStatusAction, cancelOrderAction, reopenOrderAction } from "@/actions/orders";
 import { DEFAULT_TENANT_ID, resetDb } from "../helpers/db";
 import { createTestUser, loginAsTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
@@ -640,5 +640,122 @@ describe("root-cause regression: a NEW WooCommerce order survives its own order-
     const stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(stock).toMatchObject({ quantityOnHand: 20, quantityReserved: 0 }); // never 26, never 14, never drifting
     expect(await prisma.inventoryMovement.count({ where: { inventoryItemId: item.id } })).toBe(0);
+  });
+});
+
+// Production incident, second occurrence: a WooCommerce order manually
+// confirmed inside ASODITECH gets demoted back to ANNULEE by the store's
+// OWN status (a stale/retried webhook, or any later re-sync) — because
+// confirming never pushes anything back to WooCommerce, and cancelling
+// does (pushOrderStatusToWooCommerce), the store's own record can easily
+// still say "cancelled" long after a human re-confirmed inside ASODITECH.
+// Before this fix, that demotion never released the reservation the human
+// action had taken — the order showed ANNULEE while quantityReserved
+// stayed stuck, and reopening + re-confirming doubled it. See
+// docs/adr/0030's addendum for the full root-cause writeup.
+describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION order back to ANNULEE releases the reservation", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  async function seedConfirmedOrder() {
+    await seedIntegration();
+    const warehouse = await prisma.warehouse.create({ data: { id: "wh-default", name: "Entrepôt principal", isDefault: true } });
+    const product = await prisma.product.create({
+      data: { name: "Produit S", sku: "SKU-S", price: 50, status: "ACTIF", source: "WOOCOMMERCE", externalId: "501", trackInventory: true },
+    });
+    const item = await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 15, quantityReserved: 0 } });
+
+    const created = orderPayload({
+      status: "pending",
+      line_items: [{ id: 1, name: "Produit S", product_id: 501, sku: "SKU-S", quantity: 5, price: "50.00", subtotal: "250.00", total: "250.00" }],
+    });
+    await POST(request(created, { "x-wc-webhook-signature": sign(created), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "seed-created" }));
+    const order = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
+
+    await loginAsTestUser({ role: "MANAGER" });
+    await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+
+    return { item, order };
+  }
+
+  it("a stale 'cancelled' webhook after a manual CONFIRMEE releases the reservation instead of leaving it stuck", async () => {
+    const { item, order } = await seedConfirmedOrder();
+    let stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 5 });
+
+    // WooCommerce's own status is still "cancelled" (or reported again via
+    // a retried delivery) — confirming never pushed anything back to it.
+    const staleCancel = orderPayload({ status: "cancelled" });
+    const response = await POST(
+      request(staleCancel, { "x-wc-webhook-signature": sign(staleCancel), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "stale-cancel" })
+    );
+    expect(response.status).toBe(200);
+
+    const afterOrder = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(afterOrder.status).toBe("ANNULEE");
+
+    stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 0 }); // released, not stuck at 5
+    const movements = await prisma.inventoryMovement.findMany({ where: { inventoryItemId: item.id }, orderBy: { createdAt: "asc" } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "LIBERATION"]);
+  });
+
+  it("reopening and re-confirming after a webhook-driven cancellation reserves exactly 5, never 10", async () => {
+    const { item, order } = await seedConfirmedOrder();
+
+    const staleCancel = orderPayload({ status: "cancelled" });
+    await POST(request(staleCancel, { "x-wc-webhook-signature": sign(staleCancel), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "stale-cancel-2" }));
+
+    await reopenOrderAction(formData({ id: order.id }));
+    await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+
+    const stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 5 }); // exactly 5 — NOT 10
+    const movements = await prisma.inventoryMovement.findMany({ where: { inventoryItemId: item.id }, orderBy: { createdAt: "asc" } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "LIBERATION", "RESERVATION"]);
+  });
+
+  it("also releases from EN_PREPARATION, not just CONFIRMEE", async () => {
+    const { item, order } = await seedConfirmedOrder();
+    await updateOrderStatusAction(formData({ id: order.id, status: "EN_PREPARATION" }));
+    let stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(stock.quantityReserved).toBe(5); // still held through EN_PREPARATION
+
+    const staleCancel = orderPayload({ status: "cancelled" });
+    await POST(request(staleCancel, { "x-wc-webhook-signature": sign(staleCancel), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "stale-cancel-3" }));
+
+    const afterOrder = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(afterOrder.status).toBe("ANNULEE");
+    stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 0 });
+  });
+
+  it("does not touch a reservation for an order that stays NOUVELLE (nothing to release)", async () => {
+    await seedIntegration();
+    const warehouse = await prisma.warehouse.create({ data: { id: "wh-default", name: "Entrepôt principal", isDefault: true } });
+    const product = await prisma.product.create({
+      data: { name: "Produit S", sku: "SKU-S", price: 50, status: "ACTIF", source: "WOOCOMMERCE", externalId: "501", trackInventory: true },
+    });
+    const item = await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 15 } });
+    const created = orderPayload({
+      status: "pending",
+      line_items: [{ id: 1, name: "Produit S", product_id: 501, sku: "SKU-S", quantity: 5, price: "50.00", subtotal: "250.00", total: "250.00" }],
+    });
+    await POST(request(created, { "x-wc-webhook-signature": sign(created), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "np-created" }));
+
+    const cancelBody = orderPayload({ status: "cancelled" });
+    await POST(request(cancelBody, { "x-wc-webhook-signature": sign(cancelBody), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "np-cancel" }));
+
+    const order = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
+    expect(order.status).toBe("ANNULEE");
+    const stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 0 });
+    expect(await prisma.inventoryMovement.count({ where: { inventoryItemId: item.id } })).toBe(0); // nothing was ever reserved
   });
 });

@@ -3,10 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma, prismaBase } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { POST } from "@/app/api/webhooks/shopify/route";
+import { updateOrderStatusAction, reopenOrderAction } from "@/actions/orders";
 import { resetDb } from "../helpers/db";
-import { createTestUser } from "../helpers/auth";
+import { createTestUser, loginAsTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 import { installFakeShopifyServer, emptyFakeShopifyStore, FAKE_ACCESS_TOKEN, type FakeShopifyState } from "../helpers/fake-shopify";
+
+function formData(fields: Record<string, string>) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.set(k, v);
+  return fd;
+}
 
 const WEBHOOK_SECRET = "test-shopify-client-secret";
 
@@ -480,5 +487,90 @@ describe("POST /api/webhooks/shopify", () => {
     expect(raw).not.toContain("webhook@example.com");
     expect(raw).not.toContain("Produit test");
     expect(event.resourceId).toBe("gid://shopify/Order/7001");
+  });
+});
+
+// Mirrors WooCommerce's identical regression (docs/adr/0030's addendum):
+// a Shopify order manually confirmed inside ASODITECH can be demoted back
+// to ANNULEE by the store's own status (a stale/retried webhook) — before
+// this fix, that never released the reservation a human had taken.
+describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION order back to ANNULEE releases the reservation", () => {
+  let state: FakeShopifyState;
+
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+    state = emptyFakeShopifyStore();
+    installFakeShopifyServer(state);
+    state.orders = [
+      {
+        id: "gid://shopify/Order/7001",
+        name: "#7001",
+        createdAt: "2026-01-20T10:00:00Z",
+        displayFinancialStatus: "PENDING",
+        displayFulfillmentStatus: "UNFULFILLED",
+        email: "webhook@example.com",
+        total: 250,
+        subtotal: 250,
+        lineItems: [{ id: "gid://shopify/LineItem/1", title: "Produit S", sku: "SKU-S", quantity: 5, unitPrice: 50, discountedTotal: 250, originalTotal: 250, productId: "gid://shopify/Product/501" }],
+      },
+    ];
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+    vi.unstubAllGlobals();
+  });
+
+  async function seedConfirmedOrder() {
+    await seedIntegration();
+    const warehouse = await prisma.warehouse.create({ data: { id: "wh-default", name: "Entrepôt principal", isDefault: true } });
+    const product = await prisma.product.create({
+      data: { name: "Produit S", sku: "SKU-S", price: 50, status: "ACTIF", source: "SHOPIFY", externalId: "gid://shopify/Product/501", trackInventory: true },
+    });
+    const item = await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 15, quantityReserved: 0 } });
+
+    const body = orderCreatePayload();
+    await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/create", "x-shopify-webhook-id": "seed-created" }));
+    const order = await prisma.order.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/7001" } });
+
+    await loginAsTestUser({ role: "MANAGER" });
+    await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+
+    return { item, order };
+  }
+
+  it("a stale 'cancelled' webhook after a manual CONFIRMEE releases the reservation instead of leaving it stuck", async () => {
+    const { item, order } = await seedConfirmedOrder();
+    let stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 5 });
+
+    state.orders[0].cancelledAt = "2026-01-21T10:00:00Z";
+    const body = orderCreatePayload();
+    const response = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "stale-cancel" }));
+    expect(response.status).toBe(200);
+
+    const afterOrder = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(afterOrder.status).toBe("ANNULEE");
+    stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 0 }); // released, not stuck at 5
+    const movements = await prisma.inventoryMovement.findMany({ where: { inventoryItemId: item.id }, orderBy: { createdAt: "asc" } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "LIBERATION"]);
+  });
+
+  it("reopening and re-confirming after a webhook-driven cancellation reserves exactly 5, never 10", async () => {
+    const { item, order } = await seedConfirmedOrder();
+
+    state.orders[0].cancelledAt = "2026-01-21T10:00:00Z";
+    const body = orderCreatePayload();
+    await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "stale-cancel-2" }));
+
+    await reopenOrderAction(formData({ id: order.id }));
+    await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+
+    const stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 5 }); // exactly 5 — NOT 10
+    const movements = await prisma.inventoryMovement.findMany({ where: { inventoryItemId: item.id }, orderBy: { createdAt: "asc" } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "LIBERATION", "RESERVATION"]);
   });
 });

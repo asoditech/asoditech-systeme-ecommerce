@@ -269,3 +269,72 @@ at every step) plus an idempotency test (repeated `product.updated`
 deliveries never drift); `tests/actions/woocommerce.test.ts`'s bulk-sync
 stock-reconciliation coverage re-verified unchanged (still green,
 untouched behavior).
+
+## Addendum — a stuck reservation, then doubled to 10 on reopen (2026-09-13, fourth fix)
+
+Production report: a WooCommerce order (qty 5, stock 15) was manually
+confirmed (`reserved: 5`, correct), then some time later the orders list
+showed it as `ANNULEE` — which the operator had not done — while the
+Stock page still showed `reserved: 5` (not released). Reopening and
+re-confirming it made `reserved` become **10**.
+
+**Root cause.** Two earlier, individually-correct decisions combined into
+a gap:
+- `pushOrderStatusToWooCommerce` (`src/lib/integrations/shared/auto-push.ts`)
+  only ever pushes `LIVREE`/`ANNULEE`/`REMBOURSEE` back to WooCommerce —
+  `CONFIRMEE` (and `NOUVELLE`, via `reopenOrderAction`) are deliberately
+  never pushed, since they don't map cleanly onto WooCommerce's own
+  status set. So cancelling an order **does** tell WooCommerce
+  "cancelled" — but re-confirming it afterward tells WooCommerce nothing.
+  WooCommerce's own record of that order stays "cancelled" indefinitely.
+- `updateExistingOrder` (both providers) applies whatever status the
+  store reports whenever `canTransitionOrderStatus` allows it — by
+  design, since a later re-sync must be able to reflect genuine change on
+  the store's side. `CONFIRMEE → ANNULEE` is a normal, valid transition.
+
+So the next time WooCommerce's still-"cancelled" status reaches ASODITECH
+again for that order (a retried/delayed webhook delivery, or simply the
+next "Synchroniser les commandes") — after the manual re-confirmation —
+`updateExistingOrder` silently re-applies `ANNULEE`. Since that sync path
+has never touched the reservation ledger (deliberately — see the module
+doc comment: a WooCommerce order's stock is reconciled separately), the
+reservation the human had just taken was left stranded: order shown
+`ANNULEE`, `quantityReserved` still 5. Reopening + re-confirming then
+took a **second** reservation on top of the orphaned one — reproduced and
+proven with a throwaway investigation test before writing the fix (RESERVATION,
+then a stale-cancel webhook leaving `reserved` at 5 with the order shown
+`ANNULEE`, then reopen+confirm producing `RESERVATION, RESERVATION` —
+`reserved: 10`).
+
+**Fix.** `updateExistingOrder` (both providers) now releases the
+reservation — `releaseStockForOrder`, reservation-only, never touches
+`quantityOnHand` — whenever the transition it's about to apply moves the
+order **out of** a reservation-holding status (`orderHoldsReservation`:
+`CONFIRMEE`/`EN_PREPARATION`) into one that doesn't. This is the exact
+same release primitive `cancelOrderAction`/`updateOrderStatusAction`
+already use for a human-driven cancellation — no new stock system, and
+this sync path still never *reserves* or *fulfills*, only *releases*,
+preserving the "a WooCommerce/Shopify order's on-hand is only ever
+touched by the separate provider stock pull-sync" invariant untouched.
+The condition is general (not `ANNULEE`-specific), so it also covers
+`EN_PREPARATION → EXPÉDIÉE` reached via Shopify's fulfillment-status
+webhook (WooCommerce has no such path — it has no `EXPEDIEE`-mapped
+status at all).
+
+**Why not simply disable `ANNULEE → NOUVELLE`** (the operator's own
+suggested workaround)? Considered and rejected: it treats the symptom,
+not the cause. Without this fix, disabling reopen would leave a
+webhook-orphaned reservation with **no recovery path at all** — instead
+of a double-reservation risk on reopen, it becomes a *permanently* stuck
+one, silently understating "Disponible" forever with no button to fix
+it. The right invariant is the one restored here: `quantityReserved`
+always matches `order.status`, regardless of which side (human or store)
+changed it.
+
+Tests: new regression coverage in both providers' webhook test suites (a
+stale/retried "cancelled" webhook after a manual `CONFIRMEE` releases
+instead of sticking; reopen+re-confirm afterward reserves exactly once;
+WooCommerce's `EN_PREPARATION → ANNULEE` case; an order that was never
+confirmed is untouched) and a direct `tests/actions/orders.test.ts`
+regression for the exact reported sequence through pure ASODITECH UI
+actions only (proven already safe, and proven to stay safe).

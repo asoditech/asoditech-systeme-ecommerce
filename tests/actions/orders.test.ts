@@ -524,6 +524,36 @@ describe("updateOrderStatusAction — state machine", () => {
     expect(item.quantityReserved).toBe(0);
   });
 
+  // Direct regression for the question behind the 2026-09-13 production
+  // incident (docs/adr/0030's addendum): NOUVELLE -> CONFIRMEE -> ANNULEE
+  // -> NOUVELLE -> CONFIRMEE, entirely through ASODITECH's own UI actions
+  // (no store webhook involved), must reserve exactly once the second
+  // time — never double to 10 on top of an already-released 5.
+  it("reopenOrderAction then re-confirming reserves exactly once — NOUVELLE→CONFIRMEE→ANNULEE→NOUVELLE→CONFIRMEE never doubles reserved", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { orderId, product } = await createTestOrder(); // qty 2, onHand 10
+
+    await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
+    let item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 10, quantityReserved: 2 });
+
+    await cancelOrderAction(formData({ id: orderId, reason: "" }));
+    item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 10, quantityReserved: 0 });
+
+    const reopened = await reopenOrderAction(formData({ id: orderId }));
+    expect(reopened.ok).toBe(true);
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(order.status).toBe("NOUVELLE");
+
+    await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
+    item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 10, quantityReserved: 2 }); // exactly 2 — NOT 4
+
+    const movements = await prisma.inventoryMovement.findMany({ where: { orderId }, orderBy: { createdAt: "asc" } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "LIBERATION", "RESERVATION"]);
+  });
+
   it("reopenOrderAction refuses an order that was shipped", async () => {
     await loginAsTestUser({ role: "MANAGER" });
     const { orderId } = await createTestOrder();

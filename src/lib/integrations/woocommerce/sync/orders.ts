@@ -2,7 +2,8 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { recordAuditEvent } from "@/lib/audit";
-import { canTransitionOrderStatus } from "@/lib/validation/order";
+import { canTransitionOrderStatus, orderHoldsReservation } from "@/lib/validation/order";
+import { releaseStockForOrder } from "@/lib/inventory";
 import { mapCustomerFieldsFromOrder, mapOrderFields, mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
 import type { MappedCustomerFields } from "../mapper";
 import type { WcOrder } from "../types";
@@ -30,6 +31,14 @@ import { isUniqueConstraintError } from "@/lib/prisma-errors";
  * this system via the separate stock-pull reconciliation
  * (sync/stock.ts), not by re-running the internal reservation ledger a
  * second time against the same units. Running both would double-count.
+ * The one exception (2026-09-13 fix): `updateExistingOrder` DOES call
+ * `releaseStockForOrder` — reservation-only, never touches on-hand —
+ * when the store's own status demotes an order out of a
+ * reservation-holding one (e.g. WooCommerce still reporting "cancelled"
+ * after a manual re-confirmation this app never pushed back to the
+ * store). Without it, a reservation a human took inside ASODITECH could
+ * outlive the order being moved back to ANNULEE by a webhook, leaving it
+ * permanently stuck — see docs/adr/0030's addendum.
  *
  * Deliberately NOT done here: reconciling OrderItems on a re-import. A WC
  * order's line items are fixed at placement; a re-import (webhook
@@ -357,7 +366,30 @@ async function updateExistingOrder(
           where: { id: orderId, status: existing.status },
           data: { status },
         });
-        if (result.count > 0) changedFields = true;
+        if (result.count > 0) {
+          changedFields = true;
+          // 2026-09-13 fix (production incident): keep the reservation
+          // ledger honest no matter which side drove the transition. A
+          // human cancelling inside ASODITECH already released the
+          // reservation via cancelOrderAction/updateOrderStatusAction —
+          // but a re-sync/webhook applying the SAME demotion (the store's
+          // own status, e.g. WooCommerce still reporting "cancelled" from
+          // before a manual re-confirmation this app never pushed back to
+          // the store) used to leave the reservation stuck: order shown
+          // ANNULEE, quantityReserved never released. Reopening +
+          // re-confirming that order then double-reserved on top of the
+          // orphaned one. Only ever releases (quantityReserved only,
+          // never quantityOnHand) — never reserves or fulfills; this
+          // function still never creates a reservation, exactly as
+          // before.
+          if (orderHoldsReservation(existing.status) && !orderHoldsReservation(status)) {
+            const items = await tx.orderItem.findMany({
+              where: { orderId },
+              select: { productId: true, variationId: true, quantity: true },
+            });
+            await releaseStockForOrder(tx, orderId, items, actorPerformedById(actor));
+          }
+        }
       } else {
         statusSkippedReason = `Commande WooCommerce #${wc.id} : transition ${existing.status} → ${status} ignorée (déjà en cours de traitement localement).`;
       }

@@ -2,7 +2,8 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { recordAuditEvent } from "@/lib/audit";
-import { canTransitionOrderStatus } from "@/lib/validation/order";
+import { canTransitionOrderStatus, orderHoldsReservation } from "@/lib/validation/order";
+import { releaseStockForOrder } from "@/lib/inventory";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
 import type { ShopifyOrder } from "../types";
@@ -21,7 +22,14 @@ import type { Prisma, OrderStatus } from "@prisma/client";
  * Deliberately NOT done here: reserving/fulfilling internal stock — a
  * Shopify order's stock impact already happened on Shopify's side and is
  * reflected via the separate stock-pull reconciliation (sync/products.ts),
- * not by re-running the internal ledger a second time.
+ * not by re-running the internal ledger a second time. The one exception
+ * (2026-09-13 fix): `updateExistingOrder` DOES call `releaseStockForOrder`
+ * — reservation-only, never on-hand — when the store's own status demotes
+ * an order out of a reservation-holding one (e.g. CONFIRMEE/EN_PREPARATION
+ * -> ANNULEE), so a reservation a human took inside ASODITECH can never
+ * outlive the order being moved back by a webhook — see the identical fix
+ * and full reasoning in WooCommerce's sync/orders.ts, and docs/adr/0030's
+ * addendum.
  *
  * Deliberately NOT done here: reconciling line items on a re-import — a
  * Shopify order's line items are fixed at placement; a re-import only
@@ -349,7 +357,21 @@ async function updateExistingOrder(
         statusSkippedReason = `Commande Shopify ${order.name} : reste "Nouvelle" — confirmation manuelle requise avant "Confirmée" (réglage "Toujours importer en Nouvelle").`;
       } else if (canTransitionOrderStatus(existing.status, status)) {
         const result = await tx.order.updateMany({ where: { id: orderId, status: existing.status }, data: { status } });
-        if (result.count > 0) changedFields = true;
+        if (result.count > 0) {
+          changedFields = true;
+          // 2026-09-13 fix — see the identical comment in WooCommerce's
+          // sync/orders.ts for the full reasoning: keep the reservation
+          // ledger honest regardless of which side drove the demotion.
+          // Reservation-only (never quantityOnHand); this function still
+          // never reserves or fulfills.
+          if (orderHoldsReservation(existing.status) && !orderHoldsReservation(status)) {
+            const items = await tx.orderItem.findMany({
+              where: { orderId },
+              select: { productId: true, variationId: true, quantity: true },
+            });
+            await releaseStockForOrder(tx, orderId, items, actorPerformedById(actor));
+          }
+        }
       } else {
         statusSkippedReason = `Commande Shopify ${order.name} : transition ${existing.status} → ${status} ignorée (déjà en cours de traitement localement).`;
       }
