@@ -114,7 +114,25 @@ describe("POST /api/webhooks/shopify", () => {
     expect(notification.type).toBe("NOUVELLE_COMMANDE");
   });
 
-  it("forces a first-time import to NOUVELLE when forceNouvelleOnImport is enabled, even for a paid/unfulfilled order", async () => {
+  // docs/adr/0030's 2026-09-13 addendum: this is now the DEFAULT behavior
+  // (config unset, or forceNouvelleOnImport explicitly true), not an
+  // opt-in — a first-time paid/unfulfilled order never auto-lands as
+  // Confirmée. Only CONFIRMATION inside ASODITECH reserves stock.
+  it("a first-time import lands as NOUVELLE by default, even for a paid/unfulfilled order (config unset)", async () => {
+    await seedIntegration();
+    state.orders[0].displayFinancialStatus = "PAID";
+    const body = orderCreatePayload();
+    const response = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/create", "x-shopify-webhook-id": "d-default-nouvelle" }));
+    expect(response.status).toBe(200);
+
+    const order = await prisma.order.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/7001" } });
+    expect(order.status).toBe("NOUVELLE");
+
+    const audit = await prisma.auditEvent.findFirstOrThrow({ where: { action: "order.created", entityId: order.id } });
+    expect((audit.metadata as Record<string, unknown>).forcedNouvelleFromConfirmee).toBe(true);
+  });
+
+  it("forces a first-time import to NOUVELLE when forceNouvelleOnImport is explicitly true, even for a paid/unfulfilled order", async () => {
     await seedIntegration({ forceNouvelleOnImport: true });
     state.orders[0].displayFinancialStatus = "PAID";
     const body = orderCreatePayload();
@@ -128,8 +146,8 @@ describe("POST /api/webhooks/shopify", () => {
     expect((audit.metadata as Record<string, unknown>).forcedNouvelleFromConfirmee).toBe(true);
   });
 
-  it("does not force NOUVELLE when forceNouvelleOnImport is disabled (default)", async () => {
-    await seedIntegration();
+  it("trusts Shopify's own status when forceNouvelleOnImport is explicitly disabled (opt-out)", async () => {
+    await seedIntegration({ forceNouvelleOnImport: false });
     state.orders[0].displayFinancialStatus = "PAID";
     const body = orderCreatePayload();
     const response = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/create", "x-shopify-webhook-id": "d-no-force" }));

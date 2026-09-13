@@ -637,16 +637,22 @@ describe("updateOrderStatusAction — state machine", () => {
 
 // Audit fix (docs/adr/0030's own stated intent, never previously enforced
 // in code): "imported orders reconcile stock from the store's own numbers
-// (sync/stock.ts), untouched by this [reservation ledger]." A
-// WooCommerce/Shopify order's stock is already accounted for by that
+// (sync/stock.ts), untouched by the ledger's on-hand-mutating steps." A
+// WooCommerce/Shopify order's ON-HAND is already accounted for by that
 // separate provider pull-sync (the store reduces its own stock the moment
 // the order is paid/processing; reconcileStockFromProvider mirrors that
 // into `quantityOnHand` directly). updateOrderStatusAction/cancelOrderAction
-// used to run the internal reservation/fulfilment ledger on these orders
-// too, double-deducting the same physical units — once via the provider's
-// own reduction, once via this app's own Confirmée→Expédiée. These tests
-// cover the fix.
-describe("updateOrderStatusAction / cancelOrderAction — WooCommerce/Shopify orders never touch the internal stock ledger (docs/adr/0030 audit fix)", () => {
+// used to run the internal FULFILMENT ledger on these orders too,
+// double-deducting the same physical units — once via the provider's own
+// reduction, once via this app's own Confirmée→Expédiée (fixed by c606dc0).
+//
+// The RESERVATION half of the ledger (quantityReserved only — never
+// quantityOnHand) was over-gated by that same fix and is reopened here
+// (docs/adr/0030's 2026-09-13 addendum): a WooCommerce/Shopify order now
+// reserves at CONFIRMEE and releases the reservation at ANNULEE/EXPEDIEE
+// exactly like an INTERNE order — safe, since reserving/releasing can
+// never double-count anything on-hand.
+describe("updateOrderStatusAction / cancelOrderAction — WooCommerce/Shopify orders reserve but never physically double-deduct stock (docs/adr/0030 + its addendum)", () => {
   beforeEach(async () => {
     await resetDb();
     mockCookieStore.clear();
@@ -688,7 +694,7 @@ describe("updateOrderStatusAction / cancelOrderAction — WooCommerce/Shopify or
     });
   }
 
-  it("does not reserve stock when confirming a WooCommerce-sourced order", async () => {
+  it("reserves stock (quantityReserved only) when confirming a WooCommerce-sourced order — on-hand untouched", async () => {
     const { product, customer } = await seedOrderable();
     const order = await createWooCommerceOrder(product.id, customer.id, 2, "9001");
     await loginAsTestUser({ role: "MANAGER" });
@@ -697,21 +703,23 @@ describe("updateOrderStatusAction / cancelOrderAction — WooCommerce/Shopify or
     expect(result.ok).toBe(true);
 
     const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
-    expect(item).toMatchObject({ quantityOnHand: 10, quantityReserved: 0 });
-    expect(await prisma.inventoryMovement.count({ where: { orderId: order.id } })).toBe(0);
+    expect(item).toMatchObject({ quantityOnHand: 10, quantityReserved: 2 });
+    const movements = await prisma.inventoryMovement.findMany({ where: { orderId: order.id } });
+    expect(movements).toHaveLength(1);
+    expect(movements[0].type).toBe("RESERVATION");
   });
 
-  // Full reproduction of the reported incident: a WooCommerce order (16
-  // units) already had its stock silently pulled out of `quantityOnHand`
-  // by the provider stock sync (simulating WooCommerce's own "reduce stock
-  // on processing" behaviour, mirrored in here) BEFORE this app's own
+  // Full reproduction of the reported incident, updated for the
+  // 2026-09-13 addendum: a WooCommerce order (16 units) already had its
+  // stock silently pulled out of `quantityOnHand` by the provider stock
+  // sync (simulating WooCommerce's own "reduce stock on processing"
+  // behaviour, mirrored in here) BEFORE this app's own
   // confirmation/shipment workflow ever touched it. A separate INTERNE
-  // order for 2 units ships normally in between. Under the old code,
-  // shipping the WooCommerce order then tried to deduct its 16 units a
-  // SECOND time from an on-hand pool that had already been reduced,
-  // failing with "Stock insuffisant : 13 unité(s) manquante(s)". Under the
-  // fix, shipping a WooCommerce order never touches on-hand at all.
-  it("ships a WooCommerce-sourced order without touching on-hand, even when the provider sync already reduced it (the exact reported incident)", async () => {
+  // order for 2 units ships normally in between. Confirming/shipping the
+  // WooCommerce order now reserves/releases `quantityReserved` (visible in
+  // "Disponible") but must still never touch `quantityOnHand` a second
+  // time — the exact incident c606dc0 fixed stays fixed.
+  it("reserves then releases a WooCommerce-sourced order's stock at Confirmée/Expédiée without ever touching on-hand, even when the provider sync already reduced it (the exact reported incident)", async () => {
     const { warehouse, product, customer } = await seedOrderable(); // onHand starts at 10
     await prisma.inventoryItem.updateMany({ where: { warehouseId: warehouse.id, productId: product.id }, data: { quantityOnHand: 21 } });
 
@@ -750,24 +758,46 @@ describe("updateOrderStatusAction / cancelOrderAction — WooCommerce/Shopify or
     const wcOrder = await createWooCommerceOrder(product.id, customer.id, 16, "9002");
     const confirmed = await updateOrderStatusAction(formData({ id: wcOrder.id, status: "CONFIRMEE" }));
     expect(confirmed.ok).toBe(true);
+    item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 3, quantityReserved: 16 }); // reserved, on-hand untouched
+
     await updateOrderStatusAction(formData({ id: wcOrder.id, status: "EN_PREPARATION" }));
     const shipped = await updateOrderStatusAction(formData({ id: wcOrder.id, status: "EXPEDIEE" }));
 
-    // Before the fix this failed: "Stock insuffisant : 13 unité(s) manquante(s)".
+    // Before c606dc0 this failed: "Stock insuffisant : 13 unité(s) manquante(s)".
     expect(shipped.ok).toBe(true);
 
     item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
-    expect(item).toMatchObject({ quantityOnHand: 3, quantityReserved: 0 }); // untouched by this app's ledger
+    // On-hand still untouched by this app's ledger; the reservation this
+    // app itself took at CONFIRMEE is released (not fulfilled) at EXPEDIEE.
+    expect(item).toMatchObject({ quantityOnHand: 3, quantityReserved: 0 });
     const order = await prisma.order.findUniqueOrThrow({ where: { id: wcOrder.id } });
     expect(order.status).toBe("EXPEDIEE");
-    expect(await prisma.inventoryMovement.count({ where: { orderId: wcOrder.id } })).toBe(0);
+    const movements = await prisma.inventoryMovement.findMany({ where: { orderId: wcOrder.id }, orderBy: { createdAt: "asc" } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "LIBERATION"]);
   });
 
-  it("does not release or return stock when cancelling a WooCommerce-sourced order", async () => {
+  it("releases the reservation (not a physical return) when cancelling a confirmed WooCommerce-sourced order", async () => {
     const { product, customer } = await seedOrderable();
     const order = await createWooCommerceOrder(product.id, customer.id, 2, "9003");
     await loginAsTestUser({ role: "MANAGER" });
     await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+    let item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 10, quantityReserved: 2 });
+
+    const result = await cancelOrderAction(formData({ id: order.id, reason: "" }));
+    expect(result.ok).toBe(true);
+
+    item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 10, quantityReserved: 0 });
+    const movements = await prisma.inventoryMovement.findMany({ where: { orderId: order.id }, orderBy: { createdAt: "asc" } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "LIBERATION"]);
+  });
+
+  it("does not reserve, and cancelling releases nothing, for a WooCommerce order never confirmed (still NOUVELLE)", async () => {
+    const { product, customer } = await seedOrderable();
+    const order = await createWooCommerceOrder(product.id, customer.id, 2, "9003b");
+    await loginAsTestUser({ role: "MANAGER" });
 
     const result = await cancelOrderAction(formData({ id: order.id, reason: "" }));
     expect(result.ok).toBe(true);
@@ -1012,6 +1042,43 @@ describe("order notifications (docs/adr/0016-notifications.md)", () => {
     expect(recipientIds).not.toContain(creator.id);
     expect(notifications[0].type).toBe("NOUVELLE_COMMANDE");
     expect(notifications[0].entityId).toBe(result.data.id);
+  });
+
+  // Task 3: a new order requesting more than currently available stock
+  // gets a read-only "stock insuffisant" alert alongside the usual
+  // "nouvelle commande" one — never blocks creation, never touches stock.
+  it("createOrderAction also fires a stock-insufficient alert when the quantity exceeds available stock", async () => {
+    const { customer, product } = await seedOrderable(); // onHand 10, reserved 0
+    await loginAsTestUser({ role: "MANAGER" });
+
+    const result = await createOrderAction({
+      customerId: customer.id,
+      paymentMethod: "PAIEMENT_LIVRAISON",
+      shippingCost: 0,
+      discountTotal: 0,
+      currency: "MAD",
+      notes: "",
+      internalNotes: "",
+      shippingAddressLine1: "",
+      shippingAddressLine2: "",
+      shippingCity: "",
+      shippingRegion: "",
+      shippingCountry: "",
+      shippingPhone: "",
+      items: [{ productId: product.id, quantity: 15, unitPrice: 100, discount: 0 }],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const insufficient = await prisma.notification.findFirstOrThrow({ where: { type: "STOCK_INSUFFISANT_COMMANDE" } });
+    expect(insufficient.message).toContain("15 demandée(s), 10 disponible(s), 5 manquante(s)");
+    expect(insufficient.entityId).toBe(result.data.id);
+
+    // Order creation itself was never blocked, and stock was never touched.
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: result.data.id } });
+    expect(order.status).toBe("NOUVELLE");
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 10, quantityReserved: 0 });
   });
 
   it("notifies orders.view holders when an order is returned", async () => {

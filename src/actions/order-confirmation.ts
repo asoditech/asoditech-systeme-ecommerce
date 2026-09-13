@@ -101,15 +101,14 @@ export async function recordConfirmationAttemptAction(
         });
         if (moved.count === 0) throw new OrderRaceError();
 
-        if (terminal === "CONFIRMEE" && existing.source === "INTERNE") {
+        if (terminal === "CONFIRMEE") {
           // Stock is reserved at confirmation, not at order creation
-          // (docs/adr/0030) — but only for a manually-created (INTERNE)
-          // order. A WooCommerce/Shopify order's stock is already
-          // accounted for by the separate provider stock pull-sync
-          // (docs/adr/0030: "imported orders reconcile stock from the
-          // store's own numbers... untouched by this [ledger]"); reserving
-          // it here too double-deducted the same units once the order
-          // later shipped. Reserving never fails (backorders allowed).
+          // (docs/adr/0030), for EVERY order regardless of source
+          // (2026-09-13 addendum) — reserving only ever touches
+          // `quantityReserved`, never `quantityOnHand`, so it can never
+          // double-count against a WooCommerce/Shopify order's own
+          // provider-side stock reduction (pulled in separately by
+          // sync/stock.ts). Reserving never fails (backorders allowed).
           await reserveStockForOrder(tx, id, lines, user.id);
         }
         // ANNULE from NOUVELLE: nothing to release — a NOUVELLE order
@@ -139,10 +138,9 @@ export async function recordConfirmationAttemptAction(
     await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: id });
     await reconcileOrderCommission(id, user.id);
   }
-  if (terminal === "CONFIRMEE" && existing.source === "INTERNE") {
-    // Confirmation just reserved stock — a linked store's sellable number
-    // must reflect that. (A WooCommerce/Shopify order didn't reserve
-    // anything here — see the guard above — so there's nothing new to push.)
+  if (terminal === "CONFIRMEE") {
+    // Confirmation just reserved stock (any source now — see the guard
+    // above) — a linked store's sellable number must reflect that.
     await pushStockAfterLocalChange({
       productIds: lines.map((l) => l.productId),
       variationIds: lines.map((l) => l.variationId),

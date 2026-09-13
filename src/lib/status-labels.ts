@@ -208,6 +208,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   ECHEC_SYNCHRONISATION: "Échec de synchronisation",
   SUPPORT_TICKET: "Problème signalé",
   USAGE_LIMIT_ALERT: "Utilisation du forfait",
+  STOCK_INSUFFISANT_COMMANDE: "Stock insuffisant",
 };
 
 export const PLAN_CODE_LABELS: Record<string, string> = {

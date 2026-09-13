@@ -141,7 +141,26 @@ describe("POST /api/webhooks/woocommerce", () => {
     expect(notification.type).toBe("NOUVELLE_COMMANDE");
   });
 
-  it("forces a first-time import to NOUVELLE when forceNouvelleOnImport is enabled, even for a 'processing' order", async () => {
+  // docs/adr/0030's 2026-09-13 addendum: this is now the DEFAULT behavior
+  // (config unset, or forceNouvelleOnImport explicitly true), not an
+  // opt-in — a first-time "processing" order never auto-lands as
+  // Confirmée. Only CONFIRMATION inside ASODITECH reserves stock.
+  it("a first-time import lands as NOUVELLE by default, even for a 'processing' order (config unset)", async () => {
+    await seedIntegration();
+    const body = orderPayload();
+    const response = await POST(
+      request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "d-default-nouvelle" })
+    );
+    expect(response.status).toBe(200);
+
+    const order = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
+    expect(order.status).toBe("NOUVELLE");
+
+    const audit = await prisma.auditEvent.findFirstOrThrow({ where: { action: "order.created", entityId: order.id } });
+    expect((audit.metadata as Record<string, unknown>).forcedNouvelleFromWcStatus).toBe("processing");
+  });
+
+  it("forces a first-time import to NOUVELLE when forceNouvelleOnImport is explicitly true, even for a 'processing' order", async () => {
     await seedIntegration({ forceNouvelleOnImport: true });
     const body = orderPayload();
     const response = await POST(
@@ -156,8 +175,8 @@ describe("POST /api/webhooks/woocommerce", () => {
     expect((audit.metadata as Record<string, unknown>).forcedNouvelleFromWcStatus).toBe("processing");
   });
 
-  it("does not force NOUVELLE when forceNouvelleOnImport is disabled (default)", async () => {
-    await seedIntegration();
+  it("trusts WooCommerce's own status when forceNouvelleOnImport is explicitly disabled (opt-out)", async () => {
+    await seedIntegration({ forceNouvelleOnImport: false });
     const body = orderPayload();
     const response = await POST(
       request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "d-no-force" })
@@ -166,6 +185,41 @@ describe("POST /api/webhooks/woocommerce", () => {
 
     const order = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
     expect(order.status).toBe("CONFIRMEE");
+  });
+
+  // Task 3, through the actual webhook path (TEST 6): a first-time
+  // WooCommerce import whose line quantity exceeds available stock fires
+  // the read-only alert too — never blocks the import, never touches
+  // stock (checkAndNotifyInsufficientStockForOrder, called from
+  // createImportedOrder for any actor including a webhook).
+  it("a newly imported order requesting more than available stock fires a stock-insufficient alert (never blocks import, never touches stock)", async () => {
+    await seedIntegration();
+    const staff = await createTestUser({ role: "CONFIRMATION" }); // holds orders.view
+    const warehouse = await prisma.warehouse.create({ data: { name: "Entrepôt", isDefault: true } });
+    const product = await prisma.product.create({
+      data: { name: "Produit simple 01", sku: "SKU-501", price: 50, status: "ACTIF", source: "WOOCOMMERCE", externalId: "501" },
+    });
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 3 } });
+
+    const body = orderPayload({
+      line_items: [{ id: 1, name: "Produit simple 01", product_id: 501, sku: "SKU-501", quantity: 10, price: "50.00", subtotal: "500.00", total: "500.00" }],
+    });
+    const response = await POST(
+      request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "d-insufficient" })
+    );
+    expect(response.status).toBe(200);
+
+    const order = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
+    const insufficient = await prisma.notification.findFirstOrThrow({
+      where: { userId: staff.id, type: "STOCK_INSUFFISANT_COMMANDE" },
+    });
+    expect(insufficient.message).toContain("Produit simple 01");
+    expect(insufficient.message).toContain("10 demandée(s), 3 disponible(s), 7 manquante(s)");
+    expect(insufficient.entityId).toBe(order.id);
+
+    // Never blocked the import, never touched stock.
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 3, quantityReserved: 0 });
   });
 
   it("rejects an invalid signature with 401 and creates no order", async () => {

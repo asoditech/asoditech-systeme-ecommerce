@@ -1970,6 +1970,11 @@ enum NotificationType {
   // A tenant's usage crossed an 80/90/100% threshold for a metered
   // resource (src/lib/entitlements/alerts.ts, docs/adr/0035).
   USAGE_LIMIT_ALERT
+  // A new order's requested quantity exceeds current available stock
+  // (Physical - Reserved) for one of its lines — read-only alert, never
+  // mutates stock (src/lib/notifications.ts's
+  // checkAndNotifyInsufficientStockForOrder, docs/adr/0030's addendum).
+  STOCK_INSUFFISANT_COMMANDE
 }
 
 // Per-user, in-app alert about a business event the recipient is

@@ -2,7 +2,8 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { hasPermission, type Permission } from "@/lib/auth/permissions";
-import { formatCurrency, formatOrderNumber } from "@/lib/format";
+import { formatCurrency, formatOrderNumber, displayOrderNumber } from "@/lib/format";
+import { availableStockTotal } from "@/lib/inventory";
 import type { NotificationType, RecordSource } from "@prisma/client";
 
 /**
@@ -355,5 +356,78 @@ export async function checkAndNotifyLowStock(
     }
   } catch (error) {
     console.error("checkAndNotifyLowStock() failed (non-fatal):", error);
+  }
+}
+
+/**
+ * Alerts when a NEW order's line quantity exceeds current available stock
+ * (Physical − Reserved, `availableStockTotal` — the same derived-stock
+ * definition every other stock path uses). Read-only: never touches
+ * `quantityOnHand`/`quantityReserved` or writes an `InventoryMovement` —
+ * this is purely informational, so staff can decide whether to still
+ * confirm, backorder, or contact the customer.
+ *
+ * Called once per new order (manual `createOrderAction`, and WooCommerce/
+ * Shopify `createImportedOrder`, mirroring `notifyNewOrder`'s own call
+ * sites) — never on a re-import/update, so an order that later drops in
+ * stock elsewhere doesn't retroactively get flagged.
+ *
+ * Deduped per (order, product|variation) — not a day bucket like
+ * `checkAndNotifyLowStock`'s recurring condition, since this describes a
+ * one-off fact about a specific order: a webhook retry, a re-sync, a
+ * manual refresh, or a repeated API call for the SAME order always
+ * resolves to the same key and is silently skipped by the
+ * `@@unique([userId, dedupeKey])` constraint (see this module's own doc
+ * comment on `notify()`).
+ */
+export async function checkAndNotifyInsufficientStockForOrder(
+  order: {
+    id: string;
+    orderNumber: number;
+    displayNumber?: number | null;
+    source: RecordSource;
+    externalNumber?: string | null;
+  },
+  lines: { productId?: string | null; variationId?: string | null; quantity: number }[]
+): Promise<void> {
+  try {
+    const num = displayOrderNumber(order);
+    for (const line of lines) {
+      if (line.quantity <= 0) continue;
+      if (!line.productId && !line.variationId) continue;
+
+      const items = await prisma.inventoryItem.findMany({
+        where: line.variationId ? { variationId: line.variationId } : { productId: line.productId! },
+        select: {
+          quantityOnHand: true,
+          quantityReserved: true,
+          product: { select: { name: true } },
+          variation: { select: { product: { select: { name: true } } } },
+        },
+      });
+      // Not stock-tracked anywhere — nothing to compare the order against
+      // (same "silent no-op" posture as applyStockMovement's own
+      // no_inventory_item case).
+      if (items.length === 0) continue;
+
+      const available = availableStockTotal(items) ?? 0;
+      if (line.quantity <= available) continue;
+
+      const missing = line.quantity - available;
+      const name = items[0].product?.name ?? items[0].variation?.product.name ?? "Produit";
+      const key = line.variationId ?? line.productId!;
+
+      await notify({
+        type: "STOCK_INSUFFISANT_COMMANDE",
+        title: "Stock insuffisant",
+        message: `Stock insuffisant — ${name} — commande ${num} : ${line.quantity} demandée(s), ${available} disponible(s), ${missing} manquante(s).`,
+        entityType: "Order",
+        entityId: order.id,
+        dedupeKey: `stock_insuffisant_commande:${order.id}:${key}`,
+        recipientPermission: "orders.view",
+      });
+    }
+  } catch (error) {
+    console.error("checkAndNotifyInsufficientStockForOrder() failed (non-fatal):", error);
   }
 }

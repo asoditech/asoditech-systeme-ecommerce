@@ -13,13 +13,15 @@ const ACTIONS = {
 } as const;
 
 /**
- * Client request: every store order imported for the first time should
- * land as "Nouvelle" here, never auto-confirmed, so the confirmation team
- * always calls the customer before an order counts as confirmed — even
- * for a store status (WooCommerce "processing", a paid Shopify order)
- * that would otherwise map straight to "Confirmée". Off by default;
- * toggling never touches orders already imported, only ones imported
- * from this point on.
+ * The intended ASODITECH workflow (docs/adr/0030's 2026-09-13 addendum):
+ * every store order imported for the first time lands as "Nouvelle" here,
+ * never auto-confirmed, so the confirmation team always calls the
+ * customer before an order counts as confirmed — even for a store status
+ * (WooCommerce "processing", a paid Shopify order) that would otherwise
+ * map straight to "Confirmée". ON by default; this switch is an opt-OUT
+ * for a tenant that genuinely wants to trust the store's own status
+ * directly. Toggling never touches orders already imported, only ones
+ * imported from this point on.
  */
 export function ForceNouvelleToggle({
   provider,

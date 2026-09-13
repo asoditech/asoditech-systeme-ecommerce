@@ -7,7 +7,7 @@ import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
 import type { ShopifyOrder } from "../types";
 import { actorAuditFields, actorPerformedById, emptySyncSummary, isRecentlyPlaced, parseOrderPlacedAt, recordNote, upsertCustomerAddressFromOrder, type SyncActor, type SyncSummary } from "@/lib/integrations/shared";
-import { notifyNewOrder, resolveNotifications } from "@/lib/notifications";
+import { notifyNewOrder, checkAndNotifyInsufficientStockForOrder, resolveNotifications } from "@/lib/notifications";
 import { reconcileOrderCommission } from "@/lib/commissions";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import type { Prisma, OrderStatus } from "@prisma/client";
@@ -33,7 +33,8 @@ export interface ImportOrderOptions {
    * (`src/lib/integrations/woocommerce/sync/orders.ts`) — same
    * `Integration.config.forceNouvelleOnImport` client preference, same
    * first-time-creation-only scope, same "only CONFIRMEE is ever
-   * downgraded" rule. */
+   * downgraded" rule, and on by DEFAULT since 2026-09-13 (only an
+   * explicit `false` opts out). */
   forceNouvelleOnFirstImport?: boolean;
 }
 
@@ -305,6 +306,22 @@ async function createImportedOrder(
     );
   }
 
+  // Read-only alert — never blocks the import and never touches stock.
+  // Same recency guard as notifyNewOrder above: a first-time historical
+  // sync of hundreds of old orders doesn't flood hundreds of alerts.
+  if (actor.type === "INTEGRATION" || isRecentlyPlaced(order.createdAt)) {
+    await checkAndNotifyInsufficientStockForOrder(
+      {
+        id: createdOrder.id,
+        orderNumber: createdOrder.orderNumber,
+        displayNumber,
+        source: "SHOPIFY",
+        externalNumber: createdOrder.externalNumber,
+      },
+      items.map((i) => ({ productId: i.productId, variationId: i.variationId, quantity: i.quantity }))
+    );
+  }
+
   return { outcome: "imported" };
 }
 
@@ -427,7 +444,9 @@ export async function syncOrders(
   const integration = await prisma.integration.findUniqueOrThrow({ where: { id: integrationId } });
   const config = (integration.config as Record<string, unknown> | null) ?? {};
   const startCursor = typeof config.ordersResumeCursor === "string" ? config.ordersResumeCursor : null;
-  const forceNouvelleOnFirstImport = config.forceNouvelleOnImport === true;
+  // On by default — see ImportOrderOptions's doc comment. `false` is the
+  // only value that opts out; unset/anything else keeps the safe default.
+  const forceNouvelleOnFirstImport = config.forceNouvelleOnImport !== false;
 
   let importedThisRun = 0;
   let fixedThisRun = 0;

@@ -77,7 +77,7 @@ export async function ShopifyCard({ canManage }: { canManage: boolean }) {
         </div>
 
         {canManage && hasCredentials && (
-          <ForceNouvelleToggle provider="SHOPIFY" checked={config?.forceNouvelleOnImport === true} />
+          <ForceNouvelleToggle provider="SHOPIFY" checked={config?.forceNouvelleOnImport !== false} />
         )}
       </CardContent>
 

@@ -93,7 +93,7 @@ export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
         </div>
 
         {canManage && hasCredentials && (
-          <ForceNouvelleToggle provider="WOOCOMMERCE" checked={config?.forceNouvelleOnImport === true} />
+          <ForceNouvelleToggle provider="WOOCOMMERCE" checked={config?.forceNouvelleOnImport !== false} />
         )}
       </CardContent>
 

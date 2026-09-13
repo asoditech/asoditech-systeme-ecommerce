@@ -9,6 +9,7 @@ import {
   notifySyncFailure,
   notifyConnectionError,
   checkAndNotifyLowStock,
+  checkAndNotifyInsufficientStockForOrder,
 } from "@/lib/notifications";
 import { resetDb } from "../helpers/db";
 import { createTestUser } from "../helpers/auth";
@@ -318,5 +319,145 @@ describe("checkAndNotifyLowStock", () => {
     await checkAndNotifyLowStock({ productIds: [item.productId] });
     const notification = await prisma.notification.findFirstOrThrow();
     expect(notification.userId).toBe(actor.id);
+  });
+});
+
+describe("checkAndNotifyInsufficientStockForOrder — Task 3 (read-only alert, never mutates stock)", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+  afterEach(async () => {
+    await resetDb();
+  });
+
+  async function seedProduct(quantityOnHand: number, quantityReserved = 0, name = "Produit simple 01") {
+    const warehouse = await prisma.warehouse.create({ data: { name: "Entrepôt", isDefault: true } });
+    const product = await prisma.product.create({
+      data: { name, sku: `SKU-${Math.random()}`, price: 100, status: "ACTIF" },
+    });
+    const item = await prisma.inventoryItem.create({
+      data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand, quantityReserved },
+    });
+    return { product, item };
+  }
+
+  // The exact worked example from the brief: Physical=3, Reserved=0,
+  // Available=3, order quantity=10 -> "10 demandées, 3 disponibles, 7 manquantes".
+  it("fires with the exact requested/available/missing wording, and never touches stock", async () => {
+    await createTestUser({ role: "CONFIRMATION" }); // holds orders.view
+    const { product, item } = await seedProduct(3);
+
+    await checkAndNotifyInsufficientStockForOrder(
+      { id: "order-1", orderNumber: 15601, displayNumber: 15601, source: "INTERNE" },
+      [{ productId: product.id, quantity: 10 }]
+    );
+
+    const row = await prisma.notification.findFirstOrThrow();
+    expect(row.type).toBe("STOCK_INSUFFISANT_COMMANDE");
+    expect(row.title).toBe("Stock insuffisant");
+    expect(row.message).toBe("Stock insuffisant — Produit simple 01 — commande CMD-015601 : 10 demandée(s), 3 disponible(s), 7 manquante(s).");
+    expect(row.entityType).toBe("Order");
+    expect(row.entityId).toBe("order-1");
+
+    // Read-only — no mutation, no ledger entry.
+    const after = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(after).toMatchObject({ quantityOnHand: 3, quantityReserved: 0 });
+    expect(await prisma.inventoryMovement.count()).toBe(0);
+  });
+
+  it("compares against AVAILABLE (Physical − Reserved), not raw Physical", async () => {
+    await createTestUser({ role: "CONFIRMATION" });
+    // Physical 10, Reserved 8 -> Available 2. Ordering 5 exceeds available
+    // even though physical stock alone would look sufficient.
+    const { product } = await seedProduct(10, 8);
+
+    await checkAndNotifyInsufficientStockForOrder(
+      { id: "order-2", orderNumber: 2, source: "INTERNE" },
+      [{ productId: product.id, quantity: 5 }]
+    );
+
+    const row = await prisma.notification.findFirstOrThrow();
+    expect(row.message).toContain("5 demandée(s), 2 disponible(s), 3 manquante(s)");
+  });
+
+  it("does not fire when the requested quantity is within available stock", async () => {
+    await createTestUser({ role: "CONFIRMATION" });
+    const { product } = await seedProduct(10);
+
+    await checkAndNotifyInsufficientStockForOrder(
+      { id: "order-3", orderNumber: 3, source: "INTERNE" },
+      [{ productId: product.id, quantity: 10 }] // exactly at the limit — not insufficient
+    );
+
+    expect(await prisma.notification.count()).toBe(0);
+  });
+
+  it("skips a line for a product with no InventoryItem row at all (not stock-tracked here)", async () => {
+    await createTestUser({ role: "CONFIRMATION" });
+    const product = await prisma.product.create({ data: { name: "Sans stock", sku: `SKU-${Math.random()}`, price: 10, status: "ACTIF" } });
+
+    await expect(
+      checkAndNotifyInsufficientStockForOrder({ id: "order-4", orderNumber: 4, source: "INTERNE" }, [{ productId: product.id, quantity: 5 }])
+    ).resolves.toBeUndefined();
+    expect(await prisma.notification.count()).toBe(0);
+  });
+
+  it("checks every line independently — one short, one fine", async () => {
+    await createTestUser({ role: "CONFIRMATION" });
+    const { product: short } = await seedProduct(2, 0, "Court");
+    const { product: fine } = await seedProduct(50, 0, "Suffisant");
+
+    await checkAndNotifyInsufficientStockForOrder({ id: "order-5", orderNumber: 5, source: "INTERNE" }, [
+      { productId: short.id, quantity: 6 },
+      { productId: fine.id, quantity: 3 },
+    ]);
+
+    const rows = await prisma.notification.findMany();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].message).toContain("Court");
+  });
+
+  // Task 3's idempotency requirement: a webhook retry, sync retry,
+  // re-import, or manual refresh for the SAME order/product must not
+  // duplicate the alert — reuses the existing dedupeKey mechanism.
+  it("is deduped for the same (order, product) — a repeated call (webhook retry / re-sync / refresh) is a silent no-op", async () => {
+    await createTestUser({ role: "CONFIRMATION" });
+    const { product } = await seedProduct(3);
+    const lines = [{ productId: product.id, quantity: 10 }];
+    const order = { id: "order-6", orderNumber: 6, source: "INTERNE" as const };
+
+    await checkAndNotifyInsufficientStockForOrder(order, lines);
+    await checkAndNotifyInsufficientStockForOrder(order, lines);
+    await checkAndNotifyInsufficientStockForOrder(order, lines);
+
+    expect(await prisma.notification.count()).toBe(1);
+  });
+
+  it("concurrent duplicate calls for the same order/product resolve to exactly one notification", async () => {
+    await createTestUser({ role: "CONFIRMATION" });
+    const { product } = await seedProduct(3);
+    const lines = [{ productId: product.id, quantity: 10 }];
+    const order = { id: "order-7", orderNumber: 7, source: "INTERNE" as const };
+
+    await Promise.all([
+      checkAndNotifyInsufficientStockForOrder(order, lines),
+      checkAndNotifyInsufficientStockForOrder(order, lines),
+      checkAndNotifyInsufficientStockForOrder(order, lines),
+    ]);
+
+    expect(await prisma.notification.count()).toBe(1);
+  });
+
+  it("a WooCommerce order's message uses the external order number (#…)", async () => {
+    await createTestUser({ role: "CONFIRMATION" });
+    const { product } = await seedProduct(3);
+
+    await checkAndNotifyInsufficientStockForOrder(
+      { id: "order-8", orderNumber: 8, source: "WOOCOMMERCE", externalNumber: "15601" },
+      [{ productId: product.id, quantity: 10 }]
+    );
+
+    const row = await prisma.notification.findFirstOrThrow();
+    expect(row.message).toContain("commande #15601");
   });
 });

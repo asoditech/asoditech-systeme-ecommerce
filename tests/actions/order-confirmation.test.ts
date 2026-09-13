@@ -128,14 +128,12 @@ describe("recordConfirmationAttemptAction", () => {
     expect(item.quantityReserved).toBe(3);
   });
 
-  // Audit fix (docs/adr/0030's own stated intent, not previously enforced):
-  // a WooCommerce/Shopify order's stock is already accounted for by the
-  // separate provider stock pull-sync — the store reduces its own stock the
-  // moment the order is paid/processing, and that gets mirrored into
-  // `quantityOnHand` directly. Reserving it AGAIN here double-deducted the
-  // same physical units once the order was later shipped through this
-  // queue (the "Stock insuffisant" incident this fixes).
-  it("CONFIRME does NOT reserve stock for a WooCommerce-sourced order (docs/adr/0030 audit fix)", async () => {
+  // docs/adr/0030's 2026-09-13 addendum: reservation (quantityReserved
+  // only, never quantityOnHand) is universal again — a WooCommerce/Shopify
+  // order reserves through this queue exactly like an INTERNE order.
+  // Safe by construction: reserving can never double-count a provider's
+  // own on-hand reduction, since it never touches quantityOnHand.
+  it("CONFIRME reserves stock for a WooCommerce-sourced order too (docs/adr/0030 addendum)", async () => {
     const { orderId, product } = await seedNouvelleOrder(3);
     await prisma.order.update({ where: { id: orderId }, data: { source: "WOOCOMMERCE", externalId: "9001" } });
 
@@ -146,8 +144,10 @@ describe("recordConfirmationAttemptAction", () => {
     const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
     expect(order.status).toBe("CONFIRMEE");
     const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
-    expect(item.quantityReserved).toBe(0);
-    expect(await prisma.inventoryMovement.count({ where: { orderId } })).toBe(0);
+    expect(item.quantityReserved).toBe(3);
+    const movements = await prisma.inventoryMovement.findMany({ where: { orderId } });
+    expect(movements).toHaveLength(1);
+    expect(movements[0].type).toBe("RESERVATION");
   });
 
   it("ANNULE from NOUVELLE cancels the order without any stock movement", async () => {

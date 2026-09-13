@@ -457,6 +457,14 @@ describe("WooCommerce integration", () => {
     it("imports a registered-customer order with correct totals, line items, and a cost snapshot from the internal product", async () => {
       const product = await seedProductWithCost();
       const teammate = await createTestUser({ role: "CONFIRMATION" }); // holds orders.view, distinct from the syncing ADMIN
+      // This test is about field mapping (totals/items/cost snapshot), not
+      // the NOUVELLE-on-import default (docs/adr/0030's 2026-09-13
+      // addendum, covered separately below) — opt out so a "processing"
+      // order maps straight to CONFIRMEE as asserted.
+      await prisma.integration.updateMany({
+        where: { provider: "WOOCOMMERCE" },
+        data: { config: { siteUrl: FAKE_STORE_URL, forceNouvelleOnImport: false } },
+      });
 
       state.orders = [
         {

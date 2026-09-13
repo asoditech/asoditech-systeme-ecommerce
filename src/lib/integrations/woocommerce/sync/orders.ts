@@ -9,7 +9,7 @@ import type { WcOrder } from "../types";
 import { actorAuditFields, actorPerformedById, type SyncActor } from "./actor";
 import { isRecentlyPlaced, parseOrderPlacedAt } from "../../shared/order-recency";
 import { upsertCustomerAddressFromOrder } from "../../shared/customer-address";
-import { notifyNewOrder, resolveNotifications } from "@/lib/notifications";
+import { notifyNewOrder, checkAndNotifyInsufficientStockForOrder, resolveNotifications } from "@/lib/notifications";
 import { reconcileOrderCommission } from "@/lib/commissions";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { emptySyncSummary, recordNote, type SyncSummary } from "./types";
@@ -39,16 +39,22 @@ import { isUniqueConstraintError } from "@/lib/prisma-errors";
  */
 export interface ImportOrderOptions {
   /**
-   * Client preference (`Integration.config.forceNouvelleOnImport`, opt-in,
-   * default off): a first-time import that would otherwise land as
-   * CONFIRMEE (WooCommerce "processing") is created as NOUVELLE instead,
-   * so the confirmation team always phones the customer before the order
-   * is treated as confirmed — even though WooCommerce itself already
-   * considers it paid/processing. Deliberately scoped to first-time
-   * creation only: a later re-sync/webhook update of an already-held
-   * order still applies the real WooCommerce status, and every other
-   * mapped status (NOUVELLE, LIVREE, ANNULEE, REMBOURSEE, ECHEC) is never
-   * touched by this — only CONFIRMEE is ever downgraded.
+   * `Integration.config.forceNouvelleOnImport` — on by DEFAULT since
+   * 2026-09-13 (was opt-in, default off): a first-time import that would
+   * otherwise land as CONFIRMEE (WooCommerce "processing") is created as
+   * NOUVELLE instead, so the confirmation team always phones the customer
+   * before the order is treated as confirmed — even though WooCommerce
+   * itself already considers it paid/processing. This is the intended
+   * ASODITECH workflow, not an edge case: import → NOUVELLE, a human
+   * confirms inside ASODITECH → CONFIRMEE (which is what actually reserves
+   * stock — see reserveStockForOrder). A tenant that genuinely wants to
+   * trust WooCommerce's own "processing" status directly can still opt out
+   * by explicitly setting `forceNouvelleOnImport: false` (the
+   * ForceNouvelleToggle UI). Deliberately scoped to first-time creation
+   * only: a later re-sync/webhook update of an already-held order still
+   * applies the real WooCommerce status, and every other mapped status
+   * (NOUVELLE, LIVREE, ANNULEE, REMBOURSEE, ECHEC) is never touched by
+   * this — only CONFIRMEE is ever downgraded.
    */
   forceNouvelleOnFirstImport?: boolean;
 }
@@ -299,6 +305,16 @@ async function createImportedOrder(
     );
   }
 
+  // Read-only alert — never blocks the import and never touches stock.
+  // Same recency guard as notifyNewOrder above: a first-time historical
+  // sync of hundreds of old orders doesn't flood hundreds of alerts.
+  if (actor.type === "INTEGRATION" || isRecentlyPlaced(wc.date_created)) {
+    await checkAndNotifyInsufficientStockForOrder(
+      { id: order.id, orderNumber: order.orderNumber, displayNumber, source: "WOOCOMMERCE", externalNumber: order.externalNumber },
+      items.map((i) => ({ productId: i.productId, variationId: i.variationId, quantity: i.quantity }))
+    );
+  }
+
   return { outcome: "imported" };
 }
 
@@ -438,7 +454,9 @@ export async function syncOrders(
     typeof config.ordersResumePage === "number" && config.ordersResumePage > 0
       ? Math.floor(config.ordersResumePage)
       : 1;
-  const forceNouvelleOnFirstImport = config.forceNouvelleOnImport === true;
+  // On by default — see ImportOrderOptions's doc comment. `false` is the
+  // only value that opts out; unset/anything else keeps the safe default.
+  const forceNouvelleOnFirstImport = config.forceNouvelleOnImport !== false;
 
   let unreadable = 0;
   let importedThisRun = 0;
