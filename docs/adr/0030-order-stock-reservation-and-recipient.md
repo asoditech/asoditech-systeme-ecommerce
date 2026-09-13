@@ -139,3 +139,49 @@ Tests: `tests/actions/orders.test.ts`'s "never touch the internal stock
 ledger" describe block rewritten for the new split-gate behavior;
 `tests/actions/order-confirmation.test.ts` updated; new coverage for the
 insufficient-stock alert + dedup and for default-on force-Nouvelle.
+
+## Addendum — a later webhook/re-sync could still auto-confirm a NOUVELLE order (2026-09-13, same day)
+
+Production incident: orders #15606/#15607 showed CONFIRMEE despite the
+addendum above already being live. Root cause was a second, distinct gap
+in the exact same feature, in `updateExistingOrder` (both providers'
+`sync/orders.ts`) rather than in `importOrder`'s creation branch:
+
+- `order.created` fires while WooCommerce still reports `pending` — maps
+  straight to NOUVELLE, no forcing needed, order is created correctly.
+- WooCommerce later moves the order to `processing` (payment clears) and
+  fires `order.updated`. `importOrder` routes an existing order straight
+  to `updateExistingOrder`, which applied whatever real status
+  `mapOrderStatus` returned as long as `canTransitionOrderStatus` allowed
+  it — and `NOUVELLE → CONFIRMEE` is a normal, valid transition. Since
+  `forceNouvelleOnFirstImport` was (by design, per the ADR's own original
+  text) "scoped to first-time creation only," it had no say here at all —
+  the order silently became CONFIRMEE on the SECOND webhook event, having
+  correctly avoided it on the first.
+- Confirmed by code trace, not by reading production data directly (no
+  production DB/credentials were used) — verified by reproducing the
+  identical two-webhook sequence (`order.created` "pending" then
+  `order.updated` "processing") against the deployed code in tests.
+
+Fixed by extending the exact same guard to `updateExistingOrder`: the
+specific `NOUVELLE → CONFIRMEE` transition is now blocked there too,
+unless `forceNouvelleOnImport` is explicitly `false`. Every other
+transition (→ LIVREE, → ANNULEE, → REMBOURSEE, → ECHEC, CONFIRMEE moving
+on to EN_PREPARATION/EXPEDIEE/etc.) is completely unaffected — this is
+not a "freeze the order" change, only "don't let a store status alone
+promote an unconfirmed order to confirmed." `ImportOrderOptions` is now
+threaded through both of `importOrder`'s calls into `updateExistingOrder`
+in each provider's `sync/orders.ts`.
+
+One invariant now holds everywhere a WooCommerce/Shopify order's status
+is written: **a store's own status can create NOUVELLE, ANNULEE,
+REMBOURSEE, LIVREE, or ECHEC freely, and can move a CONFIRMEE order
+forward, but it can never by itself turn a NOUVELLE order into CONFIRMEE
+— only a human action inside ASODITECH does that** (`updateOrderStatusAction`,
+`recordConfirmationAttemptAction`).
+
+Tests: new coverage in both providers' webhook suites (a second delivery
+reporting the higher status doesn't promote the order) and both
+providers' action-test suites (the identical scenario through
+`importOrder` directly, matching what the bulk sync loop calls) — first
+import, later re-sync, and the explicit opt-out on both.

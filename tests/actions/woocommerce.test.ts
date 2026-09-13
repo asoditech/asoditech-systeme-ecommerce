@@ -931,6 +931,80 @@ describe("WooCommerce integration", () => {
     });
   });
 
+  describe("importOrder — NOUVELLE-by-default on first import and on later re-sync (docs/adr/0030's 2026-09-13 addendum)", () => {
+    function buildWcOrder(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 9200,
+        number: "9200",
+        status: "pending" as const,
+        currency: "MAD",
+        date_created: "2026-01-16T10:00:00",
+        date_paid: null,
+        customer_id: 0,
+        total: 50,
+        total_tax: 0,
+        shipping_total: 0,
+        discount_total: 0,
+        payment_method: "cod",
+        payment_method_title: null,
+        customer_note: null,
+        billing: {
+          first_name: "Bulk", last_name: "Sync", company: null, address_1: "x", address_2: null,
+          city: "Rabat", state: null, postcode: null, country: "MA", email: "bulk@example.com", phone: null,
+        },
+        shipping: {
+          first_name: "", last_name: "", company: null, address_1: "", address_2: null,
+          city: "", state: null, postcode: null, country: "", email: null, phone: null,
+        },
+        line_items: [
+          { id: 1, name: "Thé vert", product_id: null, variation_id: null, sku: "SKU-X", quantity: 1, price: 50, subtotal: 50, total: 50, total_tax: 0 },
+        ],
+        refunds: [],
+        ...overrides,
+      };
+    }
+
+    it("bulk sync's first-time import lands as NOUVELLE by default, even for 'processing'", async () => {
+      const order = buildWcOrder({ status: "processing" });
+      const result = await importOrder(order, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: true });
+      expect(result.outcome).toBe("imported");
+
+      const saved = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "9200" } });
+      expect(saved.status).toBe("NOUVELLE");
+    });
+
+    // The bulk-sync equivalent of the webhook regression above: a
+    // "Synchroniser les commandes" re-run that now sees the order as
+    // "processing" must not silently promote it past a still-pending
+    // human confirmation, exactly like a webhook re-delivery wouldn't.
+    it("a later bulk-sync re-run reporting 'processing' does NOT promote an already-NOUVELLE order to CONFIRMEE", async () => {
+      const first = buildWcOrder({ status: "pending" });
+      await importOrder(first, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: true });
+      let saved = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "9200" } });
+      expect(saved.status).toBe("NOUVELLE");
+
+      const resynced = buildWcOrder({ status: "processing", date_paid: "2026-01-17T09:00:00" });
+      const result = await importOrder(resynced, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: true });
+      expect(result.outcome).toBe("unchanged"); // status held, no other field changed in this fixture
+
+      saved = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "9200" } });
+      expect(saved.status).toBe("NOUVELLE");
+    });
+
+    it("explicit opt-out (forceNouvelleOnFirstImport: false) lets a later re-sync apply the real status too", async () => {
+      const first = buildWcOrder({ status: "on-hold" }); // maps straight to NOUVELLE regardless of the setting
+      await importOrder(first, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: false });
+      let saved = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "9200" } });
+      expect(saved.status).toBe("NOUVELLE");
+
+      const resynced = buildWcOrder({ status: "processing" });
+      const result = await importOrder(resynced, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: false });
+      expect(result.outcome).toBe("updated");
+      saved = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "9200" } });
+      expect(saved.status).toBe("CONFIRMEE"); // opt-out honored on the re-sync too
+    });
+  });
+
   describe("generateWooCommerceWebhookSecretAction", () => {
     it("returns the secret exactly once and stores only its encrypted form", async () => {
       await loginAsTestUser({ role: "ADMIN" });

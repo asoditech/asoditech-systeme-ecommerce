@@ -187,6 +187,67 @@ describe("POST /api/webhooks/woocommerce", () => {
     expect(order.status).toBe("CONFIRMEE");
   });
 
+  // 2026-09-13 fix: the actual gap behind orders #15606/#15607 showing
+  // CONFIRMEE in production. order.created landed the order as NOUVELLE
+  // ("pending" maps straight to NOUVELLE, no forcing needed) — then WC
+  // moved the order to "processing" and fired order.updated. The OLD
+  // updateExistingOrder always applied the store's real status once the
+  // order already existed, silently promoting NOUVELLE -> CONFIRMEE
+  // without forceNouvelleOnImport ever getting a say (it only looked at
+  // the FIRST snapshot). This is now blocked exactly like first import.
+  it("a later webhook update reporting 'processing' does NOT silently promote an already-NOUVELLE order to CONFIRMEE", async () => {
+    await seedIntegration(); // default: force-Nouvelle on
+    const created = orderPayload({ status: "pending" });
+    const createdResponse = await POST(
+      request(created, { "x-wc-webhook-signature": sign(created), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "d-created-pending" })
+    );
+    expect(createdResponse.status).toBe(200);
+    let order = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
+    expect(order.status).toBe("NOUVELLE");
+
+    const updated = orderPayload({ status: "processing", date_paid: "2026-01-20T10:05:00" });
+    const updatedResponse = await POST(
+      request(updated, { "x-wc-webhook-signature": sign(updated), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "d-updated-processing" })
+    );
+    expect(updatedResponse.status).toBe(200);
+
+    order = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
+    expect(order.status).toBe("NOUVELLE"); // still requires a human confirmation inside ASODITECH
+
+    const item = await prisma.inventoryItem.findFirst();
+    expect(item).toBeNull(); // no product line resolved in this fixture — nothing was reserved either way
+  });
+
+  it("with forceNouvelleOnImport explicitly disabled, a later webhook update DOES apply the real status (opt-out honored on update too)", async () => {
+    await seedIntegration({ forceNouvelleOnImport: false });
+    const created = orderPayload({ status: "pending" });
+    await POST(request(created, { "x-wc-webhook-signature": sign(created), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "d-created-pending-2" }));
+    let order = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
+    expect(order.status).toBe("NOUVELLE"); // "pending" always maps to NOUVELLE regardless of the setting
+
+    const updated = orderPayload({ status: "processing" });
+    await POST(request(updated, { "x-wc-webhook-signature": sign(updated), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "d-updated-processing-2" }));
+    order = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
+    expect(order.status).toBe("CONFIRMEE");
+  });
+
+  it("a later webhook update still applies every OTHER transition normally (e.g. processing -> completed)", async () => {
+    await seedIntegration({ forceNouvelleOnImport: false }); // opt-out so the order starts CONFIRMEE, to isolate the non-NOUVELLE transition
+    const created = orderPayload({ status: "processing" });
+    await POST(request(created, { "x-wc-webhook-signature": sign(created), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "d-created-processing-3" }));
+    let order = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
+    expect(order.status).toBe("CONFIRMEE");
+
+    // CONFIRMEE -> LIVREE isn't a direct transition in ASODITECH's state
+    // machine, so the guard correctly leaves it alone (statusSkippedReason,
+    // not the new autoConfirmBlocked path) — this proves the fix is scoped
+    // to NOUVELLE -> CONFIRMEE only, not a blanket "ignore all updates".
+    const updated = orderPayload({ status: "completed" });
+    await POST(request(updated, { "x-wc-webhook-signature": sign(updated), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "d-updated-completed-3" }));
+    order = await prisma.order.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
+    expect(order.status).toBe("CONFIRMEE"); // unchanged — not a valid direct transition, same as before this fix
+  });
+
   // Task 3, through the actual webhook path (TEST 6): a first-time
   // WooCommerce import whose line quantity exceeds available stock fires
   // the read-only alert too — never blocks the import, never touches

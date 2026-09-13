@@ -157,6 +157,40 @@ describe("POST /api/webhooks/shopify", () => {
     expect(order.status).toBe("CONFIRMEE");
   });
 
+  // 2026-09-13 fix — mirrors WooCommerce's identical regression test.
+  // orders/create lands the order as NOUVELLE (PENDING/UNFULFILLED); Shopify
+  // then marks it PAID and fires orders/updated. The OLD updateExistingOrder
+  // always applied the store's real status once the order already existed,
+  // silently promoting NOUVELLE -> CONFIRMEE. Now blocked, same as first import.
+  it("a later webhook update reporting PAID does NOT silently promote an already-NOUVELLE order to CONFIRMEE", async () => {
+    await seedIntegration(); // default: force-Nouvelle on
+    const body = orderCreatePayload();
+    const createdResponse = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/create", "x-shopify-webhook-id": "d-created-pending" }));
+    expect(createdResponse.status).toBe(200);
+    let order = await prisma.order.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/7001" } });
+    expect(order.status).toBe("NOUVELLE");
+
+    state.orders[0].displayFinancialStatus = "PAID";
+    const updatedResponse = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "d-updated-paid" }));
+    expect(updatedResponse.status).toBe(200);
+
+    order = await prisma.order.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/7001" } });
+    expect(order.status).toBe("NOUVELLE"); // still requires a human confirmation inside ASODITECH
+  });
+
+  it("with forceNouvelleOnImport explicitly disabled, a later webhook update DOES apply the real status (opt-out honored on update too)", async () => {
+    await seedIntegration({ forceNouvelleOnImport: false });
+    const body = orderCreatePayload();
+    await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/create", "x-shopify-webhook-id": "d-created-pending-2" }));
+    let order = await prisma.order.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/7001" } });
+    expect(order.status).toBe("NOUVELLE"); // PENDING always maps to NOUVELLE regardless of the setting
+
+    state.orders[0].displayFinancialStatus = "PAID";
+    await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "d-updated-paid-2" }));
+    order = await prisma.order.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/7001" } });
+    expect(order.status).toBe("CONFIRMEE");
+  });
+
   it("rejects an invalid signature with 401 and imports nothing", async () => {
     await seedIntegration();
     const body = orderCreatePayload();

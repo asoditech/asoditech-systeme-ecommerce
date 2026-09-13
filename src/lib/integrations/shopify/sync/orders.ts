@@ -32,9 +32,10 @@ export interface ImportOrderOptions {
   /** See WooCommerce's identical option
    * (`src/lib/integrations/woocommerce/sync/orders.ts`) — same
    * `Integration.config.forceNouvelleOnImport` client preference, same
-   * first-time-creation-only scope, same "only CONFIRMEE is ever
-   * downgraded" rule, and on by DEFAULT since 2026-09-13 (only an
-   * explicit `false` opts out). */
+   * "only the NOUVELLE → CONFIRMEE transition is ever blocked" rule,
+   * enforced on every import AND every later re-sync/webhook update
+   * (2026-09-13 fix), and on by DEFAULT (only an explicit `false` opts
+   * out). */
   forceNouvelleOnFirstImport?: boolean;
 }
 
@@ -66,7 +67,7 @@ export async function importOrder(
   const existing = await prisma.order.findFirst({ where: { source: "SHOPIFY", externalId: order.id } });
 
   if (existing) {
-    return updateExistingOrder(existing.id, order, statusMapping.status, actor);
+    return updateExistingOrder(existing.id, order, statusMapping.status, actor, options);
   }
 
   const forcedToNouvelle = Boolean(options?.forceNouvelleOnFirstImport) && statusMapping.status === "CONFIRMEE";
@@ -84,7 +85,7 @@ export async function importOrder(
     // docs/adr/0010-woocommerce-integration.md's audit addendum.
     if (isUniqueConstraintError(error)) {
       const winner = await prisma.order.findFirst({ where: { source: "SHOPIFY", externalId: order.id } });
-      if (winner) return updateExistingOrder(winner.id, order, statusMapping.status, actor);
+      if (winner) return updateExistingOrder(winner.id, order, statusMapping.status, actor, options);
     }
     throw error;
   }
@@ -329,7 +330,8 @@ async function updateExistingOrder(
   orderId: string,
   order: ShopifyOrder,
   status: OrderStatus,
-  actor: SyncActor
+  actor: SyncActor,
+  options?: ImportOrderOptions
 ): Promise<{ outcome: "updated" | "unchanged"; reason?: string }> {
   const existing = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
   const fields = mappedOrderFields(order);
@@ -338,7 +340,14 @@ async function updateExistingOrder(
 
   await prisma.$transaction(async (tx) => {
     if (existing.status !== status) {
-      if (canTransitionOrderStatus(existing.status, status)) {
+      // Same rule as first import, now enforced on every later re-sync/
+      // webhook update too (2026-09-13 fix) — see the identical comment in
+      // WooCommerce's sync/orders.ts for the full reasoning.
+      const autoConfirmBlocked =
+        existing.status === "NOUVELLE" && status === "CONFIRMEE" && options?.forceNouvelleOnFirstImport !== false;
+      if (autoConfirmBlocked) {
+        statusSkippedReason = `Commande Shopify ${order.name} : reste "Nouvelle" — confirmation manuelle requise avant "Confirmée" (réglage "Toujours importer en Nouvelle").`;
+      } else if (canTransitionOrderStatus(existing.status, status)) {
         const result = await tx.order.updateMany({ where: { id: orderId, status: existing.status }, data: { status } });
         if (result.count > 0) changedFields = true;
       } else {

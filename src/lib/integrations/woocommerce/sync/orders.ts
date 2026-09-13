@@ -50,11 +50,17 @@ export interface ImportOrderOptions {
    * stock — see reserveStockForOrder). A tenant that genuinely wants to
    * trust WooCommerce's own "processing" status directly can still opt out
    * by explicitly setting `forceNouvelleOnImport: false` (the
-   * ForceNouvelleToggle UI). Deliberately scoped to first-time creation
-   * only: a later re-sync/webhook update of an already-held order still
-   * applies the real WooCommerce status, and every other mapped status
-   * (NOUVELLE, LIVREE, ANNULEE, REMBOURSEE, ECHEC) is never touched by
-   * this — only CONFIRMEE is ever downgraded.
+   * ForceNouvelleToggle UI).
+   *
+   * Enforced on every import AND every later re-sync/webhook update of an
+   * already-held order (2026-09-13 fix — see updateExistingOrder): the
+   * gap where order.created landed an order as NOUVELLE (WC "pending") but
+   * a LATER order.updated reporting "processing" silently promoted it to
+   * CONFIRMEE was the exact same "never auto-confirm" rule being violated
+   * one event later. Only the specific NOUVELLE → CONFIRMEE transition is
+   * ever blocked by this — every other mapped status/transition (LIVREE,
+   * ANNULEE, REMBOURSEE, ECHEC, and CONFIRMEE moving on to EN_PREPARATION/
+   * EXPEDIEE/etc.) is never touched by this.
    */
   forceNouvelleOnFirstImport?: boolean;
 }
@@ -89,7 +95,7 @@ export async function importOrder(
   const existing = await prisma.order.findFirst({ where: { source: "WOOCOMMERCE", externalId } });
 
   if (existing) {
-    return updateExistingOrder(existing.id, wc, statusMapping.status, actor);
+    return updateExistingOrder(existing.id, wc, statusMapping.status, actor, options);
   }
 
   const forcedToNouvelle = Boolean(options?.forceNouvelleOnFirstImport) && statusMapping.status === "CONFIRMEE";
@@ -107,7 +113,7 @@ export async function importOrder(
     // docs/adr/0010-woocommerce-integration.md.
     if (isUniqueConstraintError(error)) {
       const winner = await prisma.order.findFirst({ where: { source: "WOOCOMMERCE", externalId } });
-      if (winner) return updateExistingOrder(winner.id, wc, statusMapping.status, actor);
+      if (winner) return updateExistingOrder(winner.id, wc, statusMapping.status, actor, options);
     }
     throw error;
   }
@@ -322,7 +328,8 @@ async function updateExistingOrder(
   orderId: string,
   wc: WcOrder,
   status: OrderStatus,
-  actor: SyncActor
+  actor: SyncActor,
+  options?: ImportOrderOptions
 ): Promise<{ outcome: "updated" | "unchanged"; reason?: string }> {
   const existing = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
   const fields = mapOrderFields(wc, status);
@@ -331,7 +338,21 @@ async function updateExistingOrder(
 
   await prisma.$transaction(async (tx) => {
     if (existing.status !== status) {
-      if (canTransitionOrderStatus(existing.status, status)) {
+      // Same rule as first import, now enforced on every later re-sync/
+      // webhook update too (2026-09-13 fix): a store's own status must
+      // never silently promote a still-unconfirmed order straight to
+      // CONFIRMEE — only a human confirming inside ASODITECH does that.
+      // Order.created landing the order as NOUVELLE (pending/on-hold) and
+      // a LATER order.updated reporting "processing" was exactly the gap
+      // that let an order become CONFIRMEE without ever being downgraded
+      // by createImportedOrder's own forceNouvelleOnFirstImport, which
+      // only ever looked at the FIRST snapshot. Every other transition
+      // (→ LIVREE, → ANNULEE, → REMBOURSEE, → ECHEC, …) is untouched.
+      const autoConfirmBlocked =
+        existing.status === "NOUVELLE" && status === "CONFIRMEE" && options?.forceNouvelleOnFirstImport !== false;
+      if (autoConfirmBlocked) {
+        statusSkippedReason = `Commande WooCommerce #${wc.id} : reste "Nouvelle" — confirmation manuelle requise avant "Confirmée" (réglage "Toujours importer en Nouvelle").`;
+      } else if (canTransitionOrderStatus(existing.status, status)) {
         const result = await tx.order.updateMany({
           where: { id: orderId, status: existing.status },
           data: { status },

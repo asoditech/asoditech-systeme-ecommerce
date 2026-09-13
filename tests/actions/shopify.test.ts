@@ -769,6 +769,69 @@ describe("Shopify integration", () => {
     });
   });
 
+  describe("importOrder — NOUVELLE-by-default on first import and on later re-sync (docs/adr/0030's 2026-09-13 addendum)", () => {
+    function buildShopifyOrder(overrides: Record<string, unknown> = {}) {
+      return {
+        id: "gid://shopify/Order/9200",
+        name: "#9200",
+        createdAt: futureIso(),
+        displayFinancialStatus: "PENDING" as const,
+        displayFulfillmentStatus: "UNFULFILLED" as const,
+        cancelledAt: null,
+        cancelReason: null,
+        customer: null,
+        email: "bulk@example.com",
+        phone: null,
+        shippingAddress: null,
+        billingAddress: null,
+        paymentGatewayNames: [],
+        note: null,
+        currentTotalPriceSet: { amount: 50, currency: "MAD" },
+        subtotalPriceSet: { amount: 50, currency: "MAD" },
+        totalDiscountsSet: { amount: 0, currency: "MAD" },
+        totalShippingPriceSet: { amount: 0, currency: "MAD" },
+        totalRefundedSet: { amount: 0, currency: "MAD" },
+        lineItems: { nodes: [{ id: "gid://shopify/LineItem/1", title: "Thé vert", sku: "SKU-X", quantity: 1, variant: null, product: null, originalUnitPriceSet: { amount: 50, currency: "MAD" }, discountedTotalSet: { amount: 50, currency: "MAD" }, originalTotalSet: { amount: 50, currency: "MAD" } }] },
+        refunds: [],
+        ...overrides,
+      };
+    }
+
+    it("bulk sync's first-time import lands as NOUVELLE by default, even for PAID + unfulfilled", async () => {
+      const order = buildShopifyOrder({ displayFinancialStatus: "PAID" });
+      const result = await importOrder(order, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: true });
+      expect(result.outcome).toBe("imported");
+
+      const saved = await prisma.order.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/9200" } });
+      expect(saved.status).toBe("NOUVELLE");
+    });
+
+    it("a later bulk-sync re-run reporting PAID does NOT promote an already-NOUVELLE order to CONFIRMEE", async () => {
+      const first = buildShopifyOrder(); // PENDING/UNFULFILLED -> NOUVELLE
+      await importOrder(first, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: true });
+      let saved = await prisma.order.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/9200" } });
+      expect(saved.status).toBe("NOUVELLE");
+
+      const resynced = buildShopifyOrder({ displayFinancialStatus: "PAID" });
+      await importOrder(resynced, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: true });
+      saved = await prisma.order.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/9200" } });
+      expect(saved.status).toBe("NOUVELLE");
+    });
+
+    it("explicit opt-out (forceNouvelleOnFirstImport: false) lets a later re-sync apply the real status too", async () => {
+      const first = buildShopifyOrder(); // PENDING/UNFULFILLED -> NOUVELLE regardless of the setting
+      await importOrder(first, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: false });
+      let saved = await prisma.order.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/9200" } });
+      expect(saved.status).toBe("NOUVELLE");
+
+      const resynced = buildShopifyOrder({ displayFinancialStatus: "PAID" });
+      const result = await importOrder(resynced, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: false });
+      expect(result.outcome).toBe("updated");
+      saved = await prisma.order.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/9200" } });
+      expect(saved.status).toBe("CONFIRMEE");
+    });
+  });
+
   describe("disconnectIntegrationAction — Shopify", () => {
     it("clears credentials and resets status", async () => {
       await loginAsTestUser({ role: "ADMIN" });
