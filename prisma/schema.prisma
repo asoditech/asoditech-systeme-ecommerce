@@ -130,12 +130,12 @@ model Tenant {
 // (docs/adr/0026) in their migration.
 // ---------------------------------------------------------------------------
 
-// Two commercial plans exist today. CUSTOM is reserved for a future
-// per-client negotiated/enterprise plan — modeled so the architecture
-// doesn't need to change when that plan is introduced, but deliberately
-// never assigned, exposed in `/platform/plans`, or offered anywhere today
-// (see the task brief: "do not expose or implement an Enterprise
-// commercial plan now").
+// BUSINESS and PRO are the two self-serve commercial plans. CUSTOM
+// ("Illimité", seeded by 20260913000000_custom_plan) is a bespoke,
+// unlimited, zero-listed-price plan a platform admin hand-assigns to a
+// specific tenant from `/platform` — never self-serve, never advertised
+// to a tenant picking BUSINESS/PRO (see `listOfferedPlans` vs
+// `listAllPlans` in src/lib/entitlements/plan.ts).
 enum PlanCode {
   BUSINESS
   PRO
@@ -160,9 +160,9 @@ model Plan {
   installationPriceMad Decimal @db.Decimal(12, 2)
   monthlyPriceMad      Decimal @db.Decimal(12, 2)
 
-  // Numeric resource caps. `null` = unlimited — never null for BUSINESS or
-  // PRO today (both are always given a real number), reserved for a
-  // future CUSTOM/enterprise plan that genuinely has no cap.
+  // Numeric resource caps. `null` = unlimited — never null for BUSINESS
+  // or PRO (both always get a real number); CUSTOM ("Illimité") is null
+  // on all three, genuinely uncapped.
   maxOrdersPerMonth Int?
   maxUsers          Int?
   maxWarehouses     Int?

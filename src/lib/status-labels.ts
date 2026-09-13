@@ -213,7 +213,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
 export const PLAN_CODE_LABELS: Record<string, string> = {
   BUSINESS: "Business",
   PRO: "Pro",
-  CUSTOM: "Sur mesure",
+  CUSTOM: "Illimité",
 };
 
 export const SUBSCRIPTION_STATUS_LABELS: Record<string, StatusMeta> = {

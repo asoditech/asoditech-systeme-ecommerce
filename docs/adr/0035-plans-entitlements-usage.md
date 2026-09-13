@@ -34,15 +34,16 @@ against `src/lib/entitlements/catalogue.ts`'s `planFeaturesSchema` in code
 — not one boolean column per feature — so the feature catalogue can grow
 without a migration, the same reasoning as `Integration.config`.
 
-**`CUSTOM` is modeled, never offered.** The brief is explicit: keep
-BUSINESS and PRO as the only real plans, leave room for a future
-enterprise plan without building or exposing it. `listOfferedPlans()`
-(`src/lib/entitlements/plan.ts`) is the only plan-listing function this
-phase builds, and it filters `CUSTOM` out everywhere a tenant or platform
-admin picks a plan (`/platform/plans`, the client comparison) — nothing
-in the UI can select or display it. A future phase introducing it for
-real would add a `listAllPlans()`-style query deliberately at that point,
-not speculatively now.
+**`CUSTOM` is modeled, never offered *for self-serve*.** The brief was
+explicit at the time this phase was built: keep BUSINESS and PRO as the
+only real plans, leave room for a future enterprise plan without building
+or exposing it. That "future phase" arrived a week later — see the
+Addendum at the end of this ADR: CUSTOM ("Illimité") is now
+hand-assignable by a platform admin from `/platform` and editable at
+`/platform/plans`. `listOfferedPlans()` (`src/lib/entitlements/plan.ts`)
+still excludes it, though — that function is for a tenant's own
+plan-comparison, which must never surface a bespoke, hand-negotiated
+plan as something to self-select.
 
 ### 2. `TenantSubscription` — one row per tenant, deliberately separate from `Tenant.status`
 One row per tenant (`@unique tenantId`, the same singleton-per-tenant
@@ -277,8 +278,9 @@ platform-admin- or tenant-owner-triggered today, shaped (a real
 model) so a future Stripe webhook can drive the same states without a
 schema change. No per-tenant limit override independent of its assigned
 plan — the only way to change a tenant's limits is to change which plan
-it's on. No custom/enterprise plan actually offered or assignable
-(`CUSTOM` exists in the schema only). No hard gate on any currently-
+it's on. No custom/enterprise plan self-serve or advertised — `CUSTOM`
+("Illimité") is assignable, but only by a platform admin (see the
+Addendum). No hard gate on any currently-
 existing report/profitability/backup capability behind the "advanced"
 tier — that tier is modeled and displayed, not enforced against anything
 built before this phase. No background job/cron/scheduled re-evaluation
@@ -313,3 +315,27 @@ subscription.
   now share the same underlying philosophy: compute from authoritative
   state, never fabricate, never silently delete data because of a
   plan/backup operation.
+
+## Addendum — CUSTOM ("Illimité") activated (2026-09-13)
+The "modeled, never offered" decision above was for this phase only, and
+the "future phase" it anticipated arrived the same week: a platform admin
+asked for a genuinely unlimited, zero-listed-price plan to hand-assign to
+specific tenants (internal/family/friends use, or a negotiated customer)
+— never self-serve, never advertised. Nothing in the entitlements/usage
+engine needed to change: `null` limits and CUSTOM's presence in the
+`PlanCode` enum were already handled everywhere (`computeUsageStatus`,
+`checkEntitlement`, the seat-limit guards) — this was purely a "stop
+withholding it" change:
+- `20260913000000_custom_plan` seeds the `plans` row (`id: "plan-custom"`,
+  name "Illimité", both prices 0, all three limits `null`, every feature
+  at its top tier).
+- `src/lib/entitlements/plan.ts` gained `listAllPlans()` (BUSINESS + PRO
+  + CUSTOM) for `/platform/plans`'s editor; `listOfferedPlans()` is
+  unchanged — it still excludes CUSTOM, since a tenant self-selecting a
+  plan should never see it.
+- `TenantPlanDialog` (`/platform`) can now assign CUSTOM to any tenant,
+  exactly like BUSINESS/PRO — same preview-before-confirm flow, same
+  audit trail (`plan.changed`).
+No new commercial policy beyond "the brief's own future phase" — price
+and features remain centrally editable at `/platform/plans` afterward,
+per-tenant, if a specific bespoke deal needs different numbers.

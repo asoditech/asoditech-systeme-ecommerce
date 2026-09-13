@@ -74,15 +74,22 @@ export async function getTenantPlan(tenantId: string): Promise<TenantPlanInfo> {
   };
 }
 
-/** Every plan row, active first, for the plan picker in `/platform/plans`
- * and the client-facing "voir les forfaits" comparison. CUSTOM is
- * excluded — reserved for a future enterprise plan, never offered or
- * assignable today (see docs/adr/0035). */
+/** BUSINESS and PRO only — the plans a new tenant can self-select /
+ * compare (see docs/adr/0035). Excludes CUSTOM: that plan is never
+ * advertised or self-serve, only hand-assigned to a specific tenant by a
+ * platform admin via `listAllPlans`/`changeTenantPlanAction`. */
 export async function listOfferedPlans(): Promise<Plan[]> {
   return prismaBase.plan.findMany({
     where: { code: { in: ["BUSINESS", "PRO"] } },
     orderBy: { sortOrder: "asc" },
   });
+}
+
+/** Every plan row, including CUSTOM — for `/platform/plans`, the
+ * platform-admin editor where prices/limits/features are centrally
+ * defined for every plan that can be assigned, bespoke ones included. */
+export async function listAllPlans(): Promise<Plan[]> {
+  return prismaBase.plan.findMany({ orderBy: { sortOrder: "asc" } });
 }
 
 export async function getPlanByCode(code: "BUSINESS" | "PRO" | "CUSTOM") {

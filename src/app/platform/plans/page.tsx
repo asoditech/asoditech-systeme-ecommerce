@@ -1,19 +1,19 @@
 import { PageHeader } from "@/components/page-header";
 import { PlanEditForm } from "@/components/platform/plan-edit-form";
-import { listOfferedPlans } from "@/lib/entitlements/plan";
+import { listAllPlans } from "@/lib/entitlements/plan";
 import { parsePlanFeatures } from "@/lib/entitlements/catalogue";
 
 export const metadata = { title: "Forfaits — ASODITECH Gestion E-commerce" };
 
 /**
  * `/platform/plans` — the centralized plan/entitlement definition
- * (docs/adr/0035). Only BUSINESS and PRO are ever shown here —
- * `listOfferedPlans()` deliberately excludes CUSTOM, reserved for a
- * future enterprise plan that is not exposed or assignable anywhere in
- * this phase, per the brief.
+ * (docs/adr/0035). Shows every plan, including CUSTOM ("Illimité") — a
+ * bespoke, unlimited, hand-assigned-only plan (never self-serve, never
+ * advertised) whose own price/limits/features are still centrally edited
+ * here like any other plan.
  */
 export default async function PlatformPlansPage() {
-  const plans = await listOfferedPlans();
+  const plans = await listAllPlans();
 
   return (
     <div className="space-y-6">

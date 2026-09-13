@@ -49,7 +49,7 @@ function subscriptionAuditAction(status: SubscriptionStatus) {
  * only future creation past the new, lower limit is refused, by the same
  * `withSeatLimit` guard every creation already goes through.
  */
-export async function previewTenantPlanChange(tenantId: string, planCode: "BUSINESS" | "PRO") {
+export async function previewTenantPlanChange(tenantId: string, planCode: "BUSINESS" | "PRO" | "CUSTOM") {
   await requirePlatformAdminForAction();
 
   const [usage, targetPlan] = await Promise.all([getTenantUsage(tenantId), getPlanByCode(planCode)]);

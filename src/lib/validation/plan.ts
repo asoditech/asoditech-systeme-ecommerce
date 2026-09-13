@@ -3,7 +3,7 @@ import { planFeaturesSchema } from "@/lib/entitlements/catalogue";
 
 export const changeTenantPlanSchema = z.object({
   tenantId: z.string().trim().min(1),
-  planCode: z.enum(["BUSINESS", "PRO"]),
+  planCode: z.enum(["BUSINESS", "PRO", "CUSTOM"]),
 });
 
 export const updateSubscriptionStatusSchema = z.object({
@@ -14,8 +14,8 @@ export const updateSubscriptionStatusSchema = z.object({
 /** Platform-admin plan-definition editing (`/platform/plans`) — the
  * centralized place prices/limits/features are declared, per
  * docs/adr/0035. `maxOrdersPerMonth`/`maxUsers`/`maxWarehouses` accept
- * an empty string as "unlimited" (`null`) — reserved for a future CUSTOM
- * plan; BUSINESS/PRO are always given a real number in the UI. */
+ * an empty string as "unlimited" (`null`) — used by CUSTOM ("Illimité");
+ * BUSINESS/PRO are always given a real number in the UI. */
 const optionalPositiveInt = z
   .union([z.literal(""), z.coerce.number().int().positive()])
   .transform((v) => (v === "" ? null : v));

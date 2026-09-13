@@ -20,7 +20,9 @@ import type { PlanCode, SubscriptionStatus } from "@prisma/client";
  * (`/platform` is gated by `requirePlatformAdmin` at the layout level).
  * A downgrade is previewed (docs/adr/0035 "Plan change safety") but never
  * blocked — existing users/warehouses are never deleted; only future
- * creation past the new limit is refused afterward.
+ * creation past the new limit is refused afterward. CUSTOM ("Illimité")
+ * is selectable here like BUSINESS/PRO — it is hand-assigned only, never
+ * self-serve or advertised (see `listOfferedPlans` vs `listAllPlans`).
  */
 export function TenantPlanDialog({
   tenantId,
@@ -33,14 +35,13 @@ export function TenantPlanDialog({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [planCode, setPlanCode] = useState<PlanCode>(currentPlanCode === "PRO" ? "PRO" : "BUSINESS");
+  const [planCode, setPlanCode] = useState<PlanCode>(currentPlanCode);
   const [status, setStatus] = useState<SubscriptionStatus>(currentStatus);
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof previewTenantPlanChange>> | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function selectPlan(next: PlanCode) {
     setPlanCode(next);
-    if (next === "CUSTOM") return; // never offered — see the schema's own comment
     startTransition(async () => {
       const p = await previewTenantPlanChange(tenantId, next);
       setPreview(p);
@@ -82,7 +83,7 @@ export function TenantPlanDialog({
       onOpenChange={(next) => {
         setOpen(next);
         if (!next) {
-          setPlanCode(currentPlanCode === "PRO" ? "PRO" : "BUSINESS");
+          setPlanCode(currentPlanCode);
           setStatus(currentStatus);
           setPreview(null);
         }
@@ -106,6 +107,7 @@ export function TenantPlanDialog({
               <SelectContent>
                 <SelectItem value="BUSINESS">Business</SelectItem>
                 <SelectItem value="PRO">Pro</SelectItem>
+                <SelectItem value="CUSTOM">Illimité (sur mesure)</SelectItem>
               </SelectContent>
             </Select>
           </div>

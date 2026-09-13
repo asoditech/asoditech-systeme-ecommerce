@@ -8,7 +8,7 @@ import {
   updatePlanAction,
   requestPlanUpgradeAction,
 } from "@/actions/plans";
-import { getTenantPlan } from "@/lib/entitlements/plan";
+import { getTenantPlan, listAllPlans, listOfferedPlans } from "@/lib/entitlements/plan";
 import { resetDb, DEFAULT_TENANT_ID } from "../helpers/db";
 import { loginAsTestUser, createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
@@ -124,6 +124,40 @@ describe("Platform plan/subscription administration (docs/adr/0035 'Platform pla
       const { plan } = await getTenantPlan(DEFAULT_TENANT_ID);
       expect(plan.code).toBe("BUSINESS");
     });
+  });
+
+  describe("CUSTOM (\"Illimité\") — hand-assignable, never self-serve (docs/adr/0035 addendum)", () => {
+    it("listAllPlans includes CUSTOM; listOfferedPlans (self-serve comparison) still excludes it", async () => {
+      const all = await listAllPlans();
+      const offered = await listOfferedPlans();
+
+      expect(all.map((p) => p.code)).toEqual(expect.arrayContaining(["BUSINESS", "PRO", "CUSTOM"]));
+      expect(offered.map((p) => p.code)).not.toContain("CUSTOM");
+    });
+
+    it(
+      "a platform admin can assign CUSTOM to a tenant, and its limits are genuinely unlimited",
+      async () => {
+        await loginAsTestUser({ role: "OWNER", isPlatformAdmin: true });
+
+        const result = await changeTenantPlanAction(formData({ tenantId: DEFAULT_TENANT_ID, planCode: "CUSTOM" }));
+        expect(result.ok).toBe(true);
+
+        const { plan } = await getTenantPlan(DEFAULT_TENANT_ID);
+        expect(plan.code).toBe("CUSTOM");
+        expect(plan.maxOrdersPerMonth).toBeNull();
+        expect(plan.maxUsers).toBeNull();
+        expect(plan.maxWarehouses).toBeNull();
+
+        // Past even PRO's 20-user limit — CUSTOM never trips overLimits.
+        for (let i = 0; i < 22; i++) {
+          await createTestUser({ tenantId: DEFAULT_TENANT_ID, status: "ACTIVE" });
+        }
+        const preview = await previewTenantPlanChange(DEFAULT_TENANT_ID, "CUSTOM");
+        expect(preview.overLimits).toBe(false);
+      },
+      15_000
+    );
   });
 
   describe("updateSubscriptionStatusAction", () => {

@@ -20,8 +20,8 @@ const TIER_LABEL: Record<string, string> = { standard: "Standard", advanced: "Av
  * are declared (docs/adr/0035 "Central entitlements system"). Changing a
  * value here changes it for EVERY tenant currently on this plan,
  * immediately — there is no per-tenant override, which the confirmation
- * copy below says plainly. Limit fields empty = unlimited (reserved for a
- * future CUSTOM plan; never left empty for Business/Pro in practice).
+ * copy below says plainly. Limit fields empty = unlimited — always the
+ * case for CUSTOM ("Illimité"), never left empty for Business/Pro.
  */
 export function PlanEditForm({ plan, features }: { plan: Plan; features: PlanFeatures }) {
   const router = useRouter();
@@ -64,7 +64,7 @@ export function PlanEditForm({ plan, features }: { plan: Plan; features: PlanFea
           warehouses: true,
           integrations: true,
           notifications: true,
-          support: plan.code === "PRO" ? "priority" : "standard",
+          support: plan.code === "BUSINESS" ? "standard" : "priority",
           ...booleanFeatures,
           ...tiers,
         })
