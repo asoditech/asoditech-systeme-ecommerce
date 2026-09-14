@@ -81,6 +81,10 @@ export interface ApplyStockMovementInput {
    * a non-zero variance line (Phase 32c). Persisted verbatim on the
    * InventoryMovement row; left null by every other caller. */
   stocktakeSessionId?: string | null;
+  /** Set on the RETOUR/ENDOMMAGE movement(s) a physical-return event
+   * produces (docs/adr/0036-inventory-single-source-of-truth.md). Persisted
+   * verbatim on the InventoryMovement row; left null by every other caller. */
+  orderReturnId?: string | null;
   performedById?: string | null;
   reason?: string | null;
 }
@@ -161,6 +165,7 @@ export async function applyStockMovement(
       orderId: input.orderId ?? null,
       stockTransferId: input.stockTransferId ?? null,
       stocktakeSessionId: input.stocktakeSessionId ?? null,
+      orderReturnId: input.orderReturnId ?? null,
       performedById: input.performedById ?? null,
       reason: input.reason ?? null,
     },
@@ -278,8 +283,13 @@ interface StockLineRef {
  * InventoryItem there, `applyStockMovement` no-ops, exactly like today's
  * "default id, no row" branch. The compat fallback below applies only to
  * pre-32b orders whose `fulfillmentWarehouseId` is null.
+ *
+ * Exported so a physical return (src/actions/returns.ts) resolves the
+ * SAME warehouse a line was originally fulfilled from at EXPEDIEE —
+ * `preferredWarehouseId` (the order's own `fulfillmentWarehouseId`) is
+ * immutable once set, so this is deterministic across both calls.
  */
-async function resolveOrderStockWarehouseId(
+export async function resolveOrderStockWarehouseId(
   tx: Tx,
   ref: StockLineRef,
   preferredWarehouseId?: string | null
@@ -361,13 +371,74 @@ export async function releaseStockForOrder(tx: Tx, orderId: string, lines: Stock
   await applyOrderLines(tx, orderId, lines, performedById, "LIBERATION", 0, -1);
 }
 
-/** Order returned/cancelled after shipment — goods physically come back. */
-export async function returnStockForOrder(
-  tx: Tx,
-  orderId: string,
-  lines: StockLineRef[],
-  performedById: string | null,
-  reason?: string
-) {
-  await applyOrderLines(tx, orderId, lines, performedById, "RETOUR", 1, 0, reason);
+// ---------------------------------------------------------------------------
+// Physical returns — see docs/adr/0036-inventory-single-source-of-truth.md.
+// EXPEDIEE is the only event that physically consumes stock, for every
+// order source; a later Order.status change (a post-ship ANNULEE, or
+// RETOUR) never restores it — this is the ONE mechanism that credits
+// returned stock back, always an explicit, auditable action decoupled
+// from Order.status (src/actions/returns.ts owns the ceiling validation
+// and the transaction; this primitive only ever applies the quantities
+// it's given).
+// ---------------------------------------------------------------------------
+
+export interface PhysicalReturnLineInput {
+  warehouseId: string;
+  productId?: string | null;
+  variationId?: string | null;
+  /** Restored to on-hand (RETOUR movement, `onHandDelta: +qty`). */
+  quantitySellable: number;
+  /** Recorded in `quantityDamaged` only — NEVER added to on-hand
+   * (ENDOMMAGE movement, `onHandDelta: 0`, `damagedDelta: +qty`). Reuses
+   * the existing ENDOMMAGE movement type's existing `damagedDelta`
+   * mechanics for this new, additive semantic case (a unit that came back
+   * damaged) — it does not change what an ENDOMMAGE movement means
+   * elsewhere in the app. */
+  quantityDamaged: number;
+  orderId: string;
+  orderReturnId: string;
+  performedById: string | null;
+}
+
+/**
+ * Physical-return stock credit for ONE order-return line. Routes through
+ * the same canonical `applyStockMovement` primitive as every other stock
+ * mutation in the app — never a second ledger. Silently no-ops a
+ * zero-quantity side (mirrors `applyStockMovement`'s own `quantity <= 0`
+ * no-op) and silently no-ops entirely when no InventoryItem row exists at
+ * `warehouseId` (mirrors `applyOrderLines`' orphaned-line handling) — the
+ * caller has already recorded the `OrderReturnLine` audit row regardless,
+ * so a deleted/never-tracked product/variation never blocks or corrupts
+ * return history, it just can't credit stock nobody is tracking any more.
+ */
+export async function applyPhysicalReturnLine(tx: Tx, input: PhysicalReturnLineInput): Promise<void> {
+  if (input.quantitySellable > 0) {
+    await applyStockMovement(tx, {
+      warehouseId: input.warehouseId,
+      productId: input.productId ?? null,
+      variationId: input.variationId ?? null,
+      type: "RETOUR",
+      quantity: input.quantitySellable,
+      onHandDelta: input.quantitySellable,
+      orderId: input.orderId,
+      orderReturnId: input.orderReturnId,
+      performedById: input.performedById,
+      reason: "Retour physique — unité(s) revendable(s)",
+    });
+  }
+  if (input.quantityDamaged > 0) {
+    await applyStockMovement(tx, {
+      warehouseId: input.warehouseId,
+      productId: input.productId ?? null,
+      variationId: input.variationId ?? null,
+      type: "ENDOMMAGE",
+      quantity: input.quantityDamaged,
+      onHandDelta: 0,
+      damagedDelta: input.quantityDamaged,
+      orderId: input.orderId,
+      orderReturnId: input.orderReturnId,
+      performedById: input.performedById,
+      reason: "Retour physique — unité(s) endommagée(s)",
+    });
+  }
 }

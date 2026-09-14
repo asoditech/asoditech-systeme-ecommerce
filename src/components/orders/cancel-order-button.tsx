@@ -44,7 +44,8 @@ export function CancelOrderButton({ orderId }: { orderId: string }) {
         <AlertDialogHeader>
           <AlertDialogTitle>Annuler cette commande ?</AlertDialogTitle>
           <AlertDialogDescription>
-            Le stock réservé ou expédié sera automatiquement libéré ou remis en stock.
+            Le stock réservé sera automatiquement libéré. Une commande déjà expédiée ne récupère jamais son
+            stock automatiquement — utilisez « Confirmer le retour physique » pour enregistrer un retour réel.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <form action={formAction} className="space-y-3">

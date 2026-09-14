@@ -434,7 +434,12 @@ describe("POST /api/webhooks/shopify", () => {
       expect(product.name).toBe("Produit renommé");
     });
 
-    it("reconciles stock directly from an inventory_levels/update delivery, without a GraphQL re-fetch", async () => {
+    // docs/adr/0036-inventory-single-source-of-truth.md: InventoryItem is
+    // ASODITECH's sole source of truth for local stock after onboarding —
+    // an inventory_levels/update delivery is recorded (replay-protection/
+    // observability) but must NEVER mutate quantityOnHand, no matter how
+    // far it differs from what Shopify itself reports.
+    it("accepts an inventory_levels/update delivery but NEVER mutates local stock", async () => {
       await seedIntegration();
       await prisma.warehouse.create({
         data: { name: "Entrepôt Shopify", source: "SHOPIFY", externalId: "gid://shopify/Location/1" },
@@ -449,7 +454,7 @@ describe("POST /api/webhooks/shopify", () => {
       const before = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
       expect(before.quantityOnHand).toBe(8);
 
-      // A real order on the store just sold 3 units.
+      // The store reports a completely different number — must be ignored.
       const body = JSON.stringify({ inventory_item_id: 9001, location_id: 1, available: 5 });
       const response = await POST(
         request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "inventory_levels/update", "x-shopify-webhook-id": "pd5" })
@@ -457,8 +462,10 @@ describe("POST /api/webhooks/shopify", () => {
       expect(response.status).toBe(200);
 
       const after = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
-      expect(after.quantityOnHand).toBe(5);
+      expect(after.quantityOnHand).toBe(8); // untouched
+      expect(await prisma.inventoryMovement.count()).toBe(0);
 
+      // Still recorded, for replay-protection/observability.
       const event = await prisma.webhookEvent.findFirstOrThrow({ where: { deliveryId: "pd5" } });
       expect(event.status).toBe("TRAITE");
     });
@@ -471,6 +478,87 @@ describe("POST /api/webhooks/shopify", () => {
       );
       expect(response.status).toBe(200);
       expect(await prisma.inventoryItem.count()).toBe(0);
+    });
+  });
+
+  // docs/adr/0036-inventory-single-source-of-truth.md: only ASODITECH's own
+  // EXPEDIEE transition may ever physically consume stock. A Shopify
+  // fulfillment status that would otherwise map to EXPEDIEE must never
+  // auto-apply locally — it must surface as a workflow-mismatch
+  // notification instead.
+  describe("a Shopify fulfillment status mapping to EXPEDIEE never auto-advances the local order (docs/adr/0036)", () => {
+    async function importThenAdvanceToEnPreparation() {
+      const body = orderCreatePayload();
+      await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/create", "x-shopify-webhook-id": "wf1" }));
+      const order = await prisma.order.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/7001" } });
+      expect(order.status).toBe("NOUVELLE");
+
+      await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+      await updateOrderStatusAction(formData({ id: order.id, status: "EN_PREPARATION" }));
+      return order.id;
+    }
+
+    it("IN_PROGRESS fulfillment status is blocked, creates a workflow-mismatch notification, and consumes no stock", async () => {
+      await seedIntegration();
+      const user = await loginAsTestUser({ role: "MANAGER" });
+      const orderId = await importThenAdvanceToEnPreparation();
+      const movementsBefore = await prisma.inventoryMovement.count({ where: { orderId } });
+
+      state.orders[0].displayFinancialStatus = "PAID";
+      state.orders[0].displayFulfillmentStatus = "IN_PROGRESS";
+      const body = orderCreatePayload();
+      const response = await POST(
+        request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "wf2" })
+      );
+      expect(response.status).toBe(200);
+
+      const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+      expect(order.status).toBe("EN_PREPARATION"); // NOT auto-advanced to EXPEDIEE
+      expect(order.shippedAt).toBeNull();
+      expect(await prisma.inventoryMovement.count({ where: { orderId } })).toBe(movementsBefore); // no stock movement at all
+
+      const notification = await prisma.notification.findFirstOrThrow({
+        where: { type: "INCOHERENCE_WORKFLOW", entityType: "Order", entityId: orderId },
+      });
+      expect(notification.userId).toBe(user.id);
+    });
+
+    it("does not create a duplicate mismatch notification on a repeated delivery", async () => {
+      await seedIntegration();
+      await loginAsTestUser({ role: "MANAGER" });
+      const orderId = await importThenAdvanceToEnPreparation();
+
+      state.orders[0].displayFinancialStatus = "PAID";
+      state.orders[0].displayFulfillmentStatus = "PARTIALLY_FULFILLED";
+      const body = orderCreatePayload();
+      await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "wf3" }));
+      await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "wf4" }));
+
+      const count = await prisma.notification.count({
+        where: { type: "INCOHERENCE_WORKFLOW", entityType: "Order", entityId: orderId },
+      });
+      expect(count).toBe(1);
+    });
+
+    it("resolves the mismatch notification once the local workflow reaches EXPEDIEE itself", async () => {
+      await seedIntegration();
+      await loginAsTestUser({ role: "MANAGER" });
+      const orderId = await importThenAdvanceToEnPreparation();
+
+      state.orders[0].displayFinancialStatus = "PAID";
+      state.orders[0].displayFulfillmentStatus = "IN_PROGRESS";
+      const body = orderCreatePayload();
+      await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "wf5" }));
+      expect(
+        await prisma.notification.count({ where: { type: "INCOHERENCE_WORKFLOW", entityType: "Order", entityId: orderId } })
+      ).toBe(1);
+
+      const shipped = await updateOrderStatusAction(formData({ id: orderId, status: "EXPEDIEE" }));
+      expect(shipped.ok).toBe(true);
+
+      expect(
+        await prisma.notification.count({ where: { type: "INCOHERENCE_WORKFLOW", entityType: "Order", entityId: orderId } })
+      ).toBe(0);
     });
   });
 

@@ -9,7 +9,6 @@ import {
   reserveStockForOrder,
   releaseStockForOrder,
   fulfillStockForOrder,
-  returnStockForOrder,
   getDefaultWarehouseId,
   InsufficientStockError,
 } from "@/lib/inventory";
@@ -22,7 +21,6 @@ import {
   resolveNotifications,
 } from "@/lib/notifications";
 import { pushStockAfterLocalChange, pushOrderPaymentToWooCommerce, pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
-import { pullStockBeforeReservationRelease } from "@/lib/integrations/shared/auto-pull";
 import { reconcileOrderCommission } from "@/lib/commissions";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { requireEntitlement, EntitlementDeniedError } from "@/lib/entitlements/checks";
@@ -366,41 +364,6 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
 
   const lines = existing.items.map((i) => ({ productId: i.productId, variationId: i.variationId, quantity: i.quantity }));
   const wasFulfilled = existing.shippedAt !== null;
-  // Only a manually-created (INTERNE) order was ever meant to sit in this
-  // internal reservation/fulfilment ledger (docs/adr/0030): "imported
-  // orders reconcile stock from the store's own numbers
-  // (sync/stock.ts), untouched by this [ledger]." A WooCommerce/Shopify
-  // order's stock is already accounted for by that separate pull-sync —
-  // WooCommerce/Shopify reduces ITS OWN stock the moment the order is
-  // paid/processing, and reconcileStockFromProvider mirrors that number
-  // into `quantityOnHand` directly. Running this ledger too on the same
-  // order double-deducted the same physical units: once via the
-  // provider's own stock reduction (pulled in by the next products/stock
-  // sync), and again here when staff manually walk the order through
-  // Confirmée → Expédiée — the exact "Stock insuffisant" incident this
-  // guard fixes. See docs/adr/0030's own explicit intent, never
-  // previously enforced in code.
-  const isInternalOrder = existing.source === "INTERNE";
-
-  // Targeted, order-scoped provider refresh — fetches ONLY this order's
-  // affected product/variation lines' CURRENT stock from the store
-  // (never the whole catalog, never the disabled broad webhook pull) and
-  // reconciles `quantityOnHand` to it, before the transaction below
-  // releases this order's reservation. Without this, a WooCommerce/
-  // Shopify order's own already-happened stock reduction can still be
-  // unreflected here, and releasing the reservation on that stale number
-  // briefly reports the order's units as fully available again (order
-  // #15627 — docs/adr/0030's addendum). Read-only against the provider
-  // (never pushes), so it cannot loop with the automatic push already
-  // disabled for provider orders (see the #15623 addendum). Only needed
-  // the first time a provider order reaches EXPEDIEE — see wasFulfilled's
-  // idempotency guard below, which the release itself also honors.
-  if (parsed.data.status === "EXPEDIEE" && !isInternalOrder && !wasFulfilled && orderHoldsReservation(existing.status)) {
-    await pullStockBeforeReservationRelease(
-      { productIds: lines.map((l) => l.productId), variationIds: lines.map((l) => l.variationId) },
-      { type: "USER", userId: user.id }
-    );
-  }
 
   let order;
   try {
@@ -438,49 +401,37 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
         // (backorders allowed).
         await reserveStockForOrder(tx, parsed.data.id, lines, user.id);
       } else if (parsed.data.status === "EXPEDIEE") {
+        // EXPEDIEE is the ONE physical-fulfillment event, for every order
+        // source alike (docs/adr/0036-inventory-single-source-of-truth.md):
+        // ASODITECH's own InventoryItem is the sole authority for local
+        // stock, so a WooCommerce/Shopify order's units are consumed here
+        // exactly like an INTERNE order's — never inferred from the
+        // provider's own (no longer trusted) stock number.
+        //
         // Idempotency guard: EXPEDIEE is re-enterable via a carrier-failure
         // retry (EXPEDIEE -> ECHEC -> EN_PREPARATION -> EXPEDIEE is a valid
         // state-machine loop), and `wasFulfilled` (existing.shippedAt, set
         // by the first EXPEDIEE and never cleared) is already the
-        // established marker for "this order's stock already moved once"
-        // — the ANNULEE/RETOUR branches below already rely on it. Without
-        // this guard, a retry re-ran fulfillStockForOrder/releaseStockForOrder
-        // on every re-entry, physically deducting stock a second time for
-        // an INTERNE order (confirmed: 15 -> 10 -> 5 for one 5-unit order)
-        // or double-releasing a provider order's reservation.
+        // established marker for "this order's stock already moved once".
+        // Without this guard, a retry would re-run fulfillStockForOrder on
+        // every re-entry, physically deducting stock a second time.
         if (!wasFulfilled) {
-          if (isInternalOrder) {
-            await fulfillStockForOrder(tx, parsed.data.id, lines, user.id);
-          } else if (orderHoldsReservation(existing.status)) {
-            // A WooCommerce/Shopify order's on-hand deduction already
-            // happened on the provider's own side and is reconciled
-            // separately (sync/stock.ts) — running fulfillStockForOrder here
-            // too would double-deduct the exact incident c606dc0 fixed. Only
-            // the reservation THIS app took at CONFIRMEE needs clearing so
-            // "Disponible" doesn't stay understated forever.
-            await releaseStockForOrder(tx, parsed.data.id, lines, user.id);
-          }
+          await fulfillStockForOrder(tx, parsed.data.id, lines, user.id);
         }
       } else if (parsed.data.status === "ANNULEE") {
-        if (wasFulfilled) {
-          // Physical return — only meaningful for an order whose on-hand
-          // was actually deducted here, i.e. INTERNE (see the EXPEDIEE
-          // branch above). A provider order's post-ship return is
-          // reflected via the provider's own refund + stock pull-sync.
-          if (isInternalOrder) {
-            await returnStockForOrder(tx, parsed.data.id, lines, user.id, "Annulation après expédition");
-          }
-        } else if (orderHoldsReservation(existing.status)) {
-          // Only release when a reservation actually exists — a NOUVELLE
-          // order never reserved anything. Universal — see the CONFIRMEE
-          // branch above.
+        // A shipped order's stock was already physically consumed at
+        // EXPEDIEE — cancelling it afterward never restores stock
+        // automatically (docs/adr/0036): a physical return is a separate,
+        // explicit action (src/actions/returns.ts), fully decoupled from
+        // Order.status. Only a reservation (never on-hand) is released
+        // here, and only when the order actually held one.
+        if (!wasFulfilled && orderHoldsReservation(existing.status)) {
           await releaseStockForOrder(tx, parsed.data.id, lines, user.id);
         }
-      } else if (parsed.data.status === "RETOUR") {
-        if (isInternalOrder) {
-          await returnStockForOrder(tx, parsed.data.id, lines, user.id, "Retour client");
-        }
       }
+      // RETOUR is a workflow LABEL only (docs/adr/0036) — it never moves
+      // stock by itself. Only the explicit physical-return action credits
+      // returned units back.
 
       return tx.order.findUniqueOrThrow({ where: { id: parsed.data.id } });
     });
@@ -513,40 +464,30 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
     await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: order.id });
   }
 
-  // Every one of these transitions actually moved stock — a reservation
-  // or its release (any source, `quantityReserved` only) or a physical
-  // fulfilment/return/retour (INTERNE only, `quantityOnHand`) — so surface
-  // anything now low (reachable on CONFIRMEE and EXPEDIEE, the two that
-  // reduce what's sellable).
-  const reservationMoved =
+  // Every one of these transitions actually moved stock — a reservation or
+  // its release (`quantityReserved`), or EXPEDIEE's physical fulfilment
+  // (`quantityReserved` AND `quantityOnHand` together) — for every order
+  // source alike now (docs/adr/0036) — so surface anything now low
+  // (reachable on CONFIRMEE and EXPEDIEE, the two that reduce what's
+  // sellable) and push the new sellable number outward. The source of the
+  // order no longer determines whether ASODITECH pushes: WooCommerce/
+  // Shopify stock is never authoritative after onboarding, so there is no
+  // more "provider's own more-recent number" to accidentally overwrite.
+  const stockMoved =
     (parsed.data.status === "CONFIRMEE" && existing.status === "NOUVELLE") ||
     (parsed.data.status === "ANNULEE" && !wasFulfilled && orderHoldsReservation(existing.status)) ||
-    (parsed.data.status === "EXPEDIEE" && !wasFulfilled && !isInternalOrder && orderHoldsReservation(existing.status));
-  const physicalStockMoved =
-    isInternalOrder &&
-    ((parsed.data.status === "EXPEDIEE" && !wasFulfilled) ||
-      (parsed.data.status === "ANNULEE" && wasFulfilled) ||
-      parsed.data.status === "RETOUR");
-  const stockMoved = reservationMoved || physicalStockMoved;
+    (parsed.data.status === "EXPEDIEE" && !wasFulfilled);
   if (stockMoved) {
     const refs = { productIds: lines.map((l) => l.productId), variationIds: lines.map((l) => l.variationId) };
     if (parsed.data.status === "CONFIRMEE" || parsed.data.status === "EXPEDIEE") {
       await checkAndNotifyLowStock(refs);
     }
-    // Only push to a linked store when THIS app actually moved
-    // `quantityOnHand` (INTERNE only — see physicalStockMoved above). A
-    // WooCommerce/Shopify order never moves `quantityOnHand` here: its own
-    // stock reduction already happened independently on the provider's
-    // side, and `quantityOnHand` is only ever refreshed by an explicit
-    // product sync (516e393), so it can be stale relative to what the
-    // provider already knows. Pushing our own (possibly stale)
-    // onHand-minus-reserved after a purely reservation-driven event
-    // silently overwrote the provider's own correct, more recent number —
-    // the exact #15623 incident this guard fixes (docs/adr/0030 addendum).
-    if (isInternalOrder) {
-      await pushStockAfterLocalChange(refs);
-    }
+    await pushStockAfterLocalChange(refs);
   }
+  // The local workflow just advanced — any standing "external status
+  // disagrees with our own stage" alert for this order (see
+  // src/lib/integrations/shopify/sync/orders.ts) is now stale.
+  await resolveNotifications({ types: ["INCOHERENCE_WORKFLOW"], entityType: "Order", entityId: order.id });
   if (parsed.data.status === "RETOUR") {
     const customer = await prisma.customer.findUnique({ where: { id: existing.customerId }, select: { fullName: true } });
     await notifyOrderReturned(
@@ -664,18 +605,14 @@ export async function cancelOrderAction(formData: FormData): Promise<ActionResul
       if (result.count === 0) {
         throw new OrderConflictError();
       }
-      // See updateOrderStatusAction's identical comment: reservation
-      // release is universal (any source, `quantityReserved` only); a
-      // physical return is INTERNE-only — a WooCommerce/Shopify order's
-      // on-hand was never deducted by this app to begin with
-      // (docs/adr/0030 + its 2026-09-13 addendum).
-      if (wasFulfilled) {
-        if (existing.source === "INTERNE") {
-          await returnStockForOrder(tx, parsed.data.id, lines, user.id, parsed.data.reason ?? "Commande annulée");
-        }
-      } else if (orderHoldsReservation(existing.status)) {
-        // Only a CONFIRMEE/EN_PREPARATION order holds a reservation to
-        // release — a NOUVELLE one never reserved anything (docs/adr/0030).
+      // A shipped order's stock was already physically consumed at
+      // EXPEDIEE — cancelling it afterward never restores stock
+      // automatically (docs/adr/0036): a physical return is a separate,
+      // explicit action (src/actions/returns.ts), fully decoupled from
+      // Order.status. Only a reservation (never on-hand) is released
+      // here, and only when the order actually held one — a NOUVELLE
+      // order never reserved anything.
+      if (!wasFulfilled && orderHoldsReservation(existing.status)) {
         await releaseStockForOrder(tx, parsed.data.id, lines, user.id);
       }
       return tx.order.findUniqueOrThrow({ where: { id: parsed.data.id } });
@@ -703,14 +640,13 @@ export async function cancelOrderAction(formData: FormData): Promise<ActionResul
   if (existing.status === "NOUVELLE") {
     await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: order.id });
   }
+  await resolveNotifications({ types: ["INCOHERENCE_WORKFLOW"], entityType: "Order", entityId: order.id });
 
-  // Cancelling put the reserved/returned units back — but only push a
-  // linked store's displayed stock when THIS app actually owns
-  // `quantityOnHand` (INTERNE only). See updateOrderStatusAction's
-  // identical guard: a WooCommerce/Shopify order's stock was never moved
-  // here to begin with, and pushing our own possibly-stale number
-  // silently overwrote the provider's own correct one (#15623).
-  if (existing.source === "INTERNE") {
+  // Cancelling released a reservation (any source now — see
+  // docs/adr/0036, the source of the order no longer determines whether
+  // ASODITECH pushes) — but only when one was actually released; a
+  // post-ship cancellation moves no stock at all, nothing to push.
+  if (!wasFulfilled && orderHoldsReservation(existing.status)) {
     await pushStockAfterLocalChange({
       productIds: lines.map((l) => l.productId),
       variationIds: lines.map((l) => l.variationId),

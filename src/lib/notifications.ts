@@ -285,6 +285,49 @@ export async function notifySupportTicket(
 }
 
 /**
+ * A connected store (WooCommerce/Shopify) reported an order status that
+ * conflicts with ASODITECH's own workflow stage for that order — most
+ * importantly, a store-side status that would otherwise map straight to
+ * EXPEDIEE (docs/adr/0036-inventory-single-source-of-truth.md: only
+ * ASODITECH's own EXPEDIEE transition may ever physically consume stock,
+ * so the store's report is never auto-applied). Read-only: never mutates
+ * the order or its stock — purely a "please look at this" signal for a
+ * human to resolve.
+ *
+ * One standing notification per order (`dedupeKey` on the order id, no day
+ * bucket — the same underlying disagreement re-reported by every later
+ * webhook/sync is the same fact, not a new one) — resolved via
+ * `resolveNotifications` the moment the local workflow catches up (see
+ * `updateOrderStatusAction`/`cancelOrderAction` in src/actions/orders.ts,
+ * which call it on every successful transition).
+ */
+export async function notifyWorkflowMismatch(order: {
+  id: string;
+  orderNumber: number;
+  displayNumber?: number | null;
+  source: RecordSource;
+  externalNumber?: string | null;
+  localStatus: string;
+  externalStatus: string;
+}): Promise<void> {
+  const num = displayOrderNumber(order);
+  const src = SOURCE_LABEL[order.source] ?? order.source;
+  const externalRef = order.externalNumber ? ` (${order.externalNumber})` : "";
+  await notify({
+    type: "INCOHERENCE_WORKFLOW",
+    title: `Incohérence de workflow — commande ${num}`,
+    message:
+      `${src}${externalRef} rapporte le statut « ${order.externalStatus} » alors que la commande ${num} est ` +
+      `« ${order.localStatus} » dans ASODITECH. Le statut externe n'a pas été appliqué automatiquement — ` +
+      `vérifiez et faites progresser la commande manuellement si nécessaire.`,
+    entityType: "Order",
+    entityId: order.id,
+    dedupeKey: `incoherence_workflow:${order.id}`,
+    recipientPermission: "orders.view",
+  });
+}
+
+/**
  * After a business action that may have reduced on-hand stock, checks the
  * affected products/variations and notifies for any now at or below its
  * `lowStockThreshold` (RUPTURE_STOCK at ≤ 0, STOCK_FAIBLE otherwise).

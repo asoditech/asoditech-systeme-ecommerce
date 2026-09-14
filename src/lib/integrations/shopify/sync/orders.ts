@@ -8,7 +8,12 @@ import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
 import type { ShopifyOrder } from "../types";
 import { actorAuditFields, actorPerformedById, emptySyncSummary, isRecentlyPlaced, parseOrderPlacedAt, recordNote, upsertCustomerAddressFromOrder, type SyncActor, type SyncSummary } from "@/lib/integrations/shared";
-import { notifyNewOrder, checkAndNotifyInsufficientStockForOrder, resolveNotifications } from "@/lib/notifications";
+import {
+  notifyNewOrder,
+  checkAndNotifyInsufficientStockForOrder,
+  notifyWorkflowMismatch,
+  resolveNotifications,
+} from "@/lib/notifications";
 import { reconcileOrderCommission } from "@/lib/commissions";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import type { Prisma, OrderStatus } from "@prisma/client";
@@ -345,6 +350,7 @@ async function updateExistingOrder(
   const fields = mappedOrderFields(order);
   let changedFields = false;
   let statusSkippedReason: string | undefined;
+  let workflowMismatch: string | undefined;
 
   await prisma.$transaction(async (tx) => {
     if (existing.status !== status) {
@@ -353,8 +359,21 @@ async function updateExistingOrder(
       // WooCommerce's sync/orders.ts for the full reasoning.
       const autoConfirmBlocked =
         existing.status === "NOUVELLE" && status === "CONFIRMEE" && options?.forceNouvelleOnFirstImport !== false;
+      // ASODITECH's own EXPEDIEE transition is the ONLY physical
+      // -fulfillment event, for every order source (docs/adr/0036-inventory
+      // -single-source-of-truth.md) — a Shopify fulfillment status (e.g.
+      // IN_PROGRESS/PARTIALLY_FULFILLED, which `mapOrderStatus` maps to
+      // EXPEDIEE) must never auto-apply locally. Letting it through here
+      // would (at best) release a reservation without ever running
+      // fulfillStockForOrder — corrupting on-hand — and at worst skip the
+      // physical-fulfillment step entirely. Surface a workflow mismatch
+      // instead; a human validates the shipment inside ASODITECH itself.
+      const expedieeAutoAdvanceBlocked = status === "EXPEDIEE" && existing.status !== "EXPEDIEE";
       if (autoConfirmBlocked) {
         statusSkippedReason = `Commande Shopify ${order.name} : reste "Nouvelle" — confirmation manuelle requise avant "Confirmée" (réglage "Toujours importer en Nouvelle").`;
+      } else if (expedieeAutoAdvanceBlocked) {
+        statusSkippedReason = `Commande Shopify ${order.name} : le statut d'exécution Shopify indique une expédition, mais seule l'action "Expédiée" dans ASODITECH peut faire progresser la commande et consommer le stock.`;
+        workflowMismatch = `${order.displayFulfillmentStatus ?? "?"} (exécution) / ${order.displayFinancialStatus ?? "?"} (paiement)`;
       } else if (canTransitionOrderStatus(existing.status, status)) {
         const result = await tx.order.updateMany({ where: { id: orderId, status: existing.status }, data: { status } });
         if (result.count > 0) {
@@ -374,6 +393,12 @@ async function updateExistingOrder(
         }
       } else {
         statusSkippedReason = `Commande Shopify ${order.name} : transition ${existing.status} → ${status} ignorée (déjà en cours de traitement localement).`;
+        // A terminal/further-along external status than ASODITECH's own
+        // current stage is a genuine workflow disagreement worth a human's
+        // attention (docs/adr/0036) — not merely a sync-summary footnote.
+        if (status === "LIVREE" || status === "REMBOURSEE" || status === "ANNULEE") {
+          workflowMismatch = `${order.displayFulfillmentStatus ?? "?"} (exécution) / ${order.displayFinancialStatus ?? "?"} (paiement)`;
+        }
       }
     }
 
@@ -436,6 +461,17 @@ async function updateExistingOrder(
 
   if (existing.status === "NOUVELLE" && status !== "NOUVELLE") {
     await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: orderId });
+  }
+  if (workflowMismatch) {
+    await notifyWorkflowMismatch({
+      id: orderId,
+      orderNumber: existing.orderNumber,
+      displayNumber: existing.displayNumber,
+      source: "SHOPIFY",
+      externalNumber: order.name,
+      localStatus: existing.status,
+      externalStatus: workflowMismatch,
+    });
   }
   if (existing.status !== status && (status === "LIVREE" || existing.status === "LIVREE")) {
     await reconcileOrderCommission(orderId);

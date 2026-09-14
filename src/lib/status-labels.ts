@@ -209,6 +209,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   SUPPORT_TICKET: "Problème signalé",
   USAGE_LIMIT_ALERT: "Utilisation du forfait",
   STOCK_INSUFFISANT_COMMANDE: "Stock insuffisant",
+  INCOHERENCE_WORKFLOW: "Incohérence de workflow",
 };
 
 export const PLAN_CODE_LABELS: Record<string, string> = {

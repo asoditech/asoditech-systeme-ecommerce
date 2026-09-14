@@ -105,6 +105,13 @@ export async function getOrderDetail(id: string) {
       shipments: { include: { provider: true }, orderBy: { createdAt: "desc" } },
       createdBy: true,
       fulfillmentWarehouse: { select: { name: true, type: true } },
+      returns: {
+        orderBy: { createdAt: "desc" },
+        include: {
+          receivedBy: { select: { name: true } },
+          lines: { include: { warehouse: { select: { name: true } } } },
+        },
+      },
     },
   });
 }

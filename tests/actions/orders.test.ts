@@ -486,15 +486,18 @@ describe("updateOrderStatusAction — state machine", () => {
     row = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: varItem.id } });
     expect(row).toMatchObject({ quantityOnHand: 9, quantityReserved: 0 });
 
+    // RETOUR is a workflow label only (docs/adr/0036) — it never moves
+    // stock by itself; physical returns are a separate, explicit action
+    // (see tests/actions/returns.test.ts).
     const returned = await updateOrderStatusAction(formData({ id: orderId, status: "RETOUR" }));
     expect(returned.ok).toBe(true);
     row = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: varItem.id } });
-    expect(row.quantityOnHand).toBe(12);
+    expect(row.quantityOnHand).toBe(9);
 
     // the parent product never got an InventoryItem or a movement
     expect(await prisma.inventoryItem.count({ where: { productId: parent.id } })).toBe(0);
     const movements = await prisma.inventoryMovement.findMany({ where: { inventoryItemId: varItem.id } });
-    expect(movements.map((m) => m.type).sort()).toEqual(["RESERVATION", "RETOUR", "VENTE"]);
+    expect(movements.map((m) => m.type).sort()).toEqual(["RESERVATION", "VENTE"]);
   });
 
   it("rejects an invalid transition (NOUVELLE -> LIVREE)", async () => {
@@ -594,18 +597,23 @@ describe("updateOrderStatusAction — state machine", () => {
     expect(order.status).toBe("ANNULEE");
   });
 
-  it("returns stock to on-hand when a shipped order is later cancelled/failed", async () => {
+  it("a shipped order's stock is NOT restored when later cancelled/failed (docs/adr/0036 — physical return is separate)", async () => {
     await loginAsTestUser({ role: "MANAGER" });
     const { orderId, product } = await createTestOrder();
 
     await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
     await updateOrderStatusAction(formData({ id: orderId, status: "EN_PREPARATION" }));
     await updateOrderStatusAction(formData({ id: orderId, status: "EXPEDIEE" }));
+    const item0 = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item0.quantityOnHand).toBe(8); // consumed at EXPEDIEE
+
     await updateOrderStatusAction(formData({ id: orderId, status: "ECHEC" }));
     await updateOrderStatusAction(formData({ id: orderId, status: "ANNULEE" }));
 
     const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
-    expect(item.quantityOnHand).toBe(10);
+    expect(item.quantityOnHand).toBe(8); // still 8 — a post-ship cancellation never restores stock
+    const movements = await prisma.inventoryMovement.findMany({ where: { orderId }, orderBy: { createdAt: "asc" } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "VENTE"]); // no RETOUR movement
   });
 
   it("records an audit event with previous and new status on every transition", async () => {
@@ -665,24 +673,18 @@ describe("updateOrderStatusAction — state machine", () => {
   });
 });
 
-// Audit fix (docs/adr/0030's own stated intent, never previously enforced
-// in code): "imported orders reconcile stock from the store's own numbers
-// (sync/stock.ts), untouched by the ledger's on-hand-mutating steps." A
-// WooCommerce/Shopify order's ON-HAND is already accounted for by that
-// separate provider pull-sync (the store reduces its own stock the moment
-// the order is paid/processing; reconcileStockFromProvider mirrors that
-// into `quantityOnHand` directly). updateOrderStatusAction/cancelOrderAction
-// used to run the internal FULFILMENT ledger on these orders too,
-// double-deducting the same physical units — once via the provider's own
-// reduction, once via this app's own Confirmée→Expédiée (fixed by c606dc0).
-//
-// The RESERVATION half of the ledger (quantityReserved only — never
-// quantityOnHand) was over-gated by that same fix and is reopened here
-// (docs/adr/0030's 2026-09-13 addendum): a WooCommerce/Shopify order now
-// reserves at CONFIRMEE and releases the reservation at ANNULEE/EXPEDIEE
-// exactly like an INTERNE order — safe, since reserving/releasing can
-// never double-count anything on-hand.
-describe("updateOrderStatusAction / cancelOrderAction — WooCommerce/Shopify orders reserve but never physically double-deduct stock (docs/adr/0030 + its addendum)", () => {
+// docs/adr/0036-inventory-single-source-of-truth.md: InventoryItem is
+// ASODITECH's SOLE source of truth for local stock. EXPEDIEE is the ONE
+// physical-fulfillment event, for every order source alike — a
+// WooCommerce/Shopify order reserves at CONFIRMEE exactly like an INTERNE
+// order, and now ALSO physically fulfills (deducts on-hand) at EXPEDIEE,
+// converting the reservation into a real consumption instead of merely
+// releasing it. This superseded the earlier "WooCommerce/Shopify orders
+// only ever release, never fulfill" rule (docs/adr/0030) — that rule
+// depended on the provider's own stock number being trusted via a
+// separate pull-sync, which docs/adr/0036 explicitly removes: WooCommerce/
+// Shopify stock is one-way downstream only after onboarding.
+describe("updateOrderStatusAction / cancelOrderAction — EXPEDIEE physically fulfills stock for every order source (docs/adr/0036)", () => {
   beforeEach(async () => {
     await resetDb();
     mockCookieStore.clear();
@@ -697,7 +699,7 @@ describe("updateOrderStatusAction / cancelOrderAction — WooCommerce/Shopify or
     customerId: string,
     quantity: number,
     externalId: string,
-    status: "NOUVELLE" | "EXPEDIEE" = "NOUVELLE"
+    status: "NOUVELLE" | "EXPEDIEE" | "ECHEC" = "NOUVELLE"
   ) {
     return prisma.order.create({
       data: {
@@ -707,7 +709,7 @@ describe("updateOrderStatusAction / cancelOrderAction — WooCommerce/Shopify or
         status,
         subtotal: 100 * quantity,
         total: 100 * quantity,
-        ...(status === "EXPEDIEE" ? { shippedAt: new Date() } : {}),
+        ...(status !== "NOUVELLE" ? { shippedAt: new Date() } : {}),
         items: {
           create: [
             {
@@ -739,75 +741,33 @@ describe("updateOrderStatusAction / cancelOrderAction — WooCommerce/Shopify or
     expect(movements[0].type).toBe("RESERVATION");
   });
 
-  // Full reproduction of the reported incident, updated for the
-  // 2026-09-13 addendum: a WooCommerce order (16 units) already had its
-  // stock silently pulled out of `quantityOnHand` by the provider stock
-  // sync (simulating WooCommerce's own "reduce stock on processing"
-  // behaviour, mirrored in here) BEFORE this app's own
-  // confirmation/shipment workflow ever touched it. A separate INTERNE
-  // order for 2 units ships normally in between. Confirming/shipping the
-  // WooCommerce order now reserves/releases `quantityReserved` (visible in
-  // "Disponible") but must still never touch `quantityOnHand` a second
-  // time — the exact incident c606dc0 fixed stays fixed.
-  it("reserves then releases a WooCommerce-sourced order's stock at Confirmée/Expédiée without ever touching on-hand, even when the provider sync already reduced it (the exact reported incident)", async () => {
-    const { warehouse, product, customer } = await seedOrderable(); // onHand starts at 10
-    await prisma.inventoryItem.updateMany({ where: { warehouseId: warehouse.id, productId: product.id }, data: { quantityOnHand: 21 } });
-
-    // Simulates the WooCommerce product/stock pull-sync already having
-    // mirrored the store's own native stock reduction for this order's 16
-    // units (21 -> 5) — independent of, and before, this app's own order
-    // workflow ever runs.
-    await prisma.inventoryItem.updateMany({ where: { warehouseId: warehouse.id, productId: product.id }, data: { quantityOnHand: 5 } });
-
-    // A separate, purely internal order for 2 units ships normally.
+  // docs/adr/0036: EXPEDIEE physically fulfills a WooCommerce-sourced
+  // order exactly like an INTERNE one now — converting the reservation
+  // into a real on-hand deduction, never merely releasing it. WooCommerce/
+  // Shopify's own stock number is no longer pulled in or trusted at all.
+  it("reserves at CONFIRMEE then physically fulfills (deducts on-hand) at EXPEDIEE for a WooCommerce-sourced order", async () => {
+    const { product, customer } = await seedOrderable(); // onHand starts at 10
     await loginAsTestUser({ role: "MANAGER" });
-    const manual = await createOrderAction({
-      customerId: customer.id,
-      paymentMethod: "PAIEMENT_LIVRAISON",
-      shippingCost: 0,
-      discountTotal: 0,
-      currency: "MAD",
-      notes: "",
-      internalNotes: "",
-      shippingAddressLine1: "",
-      shippingAddressLine2: "",
-      shippingCity: "",
-      shippingRegion: "",
-      shippingCountry: "",
-      shippingPhone: "",
-      items: [{ productId: product.id, quantity: 2, unitPrice: 100, discount: 0 }],
-    });
-    if (!manual.ok) throw new Error("setup failed");
-    await updateOrderStatusAction(formData({ id: manual.data.id, status: "CONFIRMEE" }));
-    await updateOrderStatusAction(formData({ id: manual.data.id, status: "EN_PREPARATION" }));
-    await updateOrderStatusAction(formData({ id: manual.data.id, status: "EXPEDIEE" }));
-    let item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
-    expect(item.quantityOnHand).toBe(3); // 5 - 2
 
-    // Now walk the WooCommerce order (16 units) through the same workflow.
-    const wcOrder = await createWooCommerceOrder(product.id, customer.id, 16, "9002");
+    const wcOrder = await createWooCommerceOrder(product.id, customer.id, 6, "9002");
     const confirmed = await updateOrderStatusAction(formData({ id: wcOrder.id, status: "CONFIRMEE" }));
     expect(confirmed.ok).toBe(true);
-    item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
-    expect(item).toMatchObject({ quantityOnHand: 3, quantityReserved: 16 }); // reserved, on-hand untouched
+    let item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 10, quantityReserved: 6 });
 
     await updateOrderStatusAction(formData({ id: wcOrder.id, status: "EN_PREPARATION" }));
     const shipped = await updateOrderStatusAction(formData({ id: wcOrder.id, status: "EXPEDIEE" }));
-
-    // Before c606dc0 this failed: "Stock insuffisant : 13 unité(s) manquante(s)".
     expect(shipped.ok).toBe(true);
 
     item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
-    // On-hand still untouched by this app's ledger; the reservation this
-    // app itself took at CONFIRMEE is released (not fulfilled) at EXPEDIEE.
-    expect(item).toMatchObject({ quantityOnHand: 3, quantityReserved: 0 });
+    expect(item).toMatchObject({ quantityOnHand: 4, quantityReserved: 0 }); // physically consumed
     const order = await prisma.order.findUniqueOrThrow({ where: { id: wcOrder.id } });
     expect(order.status).toBe("EXPEDIEE");
     const movements = await prisma.inventoryMovement.findMany({ where: { orderId: wcOrder.id }, orderBy: { createdAt: "asc" } });
-    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "LIBERATION"]);
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "VENTE"]);
   });
 
-  it("releases the reservation (not a physical return) when cancelling a confirmed WooCommerce-sourced order", async () => {
+  it("releases the reservation (not a physical fulfillment) when cancelling a confirmed WooCommerce-sourced order before shipment", async () => {
     const { product, customer } = await seedOrderable();
     const order = await createWooCommerceOrder(product.id, customer.id, 2, "9003");
     await loginAsTestUser({ role: "MANAGER" });
@@ -837,17 +797,67 @@ describe("updateOrderStatusAction / cancelOrderAction — WooCommerce/Shopify or
     expect(await prisma.inventoryMovement.count({ where: { orderId: order.id } })).toBe(0);
   });
 
-  it("does not restock on-hand when a WooCommerce-sourced order is marked RETOUR", async () => {
+  it("a WooCommerce-sourced order's on-hand consumed at EXPEDIEE is NOT restored when later marked RETOUR", async () => {
     const { product, customer } = await seedOrderable();
     const order = await createWooCommerceOrder(product.id, customer.id, 2, "9004", "EXPEDIEE");
     await loginAsTestUser({ role: "MANAGER" });
 
+    // Directly seeded at EXPEDIEE (bypassing the normal transition) with
+    // on-hand not pre-deducted — simulates an order already shipped before
+    // this test's own assertions begin; RETOUR must still be a no-op.
+    const before = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
     const result = await updateOrderStatusAction(formData({ id: order.id, status: "RETOUR" }));
     expect(result.ok).toBe(true);
 
     const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
-    expect(item.quantityOnHand).toBe(10); // unchanged — this app never deducted it to begin with
+    expect(item.quantityOnHand).toBe(before.quantityOnHand); // unchanged — RETOUR is a label only
     expect(await prisma.inventoryMovement.count({ where: { orderId: order.id } })).toBe(0);
+  });
+
+  it("a shipped WooCommerce-sourced order's stock is NOT restored when later cancelled", async () => {
+    const { product, customer } = await seedOrderable();
+    // ECHEC (not EXPEDIEE) — EXPEDIEE cannot transition directly to
+    // ANNULEE (ORDER_STATUS_TRANSITIONS), only via ECHEC first; shippedAt
+    // is still set, exactly like a real EXPEDIEE -> ECHEC order.
+    const order = await createWooCommerceOrder(product.id, customer.id, 2, "9005", "ECHEC");
+    await loginAsTestUser({ role: "MANAGER" });
+
+    const before = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    const result = await cancelOrderAction(formData({ id: order.id, reason: "" }));
+    expect(result.ok).toBe(true);
+
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityOnHand).toBe(before.quantityOnHand); // unchanged
+    expect(await prisma.inventoryMovement.count({ where: { orderId: order.id } })).toBe(0);
+  });
+
+  // docs/adr/0036: EXPEDIEE's fulfillment path is now identical for every
+  // source — no per-source branch exists any more, so InsufficientStockError
+  // must reject a WooCommerce-sourced order's EXPEDIEE exactly like an
+  // INTERNE one, never silently apply a different (backorder-tolerant)
+  // policy for provider orders.
+  it("rejects EXPEDIEE for a WooCommerce-sourced order too when on-hand is insufficient (same policy as INTERNE)", async () => {
+    const { product, customer } = await seedOrderable(); // onHand starts at 10
+    const order = await createWooCommerceOrder(product.id, customer.id, 2, "9006");
+    await loginAsTestUser({ role: "MANAGER" });
+
+    await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+    // Stock reduced out-of-band between confirmation and shipment, below
+    // what this order needs.
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    await prisma.inventoryItem.update({ where: { id: item.id }, data: { quantityOnHand: 1 } });
+
+    await updateOrderStatusAction(formData({ id: order.id, status: "EN_PREPARATION" }));
+    const result = await updateOrderStatusAction(formData({ id: order.id, status: "EXPEDIEE" }));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/stock insuffisant/i);
+
+    const orderAfter = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(orderAfter.status).toBe("EN_PREPARATION"); // transition rolled back
+    expect(orderAfter.shippedAt).toBeNull();
+    const itemAfter = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(itemAfter.quantityOnHand).toBe(1); // untouched by the rollback
   });
 
   // Sanity check that the fix is scoped correctly: a purely internal order
@@ -977,7 +987,7 @@ describe("updateOrderStatusAction — EXPEDIEE is idempotent across a retry loop
     expect(movements.filter((m) => m.type === "VENTE")).toHaveLength(1);
   });
 
-  it("EXPEDIEE -> RETOUR still restores exactly the quantity actually sold, with no duplicate movement", async () => {
+  it("EXPEDIEE -> RETOUR never restores stock (docs/adr/0036 — RETOUR is a workflow label only)", async () => {
     const { orderId, product } = await seedAndShipToExpediee(5);
     await updateOrderStatusAction(formData({ id: orderId, status: "EXPEDIEE" }));
 
@@ -985,10 +995,10 @@ describe("updateOrderStatusAction — EXPEDIEE is idempotent across a retry loop
     expect(returned.ok).toBe(true);
 
     const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
-    expect(item.quantityOnHand).toBe(15); // back to the starting quantity, not more
+    expect(item.quantityOnHand).toBe(10); // still consumed — RETOUR moved nothing
 
     const movements = await prisma.inventoryMovement.findMany({ where: { orderId }, orderBy: { createdAt: "asc" } });
-    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "VENTE", "RETOUR"]);
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "VENTE"]); // no RETOUR movement
   });
 
   it("EXPEDIEE -> ECHEC -> RETOUR remains an invalid transition (state machine unchanged)", async () => {
@@ -1000,7 +1010,7 @@ describe("updateOrderStatusAction — EXPEDIEE is idempotent across a retry loop
     expect(result.ok).toBe(false);
   });
 
-  it("a retry loop through ANNULEE from ECHEC still cancels cleanly (no stock left stranded)", async () => {
+  it("a retry loop through ANNULEE from ECHEC cancels cleanly WITHOUT restoring the consumed stock (docs/adr/0036)", async () => {
     const { orderId, product } = await seedAndShipToExpediee(5);
     await updateOrderStatusAction(formData({ id: orderId, status: "EXPEDIEE" }));
     await updateOrderStatusAction(formData({ id: orderId, status: "ECHEC" }));
@@ -1008,21 +1018,24 @@ describe("updateOrderStatusAction — EXPEDIEE is idempotent across a retry loop
     const cancelled = await updateOrderStatusAction(formData({ id: orderId, status: "ANNULEE" }));
     expect(cancelled.ok).toBe(true);
 
-    // wasFulfilled is true (shippedAt was set by the first EXPEDIEE), so
-    // ANNULEE takes the physical-return branch, restoring the 5 sold units.
+    // wasFulfilled is true (shippedAt was set by the first EXPEDIEE) — a
+    // post-ship cancellation never restores stock automatically; only the
+    // explicit physical-return action can (see tests/actions/returns.test.ts).
     const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
-    expect(item.quantityOnHand).toBe(15);
+    expect(item.quantityOnHand).toBe(10); // still consumed, not restored
+    const movements = await prisma.inventoryMovement.findMany({ where: { orderId }, orderBy: { createdAt: "asc" } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "VENTE"]); // no RETOUR movement
   });
 });
 
-// Regression coverage for order #15623: a WooCommerce order's own stock
-// reduction happens independently on the provider's side, and
-// `quantityOnHand` here is only ever refreshed by an explicit product
-// sync — so it can be stale. Pushing our own onHand-minus-reserved back
-// to WooCommerce after a purely reservation-driven event (confirm/ship/
-// cancel a provider order) silently overwrote the provider's own correct,
-// more recent number. See docs/adr/0030's 2026-09-13 addendum.
-describe("order-lifecycle stock push to WooCommerce is INTERNE-only (#15623)", () => {
+// docs/adr/0036-inventory-single-source-of-truth.md superseded #15623's
+// "INTERNE-only" push guard: WooCommerce/Shopify stock is never
+// authoritative after onboarding (no more pull-sync to accidentally
+// overwrite), so ASODITECH now pushes its own sellable number outward for
+// EVERY order source whenever a reservation/fulfillment event actually
+// changes it — the source of the order no longer determines whether a
+// push happens.
+describe("order-lifecycle stock push is source-agnostic (docs/adr/0036)", () => {
   beforeEach(async () => {
     await resetDb();
     mockCookieStore.clear();
@@ -1059,15 +1072,22 @@ describe("order-lifecycle stock push to WooCommerce is INTERNE-only (#15623)", (
     return state;
   }
 
-  async function createWooCommerceOrder(productId: string, customerId: string, quantity: number, externalId: string) {
+  async function createWooCommerceOrder(
+    productId: string,
+    customerId: string,
+    quantity: number,
+    externalId: string,
+    status: "NOUVELLE" | "EXPEDIEE" | "ECHEC" = "NOUVELLE"
+  ) {
     return prisma.order.create({
       data: {
         customerId,
         source: "WOOCOMMERCE",
         externalId,
-        status: "NOUVELLE",
+        status,
         subtotal: 100 * quantity,
         total: 100 * quantity,
+        ...(status !== "NOUVELLE" ? { shippedAt: new Date() } : {}),
         items: {
           create: [
             { productId, nameSnapshot: "T-shirt", skuSnapshot: `SKU-${externalId}`, unitPrice: 100, quantity, total: 100 * quantity },
@@ -1077,7 +1097,7 @@ describe("order-lifecycle stock push to WooCommerce is INTERNE-only (#15623)", (
     });
   }
 
-  it("does not push stock to WooCommerce when confirming a WooCommerce-sourced order (reservation-only)", async () => {
+  it("pushes stock to WooCommerce when confirming a WooCommerce-sourced order (reservation changed the sellable number)", async () => {
     const { product, customer } = await seedWooLinkedProduct("15623", 21);
     const state = await connectFakeWooCommerce();
     const order = await createWooCommerceOrder(product.id, customer.id, 6, "9101");
@@ -1085,10 +1105,10 @@ describe("order-lifecycle stock push to WooCommerce is INTERNE-only (#15623)", (
 
     const result = await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
     expect(result.ok).toBe(true);
-    expect(state.stockUpdates).toHaveLength(0);
+    expect(state.stockUpdates.length).toBeGreaterThan(0);
   });
 
-  it("does not push stock to WooCommerce when shipping (releasing reservation) a WooCommerce-sourced order", async () => {
+  it("pushes stock to WooCommerce when shipping (physically fulfilling) a WooCommerce-sourced order", async () => {
     const { product, customer } = await seedWooLinkedProduct("156232", 21);
     const state = await connectFakeWooCommerce();
     const order = await createWooCommerceOrder(product.id, customer.id, 6, "9102");
@@ -1096,18 +1116,33 @@ describe("order-lifecycle stock push to WooCommerce is INTERNE-only (#15623)", (
 
     await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
     await updateOrderStatusAction(formData({ id: order.id, status: "EN_PREPARATION" }));
+    state.stockUpdates.length = 0; // only care about the EXPEDIEE push itself
     const shipped = await updateOrderStatusAction(formData({ id: order.id, status: "EXPEDIEE" }));
     expect(shipped.ok).toBe(true);
-    expect(state.stockUpdates).toHaveLength(0);
+    expect(state.stockUpdates.length).toBeGreaterThan(0);
   });
 
-  it("does not push stock to WooCommerce when cancelling a confirmed WooCommerce-sourced order", async () => {
+  it("pushes stock to WooCommerce when cancelling a confirmed WooCommerce-sourced order (reservation released)", async () => {
     const { product, customer } = await seedWooLinkedProduct("156233", 21);
     const state = await connectFakeWooCommerce();
     const order = await createWooCommerceOrder(product.id, customer.id, 6, "9103");
     await loginAsTestUser({ role: "MANAGER" });
 
     await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+    state.stockUpdates.length = 0;
+    const cancelled = await cancelOrderAction(formData({ id: order.id, reason: "" }));
+    expect(cancelled.ok).toBe(true);
+    expect(state.stockUpdates.length).toBeGreaterThan(0);
+  });
+
+  it("does not push when cancelling a post-ship order — no stock actually moved", async () => {
+    const { product, customer } = await seedWooLinkedProduct("156235", 21);
+    const state = await connectFakeWooCommerce();
+    // ECHEC (not EXPEDIEE) — EXPEDIEE cannot transition directly to
+    // ANNULEE, only via ECHEC first; shippedAt is still set.
+    const order = await createWooCommerceOrder(product.id, customer.id, 6, "9104", "ECHEC");
+    await loginAsTestUser({ role: "MANAGER" });
+
     const cancelled = await cancelOrderAction(formData({ id: order.id, reason: "" }));
     expect(cancelled.ok).toBe(true);
     expect(state.stockUpdates).toHaveLength(0);
@@ -1144,164 +1179,6 @@ describe("order-lifecycle stock push to WooCommerce is INTERNE-only (#15623)", (
   });
 });
 
-// Regression coverage for order #15627: WooCommerce's own stock reduction
-// for a real order (20 -> 15) can still be unreflected in ASODITECH's
-// `quantityOnHand` (only refreshed by an explicit sync, per #15623's
-// addendum). Releasing the reservation on that stale number briefly
-// reported the order's units as fully available again. See
-// docs/adr/0030's #15627 addendum.
-describe("updateOrderStatusAction — EXPEDIEE refreshes provider stock before releasing the reservation (#15627)", () => {
-  beforeEach(async () => {
-    await resetDb();
-    mockCookieStore.clear();
-  });
-  afterEach(async () => {
-    await resetDb();
-    mockCookieStore.clear();
-    vi.unstubAllGlobals();
-  });
-
-  async function seedWooLinkedVariation(onHand: number) {
-    const warehouse = await prisma.warehouse.create({ data: { name: "Entrepôt principal", type: "ENTREPOT", isDefault: true } });
-    const product = await prisma.product.create({
-      data: { name: "Variable prod", sku: "VP-15627", price: 200, status: "ACTIF", source: "WOOCOMMERCE", externalId: "15627", trackInventory: true },
-    });
-    const variation = await prisma.productVariation.create({
-      data: { productId: product.id, sku: "VP-15627-M", attributes: { Taille: "M" }, source: "WOOCOMMERCE", externalId: "15627001" },
-    });
-    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, variationId: variation.id, quantityOnHand: onHand } });
-    const customer = await prisma.customer.create({ data: { fullName: "Client WC" } });
-    return { product, variation, customer };
-  }
-
-  async function connectFakeWooCommerce(variationRealStock: number) {
-    const state = emptyFakeStore();
-    state.products.push({
-      id: 15627,
-      name: "Variable prod",
-      slug: "variable-prod",
-      sku: "VP-15627",
-      status: "publish",
-      type: "variable",
-      regular_price: "200",
-      manage_stock: false,
-      stock_quantity: null,
-      categories: [],
-      variations: [15627001],
-      variationList: [
-        {
-          id: 15627001,
-          sku: "VP-15627-M",
-          regular_price: "200",
-          manage_stock: true,
-          stock_quantity: variationRealStock,
-          attributes: [{ name: "Taille", option: "M" }],
-        },
-      ],
-    });
-    installFakeWooCommerceServer(state);
-    await prisma.integration.create({
-      data: {
-        provider: "WOOCOMMERCE",
-        status: "CONNECTE",
-        config: { siteUrl: FAKE_STORE_URL },
-        credentialsEncrypted: encryptSecret(JSON.stringify({ apiKey: FAKE_CONSUMER_KEY, apiSecret: FAKE_CONSUMER_SECRET })),
-      },
-    });
-    return state;
-  }
-
-  async function createWooCommerceVariationOrder(variationId: string, customerId: string, quantity: number, externalId: string) {
-    return prisma.order.create({
-      data: {
-        customerId,
-        source: "WOOCOMMERCE",
-        externalId,
-        status: "NOUVELLE",
-        subtotal: 200 * quantity,
-        total: 200 * quantity,
-        items: {
-          create: [
-            { variationId, nameSnapshot: "Variable prod - M", skuSnapshot: "VP-15627-M", unitPrice: 200, quantity, total: 200 * quantity },
-          ],
-        },
-      },
-    });
-  }
-
-  it("reconciles the stale on-hand to the provider's real quantity before releasing the reservation — Disponible is never wrongly 20", async () => {
-    // ASODITECH is stale at 20; WooCommerce already reduced its own real
-    // stock to 15 for this order's 5 units, independently of ASODITECH.
-    const { variation, customer } = await seedWooLinkedVariation(20);
-    const state = await connectFakeWooCommerce(15);
-    const order = await createWooCommerceVariationOrder(variation.id, customer.id, 5, "15627");
-    await loginAsTestUser({ role: "MANAGER" });
-
-    await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
-    let item = await prisma.inventoryItem.findFirstOrThrow({ where: { variationId: variation.id } });
-    expect(item).toMatchObject({ quantityOnHand: 20, quantityReserved: 5 });
-
-    await updateOrderStatusAction(formData({ id: order.id, status: "EN_PREPARATION" }));
-    const shipped = await updateOrderStatusAction(formData({ id: order.id, status: "EXPEDIEE" }));
-    expect(shipped.ok).toBe(true);
-
-    item = await prisma.inventoryItem.findFirstOrThrow({ where: { variationId: variation.id } });
-    // Never 20/0 (which would wrongly show 20 available) — the refresh
-    // must land on the provider's real 15 before the release clears
-    // quantityReserved.
-    expect(item).toMatchObject({ quantityOnHand: 15, quantityReserved: 0 });
-
-    // Read-only against the provider: no push is ever triggered as a
-    // side effect of the refresh (and none is expected from the release
-    // itself either — see #15623's addendum).
-    expect(state.stockUpdates).toHaveLength(0);
-  });
-
-  it("normal path (provider stock already matches ASODITECH's) leaves on-hand unchanged, no phantom movement", async () => {
-    const { variation, customer } = await seedWooLinkedVariation(15);
-    const state = await connectFakeWooCommerce(15);
-    const order = await createWooCommerceVariationOrder(variation.id, customer.id, 5, "15628");
-    await loginAsTestUser({ role: "MANAGER" });
-
-    await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
-    await updateOrderStatusAction(formData({ id: order.id, status: "EN_PREPARATION" }));
-    const shipped = await updateOrderStatusAction(formData({ id: order.id, status: "EXPEDIEE" }));
-    expect(shipped.ok).toBe(true);
-
-    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { variationId: variation.id } });
-    expect(item).toMatchObject({ quantityOnHand: 15, quantityReserved: 0 });
-    expect(state.stockUpdates).toHaveLength(0);
-
-    // The provider already agreed with ASODITECH — reconcileStockFromProvider
-    // must record no adjustment movement for an unchanged quantity.
-    const movements = await prisma.inventoryMovement.findMany({ where: { orderId: order.id }, orderBy: { createdAt: "asc" } });
-    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "LIBERATION"]);
-  });
-
-  it("a carrier-failure retry does not re-fetch or re-reconcile provider stock a second time", async () => {
-    const { variation, customer } = await seedWooLinkedVariation(20);
-    const state = await connectFakeWooCommerce(15);
-    const order = await createWooCommerceVariationOrder(variation.id, customer.id, 5, "15629");
-    await loginAsTestUser({ role: "MANAGER" });
-
-    await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
-    await updateOrderStatusAction(formData({ id: order.id, status: "EN_PREPARATION" }));
-    await updateOrderStatusAction(formData({ id: order.id, status: "EXPEDIEE" }));
-
-    // The store itself changes again after the first ship (e.g. a
-    // restock) — if the retry re-pulled, on-hand would jump to 999.
-    state.products[0].variationList![0].stock_quantity = 999;
-
-    await updateOrderStatusAction(formData({ id: order.id, status: "ECHEC" }));
-    await updateOrderStatusAction(formData({ id: order.id, status: "EN_PREPARATION" }));
-    const retryShipped = await updateOrderStatusAction(formData({ id: order.id, status: "EXPEDIEE" }));
-    expect(retryShipped.ok).toBe(true);
-
-    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { variationId: variation.id } });
-    expect(item.quantityOnHand).toBe(15); // untouched by the retry
-    expect(state.stockUpdates).toHaveLength(0);
-  });
-});
 
 describe("updateOrderPaymentStatusAction", () => {
   beforeEach(async () => {

@@ -10,7 +10,7 @@ import { verifyShopifyWebhookSignature } from "@/lib/integrations/shopify/webhoo
 import { validateShopDomain } from "@/lib/integrations/shopify/ssrf";
 import { ShopifyClient } from "@/lib/integrations/shopify/client";
 import { importOrder, importProduct } from "@/lib/integrations/shopify/sync";
-import { recordWebhookEventOnce, reconcileStockFromProvider } from "@/lib/integrations/shared";
+import { recordWebhookEventOnce } from "@/lib/integrations/shared";
 import { getTenantUsage } from "@/lib/entitlements/usage";
 import { checkAndNotifyUsageThreshold } from "@/lib/entitlements/alerts";
 
@@ -37,12 +37,14 @@ import { checkAndNotifyUsageThreshold } from "@/lib/entitlements/alerts";
  *
  * Supported topics: orders/create, orders/updated, orders/cancelled,
  * refunds/create (real-time order import); products/create, products/
- * update (real-time product import); inventory_levels/update (real-time
- * stock — the one topic handled directly from the webhook body itself,
- * with no re-fetch: Shopify already gives inventory_item_id/location_id/
- * available, exactly what `reconcileStockFromProvider` needs). All three
- * groups are a safety net layered on top of the resumable bulk sync for a
- * missed or never-configured webhook, not a replacement for it.
+ * update (real-time product import); inventory_levels/update (accepted,
+ * replay-protected and audited for observability, but never mutates local
+ * stock — docs/adr/0036-inventory-single-source-of-truth.md: ASODITECH's
+ * InventoryItem is the sole source of truth for local stock after
+ * onboarding, so a Shopify-side inventory change is never applied here).
+ * The order/product groups are a safety net layered on top of the
+ * resumable bulk sync for a missed or never-configured webhook, not a
+ * replacement for it.
  */
 const SUPPORTED_TOPICS = new Set([
   "orders/create",
@@ -58,7 +60,7 @@ const SUPPORTED_TOPICS = new Set([
 /** Same rationale as the WooCommerce route — refresh the cached pages that
  * read imported data so a new order/product shows up without a hard
  * reload. Best-effort. */
-function revalidateAfterImport(kind: "order" | "product" | "stock"): void {
+function revalidateAfterImport(kind: "order" | "product"): void {
   try {
     if (kind === "order") {
       revalidatePath("/commandes");
@@ -211,34 +213,21 @@ async function handleShopifyWebhook(
   }
 
   if (topic === "inventory_levels/update") {
+    // ASODITECH's InventoryItem is the sole source of truth for local
+    // stock after onboarding (docs/adr/0036-inventory-single-source-of-truth.md)
+    // — a Shopify inventory-level change is NEVER applied here, no matter
+    // how far it drifts from what this app already knows. This handler
+    // only validates the payload shape and records the webhook delivery
+    // (observability/replay-protection); it deliberately does not call
+    // reconcileStockFromProvider or mutate InventoryItem in any way.
     const parsed = inventoryLevelEnvelopeSchema.safeParse(payload);
     if (!parsed.success) {
       await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, status: "ECHEC" });
       return new Response(null, { status: 400 });
     }
     const inventoryItemGid = `gid://shopify/InventoryItem/${parsed.data.inventory_item_id}`;
-    const locationGid = `gid://shopify/Location/${parsed.data.location_id}`;
 
     try {
-      const [item, warehouse] = await Promise.all([
-        prisma.inventoryItem.findFirst({ where: { externalId: inventoryItemGid } }),
-        prisma.warehouse.findFirst({ where: { source: "SHOPIFY", externalId: locationGid } }),
-      ]);
-      // Nothing local yet maps this inventory item/location — the bulk
-      // "Synchroniser les produits" sync is what first establishes that
-      // mapping; there's nothing this webhook alone can reconcile against.
-      if (item && warehouse && (item.productId || item.variationId)) {
-        await reconcileStockFromProvider({
-          productId: item.productId ?? undefined,
-          variationId: item.variationId ?? undefined,
-          warehouseId: warehouse.id,
-          externalQuantity: parsed.data.available,
-          actor: { type: "INTEGRATION" },
-          source: "SHOPIFY",
-          externalItemId: inventoryItemGid,
-        });
-        revalidateAfterImport("stock");
-      }
       const outcome = await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: inventoryItemGid, status: "TRAITE" });
       if (outcome === "recorded") {
         await recordAuditEvent({
@@ -246,7 +235,7 @@ async function handleShopifyWebhook(
           action: "integration.webhook_received",
           entityType: "Integration",
           entityId: integration.id,
-          metadata: { provider: "SHOPIFY", topic, inventoryItemExternalId: inventoryItemGid },
+          metadata: { provider: "SHOPIFY", topic, inventoryItemExternalId: inventoryItemGid, mutatedStock: false },
         });
       }
     } catch {

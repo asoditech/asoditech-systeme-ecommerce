@@ -150,6 +150,11 @@ export function ShopifyActions({ canManage, hasCredentials }: { canManage: boole
         <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={runProductsSync}>
           {busy === "products" ? "Synchronisation..." : "Synchroniser les produits"}
         </Button>
+        <p className="w-full text-xs text-muted-foreground">
+          « Synchroniser les produits » initialise le stock UNIQUEMENT pour un produit encore inconnu localement
+          (import initial). Un produit déjà connu d&apos;ASODITECH n&apos;a jamais son stock écrasé par cette
+          action — ASODITECH est la seule source de vérité pour le stock physique une fois un produit importé.
+        </p>
 
         <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={runOrdersSync}>
           {busy === "orders" ? "Synchronisation..." : "Synchroniser les commandes"}
@@ -194,10 +199,13 @@ export function ShopifyActions({ canManage, hasCredentials }: { canManage: boole
             des abonnements webhook vers l&apos;URL ci-dessous pour les sujets « Commande créée », « Commande
             mise à jour », « Commande annulée », « Remboursement créé », « Produit créé », « Produit mis à
             jour », « Produit supprimé » et « Niveaux de stock mis à jour ». Les quatre premiers importent les
-            commandes en temps réel ; les quatre derniers synchronisent produits et stock dès qu&apos;ils
-            changent sur la boutique (y compris un produit supprimé, alors archivé ici plutôt que supprimé),
-            sans attendre un clic sur « Synchroniser les produits ». Le secret de signature est le « Client
-            secret » de l&apos;application — celui saisi comme secret API lors de la configuration.
+            commandes en temps réel ; les trois suivants synchronisent nom/prix/statut dès qu&apos;ils changent
+            sur la boutique (y compris un produit supprimé, alors archivé ici plutôt que supprimé), sans
+            attendre un clic sur « Synchroniser les produits ». « Niveaux de stock mis à jour » n&apos;affecte
+            jamais le stock ASODITECH — une fois un produit importé, ASODITECH est la seule source de vérité
+            pour son stock physique ; ce webhook n&apos;est utile que pour observer l&apos;activité côté
+            Shopify. Le secret de signature est le « Client secret » de l&apos;application — celui saisi comme
+            secret API lors de la configuration.
           </p>
           <code className="block break-all rounded bg-background p-2">
             {typeof window !== "undefined" ? `${window.location.origin}/api/webhooks/shopify` : "/api/webhooks/shopify"}

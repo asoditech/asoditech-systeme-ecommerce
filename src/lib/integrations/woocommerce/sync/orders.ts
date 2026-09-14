@@ -10,7 +10,12 @@ import type { WcOrder } from "../types";
 import { actorAuditFields, actorPerformedById, type SyncActor } from "./actor";
 import { isRecentlyPlaced, parseOrderPlacedAt } from "../../shared/order-recency";
 import { upsertCustomerAddressFromOrder } from "../../shared/customer-address";
-import { notifyNewOrder, checkAndNotifyInsufficientStockForOrder, resolveNotifications } from "@/lib/notifications";
+import {
+  notifyNewOrder,
+  checkAndNotifyInsufficientStockForOrder,
+  notifyWorkflowMismatch,
+  resolveNotifications,
+} from "@/lib/notifications";
 import { reconcileOrderCommission } from "@/lib/commissions";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { emptySyncSummary, recordNote, type SyncSummary } from "./types";
@@ -344,6 +349,7 @@ async function updateExistingOrder(
   const fields = mapOrderFields(wc, status);
   let changedFields = false;
   let statusSkippedReason: string | undefined;
+  let workflowMismatch: string | undefined;
 
   await prisma.$transaction(async (tx) => {
     if (existing.status !== status) {
@@ -359,8 +365,18 @@ async function updateExistingOrder(
       // (→ LIVREE, → ANNULEE, → REMBOURSEE, → ECHEC, …) is untouched.
       const autoConfirmBlocked =
         existing.status === "NOUVELLE" && status === "CONFIRMEE" && options?.forceNouvelleOnFirstImport !== false;
+      // ASODITECH's own EXPEDIEE transition is the ONLY physical
+      // -fulfillment event, for every order source (docs/adr/0036) —
+      // symmetric guard with Shopify's identical one, even though
+      // WooCommerce's own `mapOrderStatus` never maps to EXPEDIEE today
+      // (no "shipped" WooCommerce order status is mapped) — this is a
+      // deliberate belt-and-suspenders should that mapping ever change.
+      const expedieeAutoAdvanceBlocked = status === "EXPEDIEE" && existing.status !== "EXPEDIEE";
       if (autoConfirmBlocked) {
         statusSkippedReason = `Commande WooCommerce #${wc.id} : reste "Nouvelle" — confirmation manuelle requise avant "Confirmée" (réglage "Toujours importer en Nouvelle").`;
+      } else if (expedieeAutoAdvanceBlocked) {
+        statusSkippedReason = `Commande WooCommerce #${wc.id} : le statut WooCommerce indique une expédition, mais seule l'action "Expédiée" dans ASODITECH peut faire progresser la commande et consommer le stock.`;
+        workflowMismatch = wc.status;
       } else if (canTransitionOrderStatus(existing.status, status)) {
         const result = await tx.order.updateMany({
           where: { id: orderId, status: existing.status },
@@ -392,6 +408,13 @@ async function updateExistingOrder(
         }
       } else {
         statusSkippedReason = `Commande WooCommerce #${wc.id} : transition ${existing.status} → ${status} ignorée (déjà en cours de traitement localement).`;
+        // A terminal/further-along external status than ASODITECH's own
+        // current stage is a genuine workflow disagreement worth a
+        // human's attention (docs/adr/0036) — not merely a sync-summary
+        // footnote.
+        if (status === "LIVREE" || status === "REMBOURSEE" || status === "ANNULEE") {
+          workflowMismatch = wc.status;
+        }
       }
     }
 
@@ -460,6 +483,17 @@ async function updateExistingOrder(
   // the local "nouvelle commande" alert, same as a manual status change.
   if (existing.status === "NOUVELLE" && status !== "NOUVELLE") {
     await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: orderId });
+  }
+  if (workflowMismatch) {
+    await notifyWorkflowMismatch({
+      id: orderId,
+      orderNumber: existing.orderNumber,
+      displayNumber: existing.displayNumber,
+      source: "WOOCOMMERCE",
+      externalNumber: wc.number,
+      localStatus: existing.status,
+      externalStatus: workflowMismatch,
+    });
   }
   // A store-driven move into (or out of) LIVREE affects any
   // confirmation-agent commission — reconcile it. Idempotent, best-effort.

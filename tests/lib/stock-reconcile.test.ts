@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { reconcileStockFromProvider } from "@/lib/integrations/shared/stock-reconcile";
 import { resetDb } from "../helpers/db";
-import { createTestUser } from "../helpers/auth";
 
 /**
- * reconcileStockFromProvider is the provider-agnostic "pull" half of
- * WooCommerce/Shopify inventory sync (docs/adr/0016-notifications.md §3).
- * Previously untested; covered here alongside the low-stock notification
- * this phase added to its downward branch.
+ * reconcileStockFromProvider is the provider-agnostic ONBOARDING half of
+ * WooCommerce/Shopify inventory sync (docs/adr/0036-inventory-single-source
+ * -of-truth.md). It may only ever INITIALIZE a missing InventoryItem row —
+ * an existing row's quantityOnHand is never overwritten again, no matter
+ * how far the provider's own number drifts.
  */
 describe("reconcileStockFromProvider", () => {
   let warehouseId: string;
@@ -56,8 +56,7 @@ describe("reconcileStockFromProvider", () => {
     expect(await prisma.inventoryMovement.count()).toBe(0);
   });
 
-  it("an upward reconciliation records AJUSTEMENT_POSITIF and does not notify", async () => {
-    await createTestUser({ role: "WAREHOUSE" }); // holds inventory.view
+  it("NEVER overwrites an existing row's quantityOnHand, even when the provider reports a higher number", async () => {
     await prisma.inventoryItem.create({ data: { warehouseId, productId, quantityOnHand: 2 } });
 
     const outcome = await reconcileStockFromProvider({
@@ -67,69 +66,81 @@ describe("reconcileStockFromProvider", () => {
       actor: { type: "INTEGRATION" },
       source: "SHOPIFY",
     });
-    expect(outcome).toBe("reconciled");
+    expect(outcome).toBe("unchanged");
 
-    const movement = await prisma.inventoryMovement.findFirstOrThrow();
-    expect(movement.type).toBe("AJUSTEMENT_POSITIF");
-    expect(movement.quantity).toBe(18);
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId } });
+    expect(item.quantityOnHand).toBe(2); // untouched
+    expect(await prisma.inventoryMovement.count()).toBe(0);
     expect(await prisma.notification.count()).toBe(0);
   });
 
-  it("a downward reconciliation that crosses the threshold notifies inventory.view holders", async () => {
-    await createTestUser({ role: "WAREHOUSE" });
+  it("NEVER overwrites an existing row's quantityOnHand, even when the provider reports a lower number", async () => {
     await prisma.inventoryItem.create({ data: { warehouseId, productId, quantityOnHand: 20 } });
 
     const outcome = await reconcileStockFromProvider({
       productId,
       warehouseId,
-      externalQuantity: 3, // below the 5-unit threshold
+      externalQuantity: 3, // below the 5-unit threshold — must NOT trigger a low-stock alert either
       actor: { type: "INTEGRATION" },
       source: "WOOCOMMERCE",
     });
-    expect(outcome).toBe("reconciled");
+    expect(outcome).toBe("unchanged");
 
-    const movement = await prisma.inventoryMovement.findFirstOrThrow();
-    expect(movement.type).toBe("AJUSTEMENT_NEGATIF");
-    expect(movement.quantity).toBe(17);
-
-    const notification = await prisma.notification.findFirstOrThrow();
-    expect(notification.type).toBe("STOCK_FAIBLE");
-  });
-
-  it("a downward reconciliation that stays above the threshold does not notify", async () => {
-    await createTestUser({ role: "WAREHOUSE" });
-    await prisma.inventoryItem.create({ data: { warehouseId, productId, quantityOnHand: 20 } });
-
-    await reconcileStockFromProvider({
-      productId,
-      warehouseId,
-      externalQuantity: 15, // still well above the 5-unit threshold
-      actor: { type: "INTEGRATION" },
-      source: "WOOCOMMERCE",
-    });
-
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId } });
+    expect(item.quantityOnHand).toBe(20); // untouched
+    expect(await prisma.inventoryMovement.count()).toBe(0);
     expect(await prisma.notification.count()).toBe(0);
   });
 
-  it("notifies the triggering user too, not just their teammates (unlike every other notify* helper)", async () => {
-    const actor = await createTestUser({ role: "WAREHOUSE" });
-    const other = await createTestUser({ role: "WAREHOUSE" });
-    await prisma.inventoryItem.create({ data: { warehouseId, productId, quantityOnHand: 20 } });
+  it("a repeated onboarding sync of an already-known row never resets its local stock", async () => {
+    await prisma.inventoryItem.create({ data: { warehouseId, productId, quantityOnHand: 7 } });
+    for (const externalQuantity of [0, 999, 7, 3]) {
+      await reconcileStockFromProvider({
+        productId,
+        warehouseId,
+        externalQuantity,
+        actor: { type: "INTEGRATION" },
+        source: "SHOPIFY",
+      });
+    }
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId } });
+    expect(item.quantityOnHand).toBe(7);
+  });
+
+  it("a product still missing locally can always receive its onboarding baseline", async () => {
+    const otherProduct = await prisma.product.create({
+      data: { name: "Nouveau", sku: "SKU-RECON-2", price: 50, status: "ACTIF" },
+    });
+    const outcome = await reconcileStockFromProvider({
+      productId: otherProduct.id,
+      warehouseId,
+      externalQuantity: 42,
+      actor: { type: "INTEGRATION" },
+      source: "WOOCOMMERCE",
+    });
+    expect(outcome).toBe("created");
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: otherProduct.id } });
+    expect(item.quantityOnHand).toBe(42);
+  });
+
+  it("tags externalItemId onto an existing row (identity mapping only — never touches quantityOnHand)", async () => {
+    await prisma.inventoryItem.create({ data: { warehouseId, productId, quantityOnHand: 5 } });
 
     await reconcileStockFromProvider({
       productId,
       warehouseId,
-      externalQuantity: 0,
-      actor: { type: "USER", userId: actor.id },
+      externalQuantity: 999,
+      actor: { type: "INTEGRATION" },
       source: "SHOPIFY",
+      externalItemId: "gid://shopify/InventoryItem/2",
     });
 
-    const recipientIds = (await prisma.notification.findMany()).map((n) => n.userId);
-    expect(recipientIds).toContain(other.id);
-    expect(recipientIds).toContain(actor.id);
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId } });
+    expect(item.externalId).toBe("gid://shopify/InventoryItem/2");
+    expect(item.quantityOnHand).toBe(5); // still untouched
   });
 
-  it("tags externalItemId onto the row and keeps it fresh on re-sync", async () => {
+  it("tags externalItemId onto a newly-created row", async () => {
     const outcome = await reconcileStockFromProvider({
       productId,
       warehouseId,
@@ -139,88 +150,7 @@ describe("reconcileStockFromProvider", () => {
       externalItemId: "gid://shopify/InventoryItem/1",
     });
     expect(outcome).toBe("created");
-
-    await reconcileStockFromProvider({
-      productId,
-      warehouseId,
-      externalQuantity: 5, // unchanged quantity, but a new external id
-      actor: { type: "INTEGRATION" },
-      source: "SHOPIFY",
-      externalItemId: "gid://shopify/InventoryItem/2",
-    });
-
     const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId } });
-    expect(item.externalId).toBe("gid://shopify/InventoryItem/2");
-  });
-
-  describe("echo-loop guard (lastPushedQuantity)", () => {
-    it("treats an inbound quantity matching this app's own recent push as unchanged — no movement, on-hand untouched", async () => {
-      await prisma.inventoryItem.create({
-        data: { warehouseId, productId, quantityOnHand: 10, quantityReserved: 3, lastPushedQuantity: 7, lastPushedAt: new Date() },
-      });
-
-      // This app pushed sellable stock (10 - 3 reserved = 7); the store's
-      // webhook now echoes that exact number back. Reconciling it as a
-      // genuine change would apply 7 as the new *on-hand* quantity,
-      // silently discarding the 3 reserved units.
-      const outcome = await reconcileStockFromProvider({
-        productId,
-        warehouseId,
-        externalQuantity: 7,
-        actor: { type: "INTEGRATION" },
-        source: "WOOCOMMERCE",
-      });
-      expect(outcome).toBe("unchanged");
-
-      const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId } });
-      expect(item.quantityOnHand).toBe(10);
-      expect(item.quantityReserved).toBe(3);
-      expect(await prisma.inventoryMovement.count()).toBe(0);
-    });
-
-    it("still reconciles a genuine external change even when it happens to equal an old push, once the echo window has passed", async () => {
-      await prisma.inventoryItem.create({
-        data: {
-          warehouseId,
-          productId,
-          quantityOnHand: 10,
-          quantityReserved: 3,
-          lastPushedQuantity: 7,
-          lastPushedAt: new Date(Date.now() - 24 * 60 * 60 * 1000), // a full day ago
-        },
-      });
-
-      const outcome = await reconcileStockFromProvider({
-        productId,
-        warehouseId,
-        externalQuantity: 7,
-        actor: { type: "INTEGRATION" },
-        source: "WOOCOMMERCE",
-      });
-      expect(outcome).toBe("reconciled");
-
-      const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId } });
-      expect(item.quantityOnHand).toBe(7);
-    });
-
-    it("reconciles normally when the inbound quantity differs from the last pushed one", async () => {
-      await prisma.inventoryItem.create({
-        data: { warehouseId, productId, quantityOnHand: 10, quantityReserved: 3, lastPushedQuantity: 7, lastPushedAt: new Date() },
-      });
-
-      // A genuine independent change on the store side (e.g. a manual
-      // admin edit), not this app's own echo.
-      const outcome = await reconcileStockFromProvider({
-        productId,
-        warehouseId,
-        externalQuantity: 4,
-        actor: { type: "INTEGRATION" },
-        source: "WOOCOMMERCE",
-      });
-      expect(outcome).toBe("reconciled");
-
-      const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId } });
-      expect(item.quantityOnHand).toBe(4);
-    });
+    expect(item.externalId).toBe("gid://shopify/InventoryItem/1");
   });
 });

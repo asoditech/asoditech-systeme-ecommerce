@@ -19,6 +19,7 @@ import { OrderStatusControl, OrderPaymentStatusControl } from "@/components/orde
 import { CancelOrderButton } from "@/components/orders/cancel-order-button";
 import { ReopenOrderButton } from "@/components/orders/reopen-order-button";
 import { RefundForm } from "@/components/orders/refund-form";
+import { PhysicalReturnDialog, type ReturnableOrderLine } from "@/components/orders/physical-return-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -96,6 +97,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
   const canEdit = hasPermission(user.role, "orders.edit");
   const canCancel = hasPermission(user.role, "orders.cancel");
   const canRefund = hasPermission(user.role, "orders.refund");
+  const canReturnPhysical = hasPermission(user.role, "orders.return");
   const canManageDelivery = hasPermission(user.role, "delivery.manage");
   const canViewFinance = hasPermission(user.role, "finance.view");
   const canManageFinance = hasPermission(user.role, "finance.manage");
@@ -121,6 +123,27 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
   ]);
   const parcelContents = buildParcelContentsSummary(order.items);
   const refundedTotal = order.refunds.filter((r) => r.status === "COMPLETE").reduce((s, r) => s + Number(r.amount), 0);
+
+  // Physical-return ceiling per line (docs/adr/0036): no split-shipment
+  // support, so what EXPEDIEE consumed is simply the item's own quantity.
+  // "Already returned" sums every prior return event's lines for this item.
+  const returnableLines: ReturnableOrderLine[] = order.items.map((item) => {
+    const alreadyReturned = order.returns.reduce((sum, r) => {
+      return (
+        sum +
+        r.lines
+          .filter((l) => l.orderItemId === item.id)
+          .reduce((lineSum, l) => lineSum + l.quantitySellable + l.quantityDamaged, 0)
+      );
+    }, 0);
+    return {
+      orderItemId: item.id,
+      nameSnapshot: item.nameSnapshot,
+      skuSnapshot: item.skuSnapshot,
+      consumedQuantity: item.quantity,
+      alreadyReturned,
+    };
+  });
   const codAmount =
     order.paymentMethod === "PAIEMENT_LIVRAISON" ? Number(order.total) - refundedTotal : null;
 
@@ -148,6 +171,9 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
             )}
             {(canEdit || canConfirm) && order.status === "ANNULEE" && order.shippedAt === null && (
               <ReopenOrderButton orderId={order.id} />
+            )}
+            {canReturnPhysical && order.shippedAt !== null && (
+              <PhysicalReturnDialog orderId={order.id} lines={returnableLines} />
             )}
           </div>
         }
@@ -279,6 +305,44 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                   </Table>
                 )}
                 <RefundForm orderId={order.id} maxAmount={Number(order.total) - refundedTotal} />
+              </CardContent>
+            </Card>
+          )}
+
+          {order.returns.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Undo2 className="size-4 text-muted-foreground" />
+                  Retours physiques
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {order.returns.map((r) => (
+                  <div key={r.id} className="rounded-md border p-3 text-sm">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <p className="font-medium">{r.receivedBy?.name ?? "Système"}</p>
+                      <p className="text-xs text-muted-foreground">{formatDateTime(r.receivedAt)}</p>
+                    </div>
+                    {r.note && <p className="mt-1 text-xs text-muted-foreground">« {r.note} »</p>}
+                    <ul className="mt-2 space-y-1">
+                      {r.lines.map((l) => (
+                        <li key={l.id} className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
+                          <span>
+                            {l.nameSnapshot} <span className="text-muted-foreground">({l.skuSnapshot})</span>
+                          </span>
+                          <span className="text-muted-foreground">
+                            {l.quantitySellable > 0 && `${l.quantitySellable} revendable(s)`}
+                            {l.quantitySellable > 0 && l.quantityDamaged > 0 && " · "}
+                            {l.quantityDamaged > 0 && `${l.quantityDamaged} endommagée(s)`}
+                            {" — "}
+                            {l.warehouse.name}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
               </CardContent>
             </Card>
           )}

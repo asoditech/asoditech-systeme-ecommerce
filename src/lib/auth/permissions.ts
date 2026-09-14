@@ -15,6 +15,14 @@ export const PERMISSIONS = [
   "orders.edit",
   "orders.cancel",
   "orders.refund",
+  // Confirm a physical-return event on a shipped order — credits sellable/
+  // damaged units back to InventoryItem via the dedicated, auditable
+  // physical-return action (docs/adr/0036-inventory-single-source-of-truth.md).
+  // Deliberately separate from orders.edit: editing an order's workflow
+  // status must never implicitly grant physical inventory credit. Mirrors
+  // orders.refund's role grants (a comparable "financial/physical
+  // consequence" action gated apart from the general edit permission).
+  "orders.return",
   // Work the shared order-confirmation queue: log a call attempt, confirm
   // an order (→ CONFIRMEE, auto-credited as its confirmation agent), or
   // cancel it after a failed call (docs/adr/0029). Narrower than
@@ -88,6 +96,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     "orders.edit",
     "orders.cancel",
     "orders.refund",
+    "orders.return",
     "orders.confirm",
     "customers.view",
     "customers.create",

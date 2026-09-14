@@ -258,6 +258,61 @@ describe("Shopify integration", () => {
       expect(await prisma.productVariation.count()).toBe(variationsBefore);
     });
 
+    // docs/adr/0036-inventory-single-source-of-truth.md: a resync must only
+    // ever INITIALIZE a missing InventoryItem row — an existing row's
+    // quantityOnHand is never overwritten again, even when Shopify's own
+    // number has since drifted, and even via the real-time products/update
+    // webhook path (importProduct), not just the bulk sync.
+    it("a resync NEVER overwrites an existing InventoryItem's quantityOnHand, even when Shopify reports a different number", async () => {
+      await loginAsTestUser({ role: "ADMIN" });
+      await connectFakeStore();
+      await syncShopifyProductsAction();
+
+      const product = await prisma.product.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Product/501" } });
+      // Simulate local stock having moved since onboarding.
+      await prisma.inventoryItem.updateMany({ where: { productId: product.id }, data: { quantityOnHand: 6 } });
+
+      state.products[0].variants[0].levels = [{ locationId: "gid://shopify/Location/10", available: 999 }];
+      const result = await syncShopifyProductsAction();
+      expect(result.ok).toBe(true);
+
+      const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+      expect(item.quantityOnHand).toBe(6); // untouched
+      expect(await prisma.inventoryMovement.count({ where: { inventoryItemId: item.id } })).toBe(0);
+    });
+
+    it("a variant still missing locally can always receive its onboarding baseline, even after other products were already synced", async () => {
+      await loginAsTestUser({ role: "ADMIN" });
+      await connectFakeStore();
+      await syncShopifyProductsAction();
+
+      state.products.push({
+        id: "gid://shopify/Product/999",
+        title: "Nouveau produit",
+        handle: "nouveau",
+        status: "ACTIVE",
+        variants: [
+          {
+            id: "gid://shopify/ProductVariant/999",
+            title: "Default Title",
+            sku: "NEW-1",
+            price: "30.00",
+            inventoryItemId: "gid://shopify/InventoryItem/999",
+            tracked: true,
+            levels: [{ locationId: "gid://shopify/Location/10", available: 42 }],
+          },
+        ],
+      });
+      const result = await syncShopifyProductsAction();
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.summary.imported).toBe(1);
+
+      const product = await prisma.product.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Product/999" } });
+      const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+      expect(item.quantityOnHand).toBe(42);
+    });
+
     it("a changed price is reflected as an update, without touching internal-only fields", async () => {
       await loginAsTestUser({ role: "ADMIN" });
       await connectFakeStore();

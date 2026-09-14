@@ -182,7 +182,7 @@ describe("recordConfirmationAttemptAction", () => {
   // happened independently on its side. Pushing our own possibly-stale
   // onHand-minus-reserved back to WooCommerce right after silently
   // overwrote the provider's own correct, more recent number.
-  describe("stock push to WooCommerce at confirmation is INTERNE-only (#15623)", () => {
+  describe("stock push to WooCommerce at confirmation is source-agnostic (docs/adr/0036)", () => {
     afterEach(() => {
       vi.unstubAllGlobals();
     });
@@ -222,14 +222,14 @@ describe("recordConfirmationAttemptAction", () => {
       return state;
     }
 
-    it("does not push stock to WooCommerce when CONFIRME reserves a WooCommerce-sourced order", async () => {
+    it("pushes stock to WooCommerce when CONFIRME reserves a WooCommerce-sourced order — the reservation changed the sellable number (docs/adr/0036)", async () => {
       const { order } = await seedWooLinkedNouvelleOrder(6, "9201");
       const state = await connectFakeWooCommerce();
       await loginAsTestUser({ role: "CONFIRMATION" });
 
       const res = await recordConfirmationAttemptAction(fd({ id: order.id, outcome: "CONFIRME" }));
       expect(res.ok).toBe(true);
-      expect(state.stockUpdates).toHaveLength(0);
+      expect(state.stockUpdates.length).toBeGreaterThan(0);
     });
   });
 });

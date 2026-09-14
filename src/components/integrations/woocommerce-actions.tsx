@@ -165,10 +165,10 @@ export function WooCommerceActions({ canManage, hasCredentials }: { canManage: b
         {busy === "products" ? "Synchronisation..." : "Synchroniser les produits"}
       </Button>
       <p className="w-full text-xs text-muted-foreground">
-        « Synchroniser les produits » aligne aussi le stock physique sur le chiffre actuel de WooCommerce — une
-        resynchronisation volontaire (import initial, correction ponctuelle). Une commande en cours dans ASODITECH
-        (Nouvelle, non confirmée) n&apos;est jamais affectée par cette action ni par les webhooks produit : la
-        réservation ne se fait qu&apos;à la confirmation, à l&apos;intérieur d&apos;ASODITECH.
+        « Synchroniser les produits » initialise le stock UNIQUEMENT pour un produit encore inconnu localement (import
+        initial). Un produit déjà connu d&apos;ASODITECH n&apos;a jamais son stock écrasé par cette action, même si le
+        chiffre WooCommerce diffère — ASODITECH est la seule source de vérité pour le stock physique une fois un
+        produit importé. Relancer cette synchronisation à tout moment est donc sans risque.
       </p>
 
       <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={runOrdersSync}>
@@ -235,7 +235,8 @@ export function WooCommerceActions({ canManage, hasCredentials }: { canManage: b
               dès qu&apos;ils changent sur la boutique (y compris un produit supprimé, alors archivé ici plutôt que
               supprimé) — mais jamais le stock : WooCommerce réduit son propre stock dès qu&apos;une commande est
               passée, avant toute confirmation dans ASODITECH, donc ces webhooks ne touchent jamais le stock
-              physique. Utilisez « Synchroniser les produits » pour une resynchronisation volontaire du stock.
+              physique. « Synchroniser les produits » n&apos;initialise le stock que pour un produit encore inconnu
+              localement — le stock d&apos;un produit déjà importé n&apos;est jamais écrasé.
             </DialogDescription>
           </DialogHeader>
           {webhookDialog && (

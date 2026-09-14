@@ -56,6 +56,10 @@ export async function resetDb() {
     await tx.commissionStatement.deleteMany();
     await tx.commissionAgent.deleteMany();
     await tx.refund.deleteMany();
+    // Physical returns (docs/adr/0036): order_returns has a RESTRICT fk to
+    // orders, so a leftover row would block order.deleteMany() below.
+    await tx.orderReturnLine.deleteMany();
+    await tx.orderReturn.deleteMany();
     await tx.orderItem.deleteMany();
     await tx.order.deleteMany();
     await tx.stocktakeLine.deleteMany();

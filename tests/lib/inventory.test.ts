@@ -10,7 +10,7 @@ import {
   reserveStockForOrder,
   fulfillStockForOrder,
   releaseStockForOrder,
-  returnStockForOrder,
+  applyPhysicalReturnLine,
 } from "@/lib/inventory";
 import { resetDb } from "../helpers/db";
 
@@ -285,7 +285,7 @@ describe("order stock helpers still resolve the default warehouse (Phase 32a)", 
     await resetDb();
   });
 
-  it("reserve → fulfill → return operate on the default-warehouse row when the product also sits elsewhere", async () => {
+  it("reserve → fulfill → physical return operate on the default-warehouse row when the product also sits elsewhere", async () => {
     const { product, warehouses } = await seedProductInWarehouses([
       { name: "Entrepôt principal", isDefault: true, qty: 10 },
       { name: "Boutique", qty: 4 },
@@ -295,6 +295,7 @@ describe("order stock helpers still resolve the default warehouse (Phase 32a)", 
         customerId: (await prisma.customer.create({ data: { fullName: "Client" } })).id,
         subtotal: 100,
         total: 100,
+        shippedAt: new Date(),
       },
     });
     const lines = [{ productId: product.id, variationId: null, quantity: 3 }];
@@ -309,7 +310,21 @@ describe("order stock helpers still resolve the default warehouse (Phase 32a)", 
     def = await prisma.inventoryItem.findFirstOrThrow({ where: { warehouseId: warehouses["Entrepôt principal"].id } });
     expect(def).toMatchObject({ quantityOnHand: 7, quantityReserved: 0 });
 
-    await prisma.$transaction((tx) => returnStockForOrder(tx, order.id, lines, null, "Retour client"));
+    // Physical return — the ONLY mechanism that credits stock back
+    // (docs/adr/0036), fully decoupled from Order.status.
+    const orderReturn = await prisma.orderReturn.create({ data: { orderId: order.id, idempotencyKey: "test-1" } });
+    await prisma.$transaction((tx) =>
+      applyPhysicalReturnLine(tx, {
+        warehouseId: warehouses["Entrepôt principal"].id,
+        productId: product.id,
+        variationId: null,
+        quantitySellable: 3,
+        quantityDamaged: 0,
+        orderId: order.id,
+        orderReturnId: orderReturn.id,
+        performedById: null,
+      })
+    );
     def = await prisma.inventoryItem.findFirstOrThrow({ where: { warehouseId: warehouses["Entrepôt principal"].id } });
     shop = await prisma.inventoryItem.findFirstOrThrow({ where: { warehouseId: warehouses["Boutique"].id } });
     expect(def.quantityOnHand).toBe(10);
@@ -381,6 +396,113 @@ describe("order stock helpers still resolve the default warehouse (Phase 32a)", 
     expect(shop.quantityOnHand).toBe(5);
     const movements = await prisma.inventoryMovement.findMany({ where: { orderId: order.id } });
     expect(movements.every((m) => m.warehouseId === warehouses["Boutique"].id)).toBe(true);
+  });
+});
+
+describe("applyPhysicalReturnLine (docs/adr/0036)", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+  afterEach(async () => {
+    await resetDb();
+  });
+
+  async function seedShippedOrder() {
+    const { product, warehouses } = await seedProductInWarehouses([{ name: "Entrepôt principal", isDefault: true, qty: 0 }]);
+    const order = await prisma.order.create({
+      data: {
+        customerId: (await prisma.customer.create({ data: { fullName: "Client" } })).id,
+        subtotal: 100,
+        total: 100,
+        shippedAt: new Date(),
+      },
+    });
+    const orderReturn = await prisma.orderReturn.create({ data: { orderId: order.id, idempotencyKey: "k" } });
+    return { product, warehouseId: warehouses["Entrepôt principal"].id, order, orderReturn };
+  }
+
+  it("a sellable return credits onHand via a RETOUR movement", async () => {
+    const { product, warehouseId, order, orderReturn } = await seedShippedOrder();
+    await prisma.$transaction((tx) =>
+      applyPhysicalReturnLine(tx, {
+        warehouseId,
+        productId: product.id,
+        variationId: null,
+        quantitySellable: 4,
+        quantityDamaged: 0,
+        orderId: order.id,
+        orderReturnId: orderReturn.id,
+        performedById: null,
+      })
+    );
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 4, quantityDamaged: 0 });
+    const movement = await prisma.inventoryMovement.findFirstOrThrow();
+    expect(movement).toMatchObject({ type: "RETOUR", quantity: 4, orderReturnId: orderReturn.id, orderId: order.id });
+  });
+
+  it("a damaged return records quantityDamaged via an ENDOMMAGE movement, never onHand", async () => {
+    const { product, warehouseId, order, orderReturn } = await seedShippedOrder();
+    await prisma.$transaction((tx) =>
+      applyPhysicalReturnLine(tx, {
+        warehouseId,
+        productId: product.id,
+        variationId: null,
+        quantitySellable: 0,
+        quantityDamaged: 2,
+        orderId: order.id,
+        orderReturnId: orderReturn.id,
+        performedById: null,
+      })
+    );
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 0, quantityDamaged: 2 });
+    const movement = await prisma.inventoryMovement.findFirstOrThrow();
+    expect(movement).toMatchObject({ type: "ENDOMMAGE", quantity: 2, orderReturnId: orderReturn.id });
+  });
+
+  it("a split sellable + damaged line creates BOTH movements, linked to the same orderReturnId", async () => {
+    const { product, warehouseId, order, orderReturn } = await seedShippedOrder();
+    await prisma.$transaction((tx) =>
+      applyPhysicalReturnLine(tx, {
+        warehouseId,
+        productId: product.id,
+        variationId: null,
+        quantitySellable: 3,
+        quantityDamaged: 1,
+        orderId: order.id,
+        orderReturnId: orderReturn.id,
+        performedById: null,
+      })
+    );
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item).toMatchObject({ quantityOnHand: 3, quantityDamaged: 1 });
+    const movements = await prisma.inventoryMovement.findMany({ where: { orderReturnId: orderReturn.id } });
+    expect(movements).toHaveLength(2);
+    expect(movements.map((m) => m.type).sort()).toEqual(["ENDOMMAGE", "RETOUR"]);
+  });
+
+  it("silently no-ops (no movement) when no InventoryItem exists for the pair — never corrupts return history", async () => {
+    const order = await prisma.order.create({
+      data: { customerId: (await prisma.customer.create({ data: { fullName: "C" } })).id, subtotal: 1, total: 1, shippedAt: new Date() },
+    });
+    const orderReturn = await prisma.orderReturn.create({ data: { orderId: order.id, idempotencyKey: "k" } });
+    const warehouse = await prisma.warehouse.create({ data: { name: "W", isDefault: true } });
+    const product = await prisma.product.create({ data: { name: "Deleted-ish", sku: `S-${Math.random()}`, price: 1, status: "ACTIF" } });
+    // deliberately no InventoryItem row created for this product/warehouse
+    await prisma.$transaction((tx) =>
+      applyPhysicalReturnLine(tx, {
+        warehouseId: warehouse.id,
+        productId: product.id,
+        variationId: null,
+        quantitySellable: 1,
+        quantityDamaged: 0,
+        orderId: order.id,
+        orderReturnId: orderReturn.id,
+        performedById: null,
+      })
+    );
+    expect(await prisma.inventoryMovement.count()).toBe(0);
   });
 });
 

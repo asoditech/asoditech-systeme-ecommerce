@@ -61,6 +61,7 @@ export type AuditAction =
   | "order.cancelled"
   | "order.refund.created"
   | "order.refund.status_changed"
+  | "order.return_confirmed"
   | "inventory.adjusted"
   | "inventory.reconciled"
   | "warehouse.created"

@@ -339,6 +339,67 @@ describe("WooCommerce integration", () => {
       expect(after.lowStockThreshold).toBe(3);
     });
 
+    // docs/adr/0036-inventory-single-source-of-truth.md: a resync must only
+    // ever INITIALIZE a missing InventoryItem row — an existing row's
+    // quantityOnHand is never overwritten again, even when the store's own
+    // number has since drifted (an order shipped, a physical return, a
+    // manual adjustment — all local, all more authoritative than WooCommerce).
+    it("a resync NEVER overwrites an existing InventoryItem's quantityOnHand, even when WooCommerce reports a different number", async () => {
+      await loginAsTestUser({ role: "ADMIN" });
+      await connectFakeStore();
+      await syncWooCommerceProductsAction();
+
+      const product = await prisma.product.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "501" } });
+      // Simulate local stock having moved since onboarding (an EXPEDIEE
+      // fulfillment, a physical return, a manual adjustment...).
+      await prisma.inventoryItem.updateMany({ where: { productId: product.id }, data: { quantityOnHand: 6 } });
+
+      // WooCommerce itself now reports something completely different.
+      state.products[0].stock_quantity = 999;
+      const result = await syncWooCommerceProductsAction();
+      expect(result.ok).toBe(true);
+
+      const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+      expect(item.quantityOnHand).toBe(6); // untouched
+      expect(await prisma.inventoryMovement.count({ where: { inventoryItemId: item.id } })).toBe(0);
+
+      // Repeated resyncs stay safe — this is what makes the button always
+      // safe to click again, with no "reset stock" side effect.
+      state.products[0].stock_quantity = 0;
+      await syncWooCommerceProductsAction();
+      state.products[0].stock_quantity = 12345;
+      await syncWooCommerceProductsAction();
+      const stillItem = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+      expect(stillItem.quantityOnHand).toBe(6);
+    });
+
+    it("a product still missing locally can always receive its onboarding baseline, even after other products were already synced", async () => {
+      await loginAsTestUser({ role: "ADMIN" });
+      await connectFakeStore();
+      await syncWooCommerceProductsAction(); // onboards products 501/502/503
+
+      state.products.push({
+        id: 999,
+        name: "Nouveau produit",
+        slug: "nouveau",
+        sku: "NEW-1",
+        status: "publish",
+        type: "simple",
+        regular_price: "30.00",
+        manage_stock: true,
+        stock_quantity: 42,
+        categories: [],
+      });
+      const result = await syncWooCommerceProductsAction();
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.summary.imported).toBe(1);
+
+      const product = await prisma.product.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "999" } });
+      const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+      expect(item.quantityOnHand).toBe(42);
+    });
+
     /**
      * Live-testing report: a newly added product still didn't show up on
      * /produits even after clicking "Synchroniser les produits" — root

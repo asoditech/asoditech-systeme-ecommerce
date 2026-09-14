@@ -15,6 +15,6 @@ export async function reconcileStockFromWooCommerce(params: {
   warehouseId: string;
   externalQuantity: number;
   actor: SyncActor;
-}): Promise<"created" | "reconciled" | "unchanged"> {
+}): Promise<"created" | "unchanged"> {
   return reconcileStockFromProvider({ ...params, source: "WOOCOMMERCE" });
 }

@@ -85,6 +85,8 @@ model Tenant {
   orderItems                OrderItem[]
   orderConfirmationAttempts OrderConfirmationAttempt[]
   refunds                   Refund[]
+  orderReturns              OrderReturn[]
+  orderReturnLines          OrderReturnLine[]
   commissionAgents          CommissionAgent[]
   commissionEntries         CommissionEntry[]
   commissionStatements      CommissionStatement[]
@@ -210,10 +212,10 @@ model TenantSubscription {
   tenantId String @unique @default("default")
   planId   String
 
-  status SubscriptionStatus @default(ACTIVE)
+  status           SubscriptionStatus @default(ACTIVE)
   // When the tenant started on its CURRENT plan — reset on a plan change,
   // untouched by a mere status change (e.g. ACTIVE -> PAST_DUE).
-  currentPlanSince DateTime  @default(now())
+  currentPlanSince DateTime           @default(now())
   // Set only while status = TRIALING. Purely informational today — no
   // automated job reads this to expire a trial (docs/adr "no fake cron").
   trialEndsAt      DateTime?
@@ -339,6 +341,7 @@ model User {
   stocktakesStarted          StocktakeSession[]         @relation("StocktakeStartedBy")
   stocktakesClosed           StocktakeSession[]         @relation("StocktakeClosedBy")
   stocktakesCounted          StocktakeLine[]            @relation("StocktakeCountedBy")
+  orderReturnsReceived       OrderReturn[]              @relation("OrderReturnReceivedBy")
   commissionAgent            CommissionAgent?
   commissionStatementsClosed CommissionStatement[]      @relation("CommissionStatementClosedBy")
   commissionStatementsPaid   CommissionStatement[]      @relation("CommissionStatementPaidBy")
@@ -718,6 +721,7 @@ model Warehouse {
   transfersOut      StockTransfer[]     @relation("StockTransferSource")
   transfersIn       StockTransfer[]     @relation("StockTransferDestination")
   stocktakeSessions StocktakeSession[]
+  orderReturnLines  OrderReturnLine[]
 
   @@index([source, externalId])
   @@index([isActive])
@@ -823,6 +827,11 @@ model InventoryMovement {
   // Set on the INVENTAIRE movement a stocktake finalization produces for a
   // non-zero variance line (Phase 32c). `SetNull` for the same reason.
   stocktakeSessionId String?
+  // Set on the RETOUR/ENDOMMAGE movement(s) a physical-return event
+  // produces (docs/adr/0036-inventory-single-source-of-truth.md) — traces
+  // a movement back to the exact return line/event that created it.
+  // `SetNull` for the same reason as stockTransferId/stocktakeSessionId.
+  orderReturnId      String?
   performedById      String?
   createdAt          DateTime              @default(now())
 
@@ -832,6 +841,7 @@ model InventoryMovement {
   order            Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
   stockTransfer    StockTransfer?    @relation(fields: [stockTransferId], references: [id], onDelete: SetNull)
   stocktakeSession StocktakeSession? @relation(fields: [stocktakeSessionId], references: [id], onDelete: SetNull)
+  orderReturn      OrderReturn?      @relation(fields: [orderReturnId], references: [id], onDelete: SetNull)
   // Inverse of StocktakeLine.appliedMovement — at most one stocktake line
   // binds a given movement (StocktakeLine.appliedMovementId is @unique).
   stocktakeLine    StocktakeLine?    @relation("StocktakeLineMovement")
@@ -845,6 +855,7 @@ model InventoryMovement {
   @@index([warehouseId, createdAt])
   @@index([stockTransferId])
   @@index([stocktakeSessionId])
+  @@index([orderReturnId])
   @@index([tenantId])
   @@map("inventory_movements")
 }
@@ -1171,6 +1182,7 @@ model Order {
   confirmationAgent    CommissionAgent?           @relation(fields: [confirmationAgentId], references: [id], onDelete: SetNull)
   items                OrderItem[]
   refunds              Refund[]
+  returns              OrderReturn[]
   shipments            Shipment[]
   movements            InventoryMovement[]
   commissionEntries    CommissionEntry[]
@@ -1260,10 +1272,11 @@ model OrderItem {
   // calculations don't drift when a product's cost is edited later.
   costSnapshot Decimal? @db.Decimal(12, 2)
 
-  order     Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  product   Product?          @relation(fields: [productId], references: [id], onDelete: SetNull)
-  variation ProductVariation? @relation(fields: [variationId], references: [id], onDelete: SetNull)
+  order       Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  product     Product?          @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variation   ProductVariation? @relation(fields: [variationId], references: [id], onDelete: SetNull)
+  returnLines OrderReturnLine[]
 
   @@index([orderId])
   @@index([productId])
@@ -1298,6 +1311,88 @@ model Refund {
   @@index([orderId])
   @@index([tenantId])
   @@map("refunds")
+}
+
+// ---------------------------------------------------------------------------
+// Physical returns — see docs/adr/0036-inventory-single-source-of-truth.md.
+//
+// EXPEDIEE is the ONLY event that physically consumes stock, for every
+// order source. A later Order.status change (a post-ship ANNULEE, or
+// RETOUR) is a workflow LABEL only and never restores it — the ONLY way
+// stock is credited back is this explicit, auditable "physical return"
+// event, decoupled from Order.status. One order can have several return
+// events over time (partial returns), each line split between sellable
+// (restored to on-hand via a RETOUR movement) and damaged (recorded in
+// quantityDamaged via an ENDOMMAGE movement, never added to on-hand), and
+// the cumulative returned quantity per order item is hard-capped by what
+// EXPEDIEE actually consumed (enforced transactionally — see
+// confirmPhysicalReturnAction in src/actions/returns.ts).
+// ---------------------------------------------------------------------------
+
+// One physical-return event (a single "goods received back" moment — may
+// cover several order lines at once). Idempotency mirrors WebhookEvent's
+// convention: a retry of the exact same (orderId, idempotencyKey) is a
+// no-op, never a second event or a second set of movements.
+model OrderReturn {
+  id             String   @id @default(cuid())
+  tenantId       String   @default("default")
+  orderId        String
+  idempotencyKey String
+  receivedById   String?
+  receivedAt     DateTime @default(now())
+  note           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // A return event documents a real, already-happened physical fact —
+  // Restrict (never Cascade), so it can never silently disappear if an
+  // order row is ever deleted. Same rule as Refund -> Order above.
+  order      Order               @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  receivedBy User?               @relation("OrderReturnReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
+  lines      OrderReturnLine[]
+  movements  InventoryMovement[]
+
+  @@unique([orderId, idempotencyKey])
+  @@index([orderId])
+  @@index([tenantId])
+  @@map("order_returns")
+}
+
+// One line per (return event, order item) — the physical units actually
+// received back on this event, split between sellable and damaged.
+// Snapshots product identity at return time (same convention as OrderItem)
+// so return history reads correctly even after the product/variation is
+// later deleted; `orderItemId` itself follows OrderItem's own FK
+// convention elsewhere (SetNull) rather than disappearing with it.
+//
+// DB-enforced (raw-SQL migration, same precedent as
+// stock_transfer_lines_quantities_check): quantitySellable >= 0,
+// quantityDamaged >= 0, and not both zero (a line always represents a real
+// received quantity).
+model OrderReturnLine {
+  id               String   @id @default(cuid())
+  tenantId         String   @default("default")
+  orderReturnId    String
+  orderItemId      String?
+  nameSnapshot     String
+  skuSnapshot      String
+  quantitySellable Int      @default(0)
+  quantityDamaged  Int      @default(0)
+  warehouseId      String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  orderReturn OrderReturn @relation(fields: [orderReturnId], references: [id], onDelete: Cascade)
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  orderItem   OrderItem?  @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  warehouse   Warehouse   @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  @@index([orderReturnId])
+  @@index([orderItemId])
+  @@index([warehouseId])
+  @@index([tenantId])
+  @@map("order_return_lines")
 }
 
 // ---------------------------------------------------------------------------
@@ -1975,6 +2070,15 @@ enum NotificationType {
   // mutates stock (src/lib/notifications.ts's
   // checkAndNotifyInsufficientStockForOrder, docs/adr/0030's addendum).
   STOCK_INSUFFISANT_COMMANDE
+  // A connected store (WooCommerce/Shopify) reported an order status that
+  // conflicts with ASODITECH's own workflow stage for that order — most
+  // importantly, a store-side status that would otherwise map to EXPEDIEE
+  // (docs/adr/0036-inventory-single-source-of-truth.md: only ASODITECH's
+  // own EXPEDIEE transition may ever physically consume stock). Read-only;
+  // never mutates inventory or the order's status. Resolved automatically
+  // once the local workflow catches up (src/lib/notifications.ts's
+  // notifyWorkflowMismatch).
+  INCOHERENCE_WORKFLOW
 }
 
 // Per-user, in-app alert about a business event the recipient is
