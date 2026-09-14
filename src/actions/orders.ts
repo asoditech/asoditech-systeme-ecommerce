@@ -22,6 +22,7 @@ import {
   resolveNotifications,
 } from "@/lib/notifications";
 import { pushStockAfterLocalChange, pushOrderPaymentToWooCommerce, pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
+import { pullStockBeforeReservationRelease } from "@/lib/integrations/shared/auto-pull";
 import { reconcileOrderCommission } from "@/lib/commissions";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { requireEntitlement, EntitlementDeniedError } from "@/lib/entitlements/checks";
@@ -381,6 +382,26 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
   // previously enforced in code.
   const isInternalOrder = existing.source === "INTERNE";
 
+  // Targeted, order-scoped provider refresh — fetches ONLY this order's
+  // affected product/variation lines' CURRENT stock from the store
+  // (never the whole catalog, never the disabled broad webhook pull) and
+  // reconciles `quantityOnHand` to it, before the transaction below
+  // releases this order's reservation. Without this, a WooCommerce/
+  // Shopify order's own already-happened stock reduction can still be
+  // unreflected here, and releasing the reservation on that stale number
+  // briefly reports the order's units as fully available again (order
+  // #15627 — docs/adr/0030's addendum). Read-only against the provider
+  // (never pushes), so it cannot loop with the automatic push already
+  // disabled for provider orders (see the #15623 addendum). Only needed
+  // the first time a provider order reaches EXPEDIEE — see wasFulfilled's
+  // idempotency guard below, which the release itself also honors.
+  if (parsed.data.status === "EXPEDIEE" && !isInternalOrder && !wasFulfilled && orderHoldsReservation(existing.status)) {
+    await pullStockBeforeReservationRelease(
+      { productIds: lines.map((l) => l.productId), variationIds: lines.map((l) => l.variationId) },
+      { type: "USER", userId: user.id }
+    );
+  }
+
   let order;
   try {
     order = await prisma.$transaction(async (tx) => {
@@ -417,16 +438,28 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
         // (backorders allowed).
         await reserveStockForOrder(tx, parsed.data.id, lines, user.id);
       } else if (parsed.data.status === "EXPEDIEE") {
-        if (isInternalOrder) {
-          await fulfillStockForOrder(tx, parsed.data.id, lines, user.id);
-        } else if (orderHoldsReservation(existing.status)) {
-          // A WooCommerce/Shopify order's on-hand deduction already
-          // happened on the provider's own side and is reconciled
-          // separately (sync/stock.ts) — running fulfillStockForOrder here
-          // too would double-deduct the exact incident c606dc0 fixed. Only
-          // the reservation THIS app took at CONFIRMEE needs clearing so
-          // "Disponible" doesn't stay understated forever.
-          await releaseStockForOrder(tx, parsed.data.id, lines, user.id);
+        // Idempotency guard: EXPEDIEE is re-enterable via a carrier-failure
+        // retry (EXPEDIEE -> ECHEC -> EN_PREPARATION -> EXPEDIEE is a valid
+        // state-machine loop), and `wasFulfilled` (existing.shippedAt, set
+        // by the first EXPEDIEE and never cleared) is already the
+        // established marker for "this order's stock already moved once"
+        // — the ANNULEE/RETOUR branches below already rely on it. Without
+        // this guard, a retry re-ran fulfillStockForOrder/releaseStockForOrder
+        // on every re-entry, physically deducting stock a second time for
+        // an INTERNE order (confirmed: 15 -> 10 -> 5 for one 5-unit order)
+        // or double-releasing a provider order's reservation.
+        if (!wasFulfilled) {
+          if (isInternalOrder) {
+            await fulfillStockForOrder(tx, parsed.data.id, lines, user.id);
+          } else if (orderHoldsReservation(existing.status)) {
+            // A WooCommerce/Shopify order's on-hand deduction already
+            // happened on the provider's own side and is reconciled
+            // separately (sync/stock.ts) — running fulfillStockForOrder here
+            // too would double-deduct the exact incident c606dc0 fixed. Only
+            // the reservation THIS app took at CONFIRMEE needs clearing so
+            // "Disponible" doesn't stay understated forever.
+            await releaseStockForOrder(tx, parsed.data.id, lines, user.id);
+          }
         }
       } else if (parsed.data.status === "ANNULEE") {
         if (wasFulfilled) {
@@ -488,10 +521,10 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
   const reservationMoved =
     (parsed.data.status === "CONFIRMEE" && existing.status === "NOUVELLE") ||
     (parsed.data.status === "ANNULEE" && !wasFulfilled && orderHoldsReservation(existing.status)) ||
-    (parsed.data.status === "EXPEDIEE" && !isInternalOrder && orderHoldsReservation(existing.status));
+    (parsed.data.status === "EXPEDIEE" && !wasFulfilled && !isInternalOrder && orderHoldsReservation(existing.status));
   const physicalStockMoved =
     isInternalOrder &&
-    (parsed.data.status === "EXPEDIEE" ||
+    ((parsed.data.status === "EXPEDIEE" && !wasFulfilled) ||
       (parsed.data.status === "ANNULEE" && wasFulfilled) ||
       parsed.data.status === "RETOUR");
   const stockMoved = reservationMoved || physicalStockMoved;

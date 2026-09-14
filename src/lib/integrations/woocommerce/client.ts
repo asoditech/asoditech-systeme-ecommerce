@@ -264,6 +264,14 @@ export class WooCommerceClient {
     return this.requestJson(wcProductSchema, `/products/${id}`);
   }
 
+  /** Fetches one variation's current data (including its own `stock_quantity`)
+   * directly — the targeted counterpart to `getProduct` for a variable
+   * product's child. Used for a single-item stock refresh (see
+   * pullStockForWooCommerceOwner), never for a full catalog/product sync. */
+  async getProductVariation(productId: number, variationId: number): Promise<WcProductVariation> {
+    return this.requestJson(wcProductVariationSchema, `/products/${productId}/variations/${variationId}`);
+  }
+
   /** System → WooCommerce stock push. `variationId` targets a specific variation instead of the parent product. */
   async updateStock(productId: number, quantity: number, variationId?: number): Promise<void> {
     const path = variationId ? `/products/${productId}/variations/${variationId}` : `/products/${productId}`;

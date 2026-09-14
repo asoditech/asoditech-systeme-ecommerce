@@ -131,6 +131,13 @@ export function installFakeWooCommerceServer(state: FakeStoreState) {
         const { items, totalPages } = paginate(product?.variationList ?? [], page, perPage);
         return jsonResponse(items, totalPages);
       }
+      if (variationMatch && method === "GET" && variationMatch[2]) {
+        const productId = Number(variationMatch[1]);
+        const variationId = Number(variationMatch[2]);
+        const product = state.products.find((p) => p.id === productId);
+        const variation = product?.variationList?.find((v) => v.id === variationId);
+        return variation ? jsonResponse(variation) : jsonResponse({ message: "not found" }, 1, 404);
+      }
       if (variationMatch && method === "PUT" && variationMatch[2]) {
         const body = init?.body ? JSON.parse(init.body as string) : {};
         state.stockUpdates.push({ path, body });
@@ -142,6 +149,10 @@ export function installFakeWooCommerceServer(state: FakeStoreState) {
         const body = init?.body ? JSON.parse(init.body as string) : {};
         state.stockUpdates.push({ path, body });
         return jsonResponse({ id: Number(productMatch[1]) });
+      }
+      if (productMatch && method === "GET") {
+        const product = state.products.find((p) => p.id === Number(productMatch[1]));
+        return product ? jsonResponse(product) : jsonResponse({ message: "not found" }, 1, 404);
       }
 
       if (path === "/products/categories") {

@@ -891,6 +891,130 @@ describe("updateOrderStatusAction / cancelOrderAction — WooCommerce/Shopify or
   }
 });
 
+// Regression coverage: EXPEDIEE is re-enterable via a carrier-failure
+// retry (EXPEDIEE -> ECHEC -> EN_PREPARATION -> EXPEDIEE is a valid
+// transition loop in ORDER_STATUS_TRANSITIONS). Before this fix, every
+// re-entry into EXPEDIEE re-ran fulfillStockForOrder/releaseStockForOrder,
+// physically deducting an INTERNE order's stock a second time (confirmed:
+// 15 -> 10 -> 5 for a single 5-unit order) or double-releasing a provider
+// order's reservation. See docs/adr/0030's addendum.
+describe("updateOrderStatusAction — EXPEDIEE is idempotent across a retry loop", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  async function seedAndShipToExpediee(qty: number) {
+    const warehouse = await prisma.warehouse.create({ data: { name: "Entrepôt", isDefault: true } });
+    const product = await prisma.product.create({ data: { name: "Coffret", sku: "SKU-IDEMP-1", price: 100, status: "ACTIF" } });
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 15 } });
+    const customer = await prisma.customer.create({ data: { fullName: "Client Test" } });
+
+    await loginAsTestUser({ role: "MANAGER" });
+    const created = await createOrderAction({
+      customerId: customer.id,
+      paymentMethod: "PAIEMENT_LIVRAISON",
+      shippingCost: 0,
+      discountTotal: 0,
+      currency: "MAD",
+      notes: "",
+      internalNotes: "",
+      shippingAddressLine1: "",
+      shippingAddressLine2: "",
+      shippingCity: "",
+      shippingRegion: "",
+      shippingCountry: "",
+      shippingPhone: "",
+      items: [{ productId: product.id, quantity: qty, unitPrice: 100, discount: 0 }],
+    });
+    if (!created.ok) throw new Error("setup failed");
+    const orderId = created.data.id;
+
+    await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
+    await updateOrderStatusAction(formData({ id: orderId, status: "EN_PREPARATION" }));
+    return { orderId, product };
+  }
+
+  it("first EXPEDIEE deducts stock exactly once and creates exactly one VENTE movement", async () => {
+    const { orderId, product } = await seedAndShipToExpediee(5);
+
+    const shipped = await updateOrderStatusAction(formData({ id: orderId, status: "EXPEDIEE" }));
+    expect(shipped.ok).toBe(true);
+
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityOnHand).toBe(10);
+    const movements = await prisma.inventoryMovement.findMany({ where: { orderId }, orderBy: { createdAt: "asc" } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "VENTE"]);
+    expect(movements.filter((m) => m.type === "VENTE")).toHaveLength(1);
+  });
+
+  it("EXPEDIEE -> ECHEC -> EN_PREPARATION -> EXPEDIEE retry does not deduct stock a second time", async () => {
+    const { orderId, product } = await seedAndShipToExpediee(5);
+
+    await updateOrderStatusAction(formData({ id: orderId, status: "EXPEDIEE" }));
+    let item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityOnHand).toBe(10);
+
+    await updateOrderStatusAction(formData({ id: orderId, status: "ECHEC" }));
+    item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityOnHand).toBe(10);
+
+    await updateOrderStatusAction(formData({ id: orderId, status: "EN_PREPARATION" }));
+    item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityOnHand).toBe(10);
+
+    const retryShipped = await updateOrderStatusAction(formData({ id: orderId, status: "EXPEDIEE" }));
+    expect(retryShipped.ok).toBe(true);
+    item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityOnHand).toBe(10); // must NOT drop to 5
+
+    const movements = await prisma.inventoryMovement.findMany({ where: { orderId }, orderBy: { createdAt: "asc" } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "VENTE"]);
+    expect(movements.filter((m) => m.type === "VENTE")).toHaveLength(1);
+  });
+
+  it("EXPEDIEE -> RETOUR still restores exactly the quantity actually sold, with no duplicate movement", async () => {
+    const { orderId, product } = await seedAndShipToExpediee(5);
+    await updateOrderStatusAction(formData({ id: orderId, status: "EXPEDIEE" }));
+
+    const returned = await updateOrderStatusAction(formData({ id: orderId, status: "RETOUR" }));
+    expect(returned.ok).toBe(true);
+
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityOnHand).toBe(15); // back to the starting quantity, not more
+
+    const movements = await prisma.inventoryMovement.findMany({ where: { orderId }, orderBy: { createdAt: "asc" } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "VENTE", "RETOUR"]);
+  });
+
+  it("EXPEDIEE -> ECHEC -> RETOUR remains an invalid transition (state machine unchanged)", async () => {
+    const { orderId } = await seedAndShipToExpediee(5);
+    await updateOrderStatusAction(formData({ id: orderId, status: "EXPEDIEE" }));
+    await updateOrderStatusAction(formData({ id: orderId, status: "ECHEC" }));
+
+    const result = await updateOrderStatusAction(formData({ id: orderId, status: "RETOUR" }));
+    expect(result.ok).toBe(false);
+  });
+
+  it("a retry loop through ANNULEE from ECHEC still cancels cleanly (no stock left stranded)", async () => {
+    const { orderId, product } = await seedAndShipToExpediee(5);
+    await updateOrderStatusAction(formData({ id: orderId, status: "EXPEDIEE" }));
+    await updateOrderStatusAction(formData({ id: orderId, status: "ECHEC" }));
+
+    const cancelled = await updateOrderStatusAction(formData({ id: orderId, status: "ANNULEE" }));
+    expect(cancelled.ok).toBe(true);
+
+    // wasFulfilled is true (shippedAt was set by the first EXPEDIEE), so
+    // ANNULEE takes the physical-return branch, restoring the 5 sold units.
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    expect(item.quantityOnHand).toBe(15);
+  });
+});
+
 // Regression coverage for order #15623: a WooCommerce order's own stock
 // reduction happens independently on the provider's side, and
 // `quantityOnHand` here is only ever refreshed by an explicit product
@@ -1017,6 +1141,165 @@ describe("order-lifecycle stock push to WooCommerce is INTERNE-only (#15623)", (
     const shipped = await updateOrderStatusAction(formData({ id: created.data.id, status: "EXPEDIEE" }));
     expect(shipped.ok).toBe(true);
     expect(state.stockUpdates.length).toBeGreaterThan(0);
+  });
+});
+
+// Regression coverage for order #15627: WooCommerce's own stock reduction
+// for a real order (20 -> 15) can still be unreflected in ASODITECH's
+// `quantityOnHand` (only refreshed by an explicit sync, per #15623's
+// addendum). Releasing the reservation on that stale number briefly
+// reported the order's units as fully available again. See
+// docs/adr/0030's #15627 addendum.
+describe("updateOrderStatusAction — EXPEDIEE refreshes provider stock before releasing the reservation (#15627)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+    vi.unstubAllGlobals();
+  });
+
+  async function seedWooLinkedVariation(onHand: number) {
+    const warehouse = await prisma.warehouse.create({ data: { name: "Entrepôt principal", type: "ENTREPOT", isDefault: true } });
+    const product = await prisma.product.create({
+      data: { name: "Variable prod", sku: "VP-15627", price: 200, status: "ACTIF", source: "WOOCOMMERCE", externalId: "15627", trackInventory: true },
+    });
+    const variation = await prisma.productVariation.create({
+      data: { productId: product.id, sku: "VP-15627-M", attributes: { Taille: "M" }, source: "WOOCOMMERCE", externalId: "15627001" },
+    });
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, variationId: variation.id, quantityOnHand: onHand } });
+    const customer = await prisma.customer.create({ data: { fullName: "Client WC" } });
+    return { product, variation, customer };
+  }
+
+  async function connectFakeWooCommerce(variationRealStock: number) {
+    const state = emptyFakeStore();
+    state.products.push({
+      id: 15627,
+      name: "Variable prod",
+      slug: "variable-prod",
+      sku: "VP-15627",
+      status: "publish",
+      type: "variable",
+      regular_price: "200",
+      manage_stock: false,
+      stock_quantity: null,
+      categories: [],
+      variations: [15627001],
+      variationList: [
+        {
+          id: 15627001,
+          sku: "VP-15627-M",
+          regular_price: "200",
+          manage_stock: true,
+          stock_quantity: variationRealStock,
+          attributes: [{ name: "Taille", option: "M" }],
+        },
+      ],
+    });
+    installFakeWooCommerceServer(state);
+    await prisma.integration.create({
+      data: {
+        provider: "WOOCOMMERCE",
+        status: "CONNECTE",
+        config: { siteUrl: FAKE_STORE_URL },
+        credentialsEncrypted: encryptSecret(JSON.stringify({ apiKey: FAKE_CONSUMER_KEY, apiSecret: FAKE_CONSUMER_SECRET })),
+      },
+    });
+    return state;
+  }
+
+  async function createWooCommerceVariationOrder(variationId: string, customerId: string, quantity: number, externalId: string) {
+    return prisma.order.create({
+      data: {
+        customerId,
+        source: "WOOCOMMERCE",
+        externalId,
+        status: "NOUVELLE",
+        subtotal: 200 * quantity,
+        total: 200 * quantity,
+        items: {
+          create: [
+            { variationId, nameSnapshot: "Variable prod - M", skuSnapshot: "VP-15627-M", unitPrice: 200, quantity, total: 200 * quantity },
+          ],
+        },
+      },
+    });
+  }
+
+  it("reconciles the stale on-hand to the provider's real quantity before releasing the reservation — Disponible is never wrongly 20", async () => {
+    // ASODITECH is stale at 20; WooCommerce already reduced its own real
+    // stock to 15 for this order's 5 units, independently of ASODITECH.
+    const { variation, customer } = await seedWooLinkedVariation(20);
+    const state = await connectFakeWooCommerce(15);
+    const order = await createWooCommerceVariationOrder(variation.id, customer.id, 5, "15627");
+    await loginAsTestUser({ role: "MANAGER" });
+
+    await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+    let item = await prisma.inventoryItem.findFirstOrThrow({ where: { variationId: variation.id } });
+    expect(item).toMatchObject({ quantityOnHand: 20, quantityReserved: 5 });
+
+    await updateOrderStatusAction(formData({ id: order.id, status: "EN_PREPARATION" }));
+    const shipped = await updateOrderStatusAction(formData({ id: order.id, status: "EXPEDIEE" }));
+    expect(shipped.ok).toBe(true);
+
+    item = await prisma.inventoryItem.findFirstOrThrow({ where: { variationId: variation.id } });
+    // Never 20/0 (which would wrongly show 20 available) — the refresh
+    // must land on the provider's real 15 before the release clears
+    // quantityReserved.
+    expect(item).toMatchObject({ quantityOnHand: 15, quantityReserved: 0 });
+
+    // Read-only against the provider: no push is ever triggered as a
+    // side effect of the refresh (and none is expected from the release
+    // itself either — see #15623's addendum).
+    expect(state.stockUpdates).toHaveLength(0);
+  });
+
+  it("normal path (provider stock already matches ASODITECH's) leaves on-hand unchanged, no phantom movement", async () => {
+    const { variation, customer } = await seedWooLinkedVariation(15);
+    const state = await connectFakeWooCommerce(15);
+    const order = await createWooCommerceVariationOrder(variation.id, customer.id, 5, "15628");
+    await loginAsTestUser({ role: "MANAGER" });
+
+    await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+    await updateOrderStatusAction(formData({ id: order.id, status: "EN_PREPARATION" }));
+    const shipped = await updateOrderStatusAction(formData({ id: order.id, status: "EXPEDIEE" }));
+    expect(shipped.ok).toBe(true);
+
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { variationId: variation.id } });
+    expect(item).toMatchObject({ quantityOnHand: 15, quantityReserved: 0 });
+    expect(state.stockUpdates).toHaveLength(0);
+
+    // The provider already agreed with ASODITECH — reconcileStockFromProvider
+    // must record no adjustment movement for an unchanged quantity.
+    const movements = await prisma.inventoryMovement.findMany({ where: { orderId: order.id }, orderBy: { createdAt: "asc" } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "LIBERATION"]);
+  });
+
+  it("a carrier-failure retry does not re-fetch or re-reconcile provider stock a second time", async () => {
+    const { variation, customer } = await seedWooLinkedVariation(20);
+    const state = await connectFakeWooCommerce(15);
+    const order = await createWooCommerceVariationOrder(variation.id, customer.id, 5, "15629");
+    await loginAsTestUser({ role: "MANAGER" });
+
+    await updateOrderStatusAction(formData({ id: order.id, status: "CONFIRMEE" }));
+    await updateOrderStatusAction(formData({ id: order.id, status: "EN_PREPARATION" }));
+    await updateOrderStatusAction(formData({ id: order.id, status: "EXPEDIEE" }));
+
+    // The store itself changes again after the first ship (e.g. a
+    // restock) — if the retry re-pulled, on-hand would jump to 999.
+    state.products[0].variationList![0].stock_quantity = 999;
+
+    await updateOrderStatusAction(formData({ id: order.id, status: "ECHEC" }));
+    await updateOrderStatusAction(formData({ id: order.id, status: "EN_PREPARATION" }));
+    const retryShipped = await updateOrderStatusAction(formData({ id: order.id, status: "EXPEDIEE" }));
+    expect(retryShipped.ok).toBe(true);
+
+    const item = await prisma.inventoryItem.findFirstOrThrow({ where: { variationId: variation.id } });
+    expect(item.quantityOnHand).toBe(15); // untouched by the retry
+    expect(state.stockUpdates).toHaveLength(0);
   });
 });
 
