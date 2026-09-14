@@ -23,7 +23,15 @@ export default async function PlatformPlansPage() {
       />
       <div className="grid gap-6 lg:grid-cols-2">
         {plans.map((plan) => (
-          <PlanEditForm key={plan.id} plan={plan} features={parsePlanFeatures(plan.features)} />
+          <PlanEditForm
+            key={plan.id}
+            plan={{
+              ...plan,
+              installationPriceMad: plan.installationPriceMad.toString(),
+              monthlyPriceMad: plan.monthlyPriceMad.toString(),
+            }}
+            features={parsePlanFeatures(plan.features)}
+          />
         ))}
       </div>
     </div>

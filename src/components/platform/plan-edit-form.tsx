@@ -15,6 +15,14 @@ import type { Plan } from "@prisma/client";
 
 const TIER_LABEL: Record<string, string> = { standard: "Standard", advanced: "Avancé" };
 
+/** `Plan` as received by this Client Component — its `Decimal` price fields
+ * are not plain objects and cannot cross the Server->Client boundary, so
+ * the Server Component caller stringifies them before passing `plan` down. */
+type SerializedPlan = Omit<Plan, "installationPriceMad" | "monthlyPriceMad"> & {
+  installationPriceMad: string;
+  monthlyPriceMad: string;
+};
+
 /**
  * `/platform/plans` editor — the centralized place prices/limits/features
  * are declared (docs/adr/0035 "Central entitlements system"). Changing a
@@ -23,13 +31,13 @@ const TIER_LABEL: Record<string, string> = { standard: "Standard", advanced: "Av
  * copy below says plainly. Limit fields empty = unlimited — always the
  * case for CUSTOM ("Illimité"), never left empty for Business/Pro.
  */
-export function PlanEditForm({ plan, features }: { plan: Plan; features: PlanFeatures }) {
+export function PlanEditForm({ plan, features }: { plan: SerializedPlan; features: PlanFeatures }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   const [name, setName] = useState(plan.name);
-  const [installationPrice, setInstallationPrice] = useState(plan.installationPriceMad.toString());
-  const [monthlyPrice, setMonthlyPrice] = useState(plan.monthlyPriceMad.toString());
+  const [installationPrice, setInstallationPrice] = useState(plan.installationPriceMad);
+  const [monthlyPrice, setMonthlyPrice] = useState(plan.monthlyPriceMad);
   const [maxOrders, setMaxOrders] = useState(plan.maxOrdersPerMonth?.toString() ?? "");
   const [maxUsers, setMaxUsers] = useState(plan.maxUsers?.toString() ?? "");
   const [maxWarehouses, setMaxWarehouses] = useState(plan.maxWarehouses?.toString() ?? "");
