@@ -100,7 +100,14 @@ export async function getOrderDetail(id: string) {
     where: { id },
     include: {
       customer: true,
-      items: { include: { product: true, variation: true } },
+      items: {
+        include: {
+          // Lead photo only — ProductImage has no per-variation image, so
+          // a variation line's preview also uses its parent product's.
+          product: { include: { images: { take: 1, orderBy: { position: "asc" } } } },
+          variation: true,
+        },
+      },
       refunds: { orderBy: { createdAt: "desc" } },
       shipments: { include: { provider: true }, orderBy: { createdAt: "desc" } },
       createdBy: true,

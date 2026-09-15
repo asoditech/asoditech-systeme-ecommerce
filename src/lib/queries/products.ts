@@ -66,6 +66,9 @@ export async function listProducts(params: ProductListFilters) {
       include: {
         category: true,
         inventoryItems: { select: { quantityOnHand: true, quantityReserved: true } },
+        // Just the lead photo, for the hover preview on the product name —
+        // never a full gallery here, this is a list, not a detail page.
+        images: { take: 1, orderBy: { position: "asc" } },
         // Variation price + stock so the list can show a real price range
         // and aggregate stock for a variable product, instead of the
         // parent's own always-empty price/stock (WooCommerce keeps neither

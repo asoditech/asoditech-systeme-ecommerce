@@ -20,6 +20,7 @@ import { CancelOrderButton } from "@/components/orders/cancel-order-button";
 import { ReopenOrderButton } from "@/components/orders/reopen-order-button";
 import { RefundForm } from "@/components/orders/refund-form";
 import { PhysicalReturnDialog, type ReturnableOrderLine } from "@/components/orders/physical-return-dialog";
+import { ProductImagePreview } from "@/components/products/product-image-preview";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -217,16 +218,18 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                     return (
                     <TableRow key={item.id}>
                       <TableCell>
-                        {productId ? (
-                          <Link
-                            href={`/produits/${productId}`}
-                            className="font-medium hover:underline"
-                          >
-                            {item.nameSnapshot}
-                          </Link>
-                        ) : (
-                          <p className="font-medium">{item.nameSnapshot}</p>
-                        )}
+                        <ProductImagePreview imageUrl={item.product?.images[0]?.url} name={item.nameSnapshot}>
+                          {productId ? (
+                            <Link
+                              href={`/produits/${productId}`}
+                              className="font-medium hover:underline"
+                            >
+                              {item.nameSnapshot}
+                            </Link>
+                          ) : (
+                            <span className="font-medium">{item.nameSnapshot}</span>
+                          )}
+                        </ProductImagePreview>
                         <p className="text-xs text-muted-foreground">{item.skuSnapshot}</p>
                       </TableCell>
                       <TableCell>{formatCurrency(item.unitPrice.toString(), order.currency)}</TableCell>

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { DisconnectedSourceBanner } from "@/components/integrations/disconnected-source-banner";
+import { ProductImagePreview } from "@/components/products/product-image-preview";
 import { SyncRefreshButton } from "@/components/sync-refresh-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
@@ -241,7 +242,9 @@ export default async function ProduitsPage({
                 return (
                   <ClickableTableRow key={p.id} href={`/produits/${p.id}`}>
                     <TableCell className="font-medium">
-                      {p.name}
+                      <ProductImagePreview imageUrl={p.images[0]?.url} name={p.name}>
+                        {p.name}
+                      </ProductImagePreview>
                       {isVariable && (
                         <span className="ml-1.5 text-xs text-muted-foreground">
                           ({p.variations.length} variante{p.variations.length > 1 ? "s" : ""})
