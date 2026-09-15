@@ -9,7 +9,9 @@ import { getStockValuationReport } from "@/lib/queries/reports/stock-valuation";
 import { getDeliveryPerformanceReport } from "@/lib/queries/reports/delivery";
 import { getCustomerReport } from "@/lib/queries/reports/customers";
 import { getCashflowReport } from "@/lib/queries/reports/cashflow";
+import { getReturnsReport } from "@/lib/queries/reports/returns";
 import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
+import { formatOrderNumber } from "@/lib/format";
 
 /**
  * One CSV export endpoint for every /rapports page — `/rapports/export/<type>`
@@ -188,6 +190,44 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
           { heading: "Global", headers: perfHeaders, rows: [perfRow(r.overall)] },
           { heading: "Par transporteur", headers: perfHeaders, rows: r.byProvider.map(perfRow) },
           { heading: "Par ville", headers: perfHeaders, rows: r.byCity.map(perfRow) },
+        ])
+      );
+    }
+
+    case "retours": {
+      const r = await getReturnsReport(resolved.range);
+      return csvDocumentResponse(
+        `rapport-retours-${stamp}`,
+        doc("Rapport des retours", [
+          {
+            heading: "Résumé",
+            headers: ["Indicateur", "Valeur"],
+            rows: [
+              ["Retours enregistrés", r.totals.returnEvents],
+              ["Commandes concernées", r.totals.ordersReturned],
+              ["Unités revendables", r.totals.unitsSellable],
+              ["Unités endommagées", r.totals.unitsDamaged],
+              ["Total unités reçues", r.totals.unitsTotal],
+            ],
+          },
+          {
+            heading: "Par produit",
+            headers: ["Produit", "SKU", "Revendables", "Endommagées", "Total"],
+            rows: r.byProduct.map((p) => [p.name, p.sku, p.unitsSellable, p.unitsDamaged, p.unitsTotal]),
+          },
+          {
+            heading: "Par commande",
+            headers: ["Commande", "Client", "Reçu par", "Date", "Revendables", "Endommagées", "Note"],
+            rows: r.byOrder.map((o) => [
+              formatOrderNumber(o.displayNumber ?? o.orderNumber),
+              o.customerName,
+              o.receivedByName ?? "—",
+              o.receivedAt.toLocaleString("fr-FR"),
+              o.unitsSellable,
+              o.unitsDamaged,
+              o.note ?? "—",
+            ]),
+          },
         ])
       );
     }

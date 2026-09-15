@@ -11,6 +11,7 @@ import {
   Wallet,
   FileText,
   LineChart,
+  Undo2,
 } from "lucide-react";
 
 export const metadata = { title: "Rapports — ASODITECH Gestion E-commerce" };
@@ -45,6 +46,12 @@ const REPORTS = [
     icon: Truck,
     title: "Performance livraison",
     description: "Taux de livraison / échec / retour et délai moyen par transporteur et par ville, COD encaissé vs en attente.",
+  },
+  {
+    href: "/rapports/retours",
+    icon: Undo2,
+    title: "Retours",
+    description: "Unités revendables vs endommagées reçues en retour physique, par produit et par commande.",
   },
   {
     href: "/rapports/clients",
