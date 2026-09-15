@@ -38,8 +38,8 @@ export function AddAgentForm({ users }: { users: { id: string; name: string }[] 
   return (
     <form action={formAction} className="space-y-2">
       <div className="flex items-end gap-3">
-        <div className="min-w-0 flex-1 space-y-1.5">
-          <Label htmlFor="agent-user">Utilisateur</Label>
+        <div className="flex-1 space-y-1.5">
+          <Label htmlFor="agent-user" className="whitespace-nowrap">Utilisateur</Label>
           <Select name="userId" required>
             <SelectTrigger id="agent-user" className="w-full">
               <SelectValue placeholder="Choisir un utilisateur">
@@ -55,8 +55,12 @@ export function AddAgentForm({ users }: { users: { id: string; name: string }[] 
             </SelectContent>
           </Select>
         </div>
-        <div className="min-w-0 flex-1 space-y-1.5">
-          <Label htmlFor="agent-rate">Taux / commande livrée</Label>
+        <div className="flex-1 space-y-1.5">
+          {/* nowrap: at reduced width this label wrapping to 2 lines while
+              "Utilisateur" stays 1 line threw the two inputs out of vertical
+              alignment — the row itself never wraps (no flex-wrap), only
+              this label did, so fixing this alone fixes the décalage. */}
+          <Label htmlFor="agent-rate" className="whitespace-nowrap">Taux / commande livrée</Label>
           <Input id="agent-rate" name="ratePerOrder" type="number" step="0.5" min="0" defaultValue="10" className="w-full" />
         </div>
         <Button type="submit" disabled={isPending} className="shrink-0">
