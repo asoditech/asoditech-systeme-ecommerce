@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { StockAdjustmentDialog } from "@/components/inventory/stock-adjustment-dialog";
+import { ProductImagePreview } from "@/components/products/product-image-preview";
 import { SyncRefreshButton } from "@/components/sync-refresh-button";
 import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
 import { Button } from "@/components/ui/button";
@@ -159,13 +160,15 @@ export default async function StockPage({
                 return (
                   <TableRow key={i.id}>
                     <TableCell className="font-medium">
-                      {product ? (
-                        <Link href={`/produits/${product.id}`} className="hover:underline">
-                          {label}
-                        </Link>
-                      ) : (
-                        label
-                      )}
+                      <ProductImagePreview imageUrl={product?.images[0]?.url} name={label}>
+                        {product ? (
+                          <Link href={`/produits/${product.id}`} className="hover:underline">
+                            {label}
+                          </Link>
+                        ) : (
+                          <span>{label}</span>
+                        )}
+                      </ProductImagePreview>
                       {isOut ? (
                         <Badge variant="destructive" className="ml-2">
                           Rupture

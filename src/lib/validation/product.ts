@@ -80,6 +80,24 @@ export const updateVariationOperationalSettingsSchema = z.object({
   cost: z.coerce.number().min(0).nullish(),
 });
 
+/**
+ * A manually-supplied image link — the only image path for an INTERNE
+ * product (no storage/upload backend exists; a WooCommerce/Shopify
+ * product gets its image from the sync instead, see
+ * docs/adr/0010/0011 — never through this action, blocked server-side by
+ * `externalSourceError`). Empty string clears the image. http(s) only —
+ * never `javascript:`/`data:`/`file:` in an `<img src>`.
+ */
+export const updateProductImageSchema = z.object({
+  id: z.string().min(1),
+  imageUrl: z
+    .string()
+    .trim()
+    .max(2000)
+    .refine((v) => v === "" || /^https?:\/\//i.test(v), "L'image doit être un lien http(s).")
+    .refine((v) => v === "" || z.string().url().safeParse(v).success, "Lien invalide."),
+});
+
 export const createProductVariationSchema = z.object({
   productId: z.string().min(1),
   sku: skuSchema,

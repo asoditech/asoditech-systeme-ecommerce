@@ -8,8 +8,8 @@ import { runRawBatchWithTenant } from "@/lib/tenant/rls";
 const PAGE_SIZE = 25;
 
 const INVENTORY_INCLUDE = {
-  product: true,
-  variation: { include: { product: true } },
+  product: { include: { images: { take: 1, orderBy: { position: "asc" } } } },
+  variation: { include: { product: { include: { images: { take: 1, orderBy: { position: "asc" } } } } } },
   warehouse: true,
 } satisfies Prisma.InventoryItemInclude;
 

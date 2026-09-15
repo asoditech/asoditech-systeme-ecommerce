@@ -30,6 +30,7 @@ import { RemoveProductButton } from "@/components/products/remove-product-button
 import { VariationForm } from "@/components/products/variation-form";
 import { VariationCostCell } from "@/components/products/variation-cost-cell";
 import { OperationalSettingsForm } from "@/components/products/operational-settings-form";
+import { ProductImageForm } from "@/components/products/product-image-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -595,15 +596,18 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
                   />
                 </>
               ) : (
-                <ProductForm
-                  product={{
-                    ...product,
-                    price: product.price.toString(),
-                    salePrice: product.salePrice?.toString() ?? null,
-                    cost: product.cost?.toString() ?? null,
-                  }}
-                  categories={categories}
-                />
+                <>
+                  <ProductImageForm productId={product.id} currentUrl={product.images[0]?.url ?? null} />
+                  <ProductForm
+                    product={{
+                      ...product,
+                      price: product.price.toString(),
+                      salePrice: product.salePrice?.toString() ?? null,
+                      cost: product.cost?.toString() ?? null,
+                    }}
+                    categories={categories}
+                  />
+                </>
               )}
             </div>
           </TabsContent>

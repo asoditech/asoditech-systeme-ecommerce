@@ -10,9 +10,11 @@ import {
   updateProductSchema,
   updateProductOperationalSettingsSchema,
   updateVariationOperationalSettingsSchema,
+  updateProductImageSchema,
   createCategorySchema,
   createProductVariationSchema,
 } from "@/lib/validation/product";
+import { syncProductLeadImage } from "@/lib/integrations/shared";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import type { Category, Product } from "@prisma/client";
@@ -362,6 +364,46 @@ export async function updateProductOperationalSettingsAction(formData: FormData)
   });
 
   revalidatePath(`/produits/${product.id}`);
+  return actionOk({ id: product.id });
+}
+
+/**
+ * The manual image path for an INTERNE product — there is no file-upload
+ * backend in this app, so this is a pasted image link, not an upload.
+ * Blocked for a WooCommerce/Shopify-sourced product (`externalSourceError`):
+ * those get their image from the sync instead, and the next sync would
+ * silently overwrite a manual one anyway (docs/adr/0010/0011). Empty
+ * `imageUrl` clears the image.
+ */
+export async function updateProductImageAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("products.edit");
+
+  const parsed = updateProductImageSchema.safeParse({
+    id: formData.get("id"),
+    imageUrl: formData.get("imageUrl") ?? "",
+  });
+  if (!parsed.success) {
+    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+
+  const product = await prisma.product.findUnique({ where: { id: parsed.data.id } });
+  if (!product) return actionError("Produit introuvable.");
+  const sourceError = externalSourceError(product);
+  if (sourceError) return actionError(sourceError);
+
+  await syncProductLeadImage(product.id, parsed.data.imageUrl || null);
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "product.updated",
+    entityType: "Product",
+    entityId: product.id,
+    metadata: { imageUrl: parsed.data.imageUrl || null },
+  });
+
+  revalidatePath(`/produits/${product.id}`);
+  revalidatePath("/produits");
   return actionOk({ id: product.id });
 }
 
