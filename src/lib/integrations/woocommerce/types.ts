@@ -60,6 +60,9 @@ export const wcProductSchema = z.object({
   stock_status: z.string().default("instock"),
   categories: z.array(wcProductCategoryRefSchema).default([]),
   variations: z.array(z.number()).default([]),
+  // Only the lead photo is used (`images[0]`) — this app previews one
+  // image per product, never a full gallery.
+  images: z.array(z.object({ src: z.string(), alt: z.string().nullish() })).default([]),
 });
 export type WcProduct = z.infer<typeof wcProductSchema>;
 

@@ -160,6 +160,7 @@ describe("Shopify integration", () => {
           title: "Thé vert",
           handle: "the-vert",
           status: "ACTIVE",
+          featuredImage: { url: "https://cdn.shopify.com/the-vert.jpg", altText: "Thé vert" },
           variants: [
             {
               id: "gid://shopify/ProductVariant/601",
@@ -227,6 +228,10 @@ describe("Shopify integration", () => {
       expect(stock.quantityOnHand).toBe(20);
       expect(stock.externalId).toBe("gid://shopify/InventoryItem/701");
 
+      const simpleImage = await prisma.productImage.findFirstOrThrow({ where: { productId: simple.id } });
+      expect(simpleImage.url).toBe("https://cdn.shopify.com/the-vert.jpg");
+      expect(simpleImage.altText).toBe("Thé vert");
+
       const variable = await prisma.product.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Product/502" } });
       const variations = await prisma.productVariation.findMany({ where: { productId: variable.id } });
       expect(variations).toHaveLength(2);
@@ -239,6 +244,27 @@ describe("Shopify integration", () => {
       const locationsRun = await prisma.syncRun.findMany({ where: { resource: "EMPLACEMENTS" } });
       expect(locationsRun).toHaveLength(1);
       expect(locationsRun[0].itemsSkipped).toBe(1); // the inactive location
+    });
+
+    it("keeps a product's lead image provider-owned — overwritten on change, removed when Shopify reports none", async () => {
+      await loginAsTestUser({ role: "ADMIN" });
+      await connectFakeStore();
+
+      await syncShopifyProductsAction();
+      const simple = await prisma.product.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Product/501" } });
+      expect((await prisma.productImage.findFirstOrThrow({ where: { productId: simple.id } })).url).toBe(
+        "https://cdn.shopify.com/the-vert.jpg"
+      );
+
+      state.products[0].featuredImage = { url: "https://cdn.shopify.com/the-vert-v2.jpg", altText: null };
+      await syncShopifyProductsAction();
+      const rows1 = await prisma.productImage.findMany({ where: { productId: simple.id } });
+      expect(rows1).toHaveLength(1);
+      expect(rows1[0].url).toBe("https://cdn.shopify.com/the-vert-v2.jpg");
+
+      state.products[0].featuredImage = null;
+      await syncShopifyProductsAction();
+      expect(await prisma.productImage.count({ where: { productId: simple.id } })).toBe(0);
     });
 
     it("running the same sync twice is idempotent — no duplicates, second run reports unchanged", async () => {

@@ -74,6 +74,7 @@ function makeWcProduct(overrides: Partial<WcProduct> = {}): WcProduct {
     stock_status: "instock",
     categories: [],
     variations: [],
+    images: [],
     ...overrides,
   };
 }

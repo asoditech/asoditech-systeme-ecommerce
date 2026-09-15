@@ -66,6 +66,9 @@ export const shopifyProductSchema = z.object({
   // first" ordering. Nullish for safety — never fabricated.
   createdAt: z.string().nullish(),
   descriptionHtml: z.string().nullish(),
+  // Only the lead photo is used — this app previews one image per
+  // product, never a full gallery.
+  featuredImage: z.object({ url: z.string(), altText: z.string().nullish() }).nullish(),
   variants: z.object({ nodes: z.array(shopifyVariantSchema).default([]) }),
 });
 export type ShopifyProduct = z.infer<typeof shopifyProductSchema>;

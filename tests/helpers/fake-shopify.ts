@@ -38,6 +38,7 @@ export interface FakeProduct {
   handle: string;
   status: string;
   descriptionHtml?: string | null;
+  featuredImage?: { url: string; altText?: string | null } | null;
   variants: FakeVariant[];
 }
 
@@ -139,6 +140,7 @@ function serializeProduct(p: FakeProduct) {
     handle: p.handle,
     status: p.status,
     descriptionHtml: p.descriptionHtml ?? null,
+    featuredImage: p.featuredImage ?? null,
     variants: {
       nodes: p.variants.map((v) => ({
         id: v.id,

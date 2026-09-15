@@ -51,6 +51,7 @@ export interface FakeProduct {
   stock_quantity: number | null;
   stock_status?: string;
   categories: { id: number; name: string; slug: string }[];
+  images?: { src: string; alt?: string | null }[];
   /** The WC-shape list of variation ids (what wcProductSchema actually reads). */
   variations?: number[];
   /** Fake-server-only: the full variation records served by the variations sub-endpoint. */

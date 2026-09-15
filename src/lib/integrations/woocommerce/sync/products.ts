@@ -7,6 +7,7 @@ import type { WcProduct, WcProductVariation } from "../types";
 import { emptySyncSummary, recordNote, type SyncSummary } from "./types";
 import { reconcileStockFromWooCommerce } from "./stock";
 import type { SyncActor } from "./actor";
+import { syncProductLeadImage } from "@/lib/integrations/shared";
 
 /**
  * WooCommerce → System, one direction (see docs/adr/0010-woocommerce-integration.md).
@@ -247,6 +248,8 @@ async function syncOneProduct(
     productId = created.id;
     summary.imported++;
   }
+
+  await syncProductLeadImage(productId, wc.images[0]?.src ?? null, wc.images[0]?.alt ?? null);
 
   if (reconcileStock && fields.trackInventory && wc.stock_quantity != null && warehouseId) {
     await reconcileStockFromWooCommerce({

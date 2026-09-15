@@ -179,6 +179,7 @@ describe("WooCommerce integration", () => {
           manage_stock: true,
           stock_quantity: 20,
           categories: [{ id: 302, name: "Thé", slug: "the" }],
+          images: [{ src: "https://example.com/the-vert.jpg", alt: "Thé vert" }],
         },
         {
           id: 502,
@@ -252,6 +253,12 @@ describe("WooCommerce integration", () => {
       expect(variation.productId).toBe(coffret.id);
       expect(variation.attributes).toEqual({ Couleur: "Rouge" });
 
+      const teVertImage = await prisma.productImage.findFirstOrThrow({ where: { productId: teVert.id } });
+      expect(teVertImage.url).toBe("https://example.com/the-vert.jpg");
+      expect(teVertImage.altText).toBe("Thé vert");
+      // The other two products reported no images — no fabricated row.
+      expect(await prisma.productImage.count()).toBe(1);
+
       const teVertStock = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: teVert.id } });
       expect(teVertStock.quantityOnHand).toBe(20);
       const variationStock = await prisma.inventoryItem.findFirstOrThrow({ where: { variationId: variation.id } });
@@ -268,6 +275,32 @@ describe("WooCommerce integration", () => {
       // Phase 26 audit fix: triggeredById now has a real FK relation, so
       // it's actually joinable instead of an untyped orphan string column.
       expect(syncRuns[0].triggeredBy?.role).toBe("ADMIN");
+    });
+
+    it("keeps a product's lead image provider-owned — overwritten on change, removed when WooCommerce reports none", async () => {
+      await loginAsTestUser({ role: "ADMIN" });
+      await connectFakeStore();
+
+      await syncWooCommerceProductsAction();
+      const teVert1 = await prisma.product.findFirstOrThrow({ where: { source: "WOOCOMMERCE", externalId: "501" } });
+      expect((await prisma.productImage.findFirstOrThrow({ where: { productId: teVert1.id } })).url).toBe(
+        "https://example.com/the-vert.jpg"
+      );
+
+      // WooCommerce's own image changed — a re-sync must reflect it, same
+      // as name/price would (this field is provider-owned, never a local
+      // edit to preserve).
+      state.products[0].images = [{ src: "https://example.com/the-vert-v2.jpg", alt: null }];
+      await syncWooCommerceProductsAction();
+      const rows1 = await prisma.productImage.findMany({ where: { productId: teVert1.id } });
+      expect(rows1).toHaveLength(1); // updated in place, never duplicated
+      expect(rows1[0].url).toBe("https://example.com/the-vert-v2.jpg");
+
+      // WooCommerce now reports no image at all — the local row must go
+      // too, since the provider stays the single source of truth for it.
+      state.products[0].images = [];
+      await syncWooCommerceProductsAction();
+      expect(await prisma.productImage.count({ where: { productId: teVert1.id } })).toBe(0);
     });
 
     it("never imports a variation as a standalone product, and scrubs a bogus one a pre-fix webhook left behind", async () => {

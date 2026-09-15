@@ -5,7 +5,7 @@ import type { ShopifyClient } from "../client";
 import { mapSimpleProductFields, mapVariantFields, isSimpleProduct, mapProductStatus } from "../mapper";
 import { availableFrom } from "../types";
 import type { ShopifyProduct, ShopifyVariant } from "../types";
-import { emptySyncSummary, recordNote, reconcileStockFromProvider, type SyncSummary, type SyncActor } from "@/lib/integrations/shared";
+import { emptySyncSummary, recordNote, reconcileStockFromProvider, syncProductLeadImage, type SyncSummary, type SyncActor } from "@/lib/integrations/shared";
 
 /** Shopify `createdAt` is an ISO 8601 string. Guard against a
  * blank/garbage value so a bad date never crashes a whole sync run. */
@@ -197,6 +197,8 @@ async function syncOneProduct(
     summary.imported++;
   }
 
+  await syncProductLeadImage(productId, product.featuredImage?.url ?? null, product.featuredImage?.altText ?? null);
+
   for (const variant of product.variants.nodes) {
     try {
       const outcome = await syncOneVariant(variant, productId, locationIdMap, actor);
@@ -259,6 +261,8 @@ async function syncSimpleProduct(
     productId = created.id;
     summary.imported++;
   }
+
+  await syncProductLeadImage(productId, product.featuredImage?.url ?? null, product.featuredImage?.altText ?? null);
 
   const variant = product.variants.nodes[0];
   if (!variant || !fields.trackInventory) return;

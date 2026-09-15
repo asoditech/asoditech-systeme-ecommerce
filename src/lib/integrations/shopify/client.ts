@@ -63,6 +63,7 @@ const MAX_PAGES = 200;
 
 const PRODUCT_FIELDS = `
   id title handle status descriptionHtml createdAt
+  featuredImage { url altText }
   variants(first: 100) {
     nodes {
       id title sku price
