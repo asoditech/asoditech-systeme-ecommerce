@@ -1,6 +1,8 @@
 import type { DocArticle } from "../types";
 
 const LAST_UPDATED = "2026-09-10";
+/** Articles touched by the Inventory & Order Lifecycle v1 rewrite (physical returns). */
+const STOCK_LIFECYCLE_UPDATE = "2026-09-15";
 
 export const commandesArticles: DocArticle[] = [
   {
@@ -74,7 +76,7 @@ export const commandesArticles: DocArticle[] = [
       {
         type: "callout",
         tone: "info",
-        text: "Le stock est réservé au passage à Confirmée, déduit réellement au passage à Expédiée, et restitué en cas d'annulation ou de retour.",
+        text: "Le stock est réservé au passage à Confirmée, puis réellement déduit au passage à Expédiée. Passé ce point, aucune transition de statut — annulation, Échec, ni même le statut Retour — ne restitue automatiquement le stock : le stock physique n'est jamais restitué autrement que par une confirmation de retour physique explicite (voir « Confirmer un retour physique »).",
       },
     ],
     troubleshooting: [
@@ -87,9 +89,9 @@ export const commandesArticles: DocArticle[] = [
         errorStrings: ["Transition de statut invalide"],
       },
     ],
-    related: ["confirmation/statuts", "commandes/annuler"],
+    related: ["confirmation/statuts", "commandes/annuler", "commandes/confirmer-un-retour-physique"],
     tryNow: { label: "Ouvrir Commandes", href: "/commandes" },
-    lastUpdated: LAST_UPDATED,
+    lastUpdated: STOCK_LIFECYCLE_UPDATE,
   },
   {
     slug: "commandes/confirmer-une-commande",
@@ -105,9 +107,16 @@ export const commandesArticles: DocArticle[] = [
     slug: "commandes/annuler",
     title: "Annuler une commande",
     category: "commandes",
-    tagline: "Annuler une commande libère le stock qu'elle avait réservé ou, si elle était déjà expédiée, en crée un retour physique.",
+    tagline: "Annuler une commande libère le stock qu'elle avait réservé. Une commande déjà expédiée ne récupère jamais son stock automatiquement.",
     permission: "orders.cancel",
     steps: ["Ouvrir la commande.", "Cliquer sur Annuler.", "Confirmer."],
+    body: [
+      {
+        type: "callout",
+        tone: "warning",
+        text: "Annuler une commande déjà expédiée change uniquement son statut — le stock physique déjà déduit n'est ni recrédité ni marqué comme retourné automatiquement, même si les unités reviennent réellement en entrepôt. Utilisez « Confirmer un retour physique » sur la commande pour enregistrer ce qui est effectivement revenu.",
+      },
+    ],
     troubleshooting: [
       {
         symptom: "« Cette commande ne peut plus être annulée dans son statut actuel. »",
@@ -126,9 +135,60 @@ export const commandesArticles: DocArticle[] = [
         errorStrings: ["Cette commande a été modifiée entre-temps par une autre action. Rechargez la page et réessayez."],
       },
     ],
-    related: ["commandes/comprendre-les-statuts"],
+    related: ["commandes/comprendre-les-statuts", "commandes/confirmer-un-retour-physique"],
     tryNow: { label: "Ouvrir Commandes", href: "/commandes" },
-    lastUpdated: LAST_UPDATED,
+    lastUpdated: STOCK_LIFECYCLE_UPDATE,
+  },
+  {
+    slug: "commandes/confirmer-un-retour-physique",
+    title: "Confirmer un retour physique",
+    category: "commandes",
+    tagline: "La seule action qui recrédite réellement le stock après une expédition — enregistre ce qui est physiquement revenu, revendable ou endommagé.",
+    permission: "orders.return",
+    prerequisites: ["La commande a été expédiée (elle a une date d'expédition)."],
+    steps: [
+      "Ouvrir une commande déjà expédiée.",
+      "Cliquer sur « Confirmer le retour physique ».",
+      "Pour chaque article, saisir la quantité revendable reçue et/ou la quantité endommagée reçue.",
+      "Ajouter une note optionnelle, puis confirmer.",
+    ],
+    whatYouShouldSee: "Le stock disponible augmente du nombre d'unités revendables. Les unités endommagées sont comptabilisées séparément et n'augmentent jamais le stock disponible. Un nouvel enregistrement apparaît dans « Retours physiques » sur la commande, avec l'auteur, l'heure et la note éventuelle.",
+    body: [
+      {
+        type: "callout",
+        tone: "info",
+        text: "Totalement indépendant du statut de la commande — même une commande Annulée ou en Échec après expédition peut recevoir un retour physique, tant qu'elle a été expédiée. C'est la seule information qui compte : ce qui est physiquement revenu.",
+      },
+      {
+        type: "list",
+        items: [
+          "Un retour peut se faire en plusieurs fois si les unités reviennent progressivement — le système retient toujours ce qui a déjà été déclaré.",
+          "Impossible de déclarer plus d'unités revenues que ce qui a été expédié — c'est une limite stricte, jamais contournable.",
+          "Enregistrer deux fois exactement la même confirmation (double clic, rechargement) ne crée jamais de doublon.",
+        ],
+      },
+    ],
+    troubleshooting: [
+      {
+        symptom: "Le bouton « Confirmer le retour physique » n'apparaît pas sur la commande",
+        cause: "Soit la commande n'a jamais été expédiée, soit tout ce qui a été expédié a déjà été intégralement déclaré en retour (rien ne reste à retourner).",
+        check: "Vérifiez la date d'expédition de la commande, et le contenu de la section « Retours physiques » si elle existe déjà.",
+        solution: "Rien à faire si tout a déjà été retourné — sinon, la commande doit d'abord être expédiée.",
+        expectedResult: "—",
+      },
+      {
+        symptom: "« quantité saisie supérieure à la quantité restante »",
+        cause: "La somme (revendable + endommagée) saisie pour un article dépasse ce qu'il reste à retourner pour cet article (quantité expédiée moins ce qui a déjà été déclaré).",
+        check: "Regardez la colonne « Restante » affichée pour chaque article dans la fenêtre de retour.",
+        solution: "Réduisez les quantités saisies pour que leur somme ne dépasse pas la quantité restante.",
+        expectedResult: "Le retour se confirme normalement.",
+        errorStrings: ["quantité saisie supérieure à la quantité restante"],
+      },
+    ],
+    related: ["commandes/annuler", "commandes/comprendre-les-statuts", "stock/stock-disponible", "stock/mouvements"],
+    tryNow: { label: "Ouvrir Commandes", href: "/commandes" },
+    lastUpdated: STOCK_LIFECYCLE_UPDATE,
+    keywords: ["retour physique", "produit endommagé", "RMA", "retour client", "marchandise retournée"],
   },
   {
     slug: "commandes/modifier-traiter-une-commande",
