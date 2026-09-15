@@ -36,33 +36,35 @@ export function AddAgentForm({ users }: { users: { id: string; name: string }[] 
   }
 
   return (
-    <form action={formAction} className="flex flex-wrap items-end gap-3 sm:flex-nowrap">
-      <div className="w-56 shrink-0 space-y-1.5">
-        <Label htmlFor="agent-user">Utilisateur</Label>
-        <Select name="userId" required>
-          <SelectTrigger id="agent-user" className="w-full">
-            <SelectValue placeholder="Choisir un utilisateur">
-              {(value: string) => users.find((u) => u.id === value)?.name ?? "Choisir un utilisateur"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {users.map((u) => (
-              <SelectItem key={u.id} value={u.id}>
-                {u.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+    <form action={formAction} className="space-y-2">
+      <div className="flex items-end gap-3">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <Label htmlFor="agent-user">Utilisateur</Label>
+          <Select name="userId" required>
+            <SelectTrigger id="agent-user" className="w-full">
+              <SelectValue placeholder="Choisir un utilisateur">
+                {(value: string) => users.find((u) => u.id === value)?.name ?? "Choisir un utilisateur"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {users.map((u) => (
+                <SelectItem key={u.id} value={u.id}>
+                  {u.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <Label htmlFor="agent-rate">Taux / commande livrée</Label>
+          <Input id="agent-rate" name="ratePerOrder" type="number" step="0.5" min="0" defaultValue="10" className="w-full" />
+        </div>
+        <Button type="submit" disabled={isPending} className="shrink-0">
+          <UserPlus className="size-4" />
+          {isPending ? "Ajout…" : "Ajouter"}
+        </Button>
       </div>
-      <div className="w-44 shrink-0 space-y-1.5">
-        <Label htmlFor="agent-rate">Taux / commande livrée</Label>
-        <Input id="agent-rate" name="ratePerOrder" type="number" step="0.5" min="0" defaultValue="10" className="w-full" />
-      </div>
-      <Button type="submit" disabled={isPending} className="shrink-0">
-        <UserPlus className="size-4" />
-        {isPending ? "Ajout…" : "Ajouter"}
-      </Button>
-      {state && !state.ok && <p className="w-full text-sm text-destructive">{state.error}</p>}
+      {state && !state.ok && <p className="text-sm text-destructive">{state.error}</p>}
     </form>
   );
 }
