@@ -1332,7 +1332,7 @@ describe("order notifications (docs/adr/0016-notifications.md)", () => {
     mockCookieStore.clear();
   });
 
-  it("createOrderAction notifies orders.view holders, excluding the creator", async () => {
+  it("createOrderAction notifies every orders.view holder, including the creator", async () => {
     const { customer, product } = await seedOrderable();
     const creator = await loginAsTestUser({ role: "CONFIRMATION" });
     const teammate = await createTestUser({ role: "MANAGER" });
@@ -1358,7 +1358,10 @@ describe("order notifications (docs/adr/0016-notifications.md)", () => {
     const notifications = await prisma.notification.findMany();
     const recipientIds = notifications.map((n) => n.userId);
     expect(recipientIds).toContain(teammate.id);
-    expect(recipientIds).not.toContain(creator.id);
+    // A manually-created order is worth confirming even to its own creator
+    // — unlike a status change someone made themselves, and an owner
+    // running the account solo must still see their own orders in the bell.
+    expect(recipientIds).toContain(creator.id);
     expect(notifications[0].type).toBe("NOUVELLE_COMMANDE");
     expect(notifications[0].entityId).toBe(result.data.id);
   });

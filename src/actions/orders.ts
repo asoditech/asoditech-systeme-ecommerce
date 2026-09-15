@@ -314,18 +314,19 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
     newValue: { total: total.toString(), customerId: customer.id, fulfillmentWarehouseId },
   });
 
-  await notifyNewOrder(
-    {
-      id: order.id,
-      orderNumber: order.orderNumber,
-      displayNumber: order.displayNumber,
-      total: total,
-      currency: parsed.data.currency,
-      customerName: customer.fullName,
-      source: "INTERNE",
-    },
-    user.id
-  );
+  // Unlike a status change the creator made themselves, a brand-new order
+  // is worth confirming even to its own creator (e.g. the owner wants a
+  // running log of every order created, not just ones created by someone
+  // else) — so, unlike other notify* calls in this file, no exceptUserId.
+  await notifyNewOrder({
+    id: order.id,
+    orderNumber: order.orderNumber,
+    displayNumber: order.displayNumber,
+    total: total,
+    currency: parsed.data.currency,
+    customerName: customer.fullName,
+    source: "INTERNE",
+  });
 
   // Read-only alert — never blocks order creation and never touches stock.
   await checkAndNotifyInsufficientStockForOrder(
