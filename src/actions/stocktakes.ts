@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
+import { requireLocationAccessForAction } from "@/lib/auth/location-access";
 import { recordAuditEvent } from "@/lib/audit";
 import { InsufficientStockError } from "@/lib/inventory";
 import {
@@ -49,6 +50,9 @@ export async function createStocktakeSessionAction(
   if (!warehouse.isActive) {
     return actionError("Cet entrepôt est désactivé — impossible de démarrer un inventaire.");
   }
+  // Location Access Management v1 (docs/adr/0037): OWNER/ADMIN bypass;
+  // everyone else must be explicitly assigned to this warehouse.
+  await requireLocationAccessForAction(user, warehouse.id);
 
   let session: { id: string; sessionNumber: number; lineCount: number };
   try {
@@ -99,6 +103,15 @@ export async function updateStocktakeCountsAction(
   if (!parsed.success) {
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
+
+  const session = await prisma.stocktakeSession.findUnique({
+    where: { id: parsed.data.id },
+    select: { warehouseId: true },
+  });
+  if (!session) return actionError("Inventaire introuvable.");
+  // Location Access Management v1 (docs/adr/0037): recounting is still a
+  // mutation on the session's own warehouse.
+  await requireLocationAccessForAction(user, session.warehouseId);
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -173,6 +186,14 @@ export async function finalizeStocktakeSessionAction(
   const parsed = finalizeStocktakeSessionSchema.safeParse(input);
   if (!parsed.success) return actionError("Champs invalides.");
 
+  const session = await prisma.stocktakeSession.findUnique({
+    where: { id: parsed.data.id },
+    select: { warehouseId: true },
+  });
+  if (!session) return actionError("Inventaire introuvable.");
+  // Location Access Management v1 (docs/adr/0037).
+  await requireLocationAccessForAction(user, session.warehouseId);
+
   let result;
   try {
     result = await finalizeStocktakeSession(parsed.data.id, user.id);
@@ -244,9 +265,11 @@ export async function cancelStocktakeSessionAction(input: { id: string }): Promi
 
   const existing = await prisma.stocktakeSession.findUnique({
     where: { id: parsed.data.id },
-    select: { status: true },
+    select: { status: true, warehouseId: true },
   });
   if (!existing) return actionError("Inventaire introuvable.");
+  // Location Access Management v1 (docs/adr/0037).
+  await requireLocationAccessForAction(user, existing.warehouseId);
 
   const gate = await prisma.stocktakeSession.updateMany({
     where: { id: parsed.data.id, status: "EN_COURS" },

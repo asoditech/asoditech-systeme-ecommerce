@@ -2,7 +2,7 @@ import { PageHeader } from "@/components/page-header";
 import { OrderForm } from "@/components/orders/order-form";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
-import { listSelectableFulfilmentWarehouses } from "@/lib/queries/warehouses";
+import { listAccessibleActiveWarehouses } from "@/lib/auth/location-access";
 import { listAssignableCommissionAgents } from "@/lib/queries/commissions";
 
 export const metadata = { title: "Nouvelle commande — ASODITECH Gestion E-commerce" };
@@ -10,7 +10,7 @@ export const metadata = { title: "Nouvelle commande — ASODITECH Gestion E-comm
 export default async function NouvelleCommandePage() {
   const user = await requirePermission("orders.create");
   const [warehouses, commissionAgents] = await Promise.all([
-    listSelectableFulfilmentWarehouses(),
+    listAccessibleActiveWarehouses(user),
     hasPermission(user.role, "commissions.manage") ? listAssignableCommissionAgents() : Promise.resolve([]),
   ]);
 

@@ -4,12 +4,16 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction, requireUserForAction } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
+import {
+  requireLocationAccessForAction,
+  resolveAuthorizedDefaultWarehouseId,
+  hasGlobalLocationAccess,
+} from "@/lib/auth/location-access";
 import { recordAuditEvent } from "@/lib/audit";
 import {
   reserveStockForOrder,
   releaseStockForOrder,
   fulfillStockForOrder,
-  getDefaultWarehouseId,
   InsufficientStockError,
 } from "@/lib/inventory";
 import {
@@ -187,9 +191,11 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
   // Fulfilment warehouse (Phase 32b — see docs/adr/0020-stock-transfers.md).
   // A client-supplied override is validated (must exist and be active — an
   // operator may legitimately fulfil from an active MAGASIN for a walk-in
-  // order); the default is trusted verbatim. `null` (broken deployment
-  // with no default warehouse) is stored as-is and the pre-32b
-  // compatibility resolution then applies.
+  // order) AND, as of Location Access Management v1
+  // (docs/adr/0037-location-access-management.md), authorized for the
+  // acting user — never trust the UI's picker filtering alone. `null`
+  // (broken deployment with no default warehouse) is stored as-is and the
+  // pre-32b compatibility resolution then applies.
   const overrideWarehouseId =
     parsed.data.fulfillmentWarehouseId && parsed.data.fulfillmentWarehouseId.length > 0
       ? parsed.data.fulfillmentWarehouseId
@@ -200,9 +206,21 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
     if (!warehouse || !warehouse.isActive) {
       return actionError("Entrepôt de préparation invalide.");
     }
+    await requireLocationAccessForAction(user, warehouse.id);
     fulfillmentWarehouseId = warehouse.id;
   } else {
-    fulfillmentWarehouseId = await getDefaultWarehouseId();
+    // No explicit choice: resolve to a default the acting user is actually
+    // authorized for. OWNER/ADMIN keep the EXACT pre-existing behaviour —
+    // the tenant's default warehouse, `null` included for the pre-existing
+    // "broken deployment, no default warehouse" edge case (the pre-32b
+    // compat resolution then applies at stock-mutation time, unchanged).
+    // Everyone else resolves within their OWN authorized set instead, and
+    // `null` there means "no warehouse access at all" — reject rather than
+    // silently assign one they cannot operate on.
+    fulfillmentWarehouseId = await resolveAuthorizedDefaultWarehouseId(user);
+    if (fulfillmentWarehouseId === null && !hasGlobalLocationAccess(user.role)) {
+      return actionError("Aucun emplacement de préparation ne vous est attribué. Contactez un administrateur.");
+    }
   }
 
   // Resolve product/variation snapshots server-side — never trust client-supplied prices/names.

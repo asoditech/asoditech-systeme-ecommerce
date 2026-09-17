@@ -3,20 +3,20 @@ import { PageHeader } from "@/components/page-header";
 import { TransferForm } from "@/components/transfers/transfer-form";
 import { requirePermission } from "@/lib/auth/guards";
 import { getStockTransferDetail } from "@/lib/queries/transfers";
-import { listSelectableFulfilmentWarehouses } from "@/lib/queries/warehouses";
+import { listAccessibleActiveWarehouses } from "@/lib/auth/location-access";
 import { displayTransferNumber } from "@/lib/format";
 
 export const metadata = { title: "Modifier le transfert — ASODITECH Gestion E-commerce" };
 
 export default async function ModifierTransfertPage({ params }: { params: Promise<{ id: string }> }) {
-  await requirePermission("inventory.transfer");
+  const user = await requirePermission("inventory.transfer");
   const { id } = await params;
   const transfer = await getStockTransferDetail(id);
   if (!transfer) notFound();
   // Only a BROUILLON draft is editable.
   if (transfer.status !== "BROUILLON") redirect(`/transferts/${id}`);
 
-  const warehouses = await listSelectableFulfilmentWarehouses();
+  const warehouses = await listAccessibleActiveWarehouses(user);
   const ref = displayTransferNumber(transfer);
 
   return (

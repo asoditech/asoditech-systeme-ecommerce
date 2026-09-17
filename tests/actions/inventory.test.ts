@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { adjustInventoryAction } from "@/actions/inventory";
 import { resetDb } from "../helpers/db";
-import { loginAsTestUser, createTestUser } from "../helpers/auth";
+import { loginAsTestUser, createTestUser, grantLocationAccess } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 import { installFakeWooCommerceServer, emptyFakeStore, FAKE_STORE_URL, FAKE_CONSUMER_KEY, FAKE_CONSUMER_SECRET } from "../helpers/fake-woocommerce";
 
@@ -52,6 +52,7 @@ describe("adjustInventoryAction", () => {
   it("increases on-hand stock and records the movement", async () => {
     const { warehouse, product } = await seedInventoryItem(10);
     const user = await loginAsTestUser({ role: "WAREHOUSE" });
+    await grantLocationAccess(user.id, warehouse.id);
 
     const result = await adjustInventoryAction(
       formData({
@@ -74,7 +75,8 @@ describe("adjustInventoryAction", () => {
 
   it("rejects an adjustment that would make stock negative", async () => {
     const { warehouse, product } = await seedInventoryItem(3);
-    await loginAsTestUser({ role: "WAREHOUSE" });
+    const user = await loginAsTestUser({ role: "WAREHOUSE" });
+    await grantLocationAccess(user.id, warehouse.id);
 
     const result = await adjustInventoryAction(
       formData({
@@ -90,7 +92,8 @@ describe("adjustInventoryAction", () => {
 
   it("requires a reason for every adjustment", async () => {
     const { warehouse, product } = await seedInventoryItem();
-    await loginAsTestUser({ role: "WAREHOUSE" });
+    const user = await loginAsTestUser({ role: "WAREHOUSE" });
+    await grantLocationAccess(user.id, warehouse.id);
 
     const result = await adjustInventoryAction(
       formData({ productId: product.id, warehouseId: warehouse.id, type: "AJUSTEMENT_POSITIF", quantity: "5", reason: "" })
@@ -100,7 +103,8 @@ describe("adjustInventoryAction", () => {
 
   it("tracks damaged quantity separately when type is ENDOMMAGE", async () => {
     const { warehouse, product } = await seedInventoryItem(10);
-    await loginAsTestUser({ role: "WAREHOUSE" });
+    const user = await loginAsTestUser({ role: "WAREHOUSE" });
+    await grantLocationAccess(user.id, warehouse.id);
 
     const result = await adjustInventoryAction(
       formData({
@@ -120,7 +124,8 @@ describe("adjustInventoryAction", () => {
 
   it("prevents negative stock under two genuinely concurrent adjustments (audit fix)", async () => {
     const { warehouse, product } = await seedInventoryItem(5);
-    await loginAsTestUser({ role: "WAREHOUSE" });
+    const concurrentUser = await loginAsTestUser({ role: "WAREHOUSE" });
+    await grantLocationAccess(concurrentUser.id, warehouse.id);
 
     // Both requests read stock=5 and each individually asks to remove 5 —
     // a stale-read pre-check would let both pass and land on -5. Only one
@@ -151,6 +156,7 @@ describe("adjustInventoryAction", () => {
   it("notifies inventory.view holders when an adjustment drops stock to/below the threshold (docs/adr/0016-notifications.md), including the acting user", async () => {
     const { warehouse, product } = await seedInventoryItem(10); // default lowStockThreshold is 5
     const actor = await loginAsTestUser({ role: "WAREHOUSE" });
+    await grantLocationAccess(actor.id, warehouse.id);
     const teammate = await createTestUser({ role: "MANAGER" }); // also holds inventory.view
 
     const result = await adjustInventoryAction(
@@ -170,7 +176,8 @@ describe("adjustInventoryAction", () => {
 
   it("does not notify when the adjustment increases stock, even from a low starting point", async () => {
     const { warehouse, product } = await seedInventoryItem(2);
-    await loginAsTestUser({ role: "WAREHOUSE" });
+    const user = await loginAsTestUser({ role: "WAREHOUSE" });
+    await grantLocationAccess(user.id, warehouse.id);
     await createTestUser({ role: "MANAGER" });
 
     await adjustInventoryAction(
@@ -202,7 +209,8 @@ describe("adjustInventoryAction", () => {
         data: { name: "Thé vert", sku: "SKU-WC-PUSH", price: 50, trackInventory: true, source: "WOOCOMMERCE", externalId: "501" },
       });
       const item = await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 10 } });
-      await loginAsTestUser({ role: "WAREHOUSE" });
+      const user = await loginAsTestUser({ role: "WAREHOUSE" });
+      await grantLocationAccess(user.id, warehouse.id);
 
       const result = await adjustInventoryAction(
         formData({ productId: product.id, warehouseId: warehouse.id, type: "AJUSTEMENT_NEGATIF", quantity: "3", reason: "Casse" })
@@ -220,7 +228,8 @@ describe("adjustInventoryAction", () => {
     it("does not push anything for a purely internal (never-synced) product", async () => {
       const state = await seedWooCommerceIntegration();
       const { warehouse, product } = await seedInventoryItem(10);
-      await loginAsTestUser({ role: "WAREHOUSE" });
+      const user = await loginAsTestUser({ role: "WAREHOUSE" });
+      await grantLocationAccess(user.id, warehouse.id);
 
       const result = await adjustInventoryAction(
         formData({ productId: product.id, warehouseId: warehouse.id, type: "AJUSTEMENT_NEGATIF", quantity: "3", reason: "Casse" })
@@ -232,7 +241,8 @@ describe("adjustInventoryAction", () => {
     it("still succeeds the adjustment when no integration is configured at all", async () => {
       const { warehouse, product } = await seedInventoryItem(10);
       await prisma.product.update({ where: { id: product.id }, data: { source: "WOOCOMMERCE", externalId: "999" } });
-      await loginAsTestUser({ role: "WAREHOUSE" });
+      const user = await loginAsTestUser({ role: "WAREHOUSE" });
+      await grantLocationAccess(user.id, warehouse.id);
 
       const result = await adjustInventoryAction(
         formData({ productId: product.id, warehouseId: warehouse.id, type: "AJUSTEMENT_NEGATIF", quantity: "3", reason: "Casse" })

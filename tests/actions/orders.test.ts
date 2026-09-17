@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import {
-  createOrderAction,
+  createOrderAction as createOrderActionBase,
   createCustomerForOrderAction,
   updateOrderStatusAction,
   updateOrderPaymentStatusAction,
@@ -13,8 +13,10 @@ import {
   updateRefundStatusAction,
 } from "@/actions/orders";
 import { createOrderSchema } from "@/lib/validation/order";
+import { getCurrentUser } from "@/lib/auth/session";
+import { hasGlobalLocationAccess } from "@/lib/auth/location-access";
 import { resetDb } from "../helpers/db";
-import { loginAsTestUser, createTestUser } from "../helpers/auth";
+import { loginAsTestUser, createTestUser, grantLocationAccess } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 import { installFakeWooCommerceServer, emptyFakeStore, FAKE_STORE_URL, FAKE_CONSUMER_KEY, FAKE_CONSUMER_SECRET } from "../helpers/fake-woocommerce";
 
@@ -22,6 +24,26 @@ function formData(fields: Record<string, string>) {
   const fd = new FormData();
   for (const [key, value] of Object.entries(fields)) fd.set(key, value);
   return fd;
+}
+
+/**
+ * Location Access Management v1 (docs/adr/0037): this whole file predates
+ * the feature and assumes universal warehouse access, exactly like every
+ * pre-migration user did before the backfill. Shadowing `createOrderAction`
+ * with a version that grants the logged-in (non-global) user access to
+ * every warehouse that exists AT CALL TIME reproduces that backfill
+ * locally — right before the actual authorization check runs, regardless
+ * of whether a given test seeds its warehouse(s) before or after logging
+ * in (both orderings exist in this file). Location-authorization behaviour
+ * itself is covered by dedicated tests in tests/actions/location-access.test.ts.
+ */
+async function createOrderAction(input: Parameters<typeof createOrderActionBase>[0]) {
+  const actor = await getCurrentUser();
+  if (actor && !hasGlobalLocationAccess(actor.role)) {
+    const warehouseIds = (await prisma.warehouse.findMany({ select: { id: true } })).map((w) => w.id);
+    if (warehouseIds.length > 0) await grantLocationAccess(actor.id, warehouseIds);
+  }
+  return createOrderActionBase(input);
 }
 
 async function seedOrderable() {

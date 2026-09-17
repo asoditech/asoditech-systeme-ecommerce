@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
+import { requireLocationAccessForAction } from "@/lib/auth/location-access";
 import { recordAuditEvent } from "@/lib/audit";
 import { InsufficientStockError } from "@/lib/inventory";
 import {
@@ -74,8 +75,9 @@ async function resolveLines(
 
 /** Physically-held stock at a warehouse, for the create form's line picker. */
 export async function listSourceStockAction(warehouseId: string) {
-  await requirePermissionForAction("inventory.transfer");
+  const user = await requirePermissionForAction("inventory.transfer");
   if (!warehouseId) return [];
+  await requireLocationAccessForAction(user, warehouseId);
   return listStockAtWarehouse(warehouseId);
 }
 
@@ -97,6 +99,12 @@ export async function createStockTransferAction(
   if (!source.isActive || !destination.isActive) {
     return actionError("La source et la destination doivent toutes deux être actives.");
   }
+  // Location Access Management v1 (docs/adr/0037): a transfer moves stock
+  // between two locations, so creating one requires access to BOTH — a
+  // user assigned only to one side must not be able to route stock to/from
+  // a location they can't see.
+  await requireLocationAccessForAction(user, source.id);
+  await requireLocationAccessForAction(user, destination.id);
 
   const resolved = await resolveLines(parsed.data.lines);
   if (!resolved.ok) return actionError(resolved.error);
@@ -136,7 +144,7 @@ export async function createStockTransferAction(
 export async function updateStockTransferDraftAction(
   input: UpdateStockTransferDraftInput
 ): Promise<ActionResult<IdResult>> {
-  await requirePermissionForAction("inventory.transfer");
+  const user = await requirePermissionForAction("inventory.transfer");
 
   const parsed = updateStockTransferDraftSchema.safeParse(input);
   if (!parsed.success) {
@@ -145,6 +153,11 @@ export async function updateStockTransferDraftAction(
 
   const existing = await prisma.stockTransfer.findUnique({ where: { id: parsed.data.id } });
   if (!existing) return actionError("Transfert introuvable.");
+  // Location Access Management v1 (docs/adr/0037): editing a draft's lines
+  // is still a create-time operation on both locations — same requirement
+  // as createStockTransferAction.
+  await requireLocationAccessForAction(user, existing.sourceWarehouseId);
+  await requireLocationAccessForAction(user, existing.destinationWarehouseId);
 
   const resolved = await resolveLines(parsed.data.lines);
   if (!resolved.ok) return actionError(resolved.error);
@@ -180,6 +193,15 @@ export async function dispatchStockTransferAction(input: { id: string }): Promis
 
   const parsed = dispatchStockTransferSchema.safeParse(input);
   if (!parsed.success) return actionError("Champs invalides.");
+
+  const existing = await prisma.stockTransfer.findUnique({
+    where: { id: parsed.data.id },
+    select: { sourceWarehouseId: true },
+  });
+  if (!existing) return actionError("Transfert introuvable.");
+  // Location Access Management v1 (docs/adr/0037): dispatch moves stock
+  // OUT of the source warehouse — requires access to it.
+  await requireLocationAccessForAction(user, existing.sourceWarehouseId);
 
   let result;
   try {
@@ -219,6 +241,15 @@ export async function receiveStockTransferAction(
   if (!parsed.success) {
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
+
+  const existing = await prisma.stockTransfer.findUnique({
+    where: { id: parsed.data.id },
+    select: { destinationWarehouseId: true },
+  });
+  if (!existing) return actionError("Transfert introuvable.");
+  // Location Access Management v1 (docs/adr/0037): receiving moves stock
+  // INTO the destination warehouse — requires access to it.
+  await requireLocationAccessForAction(user, existing.destinationWarehouseId);
 
   let result;
   try {
@@ -260,6 +291,9 @@ export async function cancelStockTransferAction(input: { id: string }): Promise<
 
   const existing = await prisma.stockTransfer.findUnique({ where: { id: parsed.data.id } });
   if (!existing) return actionError("Transfert introuvable.");
+  // Location Access Management v1 (docs/adr/0037): symmetric with create/edit.
+  await requireLocationAccessForAction(user, existing.sourceWarehouseId);
+  await requireLocationAccessForAction(user, existing.destinationWarehouseId);
 
   const gate = await prisma.stockTransfer.updateMany({
     where: { id: parsed.data.id, status: "BROUILLON" },

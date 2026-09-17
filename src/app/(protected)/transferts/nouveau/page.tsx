@@ -1,13 +1,13 @@
 import { PageHeader } from "@/components/page-header";
 import { TransferForm } from "@/components/transfers/transfer-form";
 import { requirePermission } from "@/lib/auth/guards";
-import { listSelectableFulfilmentWarehouses } from "@/lib/queries/warehouses";
+import { listAccessibleActiveWarehouses } from "@/lib/auth/location-access";
 
 export const metadata = { title: "Nouveau transfert — ASODITECH Gestion E-commerce" };
 
 export default async function NouveauTransfertPage() {
-  await requirePermission("inventory.transfer");
-  const warehouses = await listSelectableFulfilmentWarehouses();
+  const user = await requirePermission("inventory.transfer");
+  const warehouses = await listAccessibleActiveWarehouses(user);
 
   return (
     <div>

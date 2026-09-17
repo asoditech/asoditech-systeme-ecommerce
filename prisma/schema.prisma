@@ -75,6 +75,7 @@ model Tenant {
   productImages             ProductImage[]
   productVariations         ProductVariation[]
   warehouses                Warehouse[]
+  userLocations             UserLocation[]
   inventoryItems            InventoryItem[]
   inventoryMovements        InventoryMovement[]
   stockTransfers            StockTransfer[]
@@ -321,6 +322,13 @@ model User {
 
   tenant                     Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   sessions                   Session[]
+  // Location Access Management v1 (docs/adr/0037): the warehouses this user
+  // may operate on. Empty for OWNER/ADMIN by design — they bypass this
+  // table entirely and get tenant-wide access from `role` alone (see
+  // src/lib/auth/location-access.ts). Meaningless-without-the-user, so it
+  // cascades on user delete like Session/PasswordResetToken.
+  assignedLocations          UserLocation[]             @relation("UserLocationUser")
+  locationAssignmentsCreated UserLocation[]             @relation("UserLocationCreatedBy")
   invitationsSent            Invitation[]               @relation("InvitationInvitedBy")
   invitationAccepted         Invitation?                @relation("InvitationAcceptedUser")
   passwordResetTokens        PasswordResetToken[]
@@ -722,11 +730,51 @@ model Warehouse {
   transfersIn       StockTransfer[]     @relation("StockTransferDestination")
   stocktakeSessions StocktakeSession[]
   orderReturnLines  OrderReturnLine[]
+  userAssignments   UserLocation[]
 
   @@index([source, externalId])
   @@index([isActive])
   @@index([tenantId])
   @@map("warehouses")
+}
+
+// Location Access Management v1 (docs/adr/0037-location-access-management.md).
+// The authorization bridge between a user and the physical locations
+// (Warehouse rows) they may operate on. Warehouse itself needs no schema
+// change — it already carries everything a "physical location" needs
+// (type, isActive, tenantId, address); this table adds ONLY the missing
+// piece, who may act on which one.
+//
+// OWNER and ADMIN never need a row here — they get tenant-wide access from
+// `role` alone (see hasGlobalLocationAccess() in
+// src/lib/auth/location-access.ts). A row for any other role is the
+// COMPLETE authorization: zero rows means zero warehouse access, by
+// design (safe default-deny — see that same file's requireLocationAccessForAction()).
+model UserLocation {
+  id          String   @id @default(cuid())
+  tenantId    String   @default("default")
+  userId      String
+  warehouseId String
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  // Cascade: an assignment row is meaningless once the user it authorizes
+  // is gone — same convention as Session/PasswordResetToken (both
+  // onDelete: Cascade on userId), not a business record worth preserving
+  // (contrast with an order/product's "created by", which is SetNull).
+  user        User      @relation("UserLocationUser", fields: [userId], references: [id], onDelete: Cascade)
+  // Restrict, matching every other Warehouse relation (InventoryItem,
+  // StockTransfer, StocktakeSession, ...) — a location is deactivated, never
+  // deleted (docs/adr/0019), so this never actually blocks anything in
+  // practice; it's here for the same defense-in-depth reason as the rest.
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  createdBy   User?     @relation("UserLocationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([userId, warehouseId])
+  @@index([tenantId])
+  @@index([warehouseId])
+  @@map("user_locations")
 }
 
 // Current-state cache: one row per (warehouse, product) or (warehouse,

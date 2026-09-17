@@ -8,7 +8,7 @@ import {
 import { adjustInventoryAction } from "@/actions/inventory";
 import { changeTenantPlanAction } from "@/actions/plans";
 import { resetDb, DEFAULT_TENANT_ID } from "../helpers/db";
-import { loginAsTestUser } from "../helpers/auth";
+import { loginAsTestUser, grantLocationAccess } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 
 function formData(fields: Record<string, string>) {
@@ -94,10 +94,11 @@ describe("warehouse CRUD actions", () => {
     });
 
     it("deactivating a warehouse audits it and blocks further stock adjustments there", async () => {
-      await loginAsTestUser({ role: "MANAGER" });
+      const manager = await loginAsTestUser({ role: "MANAGER" });
       await prisma.warehouse.create({ data: { name: "Principal", isDefault: true } });
       const created = await createWarehouseAction(formData({ name: "Dépôt temporaire", type: "ENTREPOT" }));
       const id = created.ok ? created.data.id : "";
+      await grantLocationAccess(manager.id, id);
       const product = await prisma.product.create({ data: { name: "P", sku: `S-${Math.random()}`, price: 10 } });
       await prisma.inventoryItem.create({ data: { warehouseId: id, productId: product.id, quantityOnHand: 5 } });
 
@@ -125,9 +126,10 @@ describe("warehouse CRUD actions", () => {
 
   describe("warehouse-scoped adjustment", () => {
     it("adjusts exactly the targeted (warehouse, product) row when the product sits in two warehouses", async () => {
-      await loginAsTestUser({ role: "WAREHOUSE" });
+      const scopedUser = await loginAsTestUser({ role: "WAREHOUSE" });
       const wa = await prisma.warehouse.create({ data: { name: "A", isDefault: true } });
       const wb = await prisma.warehouse.create({ data: { name: "B" } });
+      await grantLocationAccess(scopedUser.id, [wa.id, wb.id]);
       const product = await prisma.product.create({ data: { name: "P", sku: `S-${Math.random()}`, price: 10 } });
       await prisma.inventoryItem.create({ data: { warehouseId: wa.id, productId: product.id, quantityOnHand: 10 } });
       await prisma.inventoryItem.create({ data: { warehouseId: wb.id, productId: product.id, quantityOnHand: 20 } });

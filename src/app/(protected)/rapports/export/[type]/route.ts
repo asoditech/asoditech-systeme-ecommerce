@@ -1,4 +1,5 @@
 import { requirePermission } from "@/lib/auth/guards";
+import { listAccessibleActiveWarehouses, hasGlobalLocationAccess } from "@/lib/auth/location-access";
 import { resolveReportRange } from "@/lib/reports/range";
 import { csvDocument, csvDocumentResponse, type CsvSection } from "@/lib/reports/csv";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
@@ -26,7 +27,7 @@ const fmtPct = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)} %`);
 const label = (map: Record<string, { label: string }>, key: string) => map[key]?.label ?? key;
 
 export async function GET(request: Request, ctx: { params: Promise<{ type: string }> }): Promise<Response> {
-  await requirePermission("analytics.view");
+  const user = await requirePermission("analytics.view");
   const { type } = await ctx.params;
   const url = new URL(request.url);
   const params = {
@@ -148,8 +149,19 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
     }
 
     case "stock": {
-      const warehouseId = url.searchParams.get("warehouseId") ?? undefined;
-      const r = await getStockValuationReport({ warehouseId });
+      // Location Access Management v1 (docs/adr/0037): never trust the raw
+      // query param — resolve it against the caller's own authorized set,
+      // exactly like the /rapports/stock page. An id for a warehouse
+      // outside that set (forged, or simply not this user's) is silently
+      // dropped, and an unfiltered export for a scoped user still only
+      // covers their own warehouses, never the whole tenant.
+      const requested = url.searchParams.get("warehouseId") ?? undefined;
+      const accessible = await listAccessibleActiveWarehouses(user);
+      const warehouseId = requested && accessible.some((w) => w.id === requested) ? requested : undefined;
+      const r = await getStockValuationReport({
+        warehouseId,
+        warehouseIds: !warehouseId && !hasGlobalLocationAccess(user.role) ? accessible.map((w) => w.id) : undefined,
+      });
       return csvDocumentResponse(
         `rapport-stock-${new Date().toLocaleDateString("en-CA")}`,
         csvDocument({

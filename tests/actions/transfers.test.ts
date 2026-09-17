@@ -8,7 +8,7 @@ import {
   cancelStockTransferAction,
 } from "@/actions/transfers";
 import { resetDb } from "../helpers/db";
-import { loginAsTestUser } from "../helpers/auth";
+import { loginAsTestUser, grantLocationAccess } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 import type { UserRole } from "@prisma/client";
 
@@ -35,7 +35,8 @@ const baseCreate = (source: string, dest: string, productId: string, quantitySen
 
 async function createDraft(role: UserRole = "WAREHOUSE", opts?: Parameters<typeof seed>[0]) {
   const s = await seed(opts);
-  await loginAsTestUser({ role });
+  const actor = await loginAsTestUser({ role });
+  await grantLocationAccess(actor.id, [s.source.id, s.dest.id]);
   const created = await createStockTransferAction(baseCreate(s.source.id, s.dest.id, s.product.id));
   if (!created.ok) throw new Error(created.error);
   return { ...s, transferId: created.data.id };
@@ -55,6 +56,7 @@ describe("stock transfer actions (Phase 32b)", () => {
     it("T1 — creates a BROUILLON with lines, a transferNumber, and an audit event", async () => {
       const s = await seed();
       const user = await loginAsTestUser({ role: "WAREHOUSE" });
+      await grantLocationAccess(user.id, [s.source.id, s.dest.id]);
       const r = await createStockTransferAction(baseCreate(s.source.id, s.dest.id, s.product.id, 5));
       expect(r.ok).toBe(true);
       if (!r.ok) return;
@@ -122,7 +124,8 @@ describe("stock transfer actions (Phase 32b)", () => {
         data: { name: "Woo", sku: `W-${Math.random()}`, price: 10, source: "WOOCOMMERCE", externalId: "1", status: "ACTIF" },
       });
       await prisma.inventoryItem.create({ data: { warehouseId: s.source.id, productId: ext.id, quantityOnHand: 5 } });
-      await loginAsTestUser({ role: "WAREHOUSE" });
+      const extUser = await loginAsTestUser({ role: "WAREHOUSE" });
+      await grantLocationAccess(extUser.id, [s.source.id, s.dest.id]);
       const r = await createStockTransferAction(baseCreate(s.source.id, s.dest.id, ext.id, 2));
       expect(r.ok).toBe(true);
     });
@@ -199,7 +202,8 @@ describe("stock transfer actions (Phase 32b)", () => {
 
     it("T9 — two transfers draining the same source stock: the over-committed one rolls back", async () => {
       const s = await seed({ sourceQty: 8 });
-      await loginAsTestUser({ role: "WAREHOUSE" });
+      const t9User = await loginAsTestUser({ role: "WAREHOUSE" });
+      await grantLocationAccess(t9User.id, [s.source.id, s.dest.id]);
       const t1 = await createStockTransferAction(baseCreate(s.source.id, s.dest.id, s.product.id, 5));
       const t2 = await createStockTransferAction(baseCreate(s.source.id, s.dest.id, s.product.id, 5));
       if (!t1.ok || !t2.ok) throw new Error("setup");
@@ -384,7 +388,8 @@ describe("stock transfer actions (Phase 32b)", () => {
         await resetDb();
         mockCookieStore.clear();
         const s = await seed({ sourceQty: 20 });
-        await loginAsTestUser({ role });
+        const roleUser = await loginAsTestUser({ role });
+        await grantLocationAccess(roleUser.id, [s.source.id, s.dest.id]);
         const created = await createStockTransferAction(baseCreate(s.source.id, s.dest.id, s.product.id, 2));
         expect(created.ok, role).toBe(true);
         if (!created.ok) continue;
@@ -414,6 +419,7 @@ describe("stock transfer actions (Phase 32b)", () => {
     it("R4 — the audit actor is always the logged-in user, never a payload value", async () => {
       const s = await seed({ sourceQty: 10 });
       const actor = await loginAsTestUser({ role: "MANAGER" });
+      await grantLocationAccess(actor.id, [s.source.id, s.dest.id]);
       const created = await createStockTransferAction(baseCreate(s.source.id, s.dest.id, s.product.id, 2));
       if (!created.ok) throw new Error("setup");
       await dispatchStockTransferAction({ id: created.data.id });

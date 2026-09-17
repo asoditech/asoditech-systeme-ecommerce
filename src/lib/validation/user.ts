@@ -42,3 +42,13 @@ export const deleteUserSchema = z.object({
 });
 
 export type InviteUserInput = z.infer<typeof inviteUserSchema>;
+
+// Location Access Management v1 (docs/adr/0037): the full desired set of
+// warehouse ids a non-OWNER/non-ADMIN user is assigned to — the action
+// replaces the existing set with this one (a diff, not an append).
+export const setUserLocationsSchema = z.object({
+  userId: z.string().min(1),
+  warehouseIds: z.array(z.string().min(1)).max(500),
+});
+
+export type SetUserLocationsInput = z.infer<typeof setUserLocationsSchema>;

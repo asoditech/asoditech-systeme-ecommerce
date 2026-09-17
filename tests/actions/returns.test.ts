@@ -4,8 +4,10 @@ import { prisma, prismaBase } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { createOrderAction, updateOrderStatusAction } from "@/actions/orders";
 import { confirmPhysicalReturnAction } from "@/actions/returns";
+import { getCurrentUser } from "@/lib/auth/session";
+import { hasGlobalLocationAccess } from "@/lib/auth/location-access";
 import { resetDb } from "../helpers/db";
-import { loginAsTestUser } from "../helpers/auth";
+import { loginAsTestUser, grantLocationAccess } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 import { installFakeWooCommerceServer, emptyFakeStore, FAKE_STORE_URL, FAKE_CONSUMER_KEY, FAKE_CONSUMER_SECRET } from "../helpers/fake-woocommerce";
 
@@ -28,6 +30,15 @@ async function seedOrderable(qty = 10) {
   });
   await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: qty } });
   const customer = await prisma.customer.create({ data: { fullName: "Client Retour" } });
+  // Location Access Management v1 (docs/adr/0037): every test in this file
+  // logs in BEFORE calling this helper, so the acting (non-global) test
+  // user is granted access to the warehouse it just created — mirrors an
+  // admin having already assigned them, and avoids threading a grant
+  // through every one of this file's ~20 call sites individually.
+  const actor = await getCurrentUser();
+  if (actor && !hasGlobalLocationAccess(actor.role)) {
+    await grantLocationAccess(actor.id, warehouse.id);
+  }
   return { warehouse, product, customer };
 }
 

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { hasPermission } from "@/lib/auth/permissions";
+import { hasGlobalLocationAccess } from "@/lib/auth/location-access";
 import { prisma } from "@/lib/prisma";
 import { listPendingInvitations } from "@/lib/queries/users";
 import { formatDate } from "@/lib/format";
@@ -18,10 +19,27 @@ export const metadata = { title: "Utilisateurs — ASODITECH Gestion E-commerce"
 export default async function UtilisateursPage() {
   const user = await requirePermission("users.view");
   const canManage = hasPermission(user.role, "users.manage");
-  const [users, invitations] = await Promise.all([
+  const [users, invitations, warehouses, assignments] = await Promise.all([
     prisma.user.findMany({ orderBy: { createdAt: "asc" } }),
     canManage ? listPendingInvitations() : Promise.resolve([]),
+    // Location Access Management v1 (docs/adr/0037): every active
+    // warehouse to assign from, and every existing assignment, fetched
+    // once up front rather than per row — no N+1 across the user list.
+    canManage
+      ? prisma.warehouse.findMany({
+          where: { isActive: true },
+          orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+          select: { id: true, name: true, type: true },
+        })
+      : Promise.resolve([]),
+    canManage
+      ? prisma.userLocation.findMany({ select: { userId: true, warehouseId: true } })
+      : Promise.resolve([]),
   ]);
+  const assignedByUser = new Map<string, string[]>();
+  for (const a of assignments) {
+    assignedByUser.set(a.userId, [...(assignedByUser.get(a.userId) ?? []), a.warehouseId]);
+  }
 
   return (
     <div className="space-y-8">
@@ -61,7 +79,16 @@ export default async function UtilisateursPage() {
                 <TableCell className="text-muted-foreground">{u.email}</TableCell>
                 <TableCell>
                   {canManage ? (
-                    <UserRowControls userId={u.id} name={u.name} email={u.email} role={u.role} status={u.status} />
+                    <UserRowControls
+                      userId={u.id}
+                      name={u.name}
+                      email={u.email}
+                      role={u.role}
+                      status={u.status}
+                      warehouses={warehouses}
+                      assignedWarehouseIds={assignedByUser.get(u.id) ?? []}
+                      hasGlobalLocationAccess={hasGlobalLocationAccess(u.role)}
+                    />
                   ) : (
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary">{USER_ROLE_LABELS[u.role]}</Badge>

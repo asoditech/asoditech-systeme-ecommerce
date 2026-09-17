@@ -9,7 +9,7 @@ import { requirePermission } from "@/lib/auth/guards";
 import { resolveReportRange } from "@/lib/reports/range";
 import { getStockValuationReport } from "@/lib/queries/reports/stock-valuation";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
-import { listSelectableFulfilmentWarehouses } from "@/lib/queries/warehouses";
+import { listAccessibleActiveWarehouses, hasGlobalLocationAccess } from "@/lib/auth/location-access";
 import { formatCurrency } from "@/lib/format";
 
 export const metadata = { title: "Valorisation du stock — ASODITECH Gestion E-commerce" };
@@ -21,14 +21,24 @@ export default async function RapportStockPage({
 }: {
   searchParams: Promise<{ period?: string; from?: string; to?: string; warehouseId?: string }>;
 }) {
-  await requirePermission("analytics.view");
+  const user = await requirePermission("analytics.view");
   const params = await searchParams;
   const resolved = resolveReportRange({});
-  const warehouses = await listSelectableFulfilmentWarehouses();
+  // Location Access Management v1 (docs/adr/0037): the picker only ever
+  // offers warehouses this user is authorized for — a forged
+  // `?warehouseId=` for one outside that set simply doesn't match here and
+  // falls through to "no filter", which itself is scoped below.
+  const warehouses = await listAccessibleActiveWarehouses(user);
   const warehouseId = warehouses.find((w) => w.id === params.warehouseId)?.id;
 
   const [report, business] = await Promise.all([
-    getStockValuationReport({ warehouseId }),
+    getStockValuationReport({
+      warehouseId,
+      // No explicit selection: OWNER/ADMIN still see the whole tenant;
+      // everyone else is restricted to their own authorized warehouses,
+      // never the tenant's full stock, server-side.
+      warehouseIds: !warehouseId && !hasGlobalLocationAccess(user.role) ? warehouses.map((w) => w.id) : undefined,
+    }),
     getReportBusinessInfo(),
   ]);
   const { totals } = report;

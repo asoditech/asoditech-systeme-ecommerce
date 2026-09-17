@@ -9,8 +9,10 @@ import {
   syncShipmentStatusAction,
 } from "@/actions/delivery";
 import { updateOrderStatusAction, createOrderAction } from "@/actions/orders";
+import { getCurrentUser } from "@/lib/auth/session";
+import { hasGlobalLocationAccess } from "@/lib/auth/location-access";
 import { resetDb } from "../helpers/db";
-import { loginAsTestUser, createTestUser } from "../helpers/auth";
+import { loginAsTestUser, createTestUser, grantLocationAccess } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 import { registerReferenceDeliveryProvider, REFERENCE_PROVIDER_KEY } from "../helpers/reference-delivery-provider";
 import { installFakeReferenceCarrier, emptyFakeCarrierState, FAKE_API_KEY, type FakeCarrierState } from "../helpers/fake-reference-carrier";
@@ -31,6 +33,13 @@ async function seedApiProviderRow() {
 
 async function seedShippableOrder() {
   const warehouse = await prisma.warehouse.create({ data: { id: "default-warehouse", name: "Entrepôt principal", isDefault: true } });
+  // Location Access Management v1 (docs/adr/0037): grant the already
+  // logged-in (non-global) test user access to this warehouse, same
+  // convention as tests/actions/returns.test.ts's seedOrderable.
+  const actor = await getCurrentUser();
+  if (actor && !hasGlobalLocationAccess(actor.role)) {
+    await grantLocationAccess(actor.id, warehouse.id);
+  }
   const product = await prisma.product.create({ data: { name: "Coffret", sku: "SKU-DLV-API-1", price: 100, status: "ACTIF" } });
   await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 10 } });
   const customer = await prisma.customer.create({ data: { fullName: "Amine Tazi" } });

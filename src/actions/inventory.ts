@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
+import { requireLocationAccessForAction } from "@/lib/auth/location-access";
 import { recordAuditEvent } from "@/lib/audit";
 import { checkAndNotifyLowStock } from "@/lib/notifications";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
@@ -39,6 +40,9 @@ export async function adjustInventoryAction(formData: FormData): Promise<ActionR
   if (!warehouse.isActive) {
     return actionError("Cet entrepôt est désactivé. Réactivez-le pour ajuster son stock.");
   }
+  // Location Access Management v1 (docs/adr/0037): OWNER/ADMIN bypass;
+  // everyone else must be explicitly assigned to this warehouse.
+  await requireLocationAccessForAction(user, warehouse.id);
 
   const item = parsed.data.variationId
     ? await prisma.inventoryItem.findUnique({

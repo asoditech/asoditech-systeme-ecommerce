@@ -1,13 +1,13 @@
 import { PageHeader } from "@/components/page-header";
 import { StocktakeForm } from "@/components/stocktakes/stocktake-form";
 import { requirePermission } from "@/lib/auth/guards";
-import { listSelectableFulfilmentWarehouses } from "@/lib/queries/warehouses";
+import { listAccessibleActiveWarehouses } from "@/lib/auth/location-access";
 
 export const metadata = { title: "Nouvel inventaire — ASODITECH Gestion E-commerce" };
 
 export default async function NouvelInventairePage() {
-  await requirePermission("inventory.count");
-  const warehouses = await listSelectableFulfilmentWarehouses();
+  const user = await requirePermission("inventory.count");
+  const warehouses = await listAccessibleActiveWarehouses(user);
 
   return (
     <div>

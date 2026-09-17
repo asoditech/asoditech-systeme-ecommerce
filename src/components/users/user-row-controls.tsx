@@ -6,13 +6,14 @@ import { toast } from "sonner";
 import { KeyRound, Copy, Trash2 } from "lucide-react";
 import { deleteUserAction, updateUserRoleAction, updateUserStatusAction } from "@/actions/users";
 import { adminResetPasswordAction } from "@/actions/password-reset";
+import { UserLocationsDialog } from "@/components/users/user-locations-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { USER_ROLE_LABELS } from "@/lib/status-labels";
-import type { UserRole, UserStatus } from "@prisma/client";
+import type { UserRole, UserStatus, WarehouseType } from "@prisma/client";
 
 const ASSIGNABLE_ROLES = Object.entries(USER_ROLE_LABELS).filter(([value]) => value !== "OWNER");
 
@@ -22,12 +23,18 @@ export function UserRowControls({
   email,
   role,
   status,
+  warehouses,
+  assignedWarehouseIds,
+  hasGlobalLocationAccess,
 }: {
   userId: string;
   name: string;
   email: string;
   role: UserRole;
   status: UserStatus;
+  warehouses: { id: string; name: string; type: WarehouseType }[];
+  assignedWarehouseIds: string[];
+  hasGlobalLocationAccess: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -122,6 +129,18 @@ export function UserRowControls({
         />
         <span className="text-xs text-muted-foreground">{status === "ACTIVE" ? "Actif" : "Désactivé"}</span>
       </div>
+      {hasGlobalLocationAccess ? (
+        <span className="text-xs text-muted-foreground" title="Ce rôle a accès à tous les emplacements du tenant.">
+          Tous les emplacements
+        </span>
+      ) : (
+        <UserLocationsDialog
+          userId={userId}
+          name={name}
+          warehouses={warehouses}
+          assignedWarehouseIds={assignedWarehouseIds}
+        />
+      )}
       <Button
         type="button"
         variant="ghost"

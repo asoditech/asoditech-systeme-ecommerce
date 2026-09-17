@@ -8,7 +8,7 @@ import {
 } from "@/actions/stocktakes";
 import { listStocktakeSessions, getStocktakeSessionDetail } from "@/lib/queries/stocktakes";
 import { resetDb } from "../helpers/db";
-import { loginAsTestUser } from "../helpers/auth";
+import { loginAsTestUser, grantLocationAccess } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 import type { UserRole } from "@prisma/client";
 
@@ -39,12 +39,13 @@ async function seedItem(warehouseId: string, qty: number, opts: { variation?: bo
 
 /** Create an EN_COURS session as WAREHOUSE and return session id + line ids by item id. */
 async function startSession(warehouseId: string, role: UserRole = "WAREHOUSE") {
-  await loginAsTestUser({ role });
+  const actor = await loginAsTestUser({ role });
+  await grantLocationAccess(actor.id, warehouseId);
   const r = await createStocktakeSessionAction({ warehouseId, notes: "" });
   if (!r.ok) throw new Error(r.error);
   const lines = await prisma.stocktakeLine.findMany({ where: { stocktakeSessionId: r.data.id } });
   const lineByItem = new Map(lines.map((l) => [l.inventoryItemId, l.id]));
-  return { sessionId: r.data.id, lineByItem, lines };
+  return { sessionId: r.data.id, lineByItem, lines, actorId: actor.id };
 }
 
 describe("stocktake actions (Phase 32c)", () => {
@@ -68,6 +69,7 @@ describe("stocktake actions (Phase 32c)", () => {
       await seedItem(other.id, 99);
 
       const user = await loginAsTestUser({ role: "WAREHOUSE" });
+      await grantLocationAccess(user.id, wh.id);
       const r = await createStocktakeSessionAction({ warehouseId: wh.id, notes: "  annuel  " });
       expect(r.ok).toBe(true);
       if (!r.ok) return;
@@ -108,7 +110,8 @@ describe("stocktake actions (Phase 32c)", () => {
     it("A/F — concurrent create for the same warehouse: exactly one open session", async () => {
       const wh = await seedWarehouse();
       await seedItem(wh.id, 5);
-      await loginAsTestUser({ role: "WAREHOUSE" });
+      const concurrentUser = await loginAsTestUser({ role: "WAREHOUSE" });
+      await grantLocationAccess(concurrentUser.id, wh.id);
       const results = await Promise.allSettled([
         createStocktakeSessionAction({ warehouseId: wh.id, notes: "" }),
         createStocktakeSessionAction({ warehouseId: wh.id, notes: "" }),
@@ -180,6 +183,10 @@ describe("stocktake actions (Phase 32c)", () => {
       const a = await startSession(whA.id);
       mockCookieStore.clear();
       const b = await startSession(whB.id);
+      // This test targets the line/session IDOR guard specifically, not
+      // location access (docs/adr/0037) — grant B's user access to A too,
+      // so the location check isn't what rejects the request below.
+      await grantLocationAccess(b.actorId, whA.id);
 
       const r = await updateStocktakeCountsAction({
         id: a.sessionId,
@@ -463,7 +470,8 @@ describe("stocktake actions (Phase 32c)", () => {
         mockCookieStore.clear();
         const wh = await seedWarehouse();
         const { item } = await seedItem(wh.id, 5);
-        await loginAsTestUser({ role });
+        const roleUser = await loginAsTestUser({ role });
+        await grantLocationAccess(roleUser.id, wh.id);
         const created = await createStocktakeSessionAction({ warehouseId: wh.id, notes: "" });
         expect(created.ok, role).toBe(true);
         if (!created.ok) continue;

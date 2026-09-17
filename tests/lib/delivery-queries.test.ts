@@ -3,8 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { listOrdersAwaitingShipment, listShipments, getDeliveryStats } from "@/lib/queries/delivery";
 import { createOrderAction, updateOrderStatusAction } from "@/actions/orders";
 import { createShippingProviderAction } from "@/actions/delivery";
+import { getCurrentUser } from "@/lib/auth/session";
+import { hasGlobalLocationAccess } from "@/lib/auth/location-access";
 import { resetDb } from "../helpers/db";
-import { loginAsTestUser } from "../helpers/auth";
+import { loginAsTestUser, grantLocationAccess } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 
 function formData(fields: Record<string, string>) {
@@ -17,6 +19,13 @@ async function seedConfirmedOrder(opts: { customerName?: string } = {}) {
   const warehouse =
     (await prisma.warehouse.findFirst({ where: { isDefault: true } })) ??
     (await prisma.warehouse.create({ data: { name: "Entrepôt", isDefault: true } }));
+  // Location Access Management v1 (docs/adr/0037): grant the already
+  // logged-in (non-global) test user access to this warehouse, same
+  // convention as tests/actions/returns.test.ts's seedOrderable.
+  const actor = await getCurrentUser();
+  if (actor && !hasGlobalLocationAccess(actor.role)) {
+    await grantLocationAccess(actor.id, warehouse.id);
+  }
   const product = await prisma.product.create({ data: { name: "Coffret", sku: `SKU-${Math.random()}`, price: 100, status: "ACTIF" } });
   await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 10 } });
   const customer = await prisma.customer.create({ data: { fullName: opts.customerName ?? "Amine Tazi" } });

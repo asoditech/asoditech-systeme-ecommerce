@@ -14,8 +14,10 @@ import {
   generateDeliveryManifestAction,
 } from "@/actions/delivery";
 import { updateOrderStatusAction, createOrderAction } from "@/actions/orders";
+import { getCurrentUser } from "@/lib/auth/session";
+import { hasGlobalLocationAccess } from "@/lib/auth/location-access";
 import { resetDb } from "../helpers/db";
-import { loginAsTestUser } from "../helpers/auth";
+import { loginAsTestUser, grantLocationAccess } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 import { registerOzonExpressProviderForTests, OZONEXPRESS_PROVIDER_KEY } from "../helpers/ozonexpress-provider";
 import {
@@ -54,6 +56,13 @@ async function seedShippableOrder() {
     update: {},
     create: { id: "wh-oz", name: "Entrepôt", isDefault: true },
   });
+  // Location Access Management v1 (docs/adr/0037): grant the already
+  // logged-in (non-global) test user access to this warehouse, same
+  // convention as tests/actions/returns.test.ts's seedOrderable.
+  const actor = await getCurrentUser();
+  if (actor && !hasGlobalLocationAccess(actor.role)) {
+    await grantLocationAccess(actor.id, warehouse.id);
+  }
   const product = await prisma.product.create({
     data: { name: "Coffret", sku: `SKU-OZ-${Date.now()}-${Math.random()}`, price: 100, status: "ACTIF" },
   });

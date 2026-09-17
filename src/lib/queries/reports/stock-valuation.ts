@@ -58,7 +58,7 @@ function variantLabel(attributes: unknown): string | null {
 }
 
 export async function getStockValuationReport(
-  opts: { warehouseId?: string; dormantDays?: number } = {}
+  opts: { warehouseId?: string; warehouseIds?: string[]; dormantDays?: number } = {}
 ): Promise<StockValuationReport> {
   const dormantDays = opts.dormantDays ?? 60;
   const dormantSince = new Date();
@@ -66,7 +66,16 @@ export async function getStockValuationReport(
 
   const items = await prisma.inventoryItem.findMany({
     where: {
-      ...(opts.warehouseId ? { warehouseId: opts.warehouseId } : {}),
+      // `warehouseId` (an explicit picker selection) wins when present;
+      // otherwise `warehouseIds` (Location Access Management v1 —
+      // docs/adr/0037) restricts an unfiltered report to the caller's own
+      // authorized set instead of the whole tenant. Neither (OWNER/ADMIN
+      // with no picker selection) means every warehouse, unchanged.
+      ...(opts.warehouseId
+        ? { warehouseId: opts.warehouseId }
+        : opts.warehouseIds
+          ? { warehouseId: { in: opts.warehouseIds } }
+          : {}),
       quantityOnHand: { gt: 0 },
     },
     select: {

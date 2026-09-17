@@ -125,6 +125,7 @@ const AUDIT_ACTION_META: Record<string, AuditActionMeta> = {
   "user.created": { label: "Utilisateur créé", category: "utilisateurs" },
   "user.login.failure": { label: "Échec de connexion", category: "utilisateurs" },
   "user.login.success": { label: "Connexion réussie", category: "utilisateurs" },
+  "user.locations_updated": { label: "Emplacements assignés modifiés", category: "utilisateurs" },
   "user.logout": { label: "Déconnexion", category: "utilisateurs" },
   "user.role_changed": { label: "Rôle utilisateur modifié", category: "utilisateurs" },
   "user.status_changed": { label: "Statut utilisateur modifié", category: "utilisateurs" },

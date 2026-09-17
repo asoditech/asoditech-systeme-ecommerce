@@ -43,3 +43,19 @@ export async function loginAsTestUser(overrides: Parameters<typeof createTestUse
   await createSession(user.id);
   return user;
 }
+
+/**
+ * Location Access Management v1 (docs/adr/0037): grants a (non-OWNER/
+ * non-ADMIN) test user access to one or more warehouses — the exact
+ * fixture equivalent of an admin using the "Emplacements" dialog. OWNER/
+ * ADMIN never need this (global access by role); calling it for one is
+ * harmless (the row is simply never consulted) but pointless.
+ */
+export async function grantLocationAccess(userId: string, warehouseIds: string | string[]) {
+  const ids = Array.isArray(warehouseIds) ? warehouseIds : [warehouseIds];
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { tenantId: true } });
+  await prisma.userLocation.createMany({
+    data: ids.map((warehouseId) => ({ userId, warehouseId, tenantId: user.tenantId })),
+    skipDuplicates: true,
+  });
+}

@@ -4,7 +4,7 @@ import { createExpenseAction, createExpenseCategoryAction } from "@/actions/fina
 import { createOrderAction, createRefundAction, updateRefundStatusAction } from "@/actions/orders";
 import { getFinanceSummary } from "@/lib/queries/finance";
 import { resetDb } from "../helpers/db";
-import { loginAsTestUser } from "../helpers/auth";
+import { loginAsTestUser, grantLocationAccess } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 
 function formData(fields: Record<string, string>) {
@@ -129,9 +129,10 @@ describe("getFinanceSummary — data integrity", () => {
   });
 
   it("attributes a refund to the order's own period, not the refund's own date (audit fix)", async () => {
-    await loginAsTestUser({ role: "MANAGER" });
+    const manager = await loginAsTestUser({ role: "MANAGER" });
     const customer = await prisma.customer.create({ data: { fullName: "Amine" } });
     const warehouse = await prisma.warehouse.create({ data: { id: "default-warehouse", name: "Entrepôt", isDefault: true } });
+    await grantLocationAccess(manager.id, warehouse.id);
     const product = await prisma.product.create({ data: { name: "P", sku: "SKU-FIN-2", price: 100, cost: 40, status: "ACTIF" } });
     await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 10 } });
 
@@ -182,9 +183,10 @@ describe("getFinanceSummary — data integrity", () => {
   });
 
   it("does not net out a refund that is only EN_ATTENTE (not yet COMPLETE)", async () => {
-    await loginAsTestUser({ role: "MANAGER" });
+    const manager = await loginAsTestUser({ role: "MANAGER" });
     const customer = await prisma.customer.create({ data: { fullName: "Amine" } });
     const warehouse = await prisma.warehouse.create({ data: { id: "default-warehouse", name: "Entrepôt", isDefault: true } });
+    await grantLocationAccess(manager.id, warehouse.id);
     const product = await prisma.product.create({ data: { name: "P", sku: "SKU-FIN-3", price: 100, cost: 40, status: "ACTIF" } });
     await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 10 } });
 

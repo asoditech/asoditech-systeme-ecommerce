@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
+import { requireLocationAccessForAction } from "@/lib/auth/location-access";
 import { recordAuditEvent } from "@/lib/audit";
 import { applyPhysicalReturnLine, resolveOrderStockWarehouseId, getDefaultWarehouseId } from "@/lib/inventory";
 import { checkAndNotifyLowStock } from "@/lib/notifications";
@@ -65,6 +66,24 @@ export async function confirmPhysicalReturnAction(
   if (!order) return actionError("Commande introuvable.");
   if (order.shippedAt === null) {
     return actionError("Cette commande n'a pas encore été expédiée — aucune unité physique à retourner.");
+  }
+
+  // Location Access Management v1 (docs/adr/0037): a physical return must
+  // resolve to the SAME warehouse the order actually shipped from (never a
+  // new selector — see resolveOrderStockWarehouseId's own doc comment) —
+  // authorization checks that exact warehouse. `fulfillmentWarehouseId` is
+  // null only for a pre-32b legacy order; resolve the same way
+  // applyPhysicalReturnLine's own per-line loop below will, using the
+  // order's first line as the representative case (every item resolves to
+  // the SAME warehouse once `preferredWarehouseId` is set, which it always
+  // is for any order created after 32b).
+  const primaryWarehouseId =
+    order.fulfillmentWarehouseId ??
+    (order.items[0]
+      ? await resolveOrderStockWarehouseId(prisma, order.items[0], null)
+      : null);
+  if (primaryWarehouseId) {
+    await requireLocationAccessForAction(user, primaryWarehouseId);
   }
 
   const itemsById = new Map(order.items.map((i) => [i.id, i]));

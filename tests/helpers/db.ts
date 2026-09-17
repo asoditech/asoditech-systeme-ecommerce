@@ -68,6 +68,10 @@ export async function resetDb() {
     await tx.stockTransferLine.deleteMany();
     await tx.stockTransfer.deleteMany();
     await tx.inventoryItem.deleteMany();
+    // Location Access Management v1 (docs/adr/0037): user_locations has a
+    // RESTRICT fk to warehouses, so a leftover row would block the
+    // warehouse.deleteMany() below.
+    await tx.userLocation.deleteMany();
     await tx.warehouse.deleteMany();
     await tx.productVariation.deleteMany();
     await tx.productImage.deleteMany();
