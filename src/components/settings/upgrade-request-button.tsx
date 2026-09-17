@@ -13,13 +13,19 @@ export function UpgradeRequestButton({ requestedPlanCode, label }: { requestedPl
       disabled={isPending}
       onClick={() => {
         startTransition(async () => {
-          const formData = new FormData();
-          formData.set("requestedPlanCode", requestedPlanCode);
-          const result = await requestPlanUpgradeAction(formData);
-          if (result.ok) {
-            toast.success("Votre demande a été envoyée. Notre équipe vous contactera rapidement.");
-          } else {
-            toast.error(result.error);
+          try {
+            const formData = new FormData();
+            formData.set("requestedPlanCode", requestedPlanCode);
+            const result = await requestPlanUpgradeAction(formData);
+            if (result.ok) {
+              toast.success("Votre demande a été envoyée. Notre équipe vous contactera rapidement.");
+            } else {
+              toast.error(result.error);
+            }
+          } catch {
+            // An unexpected server-side failure must degrade to a toast,
+            // never a hard crash for someone just requesting an upgrade.
+            toast.error("Une erreur est survenue. Merci de réessayer, ou de nous contacter via le centre d'aide.");
           }
         });
       }}

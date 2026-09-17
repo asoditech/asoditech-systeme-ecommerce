@@ -266,7 +266,18 @@ export async function requestPlanUpgradeAction(formData: FormData): Promise<Acti
     metadata: { fromPlan: currentPlan.code, toPlan: requestedPlan?.code ?? requestedPlanCode },
   });
 
-  await notifySupportTicket({ id: ticket.id, categoryLabel: "Demande de mise à niveau", reporterName: user.name }, user.id);
+  // Best-effort fan-out — the ticket itself is already saved above, so a
+  // transient failure here (e.g. no OWNER/ADMIN recipient resolves, a DB
+  // hiccup) must never turn into a hard error for someone just requesting
+  // an upgrade; the email below is the reliable channel regardless.
+  try {
+    await notifySupportTicket(
+      { id: ticket.id, categoryLabel: "Demande de mise à niveau", reporterName: user.name },
+      user.id
+    );
+  } catch (error) {
+    console.error("notifySupportTicket failed (non-fatal):", error);
+  }
 
   const settings = await prisma.businessSettings.findFirst({ select: { supportEmail: true, companyName: true } });
   try {

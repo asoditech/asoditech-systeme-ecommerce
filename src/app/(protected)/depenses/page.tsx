@@ -192,6 +192,7 @@ export default async function DepensesPage({
                 <TableHead>Fournisseur</TableHead>
                 <TableHead>Montant</TableHead>
                 <TableHead>Date</TableHead>
+                {canManage && <TableHead />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -202,6 +203,21 @@ export default async function DepensesPage({
                   <TableCell className="text-muted-foreground">{e.vendor ?? "—"}</TableCell>
                   <TableCell>{formatCurrency(e.amount.toString(), e.currency)}</TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(e.date)}</TableCell>
+                  {canManage && (
+                    <TableCell className="text-right">
+                      <ExpenseForm
+                        categories={categories}
+                        expense={{
+                          id: e.id,
+                          categoryId: e.categoryId,
+                          amount: e.amount.toString(),
+                          date: e.date.toISOString().slice(0, 10),
+                          description: e.description,
+                          vendor: e.vendor,
+                        }}
+                      />
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

@@ -47,17 +47,25 @@ export function ReportFilterBar({
     <div className="mb-5 flex flex-wrap items-end gap-2 print:hidden">
       {!hidePeriod && (
         <>
-          <div className="flex gap-1.5">
-            {presets.map((p) => (
-              <Button
-                key={p.key}
-                size="sm"
-                variant={resolved.key === p.key ? "default" : "outline"}
-                render={<Link href={presetHref(p.key)} />}
-              >
-                {p.label}
-              </Button>
-            ))}
+          {/* Invisible label-height spacer keeps this button row's own
+              bottom edge level with the "Du"/"Au" inputs' bottom edge —
+              without it, `items-end` bottom-aligns this (label-less) group
+              against the taller labeled date columns, leaving "Du"/"Au"
+              floating above with no field visibly under them. */}
+          <div className="flex flex-col gap-1">
+            <span aria-hidden className="text-xs leading-none text-transparent">.</span>
+            <div className="flex gap-1.5">
+              {presets.map((p) => (
+                <Button
+                  key={p.key}
+                  size="sm"
+                  variant={resolved.key === p.key ? "default" : "outline"}
+                  render={<Link href={presetHref(p.key)} />}
+                >
+                  {p.label}
+                </Button>
+              ))}
+            </div>
           </div>
 
           <form className="flex flex-wrap items-end gap-2" action={basePath}>

@@ -30,7 +30,12 @@ export function NotificationBell({
       >
         <Bell className="size-4" />
         {unreadCount > 0 && (
-          <span className="absolute top-1 right-1 flex size-2 rounded-full bg-destructive" />
+          <Badge
+            variant="destructive"
+            className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] leading-none tabular-nums"
+          >
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </Badge>
         )}
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 p-0">

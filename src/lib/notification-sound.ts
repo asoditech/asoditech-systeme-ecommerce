@@ -17,7 +17,7 @@
 const SOUND_PREF_KEY = "asoditech:notifications:sound-enabled";
 const LAST_PLAYED_KEY = "asoditech:notifications:last-played-at";
 const SOUND_SRC = "/sounds/notification.mp3";
-const VOLUME = 0.35;
+const VOLUME = 0.65;
 /** Multi-tab guard window — if another tab played within this long, skip
  * ours. Best-effort coordination via localStorage, not a strict lock;
  * see docs/adr/0016-notifications.md's addendum for why that's enough. */

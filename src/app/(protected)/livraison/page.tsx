@@ -245,7 +245,17 @@ export default async function LivraisonPage({
                             (s.trackingNumber ?? "—")
                           )}
                         </span>
-                        <span className="block text-[11px] text-muted-foreground/70">{s.provider.name}</span>
+                        <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground/70">
+                          {s.provider.providerKey && s.provider.providerKey in PROVIDER_BRANDS ? (
+                            <BrandLogo
+                              brand={PROVIDER_BRANDS[s.provider.providerKey]!}
+                              label={s.provider.name}
+                              className="size-3.5"
+                            />
+                          ) : (
+                            s.provider.name
+                          )}
+                        </span>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatCurrency(s.order.total.toString(), s.order.currency)}

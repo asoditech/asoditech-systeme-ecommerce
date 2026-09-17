@@ -67,10 +67,14 @@ export async function reportProblemAction(formData: FormData): Promise<ActionRes
   });
 
   // Best-effort fan-out — the ticket is already saved and visible in-app.
-  await notifySupportTicket(
-    { id: ticket.id, categoryLabel, reporterName: user.name },
-    user.id,
-  );
+  try {
+    await notifySupportTicket(
+      { id: ticket.id, categoryLabel, reporterName: user.name },
+      user.id,
+    );
+  } catch (error) {
+    console.error("notifySupportTicket failed (non-fatal):", error);
+  }
 
   const settings = await prisma.businessSettings.findFirst({
     select: { supportEmail: true, companyName: true },

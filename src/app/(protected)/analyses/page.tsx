@@ -8,7 +8,7 @@ import { KpiCard } from "@/components/kpi-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { LineChart, Wallet, PackageMinus, TrendingUp, TrendingDown } from "lucide-react";
+import { LineChart, Wallet, PackageMinus, TrendingUp, TrendingDown, ReceiptText, Truck } from "lucide-react";
 import { requirePermission } from "@/lib/auth/guards";
 import { getRevenueTrend, getOrderStatusBreakdown, getChannelBreakdown, getTopProducts } from "@/lib/queries/analytics";
 import { currentMonthRange, currentQuarterRange, currentYearRange, type PeriodRange } from "@/lib/queries/finance";
@@ -112,6 +112,22 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
                 hint={pnl.netMarginPct !== null ? `Marge ${pnl.netMarginPct.toFixed(1)} %` : undefined}
                 icon={TrendingDown}
                 tone="violet"
+              />
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <KpiCard
+                label="Dépenses enregistrées"
+                value={formatCurrency(pnl.expensesTotal)}
+                hint="Déjà déduites du bénéfice net ci-dessus"
+                icon={ReceiptText}
+                tone="danger"
+              />
+              <KpiCard
+                label="Coût de livraison"
+                value={formatCurrency(pnl.deliveryCostTotal)}
+                hint="Déjà déduit du bénéfice net ci-dessus"
+                icon={Truck}
+                tone="info"
               />
             </div>
           </div>

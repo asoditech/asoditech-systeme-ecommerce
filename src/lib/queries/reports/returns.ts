@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { PeriodRange } from "@/lib/queries/finance";
+import { displayOrderRecipient } from "@/lib/format";
 
 /**
  * Physical returns — built directly off `OrderReturn`/`OrderReturnLine`
@@ -61,7 +62,13 @@ export async function getReturnsReport(range: PeriodRange): Promise<ReturnsRepor
     orderBy: { receivedAt: "desc" },
     include: {
       order: {
-        select: { id: true, orderNumber: true, displayNumber: true, customer: { select: { fullName: true } } },
+        select: {
+          id: true,
+          orderNumber: true,
+          displayNumber: true,
+          shippingName: true,
+          customer: { select: { fullName: true } },
+        },
       },
       receivedBy: { select: { name: true } },
       lines: { select: { nameSnapshot: true, skuSnapshot: true, quantitySellable: true, quantityDamaged: true } },
@@ -110,7 +117,10 @@ export async function getReturnsReport(range: PeriodRange): Promise<ReturnsRepor
       orderId: r.orderId,
       orderNumber: r.order.orderNumber,
       displayNumber: r.order.displayNumber,
-      customerName: r.order.customer.fullName,
+      // Per-order recipient snapshot, not the (mutable, sometimes
+      // customer-matched-by-phone-shared) live Customer name — two orders
+      // under one merged Customer record must not display the same name.
+      customerName: displayOrderRecipient(r.order),
       receivedAt: r.receivedAt,
       receivedByName: r.receivedBy?.name ?? null,
       unitsSellable: eventSellable,

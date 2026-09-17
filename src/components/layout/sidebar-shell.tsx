@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
@@ -44,6 +44,23 @@ export function SidebarShell({
   children: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  // Icon-only mode still lets a viewer preview the full menu without
+  // committing to expanding it: hovering the collapsed `<aside>` shows it
+  // at full width as an overlay (higher z-index, content padding untouched)
+  // rather than reflowing the page on every hover. A short leave delay
+  // avoids it flickering shut while the cursor crosses a small gap.
+  const [hovering, setHovering] = useState(false);
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewing = collapsed && hovering;
+
+  function handleMouseEnter() {
+    if (leaveTimer.current) clearTimeout(leaveTimer.current);
+    if (collapsed) setHovering(true);
+  }
+
+  function handleMouseLeave() {
+    leaveTimer.current = setTimeout(() => setHovering(false), 150);
+  }
 
   function toggle() {
     setCollapsed((prev) => {
@@ -61,18 +78,20 @@ export function SidebarShell({
   return (
     <div className="flex min-h-screen bg-background">
       <aside
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         className={cn(
-          "fixed inset-y-0 left-0 hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-150 md:flex",
-          collapsed ? "w-16" : "w-64"
+          "fixed inset-y-0 left-0 z-40 hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar shadow-sm transition-[width] duration-150 md:flex",
+          previewing ? "w-64 shadow-lg" : collapsed ? "w-16" : "w-64"
         )}
       >
-        <div className={cn("flex h-14 shrink-0 items-center border-b border-sidebar-border", collapsed ? "justify-center px-2" : "px-4")}>
+        <div className={cn("flex h-14 shrink-0 items-center border-b border-sidebar-border", collapsed && !previewing ? "justify-center px-2" : "px-4")}>
           <Link href="/tableau-de-bord" aria-label="Tableau de bord">
-            <BrandMark variant={collapsed ? "icon" : "compact"} />
+            <BrandMark variant={collapsed && !previewing ? "icon" : "compact"} />
           </Link>
         </div>
         <div className="sidebar-scroll flex-1 overflow-y-auto">
-          <SidebarNav permissions={permissions} collapsed={collapsed} />
+          <SidebarNav permissions={permissions} collapsed={collapsed && !previewing} />
         </div>
         <button
           type="button"
@@ -82,7 +101,7 @@ export function SidebarShell({
           className="flex h-10 shrink-0 items-center justify-center gap-2 border-t border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
           {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
-          {!collapsed && <span className="text-xs font-medium">Réduire</span>}
+          {(!collapsed || previewing) && <span className="text-xs font-medium">Réduire</span>}
         </button>
       </aside>
       <div className={cn("flex min-w-0 flex-1 flex-col transition-[padding] duration-150", collapsed ? "md:pl-16" : "md:pl-64")}>
