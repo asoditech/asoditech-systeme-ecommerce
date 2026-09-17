@@ -37,7 +37,7 @@ export function AddAgentForm({ users }: { users: { id: string; name: string }[] 
 
   return (
     <form action={formAction} className="space-y-2">
-      <div className="flex items-end gap-3">
+      <div className="flex items-start gap-3">
         <div className="flex-1 space-y-1.5">
           <Label htmlFor="agent-user" className="whitespace-nowrap">Utilisateur</Label>
           <Select name="userId" required>
@@ -63,10 +63,23 @@ export function AddAgentForm({ users }: { users: { id: string; name: string }[] 
           <Label htmlFor="agent-rate" className="whitespace-nowrap">Taux / commande livrée</Label>
           <Input id="agent-rate" name="ratePerOrder" type="number" step="0.5" min="0" defaultValue="10" className="w-full" />
         </div>
-        <Button type="submit" disabled={isPending} className="shrink-0">
-          <UserPlus className="size-4" />
-          {isPending ? "Ajout…" : "Ajouter"}
-        </Button>
+        {/* `items-start` (not `items-end`) because Select's hidden native
+            <select>/<input> sibling (rendered after SelectTrigger for form
+            submission/accessibility) picks up its own space-y-1.5 top
+            margin, inflating that column's total height beyond the plain
+            Input column's — bottom-aligning the two then left the shorter
+            (Input) column's visible label+control sitting lower than the
+            Select's. Top-aligning is immune to that trailing, invisible
+            height difference. The Button has no label above it, so an
+            invisible one (exact same component, just hidden) keeps its
+            control starting at the same Y as the two labeled fields'. */}
+        <div className="space-y-1.5">
+          <Label aria-hidden className="text-transparent select-none">Ajouter</Label>
+          <Button type="submit" disabled={isPending} className="shrink-0">
+            <UserPlus className="size-4" />
+            {isPending ? "Ajout…" : "Ajouter"}
+          </Button>
+        </div>
       </div>
       {state && !state.ok && <p className="text-sm text-destructive">{state.error}</p>}
     </form>
