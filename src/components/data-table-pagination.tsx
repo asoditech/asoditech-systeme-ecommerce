@@ -43,11 +43,11 @@ export function DataTablePagination({
   }
 
   return (
-    <div className="flex items-center justify-between gap-4 border-t px-4 py-3">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3">
       <p className="text-sm text-muted-foreground">
         {total === 0 ? "Aucun résultat" : `${from}–${to} sur ${total}`}
       </p>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           variant="outline"
           size="sm"

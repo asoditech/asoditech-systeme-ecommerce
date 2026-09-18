@@ -38,7 +38,7 @@ export function NotificationBell({
           </Badge>
         )}
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-0">
+      <PopoverContent align="end" className="w-[min(20rem,calc(100vw-1.5rem))] p-0">
         <div className="flex items-center justify-between border-b p-3">
           <p className="text-sm font-medium">Notifications</p>
           {unreadCount > 0 && (
