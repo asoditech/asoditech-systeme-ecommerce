@@ -236,3 +236,26 @@ export const USAGE_STATUS_LABELS: Record<string, StatusMeta> = {
   CRITICAL: { label: "Critique", variant: "destructive" },
   LIMIT_REACHED: { label: "Limite atteinte", variant: "destructive" },
 };
+
+// Online/Offline unification (docs/adr/0040).
+export const RECEPTION_STATUS_LABELS: Record<
+  string,
+  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
+> = {
+  BROUILLON: { label: "Brouillon", variant: "secondary" },
+  VALIDEE: { label: "Validée", variant: "default" },
+  ANNULEE: { label: "Annulée", variant: "destructive" },
+};
+
+export const CASH_PAYMENT_METHOD_LABELS: Record<string, string> = {
+  ESPECES: "Espèces",
+  CARTE: "Carte bancaire",
+  VIREMENT: "Virement",
+  CHEQUE: "Chèque",
+  AUTRE: "Autre",
+};
+
+export const SALES_CHANNEL_KIND_LABELS: Record<string, string> = {
+  ONLINE: "En ligne",
+  OFFLINE: "Magasin",
+};

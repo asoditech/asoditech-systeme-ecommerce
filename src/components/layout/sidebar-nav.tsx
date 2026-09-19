@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import type { Permission } from "@/lib/auth/permissions";
+import { PERMISSION_CHANNEL_DOMAIN, type ChannelDomain, type Permission } from "@/lib/auth/permissions";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -28,6 +28,10 @@ import {
   Sparkles,
   Settings,
   BookOpen,
+  Store,
+  PackagePlus,
+  Building2,
+  ScanBarcode,
 } from "lucide-react";
 
 interface NavItem {
@@ -35,6 +39,20 @@ interface NavItem {
   label: string;
   icon: typeof LayoutDashboard;
   permission: Permission;
+  /**
+   * Set for a page that aggregates one activity's data under a SHARED
+   * permission (analyses, finance): shown only when the viewer holds at
+   * least one permission of that activity. Effective permissions are already
+   * channel-scoped, so this is exactly "has a channel of that activity".
+   * Convenience only — the page itself re-checks server-side (docs/adr/0039).
+   */
+  domain?: ChannelDomain;
+}
+
+/** True when the (effective, channel-scoped) permission set includes any permission of `domain`. */
+export function hasDomainAccess(permissions: ReadonlySet<Permission>, domain: ChannelDomain): boolean {
+  for (const p of permissions) if (PERMISSION_CHANNEL_DOMAIN[p] === domain) return true;
+  return false;
 }
 
 interface NavGroup {
@@ -54,6 +72,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Ventes",
     items: [
       { href: "/commandes", label: "Commandes", icon: ShoppingCart, permission: "orders.view" },
+      { href: "/ventes", label: "Ventes magasin", icon: Store, permission: "sales.view", domain: "OFFLINE" },
       { href: "/confirmation", label: "Confirmation", icon: PhoneCall, permission: "orders.confirm" },
       { href: "/clients", label: "Clients", icon: Users, permission: "customers.view" },
       { href: "/livraison", label: "Livraison", icon: Truck, permission: "delivery.view" },
@@ -65,6 +84,9 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/produits", label: "Produits", icon: Package, permission: "products.view" },
       { href: "/stock", label: "Stock", icon: Boxes, permission: "inventory.view" },
+      { href: "/receptions", label: "Réceptions", icon: PackagePlus, permission: "purchases.view" },
+      { href: "/fournisseurs", label: "Fournisseurs", icon: Building2, permission: "suppliers.view" },
+      { href: "/tracabilite", label: "Traçabilité", icon: ScanBarcode, permission: "traceability.view" },
       { href: "/transferts", label: "Transferts", icon: ArrowLeftRight, permission: "inventory.view" },
       { href: "/inventaires", label: "Inventaires", icon: ClipboardCheck, permission: "inventory.view" },
       { href: "/entrepots", label: "Emplacements", icon: Warehouse, permission: "inventory.view" },
@@ -74,8 +96,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Pilotage",
     items: [
       { href: "/rapports", label: "Rapports", icon: FileBarChart, permission: "analytics.view" },
-      { href: "/analyses", label: "Analyses", icon: LineChart, permission: "analytics.view" },
-      { href: "/finance", label: "Finance", icon: Wallet, permission: "finance.view" },
+      { href: "/analyses", label: "Analyses", icon: LineChart, permission: "analytics.view", domain: "ONLINE" },
+      { href: "/finance", label: "Finance", icon: Wallet, permission: "finance.view", domain: "ONLINE" },
       { href: "/depenses", label: "Dépenses", icon: Receipt, permission: "finance.view" },
       { href: "/commissions", label: "Commissions", icon: HandCoins, permission: "commissions.view" },
       // Marketing is temporarily hidden from navigation (client feedback
@@ -116,7 +138,9 @@ export function SidebarNav({
   const allHrefs = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href));
   const groups = NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => permissions.has(item.permission)),
+    items: group.items.filter(
+      (item) => permissions.has(item.permission) && (!item.domain || hasDomainAccess(permissions, item.domain))
+    ),
   })).filter((group) => group.items.length > 0);
 
   return (

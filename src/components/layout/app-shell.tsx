@@ -12,18 +12,21 @@ import { BrandMark } from "@/components/brand-mark";
 import { SupportWidget } from "@/components/support/support-widget";
 import { getRecentNotifications } from "@/lib/queries/notifications";
 import { getSupportConfig } from "@/lib/queries/support";
-import { aiQuestionsForRole } from "@/lib/ai/tools";
-import { ROLE_PERMISSIONS, hasPermission } from "@/lib/auth/permissions";
+import { aiQuestionsForUser } from "@/lib/ai/tools";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { USER_ROLE_LABELS } from "@/lib/status-labels";
 import type { CurrentUser } from "@/lib/auth/session";
 
 export async function AppShell({ user, children }: { user: CurrentUser; children: React.ReactNode }) {
-  const permissions = new Set(ROLE_PERMISSIONS[user.role]);
+  // Effective permissions (role + per-user overrides, filtered by channel
+  // scope — docs/adr/0039), so the sidebar shows exactly what the server
+  // will actually allow.
+  const permissions = new Set(user.permissions);
   const [{ items, unreadCount }, supportConfig] = await Promise.all([
     getRecentNotifications(user.id),
     getSupportConfig(),
   ]);
-  const canUseAi = hasPermission(user.role, "ai.use");
+  const canUseAi = userHasPermission(user, "ai.use");
   // Server-read so the very first paint already reflects the viewer's
   // saved sidebar-collapse preference — no client-only effect, no flash.
   const sidebarCollapsed = (await cookies()).get("sidebar-collapsed")?.value === "1";
@@ -54,7 +57,7 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
 
       <SupportWidget
         canUseAi={canUseAi}
-        questions={canUseAi ? aiQuestionsForRole(user.role) : []}
+        questions={canUseAi ? aiQuestionsForUser(user) : []}
         config={supportConfig}
       />
     </SidebarShell>

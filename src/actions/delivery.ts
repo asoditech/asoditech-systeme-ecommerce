@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction, requireUserForAction } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { recordAuditEvent } from "@/lib/audit";
 import { applyShipmentStatusTransition, SHIPPABLE_ORDER_STATUSES } from "@/lib/delivery";
 import {
@@ -343,7 +343,7 @@ export async function updateShippingProviderPricingAction(formData: FormData): P
  */
 export async function overrideShipmentCostAction(formData: FormData): Promise<ActionResult<IdResult>> {
   const user = await requireUserForAction();
-  if (!hasPermission(user.role, "finance.manage")) {
+  if (!userHasPermission(user, "finance.manage")) {
     return actionError("Seule la comptabilité peut corriger le coût d'une expédition.");
   }
 

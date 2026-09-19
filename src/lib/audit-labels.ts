@@ -140,6 +140,25 @@ const AUDIT_ACTION_META: Record<string, AuditActionMeta> = {
   "subscription.canceled": { label: "Abonnement résilié", category: "abonnement" },
   "usage.threshold_reached": { label: "Seuil d'utilisation atteint", category: "abonnement" },
   "upgrade.requested": { label: "Mise à niveau demandée", category: "abonnement" },
+  "tenant.business_mode_changed": { label: "Mode d'activité du tenant modifié", category: "abonnement" },
+  "product.identity_updated": { label: "Référence du produit modifiée", category: "produits_stock" },
+  "product.barcode_added": { label: "Code-barres ajouté", category: "produits_stock" },
+  "product.barcode_removed": { label: "Code-barres supprimé", category: "produits_stock" },
+  "product.channels_updated": { label: "Canaux de vente du produit modifiés", category: "produits_stock" },
+  "sales_channel.created": { label: "Canal de vente créé", category: "parametres" },
+  "sales_channel.updated": { label: "Canal de vente modifié", category: "parametres" },
+  "sales_channel.locations_updated": { label: "Emplacements du canal modifiés", category: "parametres" },
+  "user.permissions_updated": { label: "Permissions individuelles modifiées", category: "utilisateurs" },
+  "user.channels_updated": { label: "Canaux assignés modifiés", category: "utilisateurs" },
+  "supplier.created": { label: "Fournisseur créé", category: "produits_stock" },
+  "supplier.updated": { label: "Fournisseur modifié", category: "produits_stock" },
+  "reception.created": { label: "Réception créée", category: "produits_stock" },
+  "reception.updated": { label: "Réception modifiée", category: "produits_stock" },
+  "reception.validated": { label: "Réception validée (stock ajouté)", category: "produits_stock" },
+  "reception.cancelled": { label: "Réception annulée", category: "produits_stock" },
+  "supplier_payment.recorded": { label: "Paiement fournisseur enregistré", category: "finance" },
+  "sale.created": { label: "Vente magasin enregistrée", category: "commandes" },
+  "sale.return_created": { label: "Retour de vente magasin enregistré", category: "commandes" },
 };
 
 /** A plain-French phrase for an action code — never the raw dev code,
@@ -196,6 +215,13 @@ export const AUDIT_ENTITY_LABELS: Record<string, string> = {
   SupportTicket: "Problème signalé",
   Tenant: "Espace de travail",
   TenantSubscription: "Abonnement",
+  SalesChannel: "Canal de vente",
+  Barcode: "Code-barres",
+  Supplier: "Fournisseur",
+  Reception: "Réception",
+  SupplierPayment: "Paiement fournisseur",
+  Sale: "Vente magasin",
+  SaleReturn: "Retour de vente magasin",
 };
 
 export function humanizeAuditEntity(entityType: string): string {
@@ -217,6 +243,12 @@ export function auditEntityHref(entityType: string, entityId: string): string | 
       return `/transferts/${entityId}`;
     case "StocktakeSession":
       return `/inventaires/${entityId}`;
+    case "Sale":
+      return `/ventes/${entityId}`;
+    case "Reception":
+      return `/receptions/${entityId}`;
+    case "Supplier":
+      return `/fournisseurs/${entityId}`;
     case "Integration":
       return "/integrations";
     default:

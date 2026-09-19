@@ -127,6 +127,31 @@ export function formatStocktakeNumber(sessionNumber: number): string {
   return `INV-${sessionNumber.toString().padStart(6, "0")}`;
 }
 
+/** Purchase reception reference, e.g. "REC-000123" (docs/adr/0040). */
+export function formatReceptionNumber(receptionNumber: number): string {
+  return `REC-${receptionNumber.toString().padStart(6, "0")}`;
+}
+
+/** In-store sale reference, e.g. "VTE-000123" (docs/adr/0040). */
+export function formatSaleNumber(saleNumber: number): string {
+  return `VTE-${saleNumber.toString().padStart(6, "0")}`;
+}
+
+/** In-store sale return reference, e.g. "RTM-000123" (docs/adr/0040). */
+export function formatSaleReturnNumber(returnNumber: number): string {
+  return `RTM-${returnNumber.toString().padStart(6, "0")}`;
+}
+
+export function displayReceptionNumber(r: { receptionNumber: number; displayNumber?: number | null }): string {
+  return formatReceptionNumber(resolvedDisplayNumber(r, r.receptionNumber));
+}
+export function displaySaleNumber(s: { saleNumber: number; displayNumber?: number | null }): string {
+  return formatSaleNumber(resolvedDisplayNumber(s, s.saleNumber));
+}
+export function displaySaleReturnNumber(r: { returnNumber: number; displayNumber?: number | null }): string {
+  return formatSaleReturnNumber(resolvedDisplayNumber(r, r.returnNumber));
+}
+
 /** Stock transfer reference from the row itself — prefers the per-tenant
  * `displayNumber` (Phase 3) over the legacy global `transferNumber`. */
 export function displayTransferNumber(transfer: { transferNumber: number; displayNumber?: number | null }): string {

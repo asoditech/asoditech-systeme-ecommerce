@@ -14,15 +14,23 @@ import {
   Settings,
   LifeBuoy,
   Gauge,
+  Store,
   type LucideIcon,
 } from "lucide-react";
 import type { DocCategoryId } from "./types";
+import type { TenantCapability } from "@/lib/tenant/business-mode";
 
 export interface DocCategory {
   id: DocCategoryId;
   label: string;
   description: string;
   icon: LucideIcon;
+  /**
+   * The tenant capability this category documents (docs/adr/0041). A category
+   * that documents an Offline feature is not shown, listed, searched or
+   * reachable in an ONLINE_ONLY tenant — its business has none of it.
+   */
+  requiresCapability?: TenantCapability;
 }
 
 /** The 15 top-level sections (A–O) of the Documentation/Demo Center, in reading order. */
@@ -33,6 +41,7 @@ export const DOC_CATEGORIES: DocCategory[] = [
   { id: "clients", label: "Clients", description: "Créer et gérer les clients, adresses, historique.", icon: Users },
   { id: "commandes", label: "Commandes", description: "Créer, confirmer, annuler et traiter une commande.", icon: ShoppingCart },
   { id: "stock", label: "Stock", description: "Entrepôts, mouvements, transferts, inventaires.", icon: Boxes },
+  { id: "magasin", label: "Magasin & achats", description: "Ventes en magasin, réceptions, fournisseurs, codes-barres, traçabilité, canaux.", icon: Store, requiresCapability: "offlineSales" },
   { id: "confirmation", label: "Confirmation", description: "Le rôle CONFIRMATION et le workflow de confirmation.", icon: PhoneCall },
   { id: "livraison", label: "Livraison", description: "Transporteurs, expéditions, suivi, COD, retours.", icon: Truck },
   { id: "finance", label: "Finance / Rentabilité", description: "Coût produit, marge, dépenses, rentabilité.", icon: Wallet },
@@ -48,4 +57,14 @@ export function getCategory(id: DocCategoryId): DocCategory {
   const cat = DOC_CATEGORIES.find((c) => c.id === id);
   if (!cat) throw new Error(`Unknown doc category: ${id}`);
   return cat;
+}
+
+/** Whether a category is available to a tenant with these capabilities. */
+export function isCategoryAvailable(id: DocCategoryId, capabilities: ReadonlySet<TenantCapability>): boolean {
+  const needed = DOC_CATEGORIES.find((c) => c.id === id)?.requiresCapability;
+  return needed === undefined || capabilities.has(needed);
+}
+
+export function categoriesFor(capabilities: ReadonlySet<TenantCapability>): DocCategory[] {
+  return DOC_CATEGORIES.filter((c) => c.requiresCapability === undefined || capabilities.has(c.requiresCapability));
 }

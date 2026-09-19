@@ -16,6 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { BUSINESS_MODES, BUSINESS_MODE_DESCRIPTIONS, BUSINESS_MODE_LABELS } from "@/lib/tenant/business-mode";
 import type { ActionResult, IdResult } from "@/actions/types";
 
 type CreateResult = ActionResult<IdResult & { inviteUrl: string }>;
@@ -102,6 +103,21 @@ export function CreateTenantForm() {
                 {state && !state.ok && state.fieldErrors?.slug && (
                   <p className="text-xs text-destructive">{state.fieldErrors.slug[0]}</p>
                 )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="businessMode">Mode d&apos;activité</Label>
+                <select
+                  id="businessMode"
+                  name="businessMode"
+                  defaultValue="ONLINE_ONLY"
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {BUSINESS_MODES.map((m) => (
+                    <option key={m} value={m}>
+                      {BUSINESS_MODE_LABELS[m]} — {BUSINESS_MODE_DESCRIPTIONS[m]}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="ownerName">Nom du propriétaire</Label>

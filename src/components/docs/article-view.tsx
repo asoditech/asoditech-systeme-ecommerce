@@ -12,6 +12,7 @@ import { getRelatedArticles, getAdjacentArticles } from "@/lib/docs/registry";
 import { formatDate } from "@/lib/format";
 import type { DocArticle } from "@/lib/docs/types";
 import type { UserRole } from "@prisma/client";
+import type { Permission } from "@/lib/auth/permissions";
 
 const ROLE_LABELS: Record<UserRole, string> = {
   OWNER: "Propriétaire",
@@ -24,7 +25,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   ACCOUNTANT: "Comptable",
 };
 
-export function ArticleView({ article, viewerRole }: { article: DocArticle; viewerRole: UserRole }) {
+export function ArticleView({ article, viewer }: { article: DocArticle; viewer: { permissions: ReadonlySet<Permission> } }) {
   const category = getCategory(article.category);
   const related = getRelatedArticles(article);
   const { prev, next } = getAdjacentArticles(article);
@@ -117,7 +118,7 @@ export function ArticleView({ article, viewerRole }: { article: DocArticle; view
           </div>
         )}
 
-        <TryNowLink tryNow={article.tryNow} permission={article.permission} role={viewerRole} />
+        <TryNowLink tryNow={article.tryNow} permission={article.permission} viewer={viewer} />
 
         {related.length > 0 && (
           <div>

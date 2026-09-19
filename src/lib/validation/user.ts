@@ -52,3 +52,18 @@ export const setUserLocationsSchema = z.object({
 });
 
 export type SetUserLocationsInput = z.infer<typeof setUserLocationsSchema>;
+
+// Per-user permission overrides + channel scope (docs/adr/0039). The FULL
+// desired state is submitted; the action diffs it against what exists.
+export const setUserPermissionOverridesSchema = z.object({
+  userId: z.string().min(1),
+  grants: z.array(z.string().min(1)).max(200),
+  denies: z.array(z.string().min(1)).max(200),
+});
+export type SetUserPermissionOverridesInput = z.infer<typeof setUserPermissionOverridesSchema>;
+
+export const setUserChannelsSchema = z.object({
+  userId: z.string().min(1),
+  salesChannelIds: z.array(z.string().min(1)).max(500),
+});
+export type SetUserChannelsInput = z.infer<typeof setUserChannelsSchema>;

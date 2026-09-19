@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { getCustomerDetail, getCustomerStats } from "@/lib/queries/customers";
 import { deleteCustomerAddressAction } from "@/actions/customers";
 import { formatCurrency, formatDate, displayOrderNumber } from "@/lib/format";
@@ -27,7 +27,13 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   if (!customer) notFound();
 
   const stats = await getCustomerStats(id);
-  const canEdit = hasPermission(user.role, "customers.edit");
+  const canEdit = userHasPermission(user, "customers.edit");
+  // A customer's spend / order history is Online (delivery order) data. The
+  // customer record itself is shared, but its order aggregates need the
+  // ONLINE-domain `orders.view` (effective permission — role + overrides,
+  // channel-scoped: docs/adr/0039), so an Offline-only user reads the
+  // customer without reading Online order data.
+  const canSeeOrders = userHasPermission(user, "orders.view");
 
   return (
     <div>
@@ -47,7 +53,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         }
       />
 
-      {canEdit && (customer.isBlacklisted || stats.cancelledOrders >= 2) && (
+      {canEdit && (customer.isBlacklisted || (canSeeOrders && stats.cancelledOrders >= 2)) && (
         <div
           className={
             customer.isBlacklisted
@@ -74,6 +80,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         </div>
       )}
 
+      {canSeeOrders && (
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           label="Total dépensé"
@@ -97,14 +104,16 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           icon={CalendarClock}
         />
       </div>
+      )}
 
-      <Tabs defaultValue="commandes">
+      <Tabs defaultValue={canSeeOrders ? "commandes" : "adresses"}>
         <TabsList>
-          <TabsTrigger value="commandes">Commandes</TabsTrigger>
+          {canSeeOrders && <TabsTrigger value="commandes">Commandes</TabsTrigger>}
           <TabsTrigger value="adresses">Adresses</TabsTrigger>
           {canEdit && <TabsTrigger value="infos">Informations</TabsTrigger>}
         </TabsList>
 
+        {canSeeOrders && (
         <TabsContent value="commandes">
           {customer.orders.length === 0 ? (
             <EmptyState icon={Plus} title="Aucune commande pour ce client." />
@@ -135,6 +144,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
             </div>
           )}
         </TabsContent>
+        )}
 
         <TabsContent value="adresses" className="space-y-4">
           {customer.addresses.length === 0 ? (

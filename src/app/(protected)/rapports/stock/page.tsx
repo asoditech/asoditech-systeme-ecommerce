@@ -6,6 +6,7 @@ import { ReportFilterBar } from "@/components/reports/report-filter-bar";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { WarehousePickerLink } from "@/components/reports/warehouse-picker-link";
 import { requirePermission } from "@/lib/auth/guards";
+import { saleChannelWhere } from "@/lib/auth/channel-access";
 import { resolveReportRange } from "@/lib/reports/range";
 import { getStockValuationReport } from "@/lib/queries/reports/stock-valuation";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
@@ -38,6 +39,11 @@ export default async function RapportStockPage({
       // everyone else is restricted to their own authorized warehouses,
       // never the tenant's full stock, server-side.
       warehouseIds: !warehouseId && !hasGlobalLocationAccess(user.role) ? warehouses.map((w) => w.id) : undefined,
+      // Rotation counts every activity the viewer may read — and none they may
+      // not (docs/adr/0039): Online orders need an ONLINE channel, in-store
+      // sales are restricted to the viewer's own store channels.
+      includeOnlineOrders: user.channels.online,
+      offlineSaleScope: user.channels.offline ? saleChannelWhere(user) : null,
     }),
     getReportBusinessInfo(),
   ]);

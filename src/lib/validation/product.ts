@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { referenceSchema } from "@/lib/validation/catalog";
 
 export const productStatusSchema = z.enum(["ACTIF", "BROUILLON", "ARCHIVE"]);
 
@@ -34,7 +35,15 @@ const salePriceRefineOptions = {
   path: ["salePrice"] as string[],
 };
 
-export const createProductSchema = baseProductSchema.refine(salePriceNotAboveRegularPrice, salePriceRefineOptions);
+// Identity + availability captured at creation (docs/adr/0038). All optional
+// so every pre-existing caller keeps working unchanged.
+export const createProductSchema = baseProductSchema
+  .extend({
+    reference: referenceSchema,
+    barcode: z.string().trim().max(64).nullish().or(z.literal("")),
+    salesChannelIds: z.array(z.string().min(1)).optional(),
+  })
+  .refine(salePriceNotAboveRegularPrice, salePriceRefineOptions);
 
 export const updateProductSchema = baseProductSchema
   .extend({ id: z.string().min(1) })

@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { TransferLifecycleActions } from "@/components/transfers/transfer-lifecycle-actions";
 import { TransferReceiveForm } from "@/components/transfers/transfer-receive-form";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { getStockTransferDetail, getStockTransferAuditTimeline } from "@/lib/queries/transfers";
 import { formatDateTime, displayTransferNumber } from "@/lib/format";
 import { TRANSFER_STATUS_LABELS } from "@/lib/status-labels";
@@ -31,7 +31,7 @@ export default async function TransfertDetailPage({ params }: { params: Promise<
   const transfer = await getStockTransferDetail(id);
   if (!transfer) notFound();
 
-  const canTransfer = hasPermission(user.role, "inventory.transfer");
+  const canTransfer = userHasPermission(user, "inventory.transfer");
   const timeline = await getStockTransferAuditTimeline(id);
   const ref = displayTransferNumber(transfer);
   const lines = transfer.lines.map((l) => ({ ...l, ...lineLabel(l) }));

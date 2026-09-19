@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { LineChart, Wallet, PackageMinus, TrendingUp, TrendingDown, ReceiptText, Truck } from "lucide-react";
 import { requirePermission } from "@/lib/auth/guards";
+import { requireChannelKind } from "@/lib/auth/channel-access";
 import { getRevenueTrend, getOrderStatusBreakdown, getChannelBreakdown, getTopProducts } from "@/lib/queries/analytics";
 import { currentMonthRange, currentQuarterRange, currentYearRange, type PeriodRange } from "@/lib/queries/finance";
 import { computePeriodProfitability, computeProductProfitability } from "@/lib/profitability";
@@ -38,7 +39,9 @@ function resolvePeriod(key: string | undefined): { range: PeriodRange; key: stri
 }
 
 export default async function AnalysesPage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
-  await requirePermission("analytics.view");
+  const viewer = await requirePermission("analytics.view");
+  // Order-derived data: needs an ONLINE channel (docs/adr/0039).
+  requireChannelKind(viewer, "ONLINE");
   const params = await searchParams;
   const { range: period, key: periodKey, label: periodLabel } = resolvePeriod(params.period);
 

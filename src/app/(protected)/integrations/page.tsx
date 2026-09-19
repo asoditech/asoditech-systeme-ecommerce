@@ -6,7 +6,7 @@ import { ShopifyCard } from "@/components/integrations/shopify-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/prisma";
 import { isShopifyIntegrationEnabled } from "@/lib/integrations/shopify/feature-flag";
 import { INTEGRATION_PROVIDER_LABELS } from "@/lib/status-labels";
@@ -37,7 +37,7 @@ const PLANNED_PROVIDER_BRANDS: Partial<Record<string, BrandKey>> = {
 
 export default async function IntegrationsPage() {
   const user = await requirePermission("integrations.view");
-  const canManage = hasPermission(user.role, "integrations.manage");
+  const canManage = userHasPermission(user, "integrations.manage");
   const integrations = await prisma.integration.findMany();
   // Shopify is disabled for now (client feedback #10): no connection card,
   // it shows on the roadmap instead. Flip SHOPIFY_INTEGRATION_ENABLED to

@@ -1,7 +1,8 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
-import { hasPermission, type Permission } from "@/lib/auth/permissions";
+import type { Permission } from "@/lib/auth/permissions";
+import { loadEffectiveAccessMany } from "@/lib/auth/access-loader";
 import { formatCurrency, formatOrderNumber, displayOrderNumber } from "@/lib/format";
 import { availableStockTotal } from "@/lib/inventory";
 import type { NotificationType, RecordSource } from "@prisma/client";
@@ -61,10 +62,15 @@ export async function notify(input: NotifyInput): Promise<void> {
   try {
     const users = await prisma.user.findMany({
       where: { status: "ACTIVE" },
-      select: { id: true, role: true },
+      select: { id: true, role: true, tenantId: true },
     });
+    // EFFECTIVE permissions (role + per-user overrides, filtered by channel
+    // scope — docs/adr/0039), not the bare role: an Offline-only manager must
+    // not receive an Online order notification, and a user granted an extra
+    // permission should. Two batched queries for the whole tenant.
+    const access = await loadEffectiveAccessMany(users);
     const recipientIds = users
-      .filter((u) => u.id !== input.exceptUserId && hasPermission(u.role, input.recipientPermission))
+      .filter((u) => u.id !== input.exceptUserId && access.get(u.id)?.permissions.has(input.recipientPermission))
       .map((u) => u.id);
     if (recipientIds.length === 0) return;
 

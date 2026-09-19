@@ -37,8 +37,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { getProductDetail, getProductSalesStats, getProductProfitStats, listCategories } from "@/lib/queries/products";
+import { listActiveChannels } from "@/lib/queries/channels";
+import { ProductIdentityPanel } from "@/components/products/product-identity-panel";
+import { variantLabel } from "@/lib/catalog/lookup";
 import { unitEconomics } from "@/lib/profitability";
 import { availableStock } from "@/lib/inventory";
 import { resolveExternalProductEditUrl } from "@/lib/integrations/shared";
@@ -186,16 +189,27 @@ function DescriptionBlocks({ text }: { text: string }) {
 export default async function ProduitDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("products.view");
   const { id } = await params;
-  const [product, categories] = await Promise.all([getProductDetail(id), listCategories()]);
+  // Business-mode capabilities (docs/adr/0041): the Identité tab (reference,
+  // barcodes, channel availability) exists only in an ONLINE_AND_OFFLINE tenant.
+  const identityEnabled = user.capabilities.has("catalogIdentity");
+  const [product, categories, channels] = await Promise.all([
+    getProductDetail(id),
+    listCategories(),
+    identityEnabled ? listActiveChannels() : Promise.resolve([]),
+  ]);
   if (!product) notFound();
 
-  const canViewFinance = hasPermission(user.role, "finance.view");
+  // Sales / profit figures are aggregated from delivery ORDERS — Online data
+  // (docs/adr/0039). Without an ONLINE channel they are neither computed nor
+  // shown; the Offline counterpart is read from sales (docs/adr/0040).
+  const seesOnlineStats = user.channels.online;
+  const canViewFinance = userHasPermission(user, "finance.view") && seesOnlineStats;
   const [sales, profit] = await Promise.all([
-    getProductSalesStats(id),
+    seesOnlineStats ? getProductSalesStats(id) : Promise.resolve({ unitsSold: 0, revenue: null }),
     canViewFinance ? getProductProfitStats(id) : Promise.resolve(null),
   ]);
   const economics = canViewFinance ? unitEconomics(product.price, product.cost) : null;
-  const canEdit = hasPermission(user.role, "products.edit");
+  const canEdit = userHasPermission(user, "products.edit");
   const totalStock = product.inventoryItems.reduce((sum, i) => sum + i.quantityOnHand, 0);
 
   // A variable product keeps no price or stock of its own (WooCommerce
@@ -285,13 +299,17 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
           icon={Boxes}
           tone={isLowStock ? "danger" : "info"}
         />
-        <KpiCard label="Unités vendues" value={String(sales.unitsSold)} icon={ShoppingBag} tone="violet" />
-        <KpiCard
-          label="Chiffre d'affaires généré"
-          value={sales.revenue ? formatCurrency(sales.revenue.toString()) : "0,00 MAD"}
-          icon={Wallet}
-          tone="success"
-        />
+        {seesOnlineStats && (
+          <>
+            <KpiCard label="Unités vendues" value={String(sales.unitsSold)} icon={ShoppingBag} tone="violet" />
+            <KpiCard
+              label="Chiffre d'affaires généré"
+              value={sales.revenue ? formatCurrency(sales.revenue.toString()) : "0,00 MAD"}
+              icon={Wallet}
+              tone="success"
+            />
+          </>
+        )}
       </div>
 
       {canViewFinance && profit && economics && (
@@ -358,6 +376,7 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
           <TabsTrigger value="apercu">Aperçu</TabsTrigger>
           <TabsTrigger value="variations">Variations</TabsTrigger>
           <TabsTrigger value="stock">Stock</TabsTrigger>
+          {identityEnabled && <TabsTrigger value="identite">Identité</TabsTrigger>}
           {canEdit && <TabsTrigger value="modifier">Modifier</TabsTrigger>}
         </TabsList>
 
@@ -374,6 +393,7 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
                 }
               />
               <SpecItem icon={Hash} label="SKU" value={product.sku} />
+              {identityEnabled && product.reference && <SpecItem icon={Hash} label="Référence modèle" value={product.reference} />}
               <SpecItem icon={FolderOpen} label="Catégorie" value={product.category?.name ?? "Aucune"} muted={!product.category} />
               <SpecItem
                 icon={Receipt}
@@ -479,8 +499,37 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
               externally-sourced product that belongs on the platform the
               product lives on, not a second editor here. See
               docs/adr/0017-product-management-boundary.md. */}
-          {canEdit && !isExternal && <VariationForm productId={product.id} />}
+          {canEdit && !isExternal && <VariationForm productId={product.id} showBarcode={identityEnabled} />}
         </TabsContent>
+
+        {identityEnabled && (
+        <TabsContent value="identite">
+          <ProductIdentityPanel
+            productId={product.id}
+            reference={product.reference}
+            canEdit={canEdit}
+            channels={channels.map((c) => ({ id: c.id, name: c.name, kind: c.kind }))}
+            enabledChannelIds={product.salesChannels.map((c) => c.salesChannelId)}
+            units={
+              isVariable
+                ? product.variations.map((v) => ({
+                    variationId: v.id,
+                    label: variantLabel(v.attributes) ?? v.sku,
+                    sku: v.sku,
+                    barcodes: v.barcodes.map((b) => ({ id: b.id, code: b.code, isPrimary: b.isPrimary })),
+                  }))
+                : [
+                    {
+                      variationId: null,
+                      label: product.name,
+                      sku: product.sku,
+                      barcodes: product.barcodes.map((b) => ({ id: b.id, code: b.code, isPrimary: b.isPrimary })),
+                    },
+                  ]
+            }
+          />
+        </TabsContent>
+        )}
 
         <TabsContent value="stock">
           {isVariable ? (

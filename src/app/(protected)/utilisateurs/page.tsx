@@ -6,20 +6,25 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { hasGlobalLocationAccess } from "@/lib/auth/location-access";
 import { prisma } from "@/lib/prisma";
 import { listPendingInvitations } from "@/lib/queries/users";
 import { formatDate } from "@/lib/format";
 import { USER_ROLE_LABELS, USER_STATUS_LABELS } from "@/lib/status-labels";
-import { ROLE_PERMISSIONS, PERMISSIONS } from "@/lib/auth/permissions";
+import { ROLE_PERMISSIONS, PERMISSIONS, isPermission } from "@/lib/auth/permissions";
+import { permissionAvailable } from "@/lib/tenant/business-mode";
+import { isGlobalRole } from "@/lib/auth/effective-access";
 
 export const metadata = { title: "Utilisateurs — ASODITECH Gestion E-commerce" };
 
 export default async function UtilisateursPage() {
   const user = await requirePermission("users.view");
-  const canManage = hasPermission(user.role, "users.manage");
-  const [users, invitations, warehouses, assignments] = await Promise.all([
+  const canManage = userHasPermission(user, "users.manage");
+  // Business mode (docs/adr/0041): channels exist only with `storeChannels`, and
+  // a permission whose capability is off is not offered (it would be inert).
+  const storeChannelsOn = user.capabilities.has("storeChannels");
+  const [users, invitations, warehouses, assignments, channelList, channelAssignments, overrides] = await Promise.all([
     prisma.user.findMany({ orderBy: { createdAt: "asc" } }),
     canManage ? listPendingInvitations() : Promise.resolve([]),
     // Location Access Management v1 (docs/adr/0037): every active
@@ -35,7 +40,25 @@ export default async function UtilisateursPage() {
     canManage
       ? prisma.userLocation.findMany({ select: { userId: true, warehouseId: true } })
       : Promise.resolve([]),
+    // Individual access (docs/adr/0039): channels, assignments and overrides
+    // fetched once up front — no N+1 across the user list.
+    canManage && storeChannelsOn
+      ? prisma.salesChannel.findMany({
+          where: { isActive: true },
+          orderBy: [{ kind: "asc" }, { name: "asc" }],
+          select: { id: true, name: true, kind: true },
+        })
+      : Promise.resolve([]),
+    canManage && storeChannelsOn
+      ? prisma.userChannel.findMany({ select: { userId: true, salesChannelId: true } })
+      : Promise.resolve([]),
+    canManage
+      ? prisma.userPermissionOverride.findMany({ select: { userId: true, permission: true, effect: true } })
+      : Promise.resolve([]),
   ]);
+  // `users.manage` can never be overridden (it would let a non-admin mint
+  // themselves an admin) — so it is not offered.
+  const overridable = PERMISSIONS.filter((p) => p !== "users.manage" && permissionAvailable(p, user.capabilities));
   const assignedByUser = new Map<string, string[]>();
   for (const a of assignments) {
     assignedByUser.set(a.userId, [...(assignedByUser.get(a.userId) ?? []), a.warehouseId]);
@@ -45,7 +68,11 @@ export default async function UtilisateursPage() {
     <div className="space-y-8">
       <PageHeader
         title="Utilisateurs"
-        description="Comptes d'accès et rôles. Les permissions sont définies par rôle."
+        description={
+          storeChannelsOn
+            ? "Comptes d'accès et rôles. Les permissions sont définies par rôle ; des ajustements individuels et les canaux de vente se règlent par utilisateur."
+            : "Comptes d'accès et rôles. Les permissions sont définies par rôle ; des ajustements individuels se règlent par utilisateur."
+        }
         actions={canManage ? <InviteUserForm /> : undefined}
       />
 
@@ -88,6 +115,19 @@ export default async function UtilisateursPage() {
                       warehouses={warehouses}
                       assignedWarehouseIds={assignedByUser.get(u.id) ?? []}
                       hasGlobalLocationAccess={hasGlobalLocationAccess(u.role)}
+                      access={
+                        isGlobalRole(u.role)
+                          ? undefined
+                          : {
+                              permissions: overridable,
+                              baseline: [...ROLE_PERMISSIONS[u.role]],
+                              grants: overrides.filter((o) => o.userId === u.id && o.effect === "GRANT" && isPermission(o.permission)).map((o) => o.permission),
+                              denies: overrides.filter((o) => o.userId === u.id && o.effect === "DENY" && isPermission(o.permission)).map((o) => o.permission),
+                              channels: channelList,
+                              channelsEnabled: storeChannelsOn,
+                              assignedChannelIds: channelAssignments.filter((a) => a.userId === u.id).map((a) => a.salesChannelId),
+                            }
+                      }
                     />
                   ) : (
                     <div className="flex items-center gap-2">
@@ -122,7 +162,7 @@ export default async function UtilisateursPage() {
               </tr>
             </thead>
             <tbody>
-              {PERMISSIONS.map((perm) => (
+              {PERMISSIONS.filter((perm) => permissionAvailable(perm, user.capabilities)).map((perm) => (
                 <tr key={perm} className="border-b last:border-0">
                   <td className="p-2 font-mono text-xs text-muted-foreground">{perm}</td>
                   {Object.entries(ROLE_PERMISSIONS).map(([role, perms]) => (

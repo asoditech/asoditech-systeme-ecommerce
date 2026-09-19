@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant/context";
+import { ensureDefaultOnlineChannel } from "@/lib/channels";
 
 /**
  * The baseline rows every tenant needs before its operators can actually
@@ -39,6 +40,8 @@ export interface TenantBaselineResult {
   businessSettingsCreated: boolean;
   expenseCategoriesCreated: number;
   subscriptionCreated: boolean;
+  /** The tenant's default ONLINE SalesChannel (docs/adr/0038). */
+  channelCreated: boolean;
 }
 
 /**
@@ -63,6 +66,7 @@ export async function provisionTenantBaseline(
       businessSettingsCreated: false,
       expenseCategoriesCreated: 0,
       subscriptionCreated: false,
+      channelCreated: false,
     };
 
     const existingDefaultWarehouse = await prisma.warehouse.findFirst({ where: { isDefault: true } });
@@ -72,6 +76,13 @@ export async function provisionTenantBaseline(
       });
       result.warehouseCreated = true;
     }
+
+    // Online/Offline unification (docs/adr/0038): every tenant has a default
+    // ONLINE channel, mapped to its storefront-feeding location(s). Created
+    // AFTER the default warehouse so that warehouse is mapped too. Idempotent.
+    const hadChannel = (await prisma.salesChannel.count({ where: { isDefault: true } })) > 0;
+    await ensureDefaultOnlineChannel();
+    result.channelCreated = !hadChannel;
 
     const existingSettings = await prisma.businessSettings.findFirst();
     if (!existingSettings) {

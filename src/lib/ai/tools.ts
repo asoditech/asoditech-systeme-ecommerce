@@ -32,6 +32,14 @@ export interface AiTool {
   /** Extra permission required on top of `ai.use`. Omit for a tool anyone
    * with `ai.use` may run. */
   permission?: Permission;
+  /**
+   * The business activity whose DATA this tool reads (docs/adr/0039). A tool
+   * that aggregates Order data is "ONLINE": a user with no ONLINE channel
+   * must not get an Online figure out of the assistant just because the
+   * tool's permission (finance.view, products.view…) is shared. Omit for a
+   * tool that reads only shared data (stock levels).
+   */
+  domain?: "ONLINE";
   /** Where the answer lives in full — the assistant / widget renders it as
    * a "voir le détail" link next to the answer. Always an in-app route the
    * tool's `permission` already covers. */
@@ -226,21 +234,21 @@ export async function toolRepeatCustomers(): Promise<string> {
 }
 
 export const AI_TOOLS: readonly AiTool[] = [
-  { id: "profit-today", label: "Profit aujourd'hui", permission: "finance.view", href: "/finance", linkLabel: "Ouvrir la finance", run: toolNetProfitToday },
-  { id: "revenue-today", label: "Chiffre d'affaires aujourd'hui", permission: "finance.view", href: "/finance", linkLabel: "Ouvrir la finance", run: toolRevenueToday },
-  { id: "orders-today", label: "Commandes aujourd'hui", permission: "orders.view", href: "/commandes", linkLabel: "Voir les commandes", run: toolOrdersToday },
-  { id: "deliveries-in-transit", label: "Colis en livraison", permission: "delivery.view", href: "/livraison/suivi", linkLabel: "Suivi des colis", run: toolDeliveriesInTransit },
-  { id: "delivery-performance", label: "Performance des livraisons", permission: "delivery.view", href: "/rapports/livraison", linkLabel: "Rapport livraison", run: toolDeliveryPerformance },
-  { id: "returns-this-month", label: "Retours ce mois-ci", permission: "delivery.view", href: "/livraison/suivi?status=RETURNED", linkLabel: "Voir les retours", run: toolReturnsThisMonth },
+  { id: "profit-today", label: "Profit aujourd'hui", permission: "finance.view", domain: "ONLINE", href: "/finance", linkLabel: "Ouvrir la finance", run: toolNetProfitToday },
+  { id: "revenue-today", label: "Chiffre d'affaires aujourd'hui", permission: "finance.view", domain: "ONLINE", href: "/finance", linkLabel: "Ouvrir la finance", run: toolRevenueToday },
+  { id: "orders-today", label: "Commandes aujourd'hui", permission: "orders.view", domain: "ONLINE", href: "/commandes", linkLabel: "Voir les commandes", run: toolOrdersToday },
+  { id: "deliveries-in-transit", label: "Colis en livraison", permission: "delivery.view", domain: "ONLINE", href: "/livraison/suivi", linkLabel: "Suivi des colis", run: toolDeliveriesInTransit },
+  { id: "delivery-performance", label: "Performance des livraisons", permission: "delivery.view", domain: "ONLINE", href: "/rapports/livraison", linkLabel: "Rapport livraison", run: toolDeliveryPerformance },
+  { id: "returns-this-month", label: "Retours ce mois-ci", permission: "delivery.view", domain: "ONLINE", href: "/livraison/suivi?status=RETURNED", linkLabel: "Voir les retours", run: toolReturnsThisMonth },
   { id: "low-stock", label: "Produits en stock faible", permission: "inventory.view", href: "/stock", linkLabel: "Voir le stock", run: toolLowStockProducts },
-  { id: "top-products-today", label: "Meilleures ventes du jour", permission: "products.view", href: "/produits", linkLabel: "Voir les produits", run: toolTopProductsToday },
-  { id: "revenue", label: "Chiffre d'affaires ce mois-ci", permission: "finance.view", href: "/finance", linkLabel: "Ouvrir la finance", run: toolRevenueThisMonth },
-  { id: "profit", label: "Bénéfice net ce mois-ci", permission: "finance.view", href: "/finance", linkLabel: "Ouvrir la finance", run: toolNetProfitThisMonth },
-  { id: "delivery-spend-month", label: "Coût de livraison ce mois-ci", permission: "finance.view", href: "/finance", linkLabel: "Ouvrir la finance", run: toolDeliverySpendThisMonth },
-  { id: "marketing-spend", label: "Dépenses publicitaires ce mois-ci", permission: "finance.view", href: "/depenses", linkLabel: "Voir les dépenses", run: toolMarketingSpendThisMonth },
-  { id: "top-product", label: "Produit le plus vendu", permission: "products.view", href: "/produits", linkLabel: "Voir les produits", run: toolBestSellingProduct },
-  { id: "late-orders", label: "Commandes en retard", permission: "orders.view", href: "/commandes", linkLabel: "Voir les commandes", run: toolLateOrders },
-  { id: "repeat-customers", label: "Clients fidèles", permission: "customers.view", href: "/clients", linkLabel: "Voir les clients", run: toolRepeatCustomers },
+  { id: "top-products-today", label: "Meilleures ventes du jour", permission: "products.view", domain: "ONLINE", href: "/produits", linkLabel: "Voir les produits", run: toolTopProductsToday },
+  { id: "revenue", label: "Chiffre d'affaires ce mois-ci", permission: "finance.view", domain: "ONLINE", href: "/finance", linkLabel: "Ouvrir la finance", run: toolRevenueThisMonth },
+  { id: "profit", label: "Bénéfice net ce mois-ci", permission: "finance.view", domain: "ONLINE", href: "/finance", linkLabel: "Ouvrir la finance", run: toolNetProfitThisMonth },
+  { id: "delivery-spend-month", label: "Coût de livraison ce mois-ci", permission: "finance.view", domain: "ONLINE", href: "/finance", linkLabel: "Ouvrir la finance", run: toolDeliverySpendThisMonth },
+  { id: "marketing-spend", label: "Dépenses publicitaires ce mois-ci", permission: "finance.view", domain: "ONLINE", href: "/depenses", linkLabel: "Voir les dépenses", run: toolMarketingSpendThisMonth },
+  { id: "top-product", label: "Produit le plus vendu", permission: "products.view", domain: "ONLINE", href: "/produits", linkLabel: "Voir les produits", run: toolBestSellingProduct },
+  { id: "late-orders", label: "Commandes en retard", permission: "orders.view", domain: "ONLINE", href: "/commandes", linkLabel: "Voir les commandes", run: toolLateOrders },
+  { id: "repeat-customers", label: "Clients fidèles", permission: "customers.view", domain: "ONLINE", href: "/clients", linkLabel: "Voir les clients", run: toolRepeatCustomers },
 ] as const;
 
 export function getAiTool(id: string): AiTool | undefined {
@@ -251,6 +259,21 @@ export function getAiTool(id: string): AiTool | undefined {
  * user never even sees a question they couldn't get an answer to. */
 export function aiToolsForRole(role: UserRole): AiTool[] {
   return AI_TOOLS.filter((t) => !t.permission || hasPermission(role, t.permission));
+}
+
+/**
+ * Tools THIS user may run — effective permissions (role + overrides) AND
+ * channel scope (docs/adr/0039). What the assistant page and the support
+ * widget list, and exactly what `runAiToolAction` enforces server-side.
+ */
+export function aiToolsForUser(user: { permissions: ReadonlySet<Permission>; channels: { online: boolean } }): AiTool[] {
+  return AI_TOOLS.filter(
+    (t) => (!t.permission || user.permissions.has(t.permission)) && (t.domain !== "ONLINE" || user.channels.online)
+  );
+}
+
+export function aiQuestionsForUser(user: Parameters<typeof aiToolsForUser>[0]): { id: string; label: string }[] {
+  return aiToolsForUser(user).map((t) => ({ id: t.id, label: t.label }));
 }
 
 /** The `{ id, label }` shape the client widgets need (no `run` closure). */

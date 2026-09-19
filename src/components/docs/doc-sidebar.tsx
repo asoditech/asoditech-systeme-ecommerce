@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { DOC_CATEGORIES } from "@/lib/docs/categories";
+import { categoriesFor } from "@/lib/docs/categories";
+import type { TenantCapability } from "@/lib/tenant/business-mode";
 import { getArticlesByCategory, articleHref } from "@/lib/docs/registry";
 import type { DocCategoryId } from "@/lib/docs/types";
 
@@ -9,10 +10,19 @@ import type { DocCategoryId } from "@/lib/docs/types";
  * to /documentation and server-rendered (no permission filtering: every
  * article is readable by every logged-in user).
  */
-export function DocSidebar({ activeCategory, activeSlug }: { activeCategory?: DocCategoryId; activeSlug?: string }) {
+export function DocSidebar({
+  activeCategory,
+  activeSlug,
+  capabilities,
+}: {
+  activeCategory?: DocCategoryId;
+  activeSlug?: string;
+  /** The viewer's tenant capabilities (docs/adr/0041) — categories documenting a disabled capability are not listed. */
+  capabilities: ReadonlySet<TenantCapability>;
+}) {
   return (
     <nav className="flex flex-col gap-4">
-      {DOC_CATEGORIES.map((cat) => {
+      {categoriesFor(capabilities).map((cat) => {
         const isActiveCategory = cat.id === activeCategory;
         const articles = isActiveCategory ? getArticlesByCategory(cat.id) : [];
         return (

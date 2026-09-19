@@ -13,7 +13,7 @@ import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { listInventoryItems, listWarehousesWithStats, type StockStatusFilter, type InventorySort } from "@/lib/queries/inventory";
 import { listCategories } from "@/lib/queries/products";
 import { availableStock } from "@/lib/inventory";
@@ -65,9 +65,9 @@ export default async function StockPage({
     sort,
     page,
   });
-  const canAdjust = hasPermission(user.role, "inventory.adjust");
+  const canAdjust = userHasPermission(user, "inventory.adjust");
   const canSync =
-    hasPermission(user.role, "integrations.manage") && (await getConnectedCommercePlatforms()).length > 0;
+    userHasPermission(user, "integrations.manage") && (await getConnectedCommercePlatforms()).length > 0;
 
   const hasActiveFilter = Boolean(params.q || warehouseId || categoryId || stockStatus !== "all" || params.sort);
   const paginationParams = { q: params.q, warehouseId, categoryId, stockStatus: params.stockStatus, sort: params.sort };

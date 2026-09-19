@@ -8,7 +8,7 @@ import { featureValue, type FeatureKey, type FeatureTier } from "./catalogue";
  * The RBAC/entitlement split — see docs/adr/0035-plans-entitlements-usage.md
  * "Central entitlements system".
  *
- *   hasPermission(user.role, "orders.create")   — is THIS USER allowed?
+ *   userHasPermission(user, "orders.create")   — is THIS USER allowed?
  *   checkEntitlement(tenantId, "orders")          — does THIS TENANT'S PLAN include it?
  *
  * Both are independent and both matter: a WAREHOUSE-role user is refused

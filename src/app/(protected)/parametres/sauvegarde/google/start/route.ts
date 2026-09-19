@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth/session";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { env } from "@/lib/env";
 import { startGoogleOAuth, isGoogleDriveConfigured } from "@/lib/backup/google-drive-service";
 
@@ -16,7 +16,7 @@ export async function GET(): Promise<Response> {
   const user = await getCurrentUser();
   const back = `${env.APP_URL.replace(/\/$/, "")}/parametres/sauvegarde`;
   if (!user) return Response.redirect(`${env.APP_URL.replace(/\/$/, "")}/connexion`, 302);
-  if (!hasPermission(user.role, "settings.manage")) {
+  if (!userHasPermission(user, "settings.manage")) {
     return Response.redirect(`${back}?google=forbidden`, 302);
   }
   if (!isGoogleDriveConfigured()) {

@@ -9,7 +9,7 @@ import { TrackingStatusBadge } from "@/components/tracking/tracking-status-badge
 import { TrackingTimeline } from "@/components/tracking/tracking-timeline";
 import { RefreshTrackingButton } from "@/components/tracking/refresh-tracking-button";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { getTrackingDetail } from "@/lib/queries/tracking";
 import { SHIPMENT_STATUS_LABELS, SHIPMENT_COST_SOURCE_LABELS } from "@/lib/status-labels";
 import { formatCurrency, formatDateTime, orderShippingCountry } from "@/lib/format";
@@ -22,8 +22,8 @@ export default async function SuiviDetailPage({
   params: Promise<{ shipmentId: string }>;
 }) {
   const user = await requirePermission("delivery.view");
-  const canManage = hasPermission(user.role, "delivery.manage");
-  const includeCosts = hasPermission(user.role, "finance.view");
+  const canManage = userHasPermission(user, "delivery.manage");
+  const includeCosts = userHasPermission(user, "finance.view");
   const { shipmentId } = await params;
 
   const d = await getTrackingDetail(shipmentId, { includeCosts });

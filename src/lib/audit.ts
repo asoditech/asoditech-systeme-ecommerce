@@ -23,6 +23,7 @@ export type AuditAction =
   | "tenant.activated"
   | "tenant.suspended"
   | "tenant.deleted"
+  | "tenant.business_mode_changed"
   | "tenant.baseline_provisioned"
   | "tenant.baseline_provisioning_failed"
   | "backup.created"
@@ -131,7 +132,26 @@ export type AuditAction =
   | "subscription.suspended"
   | "subscription.canceled"
   | "usage.threshold_reached"
-  | "upgrade.requested";
+  | "upgrade.requested"
+  // Online/Offline unification (docs/adr/0038, 0039, 0040)
+  | "product.identity_updated"
+  | "product.barcode_added"
+  | "product.barcode_removed"
+  | "product.channels_updated"
+  | "sales_channel.created"
+  | "sales_channel.updated"
+  | "sales_channel.locations_updated"
+  | "user.permissions_updated"
+  | "user.channels_updated"
+  | "supplier.created"
+  | "supplier.updated"
+  | "reception.created"
+  | "reception.updated"
+  | "reception.validated"
+  | "reception.cancelled"
+  | "supplier_payment.recorded"
+  | "sale.created"
+  | "sale.return_created";
 
 interface RecordAuditEventInput {
   actorType: AuditActorType;

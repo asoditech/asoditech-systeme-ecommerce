@@ -2,21 +2,17 @@ import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { requirePermission } from "@/lib/auth/guards";
-import {
-  TrendingUp,
-  PackageMinus,
-  Boxes,
-  Truck,
-  Users,
-  Wallet,
-  FileText,
-  LineChart,
-  Undo2,
-} from "lucide-react";
+import { TrendingUp, PackageMinus, Boxes, Truck, Users, Wallet, FileText, LineChart, Undo2, Sigma } from "lucide-react";
 
 export const metadata = { title: "Rapports — ASODITECH Gestion E-commerce" };
 
 const REPORTS = [
+  {
+    href: "/rapports/canaux",
+    icon: Sigma,
+    title: "Par canal (En ligne / Magasin / Total)",
+    description: "Chiffre d'affaires en ligne, ventes en magasin et total, sans double comptage — par magasin, emplacement et mode de paiement.",
+  },
   {
     href: "/rapports/ventes",
     icon: TrendingUp,
@@ -73,8 +69,28 @@ const REPORTS = [
   },
 ];
 
+// Every report except the stock valuation aggregates delivery ORDERS, so it
+// is only offered (and only openable — each page re-checks server-side) to a
+// user with an ONLINE channel (docs/adr/0039). The channel report (Online /
+// Offline / Total — docs/adr/0040) is added at the end of REPORTS_ALL below.
+const ONLINE_ONLY_HREFS = new Set([
+  "/rapports/ventes",
+  "/rapports/rentabilite",
+  "/rapports/profitabilite",
+  "/rapports/livraison",
+  "/rapports/retours",
+  "/rapports/clients",
+  "/rapports/tresorerie",
+  "/livraison/factures",
+]);
+
 export default async function RapportsPage() {
-  await requirePermission("analytics.view");
+  const user = await requirePermission("analytics.view");
+  // The Online/Offline/Total report belongs to the `storeChannels` capability
+  // (docs/adr/0041): an ONLINE_ONLY tenant does not see it.
+  const REPORTS_VISIBLE = REPORTS.filter(
+    (r) => (r.href !== "/rapports/canaux" || user.capabilities.has("storeChannels")) && (!ONLINE_ONLY_HREFS.has(r.href) || user.channels.online)
+  );
 
   return (
     <div>
@@ -83,7 +99,7 @@ export default async function RapportsPage() {
         description="Rapports d'activité exportables (CSV et impression / PDF), avec filtres de période."
       />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {REPORTS.map((r) => {
+        {REPORTS_VISIBLE.map((r) => {
           const Icon = r.icon;
           return (
             <Link key={r.href} href={r.href} className="group">

@@ -7,7 +7,7 @@ import { DataTablePagination } from "@/components/data-table-pagination";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { listStocktakeSessions } from "@/lib/queries/stocktakes";
 import { formatDateTime, displayStocktakeNumber } from "@/lib/format";
 import { STOCKTAKE_STATUS_LABELS } from "@/lib/status-labels";
@@ -20,7 +20,7 @@ export default async function InventairesPage({
   searchParams: Promise<{ status?: string; page?: string }>;
 }) {
   const user = await requirePermission("inventory.view");
-  const canCount = hasPermission(user.role, "inventory.count");
+  const canCount = userHasPermission(user, "inventory.count");
   const params = await searchParams;
   const page = Number(params.page) || 1;
   const { sessions, total, pageSize } = await listStocktakeSessions({ status: params.status, page });

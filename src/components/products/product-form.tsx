@@ -1,9 +1,9 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { createProductAction, updateProductAction } from "@/actions/products";
+import { createProductAction, updateProductAction, createCategoryAction } from "@/actions/products";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,8 +23,59 @@ export type SerializedProduct = Omit<Product, "price" | "salePrice" | "cost"> & 
   cost: string | null;
 };
 
-export function ProductForm({ product, categories }: { product?: SerializedProduct; categories: Category[] }) {
+export interface ProductFormChannel {
+  id: string;
+  name: string;
+  kind: "ONLINE" | "OFFLINE";
+  isDefault: boolean;
+}
+
+export function ProductForm({
+  product,
+  categories: initialCategories,
+  channels = [],
+  identityEnabled = false,
+}: {
+  product?: SerializedProduct;
+  categories: Category[];
+  /** Create mode only — where the new product may be sold (docs/adr/0038). Empty in an ONLINE_ONLY tenant. */
+  channels?: ProductFormChannel[];
+  /**
+   * The `catalogIdentity` capability (docs/adr/0041): model reference, barcode
+   * and inline category creation. OFF for an ONLINE_ONLY tenant, whose product
+   * form is exactly the pre-existing one.
+   */
+  identityEnabled?: boolean;
+}) {
   const router = useRouter();
+  // Categories are real, tenant-scoped entities (docs/adr/0038 §Categories):
+  // a new one can be created inline without leaving the product form.
+  const [categories, setCategories] = useState<Category[]>(initialCategories);
+  const [categoryId, setCategoryId] = useState<string>(product?.categoryId ?? "");
+  const [newCategory, setNewCategory] = useState("");
+  const [creatingCategory, setCreatingCategory] = useState(false);
+  const [checkedChannels, setCheckedChannels] = useState<Set<string>>(
+    new Set(channels.filter((c) => c.isDefault).map((c) => c.id))
+  );
+
+  async function handleCreateCategory() {
+    const name = newCategory.trim();
+    if (name.length < 2) return toast.error("Le nom de la catégorie est requis (2 caractères minimum).");
+    setCreatingCategory(true);
+    const fd = new FormData();
+    fd.set("name", name);
+    const result = await createCategoryAction(fd);
+    setCreatingCategory(false);
+    if (result.ok) {
+      setCategories((prev) => [...prev, result.data].sort((a, b) => a.name.localeCompare(b.name)));
+      setCategoryId(result.data.id);
+      setNewCategory("");
+      toast.success("Catégorie créée.");
+    } else {
+      toast.error(result.error);
+    }
+  }
+
   const action = product ? updateProductAction : createProductAction;
   const [state, formAction, isPending] = useActionState(
     async (_prevState: ActionResult<IdResult> | undefined, formData: FormData) => action(formData),
@@ -61,7 +112,7 @@ export function ProductForm({ product, categories }: { product?: SerializedProdu
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="categoryId">Catégorie</Label>
-              <Select name="categoryId" defaultValue={product?.categoryId ?? undefined}>
+              <Select name="categoryId" value={categoryId} onValueChange={(v) => setCategoryId(v ?? "")}>
                 <SelectTrigger id="categoryId" className="w-full">
                   <SelectValue placeholder="Aucune catégorie">
                     {(value: string) => categories.find((c) => c.id === value)?.name ?? "Aucune catégorie"}
@@ -75,7 +126,41 @@ export function ProductForm({ product, categories }: { product?: SerializedProdu
                   ))}
                 </SelectContent>
               </Select>
+              {!product && identityEnabled && (
+                <div className="flex gap-2 pt-1">
+                  <Input
+                    value={newCategory}
+                    onChange={(e) => setNewCategory(e.target.value)}
+                    placeholder="Nouvelle catégorie…"
+                    aria-label="Nouvelle catégorie"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void handleCreateCategory();
+                      }
+                    }}
+                  />
+                  <Button type="button" variant="outline" disabled={creatingCategory} onClick={handleCreateCategory}>
+                    Créer
+                  </Button>
+                </div>
+              )}
             </div>
+            {!product && identityEnabled && (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="reference">Référence du modèle (optionnel)</Label>
+                  <Input id="reference" name="reference" placeholder="ex. SKOUBA" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="barcode">Code-barres (optionnel)</Label>
+                  <Input id="barcode" name="barcode" placeholder="Scanner ou saisir le code" autoComplete="off" />
+                  {state && !state.ok && state.fieldErrors?.barcode && (
+                    <p className="text-xs text-destructive">{state.fieldErrors.barcode[0]}</p>
+                  )}
+                </div>
+              </>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="price">Prix de vente (MAD)</Label>
               <Input id="price" name="price" type="number" step="0.01" min="0" required defaultValue={product?.price} />
@@ -120,6 +205,34 @@ export function ProductForm({ product, categories }: { product?: SerializedProdu
               Suivre le stock pour ce produit
             </Label>
           </div>
+          {!product && channels.length > 0 && (
+            <div className="space-y-2 rounded-lg border p-3">
+              <input type="hidden" name="channelsSubmitted" value="1" />
+              <Label>Canaux de vente</Label>
+              <p className="text-xs text-muted-foreground">
+                Où ce produit peut être vendu. Le stock reste physique, par emplacement — il n&apos;est pas dupliqué par canal.
+              </p>
+              {channels.map((c) => (
+                <label key={c.id} className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    name="salesChannelIds"
+                    value={c.id}
+                    checked={checkedChannels.has(c.id)}
+                    onCheckedChange={(checked) =>
+                      setCheckedChannels((prev) => {
+                        const next = new Set(prev);
+                        if (checked) next.add(c.id);
+                        else next.delete(c.id);
+                        return next;
+                      })
+                    }
+                  />
+                  {c.name}
+                  <span className="text-xs text-muted-foreground">{c.kind === "ONLINE" ? "En ligne" : "Magasin"}</span>
+                </label>
+              ))}
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="description">Description</Label>
             <Textarea id="description" name="description" rows={4} defaultValue={product?.description ?? ""} />

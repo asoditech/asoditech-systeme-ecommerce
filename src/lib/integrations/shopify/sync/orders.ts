@@ -1,4 +1,5 @@
 import "server-only";
+import { getDefaultOnlineChannelId } from "@/lib/channels";
 
 import { prisma } from "@/lib/prisma";
 import { recordAuditEvent } from "@/lib/audit";
@@ -258,6 +259,8 @@ async function createImportedOrder(
       paymentStatus: status === "REMBOURSEE" ? "REMBOURSE" : order.displayFinancialStatus === "PAID" ? "PAYE" : "EN_ATTENTE",
       paymentMethod: mapPaymentMethod(order.paymentGatewayNames),
       source: "SHOPIFY",
+      // Business channel (docs/adr/0038) — see the WooCommerce importer.
+      salesChannelId: await getDefaultOnlineChannelId(),
       externalId: order.id,
       externalNumber: order.name,
       placedAt: parseOrderPlacedAt(order.createdAt),

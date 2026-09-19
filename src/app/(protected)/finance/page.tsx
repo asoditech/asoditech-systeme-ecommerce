@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { requireChannelKind } from "@/lib/auth/channel-access";
+import { userHasPermission } from "@/lib/auth/permissions";
 import {
   getFinanceSummary,
   listExpenses,
@@ -63,10 +64,12 @@ export default async function FinancePage({
   searchParams: Promise<{ period?: string; from?: string; to?: string }>;
 }) {
   const user = await requirePermission("finance.view");
+  // Order-derived data: needs an ONLINE channel (docs/adr/0039).
+  requireChannelKind(user, "ONLINE");
   const params = await searchParams;
   const { range: period, key: periodKey, label: periodLabel } = resolvePeriod(params);
   const previousPeriod = previousPeriodOfSameLength(period);
-  const canManage = hasPermission(user.role, "finance.manage");
+  const canManage = userHasPermission(user, "finance.manage");
 
   const [summary, previousSummary, productProfit, { expenses }, categories] = await Promise.all([
     getFinanceSummary(period),

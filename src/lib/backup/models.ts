@@ -52,6 +52,15 @@ export const BACKUP_MODELS: readonly BackupModel[] = [
   { model: "ProductImage", accessor: "productImage", key: "product_images", strategy: "replace" },
   { model: "ProductVariation", accessor: "productVariation", key: "product_variations", strategy: "replace" },
   { model: "Warehouse", accessor: "warehouse", key: "warehouses", strategy: "replace" },
+  // Online/Offline unification (docs/adr/0038): channels, their location
+  // mapping, per-product availability and barcodes are tenant business
+  // configuration/identity, so they travel with the backup. They point only
+  // at models earlier in this list (Warehouse, Product, ProductVariation,
+  // User) — and Order (later) points at SalesChannel, hence this position.
+  { model: "SalesChannel", accessor: "salesChannel", key: "sales_channels", strategy: "replace" },
+  { model: "SalesChannelLocation", accessor: "salesChannelLocation", key: "sales_channel_locations", strategy: "replace" },
+  { model: "ProductSalesChannel", accessor: "productSalesChannel", key: "product_sales_channels", strategy: "replace" },
+  { model: "Barcode", accessor: "barcode", key: "barcodes", strategy: "replace" },
   { model: "InventoryItem", accessor: "inventoryItem", key: "inventory_items", strategy: "replace" },
   { model: "MarketingChannel", accessor: "marketingChannel", key: "marketing_channels", strategy: "replace" },
   { model: "MarketingCampaign", accessor: "marketingCampaign", key: "marketing_campaigns", strategy: "replace" },
@@ -68,6 +77,19 @@ export const BACKUP_MODELS: readonly BackupModel[] = [
   { model: "StockTransfer", accessor: "stockTransfer", key: "stock_transfers", strategy: "replace" },
   { model: "StockTransferLine", accessor: "stockTransferLine", key: "stock_transfer_lines", strategy: "replace" },
   { model: "StocktakeSession", accessor: "stocktakeSession", key: "stocktake_sessions", strategy: "replace" },
+  // Suppliers, receptions and in-store sales (docs/adr/0040). Placed BEFORE
+  // InventoryMovement, which now points at reception lines, sales and sale
+  // returns; each points only at models earlier in this list (Supplier, User,
+  // Warehouse, Product, ProductVariation, Customer, SalesChannel).
+  { model: "Supplier", accessor: "supplier", key: "suppliers", strategy: "replace" },
+  { model: "Reception", accessor: "reception", key: "receptions", strategy: "replace" },
+  { model: "ReceptionLine", accessor: "receptionLine", key: "reception_lines", strategy: "replace" },
+  { model: "SupplierPayment", accessor: "supplierPayment", key: "supplier_payments", strategy: "replace" },
+  { model: "Sale", accessor: "sale", key: "sales", strategy: "replace" },
+  { model: "SaleLine", accessor: "saleLine", key: "sale_lines", strategy: "replace" },
+  { model: "SalePayment", accessor: "salePayment", key: "sale_payments", strategy: "replace" },
+  { model: "SaleReturn", accessor: "saleReturn", key: "sale_returns", strategy: "replace" },
+  { model: "SaleReturnLine", accessor: "saleReturnLine", key: "sale_return_lines", strategy: "replace" },
   {
     model: "InventoryMovement",
     accessor: "inventoryMovement",

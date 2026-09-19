@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { TrackingStatusBadge } from "@/components/tracking/tracking-status-badge";
 import { RefreshTrackingButton } from "@/components/tracking/refresh-tracking-button";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import {
   listTrackingRows,
   getTrackingStats,
@@ -53,8 +53,8 @@ export default async function SuiviPage({
   }>;
 }) {
   const user = await requirePermission("delivery.view");
-  const canManage = hasPermission(user.role, "delivery.manage");
-  const includeCosts = hasPermission(user.role, "finance.view");
+  const canManage = userHasPermission(user, "delivery.manage");
+  const includeCosts = userHasPermission(user, "finance.view");
   const params = await searchParams;
 
   const page = Number(params.page) || 1;

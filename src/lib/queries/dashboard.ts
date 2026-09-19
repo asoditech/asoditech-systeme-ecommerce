@@ -12,7 +12,7 @@ import {
 } from "@/lib/queries/finance";
 import { getLowStockCount } from "@/lib/queries/inventory";
 import { getDeliveryStats } from "@/lib/queries/delivery";
-import type { RecordSource } from "@prisma/client";
+import type { Prisma, RecordSource } from "@prisma/client";
 
 export type DashboardPeriod = "jour" | "hier" | "mois" | "trimestre" | "annee";
 
@@ -33,7 +33,12 @@ export function isDashboardPeriod(value: string | undefined): value is Dashboard
 // something still waiting on the operator.
 const ACTION_WINDOW_DAYS = 21;
 
-export async function getDashboardData(periodKey: DashboardPeriod = "mois", source?: RecordSource) {
+export async function getDashboardData(
+  periodKey: DashboardPeriod = "mois",
+  source?: RecordSource,
+  // Channel read scope (docs/adr/0039): the viewer's audit-event restriction.
+  opts: { auditScope?: Prisma.AuditEventWhereInput } = {}
+) {
   const period =
     periodKey === "jour"
       ? currentDayRange()
@@ -86,6 +91,7 @@ export async function getDashboardData(periodKey: DashboardPeriod = "mois", sour
       where: { createdAt: { gte: period.from, lte: period.to }, ...(source ? { source } : {}) },
     }),
     prisma.auditEvent.findMany({
+      where: opts.auditScope ?? {},
       orderBy: { createdAt: "desc" },
       take: 8,
       include: { actorUser: { select: { name: true } } },

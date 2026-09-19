@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
+import { addBarcodeInTx, assertSkuFreeOfBarcodeAndSiblings, BarcodeError } from "@/lib/catalog/barcodes";
+import { ensureDefaultOnlineChannel } from "@/lib/channels";
 import { recordAuditEvent } from "@/lib/audit";
 import { getDefaultWarehouseId } from "@/lib/inventory";
 import {
@@ -37,12 +39,27 @@ function externalSourceError(product: Pick<Product, "source">): string | null {
   return `Ce produit provient de ${platform} — modifiez sa fiche directement sur ${platform}, pas depuis ASODITECH.`;
 }
 
+/** "Chaussures Homme" → "chaussures-homme". Deterministic; collisions are caught by the slug pre-check. */
+function slugifyCategoryName(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 function normalizeOptional(value: string | null | undefined): string | null {
   return value && value.trim().length > 0 ? value.trim() : null;
 }
 
 export async function createProductAction(formData: FormData): Promise<ActionResult<IdResult>> {
   const user = await requirePermissionForAction("products.create");
+  // Tenant business mode (docs/adr/0041): the identity/availability inputs below
+  // exist only in an ONLINE_AND_OFFLINE tenant. In ONLINE_ONLY they are IGNORED
+  // — a request carrying them behaves exactly like the pre-existing form.
+  const identityOn = user.capabilities.has("catalogIdentity");
+  const channelsOn = user.capabilities.has("storeChannels");
 
   const parsed = createProductSchema.safeParse({
     name: formData.get("name"),
@@ -55,14 +72,37 @@ export async function createProductAction(formData: FormData): Promise<ActionRes
     status: formData.get("status") || "BROUILLON",
     trackInventory: formData.get("trackInventory") === "on",
     lowStockThreshold: formData.get("lowStockThreshold") || 5,
+    // Identity + availability (docs/adr/0038) — all optional, mode-gated (ADR 0041).
+    reference: identityOn ? formData.get("reference") : null,
+    barcode: identityOn ? formData.get("barcode") : null,
+    salesChannelIds: channelsOn ? formData.getAll("salesChannelIds").map(String).filter(Boolean) : [],
   });
   if (!parsed.success) {
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
 
-  const existingSku = await prisma.product.findFirst({ where: { sku: parsed.data.sku } });
-  if (existingSku) {
-    return actionError("Un produit avec ce SKU existe déjà.", { sku: ["SKU déjà utilisé."] });
+  // Cross-table reference guard (docs/adr/0038): sku is unique per table, so
+  // also refuse a SKU already used by a variation or by a barcode. For the
+  // plain "product with this SKU exists" case the message is unchanged.
+  const skuProblem = await assertSkuFreeOfBarcodeAndSiblings(parsed.data.sku);
+  if (skuProblem) {
+    return actionError(skuProblem, { sku: ["SKU déjà utilisé."] });
+  }
+  const newBarcode = parsed.data.barcode && parsed.data.barcode.trim().length > 0 ? parsed.data.barcode.trim() : null;
+  if (newBarcode && (await prisma.barcode.findFirst({ where: { code: newBarcode }, select: { id: true } }))) {
+    return actionError("Ce code-barres est déjà utilisé.", { barcode: ["Code-barres déjà utilisé."] });
+  }
+
+  // Channel availability. A form that submitted the channel checkboxes
+  // (`channelsSubmitted`) is honoured exactly, INCLUDING "none". Every other
+  // caller keeps the pre-existing behaviour: a new product is sellable
+  // through the default ONLINE channel.
+  const channelsSubmitted = channelsOn && formData.get("channelsSubmitted") === "1";
+  let channelIds: string[] = parsed.data.salesChannelIds ?? [];
+  if (channelIds.length > 0) {
+    const found = await prisma.salesChannel.findMany({ where: { id: { in: channelIds }, isActive: true }, select: { id: true } });
+    if (found.length !== new Set(channelIds).size) return actionError("Canal de vente introuvable ou inactif.");
+    channelIds = found.map((c) => c.id);
   }
 
   let product;
@@ -72,6 +112,7 @@ export async function createProductAction(formData: FormData): Promise<ActionRes
         data: {
           name: parsed.data.name,
           sku: parsed.data.sku,
+          reference: normalizeOptional(parsed.data.reference),
           description: normalizeOptional(parsed.data.description),
           categoryId: normalizeOptional(parsed.data.categoryId),
           price: parsed.data.price,
@@ -96,9 +137,24 @@ export async function createProductAction(formData: FormData): Promise<ActionRes
         }
       }
 
+      // Identity + availability, atomically with the product (docs/adr/0038).
+      if (newBarcode) {
+        await addBarcodeInTx(tx, { productId: created.id, code: newBarcode, createdById: user.id });
+      }
+      const targetChannelIds = channelsSubmitted ? channelIds : channelIds.length > 0 ? channelIds : [(await ensureDefaultOnlineChannel(tx)).id];
+      if (targetChannelIds.length > 0) {
+        await tx.productSalesChannel.createMany({
+          data: targetChannelIds.map((salesChannelId) => ({ productId: created.id, salesChannelId })),
+          skipDuplicates: true,
+        });
+      }
+
       return created;
     });
   } catch (error) {
+    if (error instanceof BarcodeError) {
+      return actionError(error.message, { barcode: [error.message] });
+    }
     // Backstop for the rare race where two concurrent requests both pass
     // the findUnique pre-check above before either commits. Found during
     // the A–G audit; see docs/adr/0002-domain-model.md's audit addendum.
@@ -149,9 +205,9 @@ export async function updateProductAction(formData: FormData): Promise<ActionRes
   if (sourceError) return actionError(sourceError);
 
   if (parsed.data.sku !== existing.sku) {
-    const skuTaken = await prisma.product.findFirst({ where: { sku: parsed.data.sku } });
-    if (skuTaken) {
-      return actionError("Un produit avec ce SKU existe déjà.", { sku: ["SKU déjà utilisé."] });
+    const skuProblem = await assertSkuFreeOfBarcodeAndSiblings(parsed.data.sku, { kind: "product", id: existing.id });
+    if (skuProblem) {
+      return actionError(skuProblem, { sku: ["SKU déjà utilisé."] });
     }
   }
 
@@ -197,9 +253,15 @@ export async function updateProductAction(formData: FormData): Promise<ActionRes
 export async function createCategoryAction(formData: FormData): Promise<ActionResult<Category>> {
   const user = await requirePermissionForAction("products.create");
 
+  const rawSlug = String(formData.get("slug") ?? "").trim();
+  const rawName = String(formData.get("name") ?? "");
   const parsed = createCategorySchema.safeParse({
     name: formData.get("name"),
-    slug: formData.get("slug"),
+    // Inline creation from the product form sends only a name — derive the
+    // slug from it (lowercase, accents stripped, non-alphanumerics → "-").
+    // (ONLINE_ONLY tenants keep the historical contract: an explicit slug is
+    // required — docs/adr/0041.)
+    slug: rawSlug || (user.capabilities.has("catalogIdentity") ? slugifyCategoryName(rawName) : ""),
     description: formData.get("description"),
     parentId: formData.get("parentId"),
   });
@@ -275,6 +337,16 @@ export async function createProductVariationAction(
   if (existingSku) {
     return actionError("Un SKU de variation identique existe déjà.", { sku: ["SKU déjà utilisé."] });
   }
+  // Cross-table guard (docs/adr/0038): a variation SKU may not equal a
+  // product SKU or a barcode either.
+  const crossTableProblem = await assertSkuFreeOfBarcodeAndSiblings(parsed.data.sku);
+  if (crossTableProblem) {
+    return actionError(crossTableProblem, { sku: ["SKU déjà utilisé."] });
+  }
+  const variationBarcode = user.capabilities.has("catalogIdentity") ? String(formData.get("barcode") ?? "").trim() || null : null;
+  if (variationBarcode && (await prisma.barcode.findFirst({ where: { code: variationBarcode }, select: { id: true } }))) {
+    return actionError("Ce code-barres est déjà utilisé.", { barcode: ["Code-barres déjà utilisé."] });
+  }
 
   let variation;
   try {
@@ -296,9 +368,16 @@ export async function createProductVariationAction(
         });
       }
 
+      if (variationBarcode) {
+        await addBarcodeInTx(tx, { variationId: created.id, code: variationBarcode, createdById: user.id });
+      }
+
       return created;
     });
   } catch (error) {
+    if (error instanceof BarcodeError) {
+      return actionError(error.message, { barcode: [error.message] });
+    }
     if (isUniqueConstraintError(error)) {
       return actionError("Un SKU de variation identique existe déjà.", { sku: ["SKU déjà utilisé."] });
     }
@@ -470,7 +549,16 @@ export async function removeProductAction(formData: FormData): Promise<ActionRes
   if (!product) return actionError("Produit introuvable.");
 
   const soldCount = product._count.orderItems;
-  if (soldCount === 0) {
+  // Ledger protection (docs/adr/0038): InventoryItem and InventoryMovement
+  // cascade from Product/ProductVariation, so hard-deleting a product that
+  // ever had a stock movement (a reception, a transfer, a count, an
+  // adjustment, an offline sale...) would silently destroy its audit
+  // trail even though it was never sold through an order. Any movement —
+  // on the product itself or on any of its variations — means "archive".
+  const movementCount = await prisma.inventoryMovement.count({
+    where: { inventoryItem: { OR: [{ productId }, { variation: { productId } }] } },
+  });
+  if (soldCount === 0 && movementCount === 0) {
     await prisma.product.delete({ where: { id: productId } });
     await recordAuditEvent({
       actorType: "USER",
@@ -493,7 +581,14 @@ export async function removeProductAction(formData: FormData): Promise<ActionRes
     action: "product.archived",
     entityType: "Product",
     entityId: productId,
-    metadata: { name: product.name, source: product.source, removed: "archived", soldCount, reason: "manual_cleanup" },
+    metadata: {
+      name: product.name,
+      source: product.source,
+      removed: "archived",
+      soldCount,
+      movementCount,
+      reason: "manual_cleanup",
+    },
   });
   revalidatePath("/produits");
   revalidatePath(`/produits/${productId}`);

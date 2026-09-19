@@ -1,9 +1,11 @@
 "use server";
 
+import { ensureDefaultOnlineChannel } from "@/lib/channels";
+import { productSearchWhere } from "@/lib/queries/products";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction, requireUserForAction } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import {
   requireLocationAccessForAction,
   resolveAuthorizedDefaultWarehouseId,
@@ -125,10 +127,10 @@ export async function searchProductsForOrderAction(query: string) {
   const products = await prisma.product.findMany({
     where: {
       status: "ACTIF",
-      OR: [
-        { name: { contains: query, mode: "insensitive" } },
-        { sku: { contains: query, mode: "insensitive" } },
-      ],
+      // Same predicate as the product list (docs/adr/0038): name, SKU, model
+      // reference, variation SKU and barcodes — a scanned code or a variant
+      // SKU finds its parent product.
+      OR: productSearchWhere(query.trim()),
     },
     include: { variations: true },
     take: 8,
@@ -309,6 +311,10 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
         shippingCountry: normalizeOptional(parsed.data.shippingCountry) ?? "Maroc",
         shippingPhone: normalizeOptional(parsed.data.shippingPhone),
         fulfillmentWarehouseId,
+        // Business channel (docs/adr/0038): a manual delivery order belongs to
+        // the tenant's default ONLINE channel. Additive; the lifecycle and
+        // every stock rule are untouched.
+        salesChannelId: (await ensureDefaultOnlineChannel(tx)).id,
         createdById: user.id,
         items: { create: resolvedItems },
       },
@@ -693,7 +699,7 @@ export async function cancelOrderAction(formData: FormData): Promise<ActionResul
  */
 export async function reopenOrderAction(formData: FormData): Promise<ActionResult<IdResult>> {
   const user = await requireUserForAction();
-  if (!hasPermission(user.role, "orders.edit") && !hasPermission(user.role, "orders.confirm")) {
+  if (!userHasPermission(user, "orders.edit") && !userHasPermission(user, "orders.confirm")) {
     return actionError("Vous n'avez pas la permission de rétablir une commande.");
   }
 

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ConfirmActionButton } from "@/components/confirm-action-button";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { getAgentCommissionDetail } from "@/lib/queries/commissions";
 import { closeCommissionStatementAction, markCommissionStatementPaidAction } from "@/actions/commissions";
 import { formatCurrency, formatDate, formatDateTime, displayOrderNumber } from "@/lib/format";
@@ -26,7 +26,7 @@ const MONTH_NAMES = ["", "janvier", "février", "mars", "avril", "mai", "juin", 
 
 export default async function CommissionAgentDetailPage({ params }: { params: Promise<{ agentId: string }> }) {
   const user = await requirePermission("commissions.view");
-  const canManage = hasPermission(user.role, "commissions.manage");
+  const canManage = userHasPermission(user, "commissions.manage");
   const { agentId } = await params;
   const detail = await getAgentCommissionDetail(agentId);
   if (!detail) notFound();

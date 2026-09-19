@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { WarehouseForm } from "@/components/inventory/warehouse-form";
 import { WarehouseRowActions } from "@/components/inventory/warehouse-row-actions";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { listWarehousesWithStats } from "@/lib/queries/inventory";
 import { WAREHOUSE_TYPE_LABELS, RECORD_SOURCE_LABELS } from "@/lib/status-labels";
 
@@ -14,7 +14,7 @@ export const metadata = { title: "Emplacements — ASODITECH Gestion E-commerce"
 
 export default async function EntrepotsPage() {
   const user = await requirePermission("inventory.view");
-  const canManage = hasPermission(user.role, "warehouses.manage");
+  const canManage = userHasPermission(user, "warehouses.manage");
   const warehouses = await listWarehousesWithStats();
 
   return (

@@ -1,6 +1,9 @@
 import { requirePermission } from "@/lib/auth/guards";
+import { saleChannelWhere } from "@/lib/auth/channel-access";
+import { requireChannelKind } from "@/lib/auth/channel-access";
 import { listAccessibleActiveWarehouses, hasGlobalLocationAccess } from "@/lib/auth/location-access";
 import { resolveReportRange } from "@/lib/reports/range";
+import { getChannelReport } from "@/lib/queries/reports/channels";
 import { csvDocument, csvDocumentResponse, type CsvSection } from "@/lib/reports/csv";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { getSalesReport } from "@/lib/queries/reports/sales";
@@ -29,6 +32,9 @@ const label = (map: Record<string, { label: string }>, key: string) => map[key]?
 export async function GET(request: Request, ctx: { params: Promise<{ type: string }> }): Promise<Response> {
   const user = await requirePermission("analytics.view");
   const { type } = await ctx.params;
+  // Every report except the stock valuation aggregates delivery ORDERS: a CSV
+  // export must not be a way around the on-screen channel scope (docs/adr/0039).
+  if (type !== "stock" && type !== "canaux") requireChannelKind(user, "ONLINE");
   const url = new URL(request.url);
   const params = {
     period: url.searchParams.get("period") ?? undefined,
@@ -148,6 +154,36 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
       );
     }
 
+    case "canaux": {
+      // The Online/Offline/Total report is a `storeChannels` capability
+      // (docs/adr/0041) — not available to an ONLINE_ONLY tenant, CSV included.
+      if (!user.capabilities.has("storeChannels")) return new Response("Forbidden", { status: 403 });
+      // Online / Offline / Total — each section only when the viewer holds a
+      // channel of that activity (docs/adr/0039, 0040); the Total only with both.
+      const r = await getChannelReport(user, resolved.range, {
+        kind: url.searchParams.get("kind") === "online" ? "online" : url.searchParams.get("kind") === "offline" ? "offline" : "all",
+      });
+      if (!r.online && !r.offline) return new Response("Forbidden", { status: 403 });
+      const sections: CsvSection[] = [
+        {
+          heading: "Synthèse",
+          headers: ["Source", "Montant", "Détail"],
+          rows: [
+            ...(r.online ? [["En ligne — chiffre d'affaires", r.online.revenue, `${r.online.ordersCount} commande(s)`]] : []),
+            ...(r.offline ? [["Magasin — ventes brutes", r.offline.grossSales, `${r.offline.salesCount} vente(s)`], ["Magasin — remboursements", -r.offline.refunds, ""], ["Magasin — ventes nettes", r.offline.netSales, `${r.offline.unitsSold} article(s)`]] : []),
+            ...(r.total ? [["Total", r.total.revenue, "En ligne + Magasin net"]] : []),
+          ],
+        },
+        ...(r.offline
+          ? [
+              { heading: "Magasin — par mode de paiement", headers: ["Mode", "Montant"], rows: r.offline.byPayment.map((p) => [p.method, p.amount]) },
+              { heading: "Magasin — par canal", headers: ["Canal", "Ventes", "Montant"], rows: r.offline.byChannel.map((c) => [c.name, c.count, c.gross]) },
+              { heading: "Magasin — par emplacement", headers: ["Emplacement", "Ventes", "Montant"], rows: r.offline.byLocation.map((w) => [w.name, w.count, w.gross]) },
+            ]
+          : []),
+      ];
+      return csvDocumentResponse(`rapport-canaux-${stamp}`, doc("Rapport par canal", sections));
+    }
     case "stock": {
       // Location Access Management v1 (docs/adr/0037): never trust the raw
       // query param — resolve it against the caller's own authorized set,
@@ -161,6 +197,11 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
       const r = await getStockValuationReport({
         warehouseId,
         warehouseIds: !warehouseId && !hasGlobalLocationAccess(user.role) ? accessible.map((w) => w.id) : undefined,
+        // Rotation counts every activity the viewer may read — and none they may
+        // not (docs/adr/0039): Online orders need an ONLINE channel, in-store
+        // sales are restricted to the viewer's own store channels.
+        includeOnlineOrders: user.channels.online,
+        offlineSaleScope: user.channels.offline ? saleChannelWhere(user) : null,
       });
       return csvDocumentResponse(
         `rapport-stock-${new Date().toLocaleDateString("en-CA")}`,

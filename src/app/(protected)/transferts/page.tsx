@@ -7,7 +7,7 @@ import { DataTablePagination } from "@/components/data-table-pagination";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { listStockTransfers } from "@/lib/queries/transfers";
 import { formatDateTime, displayTransferNumber } from "@/lib/format";
 import { TRANSFER_STATUS_LABELS } from "@/lib/status-labels";
@@ -20,7 +20,7 @@ export default async function TransfertsPage({
   searchParams: Promise<{ status?: string; page?: string }>;
 }) {
   const user = await requirePermission("inventory.view");
-  const canTransfer = hasPermission(user.role, "inventory.transfer");
+  const canTransfer = userHasPermission(user, "inventory.transfer");
   const params = await searchParams;
   const page = Number(params.page) || 1;
   const { transfers, total, pageSize } = await listStockTransfers({ status: params.status, page });

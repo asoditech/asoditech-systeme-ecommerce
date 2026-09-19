@@ -22,7 +22,7 @@ import type { PrismaTransactionClient } from "@/lib/prisma";
  * back to the legacy global number when `displayNumber` is null, so
  * history is never rewritten.
  */
-export type TenantSequenceKind = "order" | "transfer" | "stocktake";
+export type TenantSequenceKind = "order" | "transfer" | "stocktake" | "reception" | "sale" | "saleReturn";
 
 /**
  * Claims and returns the next per-tenant display number for `kind`. Safe to
@@ -61,6 +61,30 @@ export async function claimTenantDisplayNumber(
         select: { nextStocktakeNumber: true },
       });
       return t.nextStocktakeNumber - 1;
+    }
+    case "reception": {
+      const t = await client.tenant.update({
+        where: { id: tenantId },
+        data: { nextReceptionNumber: { increment: 1 } },
+        select: { nextReceptionNumber: true },
+      });
+      return t.nextReceptionNumber - 1;
+    }
+    case "sale": {
+      const t = await client.tenant.update({
+        where: { id: tenantId },
+        data: { nextSaleNumber: { increment: 1 } },
+        select: { nextSaleNumber: true },
+      });
+      return t.nextSaleNumber - 1;
+    }
+    case "saleReturn": {
+      const t = await client.tenant.update({
+        where: { id: tenantId },
+        data: { nextSaleReturnNumber: { increment: 1 } },
+        select: { nextSaleReturnNumber: true },
+      });
+      return t.nextSaleReturnNumber - 1;
     }
   }
 }

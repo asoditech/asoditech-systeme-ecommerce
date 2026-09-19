@@ -1,4 +1,5 @@
 import "server-only";
+import { getDefaultOnlineChannelId } from "@/lib/channels";
 
 import { prisma } from "@/lib/prisma";
 import { recordAuditEvent } from "@/lib/audit";
@@ -257,6 +258,9 @@ async function createImportedOrder(
       paymentStatus: wc.status === "refunded" ? "REMBOURSE" : wc.date_paid ? "PAYE" : "EN_ATTENTE",
       paymentMethod: mapPaymentMethod(wc.payment_method),
       source: "WOOCOMMERCE",
+      // Business channel (docs/adr/0038): every delivery order belongs to the
+      // tenant's default ONLINE channel. Additive — never affects lifecycle.
+      salesChannelId: await getDefaultOnlineChannelId(),
       externalId: String(wc.id),
       externalNumber: wc.number,
       placedAt: parseOrderPlacedAt(wc.date_created),

@@ -7,6 +7,8 @@ import { cookies, headers } from "next/headers";
 import { prismaBase as prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { generateRawToken, hashToken } from "@/lib/auth/tokens";
+import { loadEffectiveAccess } from "@/lib/auth/access-loader";
+import type { EffectiveAccess } from "@/lib/auth/effective-access";
 import type { User } from "@prisma/client";
 
 // Server-side, database-backed sessions — mirrors the Control Center's
@@ -72,7 +74,15 @@ export async function destroyAllSessionsForTenant(tenantId: string): Promise<voi
   await prisma.session.deleteMany({ where: { user: { tenantId } } });
 }
 
-export type CurrentUser = Pick<User, "id" | "email" | "name" | "role" | "status" | "tenantId" | "isPlatformAdmin">;
+/**
+ * The resolved user. Besides the account fields it carries the EFFECTIVE
+ * access computed once per request (docs/adr/0039): `permissions` = role
+ * baseline + per-user GRANT/DENY overrides, filtered by channel scope, and
+ * `channels` = which business channels the user may act on and read. Every
+ * guard and UI visibility check reads these — never `role` directly.
+ */
+export type CurrentUser = Pick<User, "id" | "email" | "name" | "role" | "status" | "tenantId" | "isPlatformAdmin"> &
+  EffectiveAccess;
 
 /**
  * Resolves the authenticated user for the current request, re-verifying
@@ -99,7 +109,7 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
   const tokenHash = hashToken(rawToken);
   const session = await prisma.session.findUnique({
     where: { tokenHash },
-    include: { user: { include: { tenant: { select: { status: true } } } } },
+    include: { user: { include: { tenant: { select: { status: true, businessMode: true } } } } },
   });
 
   if (!session || session.expiresAt < new Date()) {
@@ -117,7 +127,8 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
   }
 
   const { id, email, name, role, status, tenantId, isPlatformAdmin } = session.user;
-  return { id, email, name, role, status, tenantId, isPlatformAdmin };
+  const access = await loadEffectiveAccess({ id, role, businessMode: session.user.tenant.businessMode });
+  return { id, email, name, role, status, tenantId, isPlatformAdmin, ...access };
 });
 
 export { SESSION_COOKIE };

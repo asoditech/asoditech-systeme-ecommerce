@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import type { ActionResult, IdResult } from "@/actions/types";
 
-export function VariationForm({ productId }: { productId: string }) {
+export function VariationForm({ productId, showBarcode = false }: { productId: string; showBarcode?: boolean }) {
   const [open, setOpen] = useState(false);
   const [attrs, setAttrs] = useState<{ key: string; value: string }[]>([{ key: "", value: "" }]);
   const [, formAction, isPending] = useActionState(
@@ -50,6 +50,12 @@ export function VariationForm({ productId }: { productId: string }) {
             <Label htmlFor="variation-sku">SKU de la variation</Label>
             <Input id="variation-sku" name="sku" required />
           </div>
+          {showBarcode && (
+            <div className="space-y-1.5">
+              <Label htmlFor="variation-barcode">Code-barres (optionnel)</Label>
+              <Input id="variation-barcode" name="barcode" placeholder="Scanner ou saisir le code" autoComplete="off" />
+            </div>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="variation-price">Prix (optionnel, remplace le prix produit)</Label>

@@ -7,11 +7,12 @@ import { cn } from "@/lib/utils";
 /** Secondary nav for the Paramètres area. `Sauvegarde & Portabilité`
  * (docs/adr/0034) is settings.manage-only, so it is only rendered when
  * `canManage`. */
-export function SettingsNav({ canManage }: { canManage: boolean }) {
+export function SettingsNav({ canManage, canManageChannels = false }: { canManage: boolean; canManageChannels?: boolean }) {
   const pathname = usePathname();
   const items = [
     { href: "/parametres", label: "Général" },
     { href: "/parametres/abonnement", label: "Abonnement & Utilisation" },
+    ...(canManageChannels ? [{ href: "/parametres/canaux", label: "Canaux de vente" }] : []),
     ...(canManage ? [{ href: "/parametres/sauvegarde", label: "Sauvegarde & Portabilité" }] : []),
   ];
   return (

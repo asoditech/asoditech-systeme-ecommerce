@@ -4,7 +4,7 @@ import { ArrowRight } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { DocSidebar } from "@/components/docs/doc-sidebar";
 import { requireUser } from "@/lib/auth/guards";
-import { DOC_CATEGORIES, getCategory } from "@/lib/docs/categories";
+import { DOC_CATEGORIES, getCategory, isCategoryAvailable } from "@/lib/docs/categories";
 import { getArticlesByCategory, articleHref } from "@/lib/docs/registry";
 import type { DocCategoryId } from "@/lib/docs/types";
 
@@ -13,16 +13,18 @@ export async function generateStaticParams() {
 }
 
 export default async function DocCategoryPage({ params }: { params: Promise<{ category: string }> }) {
-  await requireUser();
+  const user = await requireUser();
   const { category } = await params;
   if (!DOC_CATEGORIES.some((c) => c.id === category)) notFound();
+  // A category documenting a capability the tenant's business mode lacks does not exist for it (docs/adr/0041).
+  if (!isCategoryAvailable(category as DocCategoryId, user.capabilities)) notFound();
   const cat = getCategory(category as DocCategoryId);
   const articles = getArticlesByCategory(cat.id);
 
   return (
     <div className="grid gap-8 lg:grid-cols-[220px_1fr]">
       <aside className="hidden lg:block">
-        <DocSidebar activeCategory={cat.id} />
+        <DocSidebar activeCategory={cat.id} capabilities={user.capabilities} />
       </aside>
       <div className="min-w-0">
         <PageHeader

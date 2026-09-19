@@ -205,3 +205,6 @@ returned to the caller / logged server-side, not sent.
   unmodified (aside from the `SALES`→`CONFIRMATION` string in fixtures)
   plus new Phase 5 coverage, `tsc --noEmit` and `eslint` clean, `next
   build` clean.
+
+## Addendum — business mode (ADR 0041)
+`createTenantAction` now also takes a `businessMode` (`ONLINE_ONLY` default, or `ONLINE_AND_OFFLINE`), and a platform admin can change it afterwards from `/platform`. Provisioning itself (baseline warehouse, default Online channel, owner invitation) is identical for both modes. See `docs/adr/0041-tenant-business-mode.md`.

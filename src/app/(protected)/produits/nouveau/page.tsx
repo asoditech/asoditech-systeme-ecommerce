@@ -6,6 +6,7 @@ import { ProductForm } from "@/components/products/product-form";
 import { requirePermission } from "@/lib/auth/guards";
 import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
 import { listCategories } from "@/lib/queries/products";
+import { listActiveChannels } from "@/lib/queries/channels";
 
 export const metadata = { title: "Ajouter un produit — ASODITECH Gestion E-commerce" };
 
@@ -22,11 +23,18 @@ const PLATFORM_ICON = { WOOCOMMERCE: Store, SHOPIFY: ShoppingBag } as const;
  *    case (a client running the app without WooCommerce/Shopify).
  */
 export default async function NouveauProduitPage() {
-  await requirePermission("products.create");
+  const user = await requirePermission("products.create");
+  // Business-mode capabilities (docs/adr/0041): an ONLINE_ONLY tenant gets the
+  // pre-existing form — no identity fields, no channels, no store-only product.
+  const identityEnabled = user.capabilities.has("catalogIdentity");
+  const storeChannels = user.capabilities.has("storeChannels");
   const platforms = await getConnectedCommercePlatforms();
 
   if (platforms.length === 0) {
-    const categories = await listCategories();
+    const [categories, channels] = await Promise.all([
+      listCategories(),
+      storeChannels ? listActiveChannels() : Promise.resolve([]),
+    ]);
     return (
       <div>
         <PageHeader
@@ -35,7 +43,7 @@ export default async function NouveauProduitPage() {
           description="Aucune plateforme e-commerce connectée — créez le produit directement dans ASODITECH."
         />
         <div className="max-w-3xl">
-          <ProductForm categories={categories} />
+          <ProductForm categories={categories} channels={channels} identityEnabled={identityEnabled} />
           <p className="mt-3 flex items-start gap-1.5 text-xs text-muted-foreground">
             <LogIn className="mt-0.5 size-3.5 shrink-0" />
             <span>
@@ -48,12 +56,23 @@ export default async function NouveauProduitPage() {
     );
   }
 
+  // docs/adr/0038: a product sold ONLY in a physical store has no platform
+  // to be created on — it is a native (INTERNE) product, which docs/adr/0017
+  // never forbade (that ADR only stops ASODITECH editing a SYNCED product).
+  // So even with a store connected, a store-only product can be created
+  // here — restricted to OFFLINE channels, since it is not published online.
+  const [categories, allChannels] = await Promise.all([
+    listCategories(),
+    storeChannels ? listActiveChannels() : Promise.resolve([]),
+  ]);
+  const offlineChannels = allChannels.filter((c) => c.kind === "OFFLINE");
+
   return (
     <div>
       <PageHeader
         title="Ajouter un produit"
         breadcrumbs={[{ label: "Produits", href: "/produits" }, { label: "Ajouter" }]}
-        description="Une plateforme e-commerce est connectée — la création de produit se fait sur cette plateforme, puis se synchronise ici."
+        description="Une plateforme e-commerce est connectée — un produit vendu en ligne se crée sur cette plateforme, puis se synchronise ici. Un produit vendu uniquement en magasin se crée ci-dessous."
       />
 
       <div className={platforms.length === 1 ? "max-w-sm" : "grid max-w-xl gap-4 sm:grid-cols-2"}>
@@ -92,6 +111,22 @@ export default async function NouveauProduitPage() {
         <LogIn className="mt-0.5 size-3.5 shrink-0" />
         <span>Ces boutons ouvrent l&apos;administration réelle de la plateforme — connectez-vous d&apos;abord si nécessaire.</span>
       </p>
+
+      {storeChannels && (
+      <div className="mt-8 max-w-3xl">
+        <h2 className="mb-1 text-base font-semibold">Produit vendu uniquement en magasin</h2>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Ce produit n&apos;est pas publié sur la boutique en ligne : il est créé et géré directement dans ASODITECH.
+        </p>
+        {offlineChannels.length === 0 ? (
+          <p className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
+            Aucun canal magasin actif. Créez d&apos;abord un canal « Magasin » dans Paramètres → Canaux de vente.
+          </p>
+        ) : (
+          <ProductForm categories={categories} channels={offlineChannels} identityEnabled={identityEnabled} />
+        )}
+      </div>
+      )}
     </div>
   );
 }

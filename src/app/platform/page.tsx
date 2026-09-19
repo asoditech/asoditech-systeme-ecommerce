@@ -4,6 +4,8 @@ import { CreateTenantForm } from "@/components/platform/create-tenant-form";
 import { TenantRowControls } from "@/components/platform/tenant-row-controls";
 import { TenantPlanDialog } from "@/components/platform/tenant-plan-dialog";
 import { DeleteTenantButton } from "@/components/platform/delete-tenant-button";
+import { TenantModeDialog } from "@/components/platform/tenant-mode-dialog";
+import { BUSINESS_MODE_LABELS } from "@/lib/tenant/business-mode";
 import { KpiCard } from "@/components/kpi-card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -48,6 +50,7 @@ export default async function PlatformPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Tenant</TableHead>
+              <TableHead>Mode</TableHead>
               <TableHead>Forfait</TableHead>
               <TableHead>Commandes</TableHead>
               <TableHead>Utilisateurs</TableHead>
@@ -65,6 +68,11 @@ export default async function PlatformPage() {
                 <TableCell className="font-medium">
                   {row.name}
                   <div className="text-xs font-normal text-muted-foreground">{row.slug}</div>
+                </TableCell>
+                <TableCell>
+                  <Badge variant={row.businessMode === "ONLINE_AND_OFFLINE" ? "default" : "outline"}>
+                    {BUSINESS_MODE_LABELS[row.businessMode]}
+                  </Badge>
                 </TableCell>
                 <TableCell>
                   <Badge variant={row.planCode === "PRO" ? "default" : "secondary"}>{PLAN_CODE_LABELS[row.planCode] ?? row.planCode}</Badge>
@@ -99,6 +107,7 @@ export default async function PlatformPage() {
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap items-center gap-1.5">
+                    <TenantModeDialog tenantId={row.id} currentMode={row.businessMode} />
                     <TenantPlanDialog tenantId={row.id} currentPlanCode={row.planCode} currentStatus={row.subscriptionStatus} />
                     <DeleteTenantButton tenantId={row.id} tenantSlug={row.slug} tenantName={row.name} />
                   </div>

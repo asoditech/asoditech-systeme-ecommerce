@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { REVENUE_EXCLUDED_STATUSES } from "@/lib/profitability";
 
@@ -58,7 +59,23 @@ function variantLabel(attributes: unknown): string | null {
 }
 
 export async function getStockValuationReport(
-  opts: { warehouseId?: string; warehouseIds?: string[]; dormantDays?: number } = {}
+  opts: {
+    warehouseId?: string;
+    warehouseIds?: string[];
+    dormantDays?: number;
+    /**
+     * Which SALES the "units sold in the window" / dormancy figure may be built
+     * from (docs/adr/0039, 0040). Stock is ONE physical pool, so rotation should
+     * count every activity the viewer may read — but it must not leak the volume
+     * of one they may not:
+     *  - `includeOnlineOrders` (default true = the historical behaviour): count
+     *    delivery-order lines;
+     *  - `offlineSaleScope` (default null = off): also count in-store sale lines,
+     *    restricted to this Sale filter (the viewer's own store channels).
+     */
+    includeOnlineOrders?: boolean;
+    offlineSaleScope?: Prisma.SaleWhereInput | null;
+  } = {}
 ): Promise<StockValuationReport> {
   const dormantDays = opts.dormantDays ?? 60;
   const dormantSince = new Date();
@@ -97,16 +114,26 @@ export async function getStockValuationReport(
 
   // One grouped query for units sold per product/variation in the window,
   // rather than a query per row.
-  const soldLines = await prisma.orderItem.groupBy({
-    by: ["productId", "variationId"],
-    where: {
-      order: { placedAt: { gte: dormantSince }, status: { notIn: REVENUE_EXCLUDED_STATUSES } },
-    },
-    _sum: { quantity: true },
-  });
+  const soldLines =
+    opts.includeOnlineOrders === false
+      ? []
+      : await prisma.orderItem.groupBy({
+          by: ["productId", "variationId"],
+          where: {
+            order: { placedAt: { gte: dormantSince }, status: { notIn: REVENUE_EXCLUDED_STATUSES } },
+          },
+          _sum: { quantity: true },
+        });
+  const offlineLines = opts.offlineSaleScope
+    ? await prisma.saleLine.groupBy({
+        by: ["productId", "variationId"],
+        where: { sale: { soldAt: { gte: dormantSince }, ...opts.offlineSaleScope } },
+        _sum: { quantity: true },
+      })
+    : [];
   const soldByProduct = new Map<string, number>();
   const soldByVariation = new Map<string, number>();
-  for (const l of soldLines) {
+  for (const l of [...soldLines, ...offlineLines]) {
     if (l.variationId) soldByVariation.set(l.variationId, (soldByVariation.get(l.variationId) ?? 0) + (l._sum.quantity ?? 0));
     else if (l.productId) soldByProduct.set(l.productId, (soldByProduct.get(l.productId) ?? 0) + (l._sum.quantity ?? 0));
   }

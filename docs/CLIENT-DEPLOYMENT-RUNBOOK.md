@@ -34,6 +34,11 @@ Read `docs/SHARED-VS-DEDICATED.md` first. Short version:
 
 - **Shared SaaS**: add the client as a `Tenant` on your existing shared
   Vercel + Supabase deployment via `/platform` → skip straight to §8.
+  Pick the tenant's **business mode** at creation (`En ligne seul` = default,
+  the pre-existing product; `En ligne + Magasin` = adds store sales,
+  suppliers/receptions, barcodes, traceability — `docs/adr/0041`). It can be
+  changed later from `/platform`, except back to online-only once the tenant
+  has sales/receptions/supplier payments.
 - **Dedicated**: the client gets their own Vercel project, own Supabase
   project, own domain → follow §1 through §12 in order.
 

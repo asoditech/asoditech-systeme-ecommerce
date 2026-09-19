@@ -1,7 +1,7 @@
 "use server";
 
 import { requirePermissionForAction } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { recordAuditEvent } from "@/lib/audit";
 import { getAiTool } from "@/lib/ai/tools";
 
@@ -21,7 +21,16 @@ export async function runAiToolAction(
   // The AI must never be a way around RBAC: a tool that surfaces finance /
   // delivery / customer data is only runnable by a role that already holds
   // the matching permission, exactly as if the user opened that page.
-  if (tool.permission && !hasPermission(user.role, tool.permission)) {
+  if (tool.permission && !userHasPermission(user, tool.permission)) {
+    return {
+      ok: false,
+      error: "Vous n'avez pas la permission de consulter cette information.",
+    };
+  }
+  // Channel scope (docs/adr/0039): a tool that reads Online order data is not
+  // runnable by a user with no Online channel, whatever shared permission
+  // (finance.view, products.view…) they hold.
+  if (tool.domain === "ONLINE" && !user.channels.online) {
     return {
       ok: false,
       error: "Vous n'avez pas la permission de consulter cette information.",

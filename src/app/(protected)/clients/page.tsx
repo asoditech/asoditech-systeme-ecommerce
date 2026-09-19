@@ -10,7 +10,7 @@ import { FilterSearchInput } from "@/components/filter-search-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { listCustomers, type CustomerSort } from "@/lib/queries/customers";
 import { formatDate } from "@/lib/format";
 import { CUSTOMER_SEGMENT_LABELS } from "@/lib/status-labels";
@@ -36,6 +36,8 @@ export default async function ClientsPage({
   }>;
 }) {
   const user = await requirePermission("customers.view");
+  // Order counts are Online (delivery order) data — docs/adr/0039.
+  const canSeeOrders = userHasPermission(user, "orders.view");
   const params = await searchParams;
   const page = Number(params.page) || 1;
 
@@ -68,7 +70,7 @@ export default async function ClientsPage({
         title="Clients"
         description="Gérez votre base de clients et leur historique de commandes."
         actions={
-          hasPermission(user.role, "customers.create") ? (
+          userHasPermission(user, "customers.create") ? (
             <Button render={<Link href="/clients/nouveau" />}>
               <Plus className="size-4" />
               Nouveau client
@@ -119,7 +121,7 @@ export default async function ClientsPage({
               : "Ajoutez votre premier client pour commencer à suivre ses commandes."
           }
           action={
-            !hasActiveFilter && hasPermission(user.role, "customers.create") ? (
+            !hasActiveFilter && userHasPermission(user, "customers.create") ? (
               <Button render={<Link href="/clients/nouveau" />}>Ajouter un client</Button>
             ) : undefined
           }
@@ -133,7 +135,7 @@ export default async function ClientsPage({
                 <TableHead>Contact</TableHead>
                 <TableHead>Ville</TableHead>
                 <TableHead>Segment</TableHead>
-                <TableHead>Commandes</TableHead>
+                {canSeeOrders && <TableHead>Commandes</TableHead>}
                 <TableHead>Ajouté le</TableHead>
               </TableRow>
             </TableHeader>
@@ -157,7 +159,7 @@ export default async function ClientsPage({
                       <span className="text-sm text-muted-foreground">Non segmenté</span>
                     )}
                   </TableCell>
-                  <TableCell>{c._count.orders}</TableCell>
+                  {canSeeOrders && <TableCell>{c._count.orders}</TableCell>}
                   <TableCell className="text-muted-foreground">{formatDate(c.createdAt)}</TableCell>
                 </ClickableTableRow>
               ))}

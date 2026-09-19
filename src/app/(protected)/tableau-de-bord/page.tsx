@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   RotateCcw,
   HandCoins,
+  Store,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
@@ -23,7 +24,10 @@ import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { requireUser } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
+import { auditScopeWhere } from "@/lib/auth/audit-scope";
+import { getChannelReport } from "@/lib/queries/reports/channels";
+import { currentDayRange, yesterdayRange, currentMonthRange, currentQuarterRange, currentYearRange } from "@/lib/queries/finance";
 import {
   getDashboardData,
   getRevenueTrend,
@@ -87,19 +91,33 @@ export default async function TableauDeBordPage({
       : "annee";
 
   const [data, revenueTrend] = await Promise.all([
-    getDashboardData(periodKey),
+    getDashboardData(periodKey, undefined, { auditScope: auditScopeWhere(user.channels) }),
     getRevenueTrend(chartRange),
   ]);
   const suffix = PERIOD_SUFFIX[periodKey];
 
-  const canViewOrders = hasPermission(user.role, "orders.view");
-  const canViewFinance = hasPermission(user.role, "finance.view");
-  const canViewInventory = hasPermission(user.role, "inventory.view");
-  const canViewDelivery = hasPermission(user.role, "delivery.view");
-  const canViewCustomers = hasPermission(user.role, "customers.view");
-  const canViewAudit = hasPermission(user.role, "audit.view");
-  const canConfirm = hasPermission(user.role, "orders.confirm");
-  const canViewCommissions = hasPermission(user.role, "commissions.view");
+  const canViewOrders = userHasPermission(user, "orders.view");
+  // The finance KPIs and the revenue chart are aggregated from delivery ORDERS
+  // (docs/adr/0039): finance.view is a shared permission, so without an
+  // ONLINE channel they would leak Online revenue to an Offline-only user.
+  // The Online/Offline/Total view is the channel report (docs/adr/0040).
+  const canViewFinance = userHasPermission(user, "finance.view") && user.channels.online;
+  const canViewInventory = userHasPermission(user, "inventory.view");
+  const canViewDelivery = userHasPermission(user, "delivery.view");
+  const canViewCustomers = userHasPermission(user, "customers.view");
+  const canViewAudit = userHasPermission(user, "audit.view");
+  const canConfirm = userHasPermission(user, "orders.confirm");
+  const canViewCommissions = userHasPermission(user, "commissions.view");
+  // In-store sales KPI (docs/adr/0040) — only for a viewer who may read Offline
+  // data, row-scoped to their store channels; it is NEVER folded into the
+  // Online figures above, so an Online-only viewer's totals cannot include it.
+  const offlineRange =
+    periodKey === "jour" ? currentDayRange() : periodKey === "hier" ? yesterdayRange()
+      : periodKey === "trimestre" ? currentQuarterRange() : periodKey === "annee" ? currentYearRange() : currentMonthRange();
+  const offlineSummary =
+    userHasPermission(user, "sales.view") && user.channels.offline
+      ? (await getChannelReport(user, offlineRange, { kind: "offline" })).offline
+      : null;
   const [confirmationSummary, commissionSummary] = await Promise.all([
     canConfirm ? getConfirmationDashboardSummary() : Promise.resolve(null),
     canViewCommissions ? getCommissionDashboardSummary() : Promise.resolve(null),
@@ -163,6 +181,15 @@ export default async function TableauDeBordPage({
         )}
         {canViewOrders && (
           <KpiCard label={`Commandes (${suffix})`} value={String(data.finance.ordersCount)} icon={ShoppingCart} tone="violet" />
+        )}
+        {offlineSummary && (
+          <KpiCard
+            label={`Ventes magasin nettes (${suffix})`}
+            value={formatCurrency(offlineSummary.netSales)}
+            hint={`${offlineSummary.salesCount} vente(s) · ${offlineSummary.unitsSold} article(s)`}
+            icon={Store}
+            tone="primary"
+          />
         )}
         {canViewCustomers && (
           <KpiCard label={`Nouveaux clients (${suffix})`} value={String(data.newCustomersThisPeriod)} icon={Users} tone="info" />

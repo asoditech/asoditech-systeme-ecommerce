@@ -85,8 +85,29 @@ export interface ApplyStockMovementInput {
    * produces (docs/adr/0036-inventory-single-source-of-truth.md). Persisted
    * verbatim on the InventoryMovement row; left null by every other caller. */
   orderReturnId?: string | null;
+  /** Source documents of the Online/Offline unification flows (docs/adr/0040):
+   * persisted verbatim on the movement; left null by every other caller. */
+  receptionLineId?: string | null;
+  saleId?: string | null;
+  saleReturnId?: string | null;
   performedById?: string | null;
   reason?: string | null;
+  /** Purchase cost per unit, persisted on the movement when the caller
+   * knows it (a reception line). Left null everywhere else — ADR 0038. */
+  unitCost?: number | string | null;
+  /**
+   * Opt-in (default `false` → behaviour identical to before): after the
+   * row-locked UPDATE, ALSO require `onHand - reserved >= 0`, i.e. refuse to
+   * consume units that are RESERVED for a confirmed order. The default
+   * primitive only forbids a negative on-hand, which is correct for the
+   * order lifecycle (fulfilment consumes its OWN reservation). An Offline
+   * Sale consumes nothing of its own, so it must pass `true` — otherwise it
+   * could eat stock a confirmed online order is holding (docs/adr/0038
+   * "Shared locations"). The check runs on the post-UPDATE row inside the
+   * caller's transaction, so Postgres' row lock makes it race-free and a
+   * throw rolls the whole transaction (movement row included) back.
+   */
+  enforceAvailable?: boolean;
 }
 
 export type ApplyStockMovementResult =
@@ -153,6 +174,12 @@ export async function applyStockMovement(
   if (updated.quantityReserved < 0) {
     updated = await tx.inventoryItem.update({ where: { id: item.id }, data: { quantityReserved: 0 } });
   }
+  if (input.enforceAvailable && updated.quantityOnHand < updated.quantityReserved) {
+    throw new InsufficientStockError(
+      `Stock disponible insuffisant : ${updated.quantityReserved - updated.quantityOnHand} unité(s) manquante(s) ` +
+        `(le reste est réservé pour des commandes confirmées).`
+    );
+  }
 
   const movement = await tx.inventoryMovement.create({
     data: {
@@ -166,8 +193,16 @@ export async function applyStockMovement(
       stockTransferId: input.stockTransferId ?? null,
       stocktakeSessionId: input.stocktakeSessionId ?? null,
       orderReturnId: input.orderReturnId ?? null,
+      receptionLineId: input.receptionLineId ?? null,
+      saleId: input.saleId ?? null,
+      saleReturnId: input.saleReturnId ?? null,
       performedById: input.performedById ?? null,
       reason: input.reason ?? null,
+      // Ledger hardening (docs/adr/0038): the signed on-hand effect and the
+      // running balance, so a ledger read never has to replay history.
+      onHandDelta: input.onHandDelta,
+      onHandAfter: updated.quantityOnHand,
+      unitCost: input.unitCost ?? null,
     },
   });
 
@@ -441,4 +476,66 @@ export async function applyPhysicalReturnLine(tx: Tx, input: PhysicalReturnLineI
       reason: "Retour physique — unité(s) endommagée(s)",
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Offline sale return → stock (docs/adr/0040). The counterpart of
+// `applyPhysicalReturnLine` for an in-store Sale — a SIBLING helper, so the
+// Online physical-return path above stays byte-for-byte untouched. Same rule:
+// stock only comes back when physically accepted, split sellable (credited to
+// on-hand via RETOUR) vs damaged (recorded in quantityDamaged only, via
+// ENDOMMAGE, never added to on-hand). Both go through `applyStockMovement`.
+// ---------------------------------------------------------------------------
+
+export interface SaleReturnLineInput {
+  warehouseId: string;
+  productId?: string | null;
+  variationId?: string | null;
+  quantitySellable: number;
+  quantityDamaged: number;
+  saleId: string;
+  saleReturnId: string;
+  performedById: string | null;
+  label: string;
+}
+
+/**
+ * Unlike the Online variant this does NOT silently no-op when the location has
+ * no InventoryItem: an offline return must never appear accepted while the
+ * stock quietly goes nowhere. The caller (which is inside a transaction) turns
+ * `false` into a controlled error and rolls everything back.
+ */
+export async function applySaleReturnLine(tx: Tx, input: SaleReturnLineInput): Promise<boolean> {
+  if (input.quantitySellable > 0) {
+    const r = await applyStockMovement(tx, {
+      warehouseId: input.warehouseId,
+      productId: input.productId ?? null,
+      variationId: input.variationId ?? null,
+      type: "RETOUR",
+      quantity: input.quantitySellable,
+      onHandDelta: input.quantitySellable,
+      saleId: input.saleId,
+      saleReturnId: input.saleReturnId,
+      performedById: input.performedById,
+      reason: `Retour magasin ${input.label} — unité(s) revendable(s)`,
+    });
+    if (!r.applied) return false;
+  }
+  if (input.quantityDamaged > 0) {
+    const r = await applyStockMovement(tx, {
+      warehouseId: input.warehouseId,
+      productId: input.productId ?? null,
+      variationId: input.variationId ?? null,
+      type: "ENDOMMAGE",
+      quantity: input.quantityDamaged,
+      onHandDelta: 0,
+      damagedDelta: input.quantityDamaged,
+      saleId: input.saleId,
+      saleReturnId: input.saleReturnId,
+      performedById: input.performedById,
+      reason: `Retour magasin ${input.label} — unité(s) endommagée(s)`,
+    });
+    if (!r.applied) return false;
+  }
+  return true;
 }

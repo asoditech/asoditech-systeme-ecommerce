@@ -1,5 +1,6 @@
 "use server";
 
+import { ensureDefaultOnlineChannel } from "@/lib/channels";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -200,6 +201,16 @@ export async function acceptInvitationAction(
             status: "ACTIVE",
           },
         });
+
+        // Channel scope (docs/adr/0039): a new non-OWNER/non-ADMIN user starts
+        // on the tenant's default ONLINE channel — today's behaviour (a new
+        // agent can work orders). An admin then widens/narrows it from the
+        // Utilisateurs page (e.g. adds a store channel, or removes Online for
+        // an Offline-only employee). OWNER/ADMIN need no row (global by role).
+        if (created.role !== "OWNER" && created.role !== "ADMIN") {
+          const defaultChannel = await ensureDefaultOnlineChannel(tx);
+          await tx.userChannel.create({ data: { userId: created.id, salesChannelId: defaultChannel.id } });
+        }
 
         await tx.invitation.update({
           where: { id: invitation.id },

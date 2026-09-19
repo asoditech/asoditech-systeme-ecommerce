@@ -7,6 +7,7 @@ import { ReportFilterBar } from "@/components/reports/report-filter-bar";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { SalesChart } from "@/components/reports/sales-chart";
 import { requirePermission } from "@/lib/auth/guards";
+import { requireChannelKind } from "@/lib/auth/channel-access";
 import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
 import { trendFromDelta } from "@/lib/reports/trend";
 import { getSalesReport } from "@/lib/queries/reports/sales";
@@ -23,7 +24,9 @@ export default async function RapportVentesPage({
 }: {
   searchParams: Promise<{ period?: string; from?: string; to?: string }>;
 }) {
-  await requirePermission("analytics.view");
+  const viewer = await requirePermission("analytics.view");
+  // Order-derived data: needs an ONLINE channel (docs/adr/0039).
+  requireChannelKind(viewer, "ONLINE");
   const params = await searchParams;
   const resolved = resolveReportRange(params);
   const [report, business] = await Promise.all([

@@ -25,7 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { getOrderDetail, getOrderAuditTimeline } from "@/lib/queries/orders";
 import { listShipmentProviderOptions } from "@/lib/queries/delivery";
 import { buildParcelContentsSummary } from "@/lib/delivery";
@@ -95,13 +95,13 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
   if (!order) notFound();
 
   const timeline = await getOrderAuditTimeline(id);
-  const canEdit = hasPermission(user.role, "orders.edit");
-  const canCancel = hasPermission(user.role, "orders.cancel");
-  const canRefund = hasPermission(user.role, "orders.refund");
-  const canReturnPhysical = hasPermission(user.role, "orders.return");
-  const canManageDelivery = hasPermission(user.role, "delivery.manage");
-  const canViewFinance = hasPermission(user.role, "finance.view");
-  const canManageFinance = hasPermission(user.role, "finance.manage");
+  const canEdit = userHasPermission(user, "orders.edit");
+  const canCancel = userHasPermission(user, "orders.cancel");
+  const canRefund = userHasPermission(user, "orders.refund");
+  const canReturnPhysical = userHasPermission(user, "orders.return");
+  const canManageDelivery = userHasPermission(user, "delivery.manage");
+  const canViewFinance = userHasPermission(user, "finance.view");
+  const canManageFinance = userHasPermission(user, "finance.manage");
   const profit = canViewFinance
     ? computeOrderProfit({
         status: order.status,
@@ -111,9 +111,9 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
         shipments: order.shipments,
       })
     : null;
-  const canViewCommissions = hasPermission(user.role, "commissions.view");
-  const canManageCommissions = hasPermission(user.role, "commissions.manage");
-  const canConfirm = hasPermission(user.role, "orders.confirm");
+  const canViewCommissions = userHasPermission(user, "commissions.view");
+  const canManageCommissions = userHasPermission(user, "commissions.manage");
+  const canConfirm = userHasPermission(user, "orders.confirm");
   const [deliveryProviders, orderCommission, commissionAgents, confirmationAttempts] = await Promise.all([
     canManageDelivery ? listShipmentProviderOptions() : Promise.resolve([]),
     canViewCommissions ? getOrderCommission(order.id) : Promise.resolve(null),

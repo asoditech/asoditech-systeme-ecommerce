@@ -15,7 +15,7 @@ import { SyncRefreshButton } from "@/components/sync-refresh-button";
 import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { listOrders } from "@/lib/queries/orders";
 import { formatCurrency, formatDate, displayOrderNumber, displayOrderChannel, displayOrderRecipient } from "@/lib/format";
 import { ORDER_STATUS_LABELS, ORDER_PAYMENT_STATUS_LABELS } from "@/lib/status-labels";
@@ -41,8 +41,8 @@ export default async function CommandesPage({
   const params = await searchParams;
   const page = Number(params.page) || 1;
   const canSync =
-    hasPermission(user.role, "integrations.manage") && (await getConnectedCommercePlatforms()).length > 0;
-  const canViewCommissions = hasPermission(user.role, "commissions.view");
+    userHasPermission(user, "integrations.manage") && (await getConnectedCommercePlatforms()).length > 0;
+  const canViewCommissions = userHasPermission(user, "commissions.view");
 
   // "Tous les statuts" / "Tous les paiements" submit the sentinel "all";
   // only a real enum value is passed through to the query, otherwise
@@ -131,7 +131,7 @@ export default async function CommandesPage({
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <SyncRefreshButton resource="orders" canSync={canSync} />
-            {hasPermission(user.role, "orders.create") && (
+            {userHasPermission(user, "orders.create") && (
               <Button render={<Link href="/commandes/nouvelle" />}>
                 <Plus className="size-4" />
                 Nouvelle commande

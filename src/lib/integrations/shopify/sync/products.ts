@@ -1,4 +1,5 @@
 import "server-only";
+import { enableProductOnDefaultOnlineChannel } from "@/lib/channels";
 
 import { prisma } from "@/lib/prisma";
 import type { ShopifyClient } from "../client";
@@ -194,6 +195,8 @@ async function syncOneProduct(
       },
     });
     productId = created.id;
+    // docs/adr/0038: a synced product is sellable on the default ONLINE channel.
+    await enableProductOnDefaultOnlineChannel(created.id);
     summary.imported++;
   }
 
@@ -259,6 +262,8 @@ async function syncSimpleProduct(
       data: { name: fields.name, sku, description: fields.description, price: fields.price, status: fields.status, trackInventory: fields.trackInventory, source: "SHOPIFY", externalId: product.id, platformCreatedAt },
     });
     productId = created.id;
+    // docs/adr/0038: a synced product is sellable on the default ONLINE channel.
+    await enableProductOnDefaultOnlineChannel(created.id);
     summary.imported++;
   }
 

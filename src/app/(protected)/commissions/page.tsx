@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { listCommissionAgentsWithTotals, listUsersEligibleForAgent } from "@/lib/queries/commissions";
 import { formatCurrency } from "@/lib/format";
 import { AddAgentForm } from "@/components/commissions/add-agent-form";
@@ -15,7 +15,7 @@ export const metadata = { title: "Commissions — ASODITECH Gestion E-commerce" 
 
 export default async function CommissionsPage() {
   const user = await requirePermission("commissions.view");
-  const canManage = hasPermission(user.role, "commissions.manage");
+  const canManage = userHasPermission(user, "commissions.manage");
 
   const [agents, eligibleUsers] = await Promise.all([
     listCommissionAgentsWithTotals(),

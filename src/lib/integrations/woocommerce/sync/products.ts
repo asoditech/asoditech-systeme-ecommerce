@@ -1,4 +1,5 @@
 import "server-only";
+import { enableProductOnDefaultOnlineChannel } from "@/lib/channels";
 
 import { prisma } from "@/lib/prisma";
 import type { WooCommerceClient } from "../client";
@@ -246,6 +247,8 @@ async function syncOneProduct(
       },
     });
     productId = created.id;
+    // docs/adr/0038: a synced product is sellable on the default ONLINE channel.
+    await enableProductOnDefaultOnlineChannel(created.id);
     summary.imported++;
   }
 
@@ -326,6 +329,16 @@ async function cleanupBogusVariationProducts(
       recordNote(
         summary,
         `Produit en double « ${p.name} » (créé à tort depuis une variante) — conservé car il a un historique de commandes. À fusionner manuellement.`
+      );
+      continue;
+    }
+    // A bogus row that somehow acquired stock history must not take its
+    // ledger with it (docs/adr/0038) — keep it and flag it, like an order.
+    const movements = await prisma.inventoryMovement.count({ where: { inventoryItem: { productId: p.id } } });
+    if (movements > 0) {
+      recordNote(
+        summary,
+        `Produit en double « ${p.name} » (créé à tort depuis une variante) — conservé car il a un historique de stock. À fusionner manuellement.`
       );
       continue;
     }

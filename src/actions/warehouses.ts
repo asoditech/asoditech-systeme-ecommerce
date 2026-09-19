@@ -1,5 +1,6 @@
 "use server";
 
+import { mapNewLocationToDefaultOnline } from "@/lib/channels";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
@@ -65,6 +66,16 @@ export async function createWarehouseAction(formData: FormData): Promise<ActionR
         },
       })
     );
+
+    // Keep the default ONLINE channel's mapping in step with what the
+    // (unchanged, type-based) storefront stock push feeds — docs/adr/0038.
+    // Best-effort: the warehouse already exists, so a failure here must not
+    // turn a successful creation into an error.
+    try {
+      await mapNewLocationToDefaultOnline(prisma, warehouse);
+    } catch (error) {
+      console.error("mapNewLocationToDefaultOnline() failed (non-fatal):", error);
+    }
 
     await recordAuditEvent({
       actorType: "USER",

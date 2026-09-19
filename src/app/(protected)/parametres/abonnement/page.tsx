@@ -2,7 +2,7 @@ import { PageHeader } from "@/components/page-header";
 import { SettingsNav } from "@/components/settings/settings-nav";
 import { UsagePanel } from "@/components/settings/usage-panel";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { getTenantPlan } from "@/lib/entitlements/plan";
 import { getTenantUsage } from "@/lib/entitlements/usage";
 
@@ -18,7 +18,7 @@ export const metadata = { title: "Abonnement & Utilisation — ASODITECH Gestion
  */
 export default async function AbonnementPage() {
   const user = await requirePermission("settings.view");
-  const canManage = hasPermission(user.role, "settings.manage");
+  const canManage = userHasPermission(user, "settings.manage");
 
   const [{ plan, features, subscriptionStatus }, usage] = await Promise.all([
     getTenantPlan(user.tenantId),
@@ -31,7 +31,7 @@ export default async function AbonnementPage() {
         title="Abonnement & Utilisation"
         description="Votre forfait actuel, votre utilisation ce mois-ci, et les fonctionnalités incluses."
       />
-      <SettingsNav canManage={canManage} />
+      <SettingsNav canManage={canManage} canManageChannels={userHasPermission(user, "channels.manage")} />
       <UsagePanel plan={plan} subscriptionStatus={subscriptionStatus} features={features} usage={usage} canRequestUpgrade={canManage} />
     </div>
   );

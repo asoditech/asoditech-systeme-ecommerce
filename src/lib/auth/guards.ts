@@ -2,7 +2,7 @@ import "server-only";
 
 import { redirect } from "next/navigation";
 import { getCurrentUser, type CurrentUser } from "@/lib/auth/session";
-import { hasPermission, type Permission } from "@/lib/auth/permissions";
+import { userHasPermission, type Permission } from "@/lib/auth/permissions";
 
 /**
  * Use at the top of protected Server Components / layouts. Redirects to the
@@ -34,7 +34,7 @@ export async function requireUserForAction(): Promise<CurrentUser> {
  */
 export async function requirePermission(permission: Permission): Promise<CurrentUser> {
   const user = await requireUser();
-  if (!hasPermission(user.role, permission)) {
+  if (!userHasPermission(user, permission)) {
     redirect("/acces-refuse");
   }
   return user;
@@ -48,7 +48,7 @@ export async function requirePermission(permission: Permission): Promise<Current
  */
 export async function requirePermissionForAction(permission: Permission): Promise<CurrentUser> {
   const user = await requireUserForAction();
-  if (!hasPermission(user.role, permission)) {
+  if (!userHasPermission(user, permission)) {
     throw new Error("Non autorisé : permission manquante pour cette action.");
   }
   return user;

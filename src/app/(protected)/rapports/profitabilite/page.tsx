@@ -8,6 +8,7 @@ import { ClickableTableRow } from "@/components/clickable-table-row";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
+import { requireChannelKind } from "@/lib/auth/channel-access";
 import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
 import {
   getProfitabilityReport,
@@ -116,7 +117,9 @@ export default async function RapportProfitabilitePage({
 }: {
   searchParams: Promise<{ period?: string; from?: string; to?: string; view?: string }>;
 }) {
-  await requirePermission("analytics.view");
+  const viewer = await requirePermission("analytics.view");
+  // Order-derived data: needs an ONLINE channel (docs/adr/0039).
+  requireChannelKind(viewer, "ONLINE");
   const params = await searchParams;
   const resolved = resolveReportRange(params);
   const view = params.view === "campagne" ? "campagne" : "produit";

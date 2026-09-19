@@ -13,7 +13,7 @@ import { ProductImagePreview } from "@/components/products/product-image-preview
 import { SyncRefreshButton } from "@/components/sync-refresh-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
 import { listProducts, listCategories, type ProductSort, type ProductTypeFilter } from "@/lib/queries/products";
 import { formatCurrency } from "@/lib/format";
@@ -53,13 +53,13 @@ export default async function ProduitsPage({
   // only roles with `finance.view` (OWNER / ADMIN / MANAGER / ACCOUNTANT)
   // may see it. The column is rendered server-side so its value never
   // reaches the HTML for an agent or warehouse user (client feedback #8).
-  const canViewCost = hasPermission(user.role, "finance.view");
+  const canViewCost = userHasPermission(user, "finance.view");
 
   const [categories, connectedPlatforms] = await Promise.all([
     listCategories(),
     getConnectedCommercePlatforms(),
   ]);
-  const canSync = hasPermission(user.role, "integrations.manage") && connectedPlatforms.length > 0;
+  const canSync = userHasPermission(user, "integrations.manage") && connectedPlatforms.length > 0;
 
   const statusFilter =
     params.status && PRODUCT_STATUS_LABELS[params.status] ? (params.status as ProductStatus) : undefined;
@@ -101,7 +101,7 @@ export default async function ProduitsPage({
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <SyncRefreshButton resource="products" canSync={canSync} />
-            {hasPermission(user.role, "products.create") && (
+            {userHasPermission(user, "products.create") && (
               <Button render={<Link href="/produits/nouveau" />}>
                 <Plus className="size-4" />
                 Nouveau produit
@@ -166,7 +166,7 @@ export default async function ProduitsPage({
           }
           description={hasActiveFilter ? undefined : "Ajoutez votre premier produit pour commencer à vendre."}
           action={
-            !hasActiveFilter && hasPermission(user.role, "products.create") ? (
+            !hasActiveFilter && userHasPermission(user, "products.create") ? (
               <Button render={<Link href="/produits/nouveau" />}>Ajouter un produit</Button>
             ) : undefined
           }

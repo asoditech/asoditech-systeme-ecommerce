@@ -68,6 +68,11 @@ const PLATFORM_ONLY_ACCESSORS: readonly string[] = [
   "googleDriveConnection",
 ];
 
+// Per-user access configuration (docs/adr/0037, 0038, 0039). Not part of a backup,
+// and it must go BEFORE the business tables: a UserLocation RESTRICTS the delete of
+// its Warehouse (which precedes User in the child-first order below).
+const ACCESS_CONFIG_ACCESSORS: readonly string[] = ["userLocation", "userChannel", "userPermissionOverride"];
+
 type DeleteManyDelegate = { deleteMany: (args?: { where?: unknown }) => Promise<{ count: number }> };
 
 function delegateOf(tx: PrismaTransactionClient, accessor: string): DeleteManyDelegate {
@@ -106,6 +111,12 @@ export async function deleteTenantData(tenantId: string): Promise<DeleteTenantRe
         let totalDeleted = 0;
 
         for (const accessor of PLATFORM_ONLY_ACCESSORS) {
+          const { count } = await delegateOf(tx, accessor).deleteMany({});
+          deletedCounts[accessor] = count;
+          totalDeleted += count;
+        }
+
+        for (const accessor of ACCESS_CONFIG_ACCESSORS) {
           const { count } = await delegateOf(tx, accessor).deleteMany({});
           deletedCounts[accessor] = count;
           totalDeleted += count;

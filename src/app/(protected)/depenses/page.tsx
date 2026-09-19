@@ -11,7 +11,7 @@ import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import {
   getFinanceSummary,
   listExpenses,
@@ -53,7 +53,7 @@ export default async function DepensesPage({
 }) {
   const user = await requirePermission("finance.view");
   const params = await searchParams;
-  const canManage = hasPermission(user.role, "finance.manage");
+  const canManage = userHasPermission(user, "finance.manage");
   const page = Number(params.page) || 1;
 
   const periodEntry = PERIODS.find((p) => p.key === params.periode) ?? PERIODS[0];

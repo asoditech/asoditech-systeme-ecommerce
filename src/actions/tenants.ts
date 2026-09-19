@@ -8,7 +8,10 @@ import { destroyAllSessionsForTenant } from "@/lib/auth/session";
 import { generateRawToken, hashToken } from "@/lib/auth/tokens";
 import { recordAuditEvent } from "@/lib/audit";
 import { sendInvitationEmail } from "@/lib/email";
-import { createTenantSchema } from "@/lib/validation/tenant";
+import { createTenantSchema, setTenantBusinessModeSchema } from "@/lib/validation/tenant";
+import { planBusinessModeChange } from "@/lib/tenant/business-mode-change";
+import { ensureDefaultOnlineChannel } from "@/lib/channels";
+import { BUSINESS_MODE_LABELS } from "@/lib/tenant/business-mode";
 import { provisionTenantBaseline } from "@/lib/tenant/provision";
 import { deleteTenantData, BootstrapTenantDeletionError, TenantNotFoundError } from "@/lib/tenant/delete";
 import { BOOTSTRAP_TENANT_ID } from "@/lib/tenant/resolve";
@@ -51,6 +54,8 @@ export async function createTenantAction(
     slug: formData.get("slug"),
     ownerName: formData.get("ownerName"),
     ownerEmail: formData.get("ownerEmail"),
+    // Optional in the form — an omitted / blank value means the default, ONLINE_ONLY.
+    businessMode: formData.get("businessMode") || undefined,
   });
   if (!parsed.success) {
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
@@ -64,7 +69,7 @@ export async function createTenantAction(
     // tenant, or this create would repeatedly collide with the bootstrap
     // row's own id. The validated, already-unique slug doubles as it.
     tenant = await prismaBase.tenant.create({
-      data: { id: parsed.data.slug, name: parsed.data.name, slug: parsed.data.slug },
+      data: { id: parsed.data.slug, name: parsed.data.name, slug: parsed.data.slug, businessMode: parsed.data.businessMode },
     });
   } catch (error) {
     if (isUniqueConstraintError(error)) {
@@ -124,7 +129,7 @@ export async function createTenantAction(
     action: "tenant.created",
     entityType: "Tenant",
     entityId: tenant.id,
-    newValue: { name: tenant.name, slug: tenant.slug },
+    newValue: { name: tenant.name, slug: tenant.slug, businessMode: tenant.businessMode },
   });
   await recordAuditEvent({
     actorType: "USER",
@@ -253,4 +258,58 @@ export async function deleteTenantAction(formData: FormData): Promise<ActionResu
 
   revalidatePath("/platform");
   return actionOk(undefined);
+}
+
+/**
+ * A read-only preview for the mode-change dialog: what would change, and — for a
+ * downgrade — whether it is refused and why (docs/adr/0041). Never mutates.
+ */
+export async function previewTenantBusinessModeChange(tenantId: string, businessMode: "ONLINE_ONLY" | "ONLINE_AND_OFFLINE") {
+  await requirePlatformAdminForAction();
+  return planBusinessModeChange(tenantId, businessMode);
+}
+
+/**
+ * Promote / demote a tenant between `ONLINE_ONLY` and `ONLINE_AND_OFFLINE`
+ * (docs/adr/0041). Platform-admin only — a tenant's own OWNER/ADMIN cannot
+ * change it (no path in the tenant UI, and this action refuses any non-platform
+ * caller). Takes effect on the affected users' NEXT request: effective access is
+ * recomputed per request from the tenant row, nothing is cached across requests,
+ * so no session is invalidated. A downgrade is refused while the tenant owns
+ * Offline business documents; nothing is ever deleted either way.
+ */
+export async function setTenantBusinessModeAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const actor = await requirePlatformAdminForAction();
+  const parsed = setTenantBusinessModeSchema.safeParse({
+    tenantId: formData.get("tenantId"),
+    businessMode: formData.get("businessMode"),
+  });
+  if (!parsed.success) return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+
+  const plan = await planBusinessModeChange(parsed.data.tenantId, parsed.data.businessMode);
+  if (!plan) return actionError("Tenant introuvable.");
+  if (!plan.allowed) return actionError(plan.reason ?? "Changement de mode impossible.");
+
+  await prismaBase.tenant.update({ where: { id: parsed.data.tenantId }, data: { businessMode: plan.to } });
+
+  // Promotion only unlocks capabilities; make sure the tenant has its default
+  // Online channel (self-healing, idempotent) so its first store channel and
+  // sales have everything they reference.
+  if (plan.to === "ONLINE_AND_OFFLINE") {
+    await runWithTenant(parsed.data.tenantId, "platform:set-business-mode", () => ensureDefaultOnlineChannel());
+  }
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: actor.id,
+    action: "tenant.business_mode_changed",
+    entityType: "Tenant",
+    entityId: parsed.data.tenantId,
+    previousValue: { businessMode: plan.from },
+    newValue: { businessMode: plan.to },
+    metadata: { from: BUSINESS_MODE_LABELS[plan.from], to: BUSINESS_MODE_LABELS[plan.to] },
+  });
+
+  revalidatePath("/platform");
+  return actionOk({ id: parsed.data.tenantId });
 }

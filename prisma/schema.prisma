@@ -43,11 +43,24 @@ enum TenantStatus {
 // BusinessSettings.id = "singleton"), and every tenant-scoped column
 // defaults to it — so this table exists and is wired, but no code reads it
 // yet. Later phases add tenant resolution, query scoping and provisioning.
+// How a tenant runs its business (docs/adr/0041-tenant-business-mode.md).
+// ONLINE_ONLY is the pre-existing product — every Offline capability (in-store
+// sales, purchasing, channels/barcodes admin, traceability…) is OFF and
+// invisible, and nothing about channels or stores affects anyone. It is the
+// default, so every tenant that existed before this column is ONLINE_ONLY and
+// behaves exactly as before. ONLINE_AND_OFFLINE additionally unlocks the
+// Offline capabilities. Set by a platform admin only (/platform).
+enum TenantBusinessMode {
+  ONLINE_ONLY
+  ONLINE_AND_OFFLINE
+}
+
 model Tenant {
   id        String       @id @default("default")
   name      String
   slug      String       @unique
   status    TenantStatus @default(ACTIVE)
+  businessMode TenantBusinessMode @default(ONLINE_ONLY)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
@@ -66,6 +79,11 @@ model Tenant {
   nextOrderNumber     Int @default(1)
   nextTransferNumber  Int @default(1)
   nextStocktakeNumber Int @default(1)
+  // Online/Offline unification (docs/adr/0040): same per-tenant DISPLAY
+  // numbering as orders/transfers/stocktakes, for the new document types.
+  nextReceptionNumber  Int @default(1)
+  nextSaleNumber       Int @default(1)
+  nextSaleReturnNumber Int @default(1)
 
   users                     User[]
   customers                 Customer[]
@@ -76,6 +94,21 @@ model Tenant {
   productVariations         ProductVariation[]
   warehouses                Warehouse[]
   userLocations             UserLocation[]
+  salesChannels             SalesChannel[]
+  salesChannelLocations     SalesChannelLocation[]
+  productSalesChannels      ProductSalesChannel[]
+  userChannels              UserChannel[]
+  userPermissionOverrides   UserPermissionOverride[]
+  barcodes                  Barcode[]
+  suppliers                 Supplier[]
+  receptions                Reception[]
+  receptionLines            ReceptionLine[]
+  supplierPayments          SupplierPayment[]
+  sales                     Sale[]
+  saleLines                 SaleLine[]
+  salePayments              SalePayment[]
+  saleReturns               SaleReturn[]
+  saleReturnLines           SaleReturnLine[]
   inventoryItems            InventoryItem[]
   inventoryMovements        InventoryMovement[]
   stockTransfers            StockTransfer[]
@@ -329,6 +362,15 @@ model User {
   // cascades on user delete like Session/PasswordResetToken.
   assignedLocations          UserLocation[]             @relation("UserLocationUser")
   locationAssignmentsCreated UserLocation[]             @relation("UserLocationCreatedBy")
+  // Online/Offline unification (docs/adr/0038): the SalesChannels this user
+  // may act on. Same shape and semantics as `assignedLocations` — empty for
+  // OWNER/ADMIN by design (they bypass it), zero rows = zero channels.
+  assignedChannels           UserChannel[]              @relation("UserChannelUser")
+  channelAssignmentsCreated  UserChannel[]              @relation("UserChannelCreatedBy")
+  barcodesCreated            Barcode[]                  @relation("BarcodeCreatedBy")
+  // Per-user GRANT/DENY overrides on top of the role baseline (docs/adr/0039).
+  permissionOverrides        UserPermissionOverride[]   @relation("UserPermissionOverrideUser")
+  permissionOverridesCreated UserPermissionOverride[]   @relation("UserPermissionOverrideCreatedBy")
   invitationsSent            Invitation[]               @relation("InvitationInvitedBy")
   invitationAccepted         Invitation?                @relation("InvitationAcceptedUser")
   passwordResetTokens        PasswordResetToken[]
@@ -504,6 +546,7 @@ model Customer {
   createdBy   User?             @relation("CustomerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   addresses   CustomerAddress[]
   orders      Order[]
+  sales       Sale[]
 
   @@index([createdAt])
   @@index([source, externalId])
@@ -596,6 +639,12 @@ model Product {
   tenantId          String        @default("default")
   name              String
   sku               String
+  // Family / model reference (e.g. "SKOUBA" for every colour/size of one
+  // model). Distinct from `sku`, which stays the unique sellable-unit
+  // reference. Free-form, NOT unique — several products may share one
+  // model reference. ASODITECH-owned: never written by a WooCommerce/
+  // Shopify sync (docs/adr/0038).
+  reference         String?
   description       String?
   categoryId        String?
   price             Decimal       @db.Decimal(12, 2)
@@ -626,9 +675,14 @@ model Product {
   inventoryItems InventoryItem[]
   orderItems     OrderItem[]
   transferLines  StockTransferLine[]
+  barcodes       Barcode[]
+  salesChannels  ProductSalesChannel[]
+  receptionLines ReceptionLine[]
+  saleLines      SaleLine[]
 
   // Phase 3 (docs/adr/0025): sku is unique per tenant, not globally.
   @@unique([tenantId, sku])
+  @@index([tenantId, reference])
   @@index([categoryId])
   @@index([status])
   @@index([source, externalId])
@@ -673,6 +727,9 @@ model ProductVariation {
   inventoryItems InventoryItem[]
   orderItems     OrderItem[]
   transferLines  StockTransferLine[]
+  barcodes       Barcode[]
+  receptionLines ReceptionLine[]
+  saleLines      SaleLine[]
 
   // Phase 3 (docs/adr/0025): sku is unique per tenant, not globally.
   @@unique([tenantId, sku])
@@ -731,6 +788,12 @@ model Warehouse {
   stocktakeSessions StocktakeSession[]
   orderReturnLines  OrderReturnLine[]
   userAssignments   UserLocation[]
+  // Which SalesChannels sell/fulfil from this location (docs/adr/0038).
+  // A pure mapping — no quantity lives on it.
+  salesChannels     SalesChannelLocation[]
+  receptions        Reception[]
+  sales             Sale[]
+  saleReturnLines   SaleReturnLine[]
 
   @@index([source, externalId])
   @@index([isActive])
@@ -775,6 +838,184 @@ model UserLocation {
   @@index([tenantId])
   @@index([warehouseId])
   @@map("user_locations")
+}
+
+// ---------------------------------------------------------------------------
+// Business channels — Online/Offline unification (docs/adr/0038).
+//
+// ONE catalog + ONE physical stock (InventoryItem, per Warehouse) + ONE
+// immutable ledger (InventoryMovement), with MULTIPLE business channels on
+// top. A SalesChannel is a business ACTIVITY, never a place and never a
+// quantity: Warehouse = where stock physically is; SalesChannel = where a
+// product is allowed to be sold and which transactions belong to which
+// business. "Online stock" / "Offline stock" quantities are FORBIDDEN —
+// channel stock is always derived from the mapped physical locations.
+// ---------------------------------------------------------------------------
+
+enum SalesChannelKind {
+  ONLINE
+  OFFLINE
+}
+
+model SalesChannel {
+  id       String           @id @default(cuid())
+  tenantId String           @default("default")
+  name     String
+  kind     SalesChannelKind
+  isActive Boolean          @default(true)
+  // The tenant's default ONLINE channel — what every delivery Order created
+  // without an explicit choice (manual form, WooCommerce/Shopify import) is
+  // attributed to. At most one per tenant (partial unique index in the
+  // migration). Never an OFFLINE channel.
+  isDefault Boolean         @default(false)
+  // Free-form, non-secret display/config data. Nothing reads it yet.
+  metadata  Json?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  tenant    Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  locations SalesChannelLocation[]
+  products  ProductSalesChannel[]
+  users     UserChannel[]
+  // Restrict (never Cascade): a channel with transaction history is
+  // deactivated, never deleted — same rule as Warehouse.
+  orders    Order[]
+  sales     Sale[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, kind])
+  @@map("sales_channels")
+}
+
+// Which physical locations a channel sells/fulfils from. A location MAY be
+// mapped to several channels (a shared pool — see docs/adr/0038 "Shared
+// locations"). No quantity is stored here: channel stock is derived.
+model SalesChannelLocation {
+  id             String   @id @default(cuid())
+  tenantId       String   @default("default")
+  salesChannelId String
+  warehouseId    String
+  createdAt      DateTime @default(now())
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  salesChannel SalesChannel @relation(fields: [salesChannelId], references: [id], onDelete: Cascade)
+  warehouse    Warehouse    @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  @@unique([salesChannelId, warehouseId])
+  @@index([warehouseId])
+  @@index([tenantId])
+  @@map("sales_channel_locations")
+}
+
+// "This product may be sold on this channel." NOT "this channel owns any
+// quantity" — there is deliberately nowhere to put one. Variations inherit
+// their product's availability.
+model ProductSalesChannel {
+  id             String   @id @default(cuid())
+  tenantId       String   @default("default")
+  productId      String
+  salesChannelId String
+  createdAt      DateTime @default(now())
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  salesChannel SalesChannel @relation(fields: [salesChannelId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, salesChannelId])
+  @@index([salesChannelId])
+  @@index([tenantId])
+  @@map("product_sales_channels")
+}
+
+// The channel counterpart of UserLocation (docs/adr/0037): which channels a
+// user may act on AND read. OWNER/ADMIN never need a row (tenant-wide by
+// role); every other role's access is EXACTLY its rows — zero rows means
+// zero channels (safe default-deny). Meaningless without the user or the
+// channel, so it cascades on both.
+model UserChannel {
+  id             String   @id @default(cuid())
+  tenantId       String   @default("default")
+  userId         String
+  salesChannelId String
+  createdAt      DateTime @default(now())
+  createdById    String?
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user         User         @relation("UserChannelUser", fields: [userId], references: [id], onDelete: Cascade)
+  salesChannel SalesChannel @relation(fields: [salesChannelId], references: [id], onDelete: Cascade)
+  createdBy    User?        @relation("UserChannelCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([userId, salesChannelId])
+  @@index([salesChannelId])
+  @@index([tenantId])
+  @@map("user_channels")
+}
+
+enum PermissionEffect {
+  GRANT
+  DENY
+}
+
+// Per-user permission override — docs/adr/0039-permission-overrides-and-scope.md.
+//
+//   effective = (rolePermissions ∪ GRANTs) − DENYs        (DENY always wins)
+//
+// The role matrix in src/lib/auth/permissions.ts stays the baseline and is
+// still code-defined; this table only records how ONE user differs from
+// their role, so "Sara may also edit orders" never needs a new role. `permission`
+// is a plain string validated against the code-defined PERMISSIONS list on
+// write and again on read (an unknown/removed permission is ignored, never
+// trusted). One row per (user, permission): setting the opposite effect
+// replaces the row. OWNER/ADMIN are never affected (lock-out protection).
+model UserPermissionOverride {
+  id          String           @id @default(cuid())
+  tenantId    String           @default("default")
+  userId      String
+  permission  String
+  effect      PermissionEffect
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  createdById String?
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user      User   @relation("UserPermissionOverrideUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("UserPermissionOverrideCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([userId, permission])
+  @@index([tenantId])
+  @@map("user_permission_overrides")
+}
+
+// A scannable identifier of ONE sellable unit — a simple Product, or a
+// ProductVariation (never a variable parent). Several codes per unit are
+// allowed (internal EAN + supplier EAN + aliases), exactly one may be the
+// primary. Uniqueness is per tenant ACROSS both owner tables, which two
+// per-table columns could not guarantee — that is why this is its own
+// table. DB-enforced in the migration (raw SQL, like inventory_items):
+//   - exactly one of productId / variationId is set;
+//   - at most one isPrimary per unit (two partial unique indexes).
+// ADR 0038: no barcode parsing — the code is opaque, size/colour are never
+// derived from it.
+model Barcode {
+  id          String   @id @default(cuid())
+  tenantId    String   @default("default")
+  code        String
+  productId   String?
+  variationId String?
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  product   Product?          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variation ProductVariation? @relation(fields: [variationId], references: [id], onDelete: Cascade)
+  createdBy User?             @relation("BarcodeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, code])
+  @@index([productId])
+  @@index([variationId])
+  @@index([tenantId])
+  @@map("barcodes")
 }
 
 // Current-state cache: one row per (warehouse, product) or (warehouse,
@@ -881,6 +1122,29 @@ model InventoryMovement {
   // `SetNull` for the same reason as stockTransferId/stocktakeSessionId.
   orderReturnId      String?
   performedById      String?
+  // Ledger hardening (docs/adr/0038). ALL nullable and additive: every
+  // movement written before this change keeps NULL here — provenance for
+  // pre-cut-over stock is NOT reconstructed (never invented). Populated by
+  // applyStockMovement for every movement written from now on.
+  //  - onHandDelta:  the signed change applied to quantityOnHand (the
+  //    `quantity` column above stays an unsigned magnitude).
+  //  - onHandAfter:  quantityOnHand right after this movement, so a ledger
+  //    read never has to replay history to know the running balance.
+  //  - unitCost:     purchase cost per unit for stock-in movements that
+  //    know it (a reception line); NULL everywhere else.
+  //  - performedByName: snapshot written when the acting user is DELETED,
+  //    so `performedById` going NULL (onDelete: SetNull) no longer erases
+  //    who did it.
+  onHandDelta        Int?
+  onHandAfter        Int?
+  unitCost           Decimal?              @db.Decimal(12, 2)
+  performedByName    String?
+  // Source documents of the new stock flows (docs/adr/0040) — one nullable FK
+  // per document type, like stockTransferId/stocktakeSessionId/orderReturnId.
+  // `SetNull` for the same reason as those: history rows are never cascaded away.
+  receptionLineId    String?
+  saleId             String?
+  saleReturnId       String?
   createdAt          DateTime              @default(now())
 
   inventoryItem    InventoryItem     @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
@@ -890,6 +1154,9 @@ model InventoryMovement {
   stockTransfer    StockTransfer?    @relation(fields: [stockTransferId], references: [id], onDelete: SetNull)
   stocktakeSession StocktakeSession? @relation(fields: [stocktakeSessionId], references: [id], onDelete: SetNull)
   orderReturn      OrderReturn?      @relation(fields: [orderReturnId], references: [id], onDelete: SetNull)
+  receptionLine    ReceptionLine?    @relation(fields: [receptionLineId], references: [id], onDelete: SetNull)
+  sale             Sale?             @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  saleReturn       SaleReturn?       @relation(fields: [saleReturnId], references: [id], onDelete: SetNull)
   // Inverse of StocktakeLine.appliedMovement — at most one stocktake line
   // binds a given movement (StocktakeLine.appliedMovementId is @unique).
   stocktakeLine    StocktakeLine?    @relation("StocktakeLineMovement")
@@ -904,6 +1171,9 @@ model InventoryMovement {
   @@index([stockTransferId])
   @@index([stocktakeSessionId])
   @@index([orderReturnId])
+  @@index([receptionLineId])
+  @@index([saleId])
+  @@index([saleReturnId])
   @@index([tenantId])
   @@map("inventory_movements")
 }
@@ -1215,6 +1485,12 @@ model Order {
   // InventoryMovement rows carry the authoritative per-movement warehouse.
   fulfillmentWarehouseId String?
 
+  // The business channel this delivery order belongs to (docs/adr/0038).
+  // Nullable and additive: backfilled to the tenant's default ONLINE
+  // channel, and stamped at every order-creation site. NULL means "not yet
+  // attributed" — visible to OWNER/ADMIN only, never guessed.
+  salesChannelId String?
+
   // The confirmation agent (confirmateur) credited with this order — see
   // docs/adr/0022-order-confirmation-commission.md. `SetNull` like
   // campaignId: removing an agent record must not touch order history, and
@@ -1227,6 +1503,7 @@ model Order {
   createdBy            User?                      @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   customer             Customer                   @relation(fields: [customerId], references: [id], onDelete: Restrict)
   fulfillmentWarehouse Warehouse?                 @relation("OrderFulfillmentWarehouse", fields: [fulfillmentWarehouseId], references: [id], onDelete: SetNull)
+  salesChannel         SalesChannel?              @relation(fields: [salesChannelId], references: [id], onDelete: Restrict)
   confirmationAgent    CommissionAgent?           @relation(fields: [confirmationAgentId], references: [id], onDelete: SetNull)
   items                OrderItem[]
   refunds              Refund[]
@@ -1253,6 +1530,7 @@ model Order {
   @@index([createdAt])
   @@index([placedAt])
   @@index([fulfillmentWarehouseId])
+  @@index([salesChannelId])
   @@index([confirmationAgentId])
   @@index([tenantId])
   @@index([status, lastConfirmationAttemptAt])
@@ -2428,4 +2706,331 @@ model GoogleOAuthState {
   @@index([tenantId])
   @@index([expiresAt])
   @@map("google_oauth_states")
+}
+
+// ---------------------------------------------------------------------------
+// Suppliers & purchase receptions — docs/adr/0040-offline-sales-and-receptions.md
+//
+// A RECEPTION is physical stock ENTERING the business. Validating it writes
+// the canonical inventory movement (RECEPTION, with the line's unit cost);
+// `receptionLines.quantity` is a document, NEVER a second inventory source —
+// the movement is authoritative. A SUPPLIER PAYMENT is a separate financial
+// record: paying does not receive stock, and receiving does not pay.
+// Supplier balance is DERIVED (Σ validated receptions − Σ payments), never stored.
+//
+// Actor columns on these documents (`createdById`, `validatedById`, …) are
+// plain columns paired with a NAME SNAPSHOT — deliberately NOT foreign keys —
+// so deleting a user never erases who received stock or paid a supplier.
+// ---------------------------------------------------------------------------
+
+enum CashPaymentMethod {
+  ESPECES
+  CARTE
+  VIREMENT
+  CHEQUE
+  AUTRE
+}
+
+enum ReceptionStatus {
+  BROUILLON
+  VALIDEE
+  ANNULEE
+}
+
+model Supplier {
+  id          String   @id @default(cuid())
+  tenantId    String   @default("default")
+  name        String
+  phone       String?
+  email       String?
+  address     String?
+  city        String?
+  notes       String?
+  isActive    Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  // Restrict: a supplier with receptions/payments is deactivated, never deleted.
+  receptions Reception[]
+  payments   SupplierPayment[]
+
+  @@index([tenantId, name])
+  @@map("suppliers")
+}
+
+model Reception {
+  id              String          @id @default(cuid())
+  tenantId        String          @default("default")
+  // Global internal identity (never renumbered, never shown) + per-tenant
+  // DISPLAY number "REC-000123" — same pattern as transfers (docs/adr/0025).
+  receptionNumber Int             @unique @default(autoincrement())
+  displayNumber   Int?
+  supplierId      String
+  // Destination location — where the stock physically lands.
+  warehouseId     String
+  status          ReceptionStatus @default(BROUILLON)
+  receptionDate   DateTime        @default(now())
+  // The supplier's own delivery-note / invoice number.
+  supplierReference String?
+  notes           String?
+  // Σ(line.quantity × line.unitCost), frozen at validation. 0 while a draft.
+  totalCost       Decimal         @default(0) @db.Decimal(14, 2)
+  createdById     String?
+  createdByName   String?
+  validatedById   String?
+  validatedByName String?
+  validatedAt     DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  supplier  Supplier          @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  warehouse Warehouse         @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  lines     ReceptionLine[]
+  payments  SupplierPayment[]
+
+  @@unique([tenantId, displayNumber])
+  @@index([supplierId])
+  @@index([warehouseId])
+  @@index([status])
+  @@index([receptionDate])
+  @@index([tenantId])
+  @@map("receptions")
+}
+
+// One line of a reception. Product identity is SNAPSHOTTED (same convention as
+// OrderItem) so history reads correctly after a product is renamed/archived.
+// DB-enforced: quantity > 0, unitCost >= 0.
+model ReceptionLine {
+  id              String   @id @default(cuid())
+  tenantId        String   @default("default")
+  receptionId     String
+  productId       String?
+  variationId     String?
+  nameSnapshot    String
+  skuSnapshot     String
+  barcodeSnapshot String?
+  quantity        Int
+  unitCost        Decimal  @db.Decimal(12, 2)
+  createdAt       DateTime @default(now())
+
+  tenant    Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  reception Reception           @relation(fields: [receptionId], references: [id], onDelete: Cascade)
+  product   Product?            @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variation ProductVariation?   @relation(fields: [variationId], references: [id], onDelete: SetNull)
+  movements InventoryMovement[]
+
+  @@index([receptionId])
+  @@index([productId])
+  @@index([variationId])
+  @@index([tenantId])
+  @@map("reception_lines")
+}
+
+// A payment TO a supplier. `receptionId` optional: a payment may settle one
+// reception or sit on the supplier's account. DB-enforced: amount > 0.
+model SupplierPayment {
+  id            String            @id @default(cuid())
+  tenantId      String            @default("default")
+  supplierId    String
+  receptionId   String?
+  amount        Decimal           @db.Decimal(12, 2)
+  method        CashPaymentMethod @default(ESPECES)
+  paidAt        DateTime          @default(now())
+  reference     String?
+  notes         String?
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime          @default(now())
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  supplier  Supplier   @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  reception Reception? @relation(fields: [receptionId], references: [id], onDelete: SetNull)
+
+  @@index([supplierId])
+  @@index([receptionId])
+  @@index([paidAt])
+  @@index([tenantId])
+  @@map("supplier_payments")
+}
+
+// ---------------------------------------------------------------------------
+// Offline sales — docs/adr/0040-offline-sales-and-receptions.md
+//
+// A Sale is an IN-STORE transaction: a SEPARATE transaction type from the
+// delivery `Order` (which keeps its confirmation → shipment → delivery
+// lifecycle, COD, carriers, commissions and revenue definition untouched).
+// A Sale completes atomically: lines + payments + the canonical VENTE
+// inventory movements are written in ONE transaction, with no reservation
+// step and no carrier. It belongs to an OFFLINE SalesChannel and decrements
+// physical stock at one Warehouse through `applyStockMovement` — never a
+// second stock system.
+//
+// Idempotency: `(tenantId, idempotencyKey)` is unique — a retried/duplicated
+// submit returns the existing sale and moves stock ONCE (same convention as
+// OrderReturn's `(orderId, idempotencyKey)`).
+//
+// As on the reception documents, actor columns are id + name SNAPSHOT (no FK)
+// so deleting a user never erases who sold or who took a return.
+// ---------------------------------------------------------------------------
+
+model Sale {
+  id             String   @id @default(cuid())
+  tenantId       String   @default("default")
+  saleNumber     Int      @unique @default(autoincrement())
+  // Per-tenant DISPLAY number "VTE-000123".
+  displayNumber  Int?
+  salesChannelId String
+  // The location whose stock this sale decremented.
+  warehouseId    String
+  // Optional registered customer; a walk-in is just `customerLabel` (or nothing).
+  customerId     String?
+  customerLabel  String?
+  idempotencyKey String
+  subtotal       Decimal  @db.Decimal(12, 2)
+  discountTotal  Decimal  @default(0) @db.Decimal(12, 2)
+  total          Decimal  @db.Decimal(12, 2)
+  currency       String   @default("MAD") @db.Char(3)
+  notes          String?
+  soldById       String?
+  soldByName     String?
+  soldAt         DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  // Restrict (never Cascade): a channel / location with sales history is
+  // deactivated, never deleted.
+  salesChannel SalesChannel        @relation(fields: [salesChannelId], references: [id], onDelete: Restrict)
+  warehouse    Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  customer     Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  lines        SaleLine[]
+  payments     SalePayment[]
+  returns      SaleReturn[]
+  movements    InventoryMovement[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, displayNumber])
+  @@index([salesChannelId, soldAt])
+  @@index([warehouseId])
+  @@index([soldAt])
+  @@index([soldById])
+  @@index([customerId])
+  @@index([tenantId])
+  @@map("sales")
+}
+
+// Snapshots product identity + the cost at sale time (like OrderItem), so
+// history and margins read correctly after later edits.
+// DB-enforced: quantity > 0, unitPrice >= 0, discount >= 0.
+model SaleLine {
+  id              String   @id @default(cuid())
+  tenantId        String   @default("default")
+  saleId          String
+  productId       String?
+  variationId     String?
+  nameSnapshot    String
+  skuSnapshot     String
+  barcodeSnapshot String?
+  unitPrice       Decimal  @db.Decimal(12, 2)
+  quantity        Int
+  discount        Decimal  @default(0) @db.Decimal(12, 2)
+  total           Decimal  @db.Decimal(12, 2)
+  costSnapshot    Decimal? @db.Decimal(12, 2)
+  createdAt       DateTime @default(now())
+
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  sale        Sale               @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product     Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variation   ProductVariation?  @relation(fields: [variationId], references: [id], onDelete: SetNull)
+  returnLines SaleReturnLine[]
+
+  @@index([saleId])
+  @@index([productId])
+  @@index([variationId])
+  @@index([tenantId])
+  @@map("sale_lines")
+}
+
+// DB-enforced: amount > 0. A refund is NOT a negative payment — it lives on
+// SaleReturn (`refundAmount`), so `Σ payments` stays "what was collected".
+model SalePayment {
+  id        String            @id @default(cuid())
+  tenantId  String            @default("default")
+  saleId    String
+  method    CashPaymentMethod @default(ESPECES)
+  amount    Decimal           @db.Decimal(12, 2)
+  reference String?
+  createdAt DateTime          @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
+  @@index([tenantId])
+  @@map("sale_payments")
+}
+
+// A return against a Sale — the offline counterpart of OrderReturn, with the
+// same sellable / damaged split and the same "stock only comes back when
+// physically accepted" rule: sellable units are credited to on-hand (RETOUR),
+// damaged units only to quantityDamaged (ENDOMMAGE). Cumulative returned
+// quantity per line is hard-capped by what was sold (enforced under a row
+// lock). Idempotent by `(saleId, idempotencyKey)`.
+model SaleReturn {
+  id               String             @id @default(cuid())
+  tenantId         String             @default("default")
+  returnNumber     Int                @unique @default(autoincrement())
+  displayNumber    Int?
+  saleId           String
+  idempotencyKey   String
+  refundAmount     Decimal            @default(0) @db.Decimal(12, 2)
+  refundMethod     CashPaymentMethod?
+  note             String?
+  receivedById     String?
+  receivedByName   String?
+  receivedAt       DateTime           @default(now())
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  tenant    Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  // Restrict (never Cascade): a return documents a real, already-happened
+  // physical fact and must never silently disappear.
+  sale      Sale                @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  lines     SaleReturnLine[]
+  movements InventoryMovement[]
+
+  @@unique([saleId, idempotencyKey])
+  @@unique([tenantId, displayNumber])
+  @@index([saleId])
+  @@index([tenantId])
+  @@map("sale_returns")
+}
+
+// DB-enforced: quantitySellable >= 0, quantityDamaged >= 0, not both zero.
+model SaleReturnLine {
+  id               String   @id @default(cuid())
+  tenantId         String   @default("default")
+  saleReturnId     String
+  saleLineId       String?
+  nameSnapshot     String
+  skuSnapshot      String
+  quantitySellable Int      @default(0)
+  quantityDamaged  Int      @default(0)
+  warehouseId      String
+  createdAt        DateTime @default(now())
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  saleReturn SaleReturn @relation(fields: [saleReturnId], references: [id], onDelete: Cascade)
+  saleLine   SaleLine?  @relation(fields: [saleLineId], references: [id], onDelete: SetNull)
+  warehouse  Warehouse  @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  @@index([saleReturnId])
+  @@index([saleLineId])
+  @@index([warehouseId])
+  @@index([tenantId])
+  @@map("sale_return_lines")
 }

@@ -22,17 +22,29 @@ export interface ProductListFilters {
   page?: number;
 }
 
+/**
+ * The ONE product-search predicate (docs/adr/0038): name, SKU, model
+ * reference, and — variant-aware — every variation's SKU and every barcode
+ * (the product's own or a variation's). Shared by the product list, the
+ * order form's picker and the global search so all three find the same
+ * things; a scanned barcode or a variant SKU must find its parent product.
+ */
+export function productSearchWhere(q: string): Prisma.ProductWhereInput[] {
+  const contains = { contains: q, mode: "insensitive" as const };
+  return [
+    { name: contains },
+    { sku: contains },
+    { reference: contains },
+    { variations: { some: { sku: contains } } },
+    { barcodes: { some: { code: contains } } },
+    { variations: { some: { barcodes: { some: { code: contains } } } } },
+  ];
+}
+
 export async function listProducts(params: ProductListFilters) {
   const page = Math.max(1, params.page ?? 1);
   const where: Prisma.ProductWhereInput = {
-    ...(params.q
-      ? {
-          OR: [
-            { name: { contains: params.q, mode: "insensitive" } },
-            { sku: { contains: params.q, mode: "insensitive" } },
-          ],
-        }
-      : {}),
+    ...(params.q ? { OR: productSearchWhere(params.q) } : {}),
     ...(params.categoryId ? { categoryId: params.categoryId } : {}),
     ...(params.status ? { status: params.status } : {}),
     ...(params.source ? { source: params.source } : {}),
@@ -98,8 +110,14 @@ export async function getProductDetail(id: string) {
     include: {
       category: true,
       images: { orderBy: { position: "asc" } },
+      // Identity + availability (docs/adr/0038).
+      barcodes: { orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] },
+      salesChannels: { select: { salesChannelId: true } },
       variations: {
-        include: { inventoryItems: { include: { warehouse: { select: { name: true } } } } },
+        include: {
+          inventoryItems: { include: { warehouse: { select: { name: true } } } },
+          barcodes: { orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] },
+        },
         orderBy: { createdAt: "asc" },
       },
       inventoryItems: { include: { warehouse: true } },

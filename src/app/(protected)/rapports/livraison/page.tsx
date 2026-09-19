@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
+import { requireChannelKind } from "@/lib/auth/channel-access";
 import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
 import { getDeliveryPerformanceReport, type DeliveryPerfRow } from "@/lib/queries/reports/delivery";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
@@ -56,7 +57,9 @@ export default async function RapportLivraisonPage({
 }: {
   searchParams: Promise<{ period?: string; from?: string; to?: string }>;
 }) {
-  await requirePermission("analytics.view");
+  const viewer = await requirePermission("analytics.view");
+  // Order-derived data: needs an ONLINE channel (docs/adr/0039).
+  requireChannelKind(viewer, "ONLINE");
   const params = await searchParams;
   const resolved = resolveReportRange(params);
   const [report, business] = await Promise.all([

@@ -7,6 +7,8 @@ import { KeyRound, Copy, Trash2 } from "lucide-react";
 import { deleteUserAction, updateUserRoleAction, updateUserStatusAction } from "@/actions/users";
 import { adminResetPasswordAction } from "@/actions/password-reset";
 import { UserLocationsDialog } from "@/components/users/user-locations-dialog";
+import { UserAccessDialog } from "@/components/users/user-access-dialog";
+import type { Permission } from "@/lib/auth/permissions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -26,6 +28,7 @@ export function UserRowControls({
   warehouses,
   assignedWarehouseIds,
   hasGlobalLocationAccess,
+  access,
 }: {
   userId: string;
   name: string;
@@ -35,6 +38,17 @@ export function UserRowControls({
   warehouses: { id: string; name: string; type: WarehouseType }[];
   assignedWarehouseIds: string[];
   hasGlobalLocationAccess: boolean;
+  /** Individual access (docs/adr/0039) — omitted for OWNER/ADMIN, who hold everything. */
+  access?: {
+    permissions: Permission[];
+    baseline: Permission[];
+    grants: string[];
+    denies: string[];
+    channels: { id: string; name: string; kind: "ONLINE" | "OFFLINE" }[];
+    assignedChannelIds: string[];
+    /** The `storeChannels` capability (docs/adr/0041) — false in an ONLINE_ONLY tenant. */
+    channelsEnabled: boolean;
+  };
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -141,6 +155,7 @@ export function UserRowControls({
           assignedWarehouseIds={assignedWarehouseIds}
         />
       )}
+      {access && <UserAccessDialog userId={userId} name={name} {...access} />}
       <Button
         type="button"
         variant="ghost"

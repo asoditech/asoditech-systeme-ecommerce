@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { ArrowRight, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import type { Permission } from "@/lib/auth/permissions";
-import type { UserRole } from "@prisma/client";
 
 /**
  * The one place that checks permission before rendering a live deep link
@@ -14,19 +13,20 @@ import type { UserRole } from "@prisma/client";
 export function TryNowLink({
   tryNow,
   permission,
-  role,
+  viewer,
 }: {
   tryNow?: { label: string; href: string };
   permission?: Permission;
-  role: UserRole;
+  /** The viewer's EFFECTIVE permissions (role + overrides, channel-scoped). */
+  viewer: { permissions: ReadonlySet<Permission> };
 }) {
   if (!tryNow) return null;
 
-  if (permission && !hasPermission(role, permission)) {
+  if (permission && !userHasPermission(viewer, permission)) {
     return (
       <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
         <Lock className="size-3.5" />
-        « {tryNow.label} » nécessite une permission que votre rôle ne possède pas.
+        « {tryNow.label} » nécessite une permission que vous ne possédez pas.
       </p>
     );
   }

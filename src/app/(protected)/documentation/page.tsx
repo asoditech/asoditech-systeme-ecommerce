@@ -5,8 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DocSearch } from "@/components/docs/doc-search";
 import { RoleStartCard } from "@/components/docs/role-start-card";
 import { requireUser } from "@/lib/auth/guards";
-import { ALL_ARTICLES } from "@/lib/docs/registry";
-import { DOC_CATEGORIES } from "@/lib/docs/categories";
+import { articlesFor } from "@/lib/docs/registry";
+import { categoriesFor } from "@/lib/docs/categories";
 import { ROLE_PATHS, getRolePath } from "@/lib/docs/role-paths";
 import { GUIDED_TOURS } from "@/lib/docs/guided-tours";
 
@@ -24,7 +24,7 @@ export default async function DocumentationHomePage() {
         description="Comprenez ASODITECH de zéro à l'usage avancé — chaque module, chaque action, chaque erreur et sa solution."
       />
 
-      <DocSearch articles={ALL_ARTICLES} autoFocus />
+      <DocSearch articles={articlesFor(user.capabilities)} autoFocus />
 
       <section>
         <div className="mb-3 flex items-center gap-2">
@@ -42,7 +42,7 @@ export default async function DocumentationHomePage() {
       <section>
         <h2 className="mb-3 text-[15px] font-semibold">Toutes les catégories</h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {DOC_CATEGORIES.map((cat) => (
+          {categoriesFor(user.capabilities).map((cat) => (
             <Link key={cat.id} href={`/documentation/${cat.id}`}>
               <Card className="h-full transition-colors hover:border-primary/40">
                 <CardHeader>

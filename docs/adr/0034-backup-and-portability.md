@@ -427,3 +427,6 @@ section), `src/app/(protected)/parametres/sauvegarde/page.tsx`.
 - Cross-tenant / cross-deployment restore (ID-remapping mode).
 - Background-job generation for tenants past the synchronous caps.
 - Selective / partial restore (single module).
+
+## Addendum — per-user access rows (pre-commit audit, ADR 0037/0038/0039)
+`UserLocation` (Restrict FK to `Warehouse`) and `UserChannel` (Cascade FK from `SalesChannel`) are per-user access configuration, not portable business data, so they are not in a backup. A restore's wipe of warehouses / channels would therefore either fail (`user_locations_warehouseId_fkey`) or silently erase every operator's assignments. `restoreTenantBackup` now lifts these rows before the wipe and re-attaches them afterwards to every warehouse / channel the package restores. `deleteTenantData` clears `UserLocation`, `UserChannel` and `UserPermissionOverride` first. Covered by `tests/lib/offline-backup-delete.test.ts`.

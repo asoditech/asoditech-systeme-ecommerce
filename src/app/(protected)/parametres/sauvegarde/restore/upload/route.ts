@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth/session";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { MAX_CONTAINER_BYTES } from "@/lib/backup/constants";
 import { storeRestoreUpload, buildRestorePreviewResponse } from "@/lib/backup/service";
 import { BackupInspectionError } from "@/lib/backup/import";
@@ -19,7 +19,7 @@ import { BackupInspectionError } from "@/lib/backup/import";
 export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: "Non authentifié." }, { status: 401 });
-  if (!hasPermission(user.role, "settings.manage")) {
+  if (!userHasPermission(user, "settings.manage")) {
     return Response.json({ error: "Permission « settings.manage » requise." }, { status: 403 });
   }
 

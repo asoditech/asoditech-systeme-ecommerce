@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Search, Users, Package, ShoppingCart, LayoutDashboard } from "lucide-react";
+import { Search, Users, Package, ShoppingCart, LayoutDashboard, Store, Truck } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -23,7 +23,7 @@ const QUICK_LINKS: { label: string; href: string; permission: Permission }[] = [
   { label: "Nouveau produit", href: "/produits/nouveau", permission: "products.create" },
 ];
 
-const TYPE_ICON = { customer: Users, product: Package, order: ShoppingCart } as const;
+const TYPE_ICON = { customer: Users, product: Package, order: ShoppingCart, sale: Store, supplier: Truck } as const;
 
 export function CommandPalette({ permissions }: { permissions: Set<Permission> }) {
   const [open, setOpen] = React.useState(false);

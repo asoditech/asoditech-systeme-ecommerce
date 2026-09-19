@@ -20,6 +20,7 @@ import {
   type AuditCategory,
 } from "@/lib/audit-labels";
 import type { Prisma } from "@prisma/client";
+import { auditScopeWhere } from "@/lib/auth/audit-scope";
 
 export const metadata = { title: "Journal d'audit — ASODITECH Gestion E-commerce" };
 
@@ -30,14 +31,17 @@ export default async function JournalAuditPage({
 }: {
   searchParams: Promise<{ q?: string; category?: string; page?: string }>;
 }) {
-  await requirePermission("audit.view");
+  const user = await requirePermission("audit.view");
   const params = await searchParams;
   const page = Number(params.page) || 1;
 
   const category: AuditCategory | undefined =
     params.category && params.category in AUDIT_CATEGORY_LABELS ? (params.category as AuditCategory) : undefined;
 
-  const conditions: Prisma.AuditEventWhereInput[] = [];
+  // Channel read scope (docs/adr/0039): drop the events of an activity the
+  // viewer has no channel for — server-side, so it holds for the count and
+  // for every page of the log, not just what happens to be rendered.
+  const conditions: Prisma.AuditEventWhereInput[] = [auditScopeWhere(user.channels)];
   if (params.q) {
     conditions.push({
       OR: [

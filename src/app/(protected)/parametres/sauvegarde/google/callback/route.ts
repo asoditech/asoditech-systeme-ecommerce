@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth/session";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { env } from "@/lib/env";
 import { recordAuditEvent } from "@/lib/audit";
 import { runWithTenant } from "@/lib/tenant/context";
@@ -20,7 +20,7 @@ export async function GET(request: Request): Promise<Response> {
 
   const user = await getCurrentUser();
   if (!user) return Response.redirect(`${base}/connexion`, 302);
-  if (!hasPermission(user.role, "settings.manage")) return Response.redirect(`${back}?google=forbidden`, 302);
+  if (!userHasPermission(user, "settings.manage")) return Response.redirect(`${back}?google=forbidden`, 302);
 
   const url = new URL(request.url);
   const code = url.searchParams.get("code");

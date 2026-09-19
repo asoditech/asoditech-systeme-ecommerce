@@ -16,6 +16,7 @@ export type DocCategoryId =
   | "clients"
   | "commandes"
   | "stock"
+  | "magasin"
   | "confirmation"
   | "livraison"
   | "finance"

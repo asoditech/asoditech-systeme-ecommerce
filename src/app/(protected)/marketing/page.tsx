@@ -7,7 +7,7 @@ import { CampaignForm } from "@/components/marketing/campaign-form";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { CAMPAIGN_STATUS_LABELS, MARKETING_CHANNEL_TYPE_LABELS } from "@/lib/status-labels";
@@ -16,7 +16,7 @@ export const metadata = { title: "Marketing — ASODITECH Gestion E-commerce" };
 
 export default async function MarketingPage() {
   const user = await requirePermission("marketing.view");
-  const canManage = hasPermission(user.role, "marketing.manage");
+  const canManage = userHasPermission(user, "marketing.manage");
 
   const [channels, campaigns] = await Promise.all([
     prisma.marketingChannel.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { campaigns: true } } } }),

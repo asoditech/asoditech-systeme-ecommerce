@@ -1,4 +1,5 @@
 import "server-only";
+import { mapNewLocationToDefaultOnline } from "@/lib/channels";
 
 import { prisma } from "@/lib/prisma";
 import type { ShopifyClient } from "../client";
@@ -58,6 +59,9 @@ export async function syncLocations(client: ShopifyClient): Promise<{ summary: S
           data: { name: location.name, source: "SHOPIFY", externalId: location.id, isDefault: false },
         });
         idMap.set(location.id, created.id);
+        // docs/adr/0038: a Shopify Location feeds the storefront push, so it
+        // joins the default ONLINE channel. Non-fatal by design.
+        await mapNewLocationToDefaultOnline(prisma, created).catch(() => undefined);
         summary.imported++;
       } catch {
         recordNote(summary, `Emplacement Shopify ${location.name} : échec de synchronisation.`);

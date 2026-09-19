@@ -62,6 +62,19 @@ export async function resetDb() {
     await tx.orderReturn.deleteMany();
     await tx.orderItem.deleteMany();
     await tx.order.deleteMany();
+    // Online/Offline unification (docs/adr/0040): in-store sales and purchase
+    // receptions. Children first; sales are RESTRICT-referenced from
+    // sale_returns, and sales/receptions from channels/warehouses/suppliers
+    // (deleted further down).
+    await tx.saleReturnLine.deleteMany();
+    await tx.saleReturn.deleteMany();
+    await tx.salePayment.deleteMany();
+    await tx.saleLine.deleteMany();
+    await tx.sale.deleteMany();
+    await tx.receptionLine.deleteMany();
+    await tx.supplierPayment.deleteMany();
+    await tx.reception.deleteMany();
+    await tx.supplier.deleteMany();
     await tx.stocktakeLine.deleteMany();
     await tx.stocktakeSession.deleteMany();
     await tx.inventoryMovement.deleteMany();
@@ -72,6 +85,15 @@ export async function resetDb() {
     // RESTRICT fk to warehouses, so a leftover row would block the
     // warehouse.deleteMany() below.
     await tx.userLocation.deleteMany();
+    // Online/Offline unification (docs/adr/0038): channels + barcodes. The
+    // user/junction rows go first; orders were already wiped above, and
+    // sales_channels is RESTRICT-referenced by orders (and, later, sales).
+    await tx.userChannel.deleteMany();
+    await tx.userPermissionOverride.deleteMany();
+    await tx.salesChannelLocation.deleteMany();
+    await tx.productSalesChannel.deleteMany();
+    await tx.barcode.deleteMany();
+    await tx.salesChannel.deleteMany();
     await tx.warehouse.deleteMany();
     await tx.productVariation.deleteMany();
     await tx.productImage.deleteMany();
@@ -97,7 +119,19 @@ export async function resetDb() {
   // fresh count.
   await prisma.tenant.upsert({
     where: { id: DEFAULT_TENANT_ID },
-    update: { nextOrderNumber: 1, nextTransferNumber: 1, nextStocktakeNumber: 1 },
+    update: {
+      // Every test starts in ONLINE_ONLY — the pre-existing product — so the whole
+      // legacy suite exercises exactly the behaviour Online-only tenants must keep
+      // (docs/adr/0041). A suite that needs the Offline capabilities opts in with
+      // `setTestBusinessMode("ONLINE_AND_OFFLINE")`.
+      businessMode: "ONLINE_ONLY",
+      nextOrderNumber: 1,
+      nextTransferNumber: 1,
+      nextStocktakeNumber: 1,
+      nextReceptionNumber: 1,
+      nextSaleNumber: 1,
+      nextSaleReturnNumber: 1,
+    },
     create: { id: DEFAULT_TENANT_ID, name: "ASODITECH", slug: "default" },
   });
 
@@ -113,4 +147,14 @@ export async function resetDb() {
     update: { planId: businessPlan.id, status: "ACTIVE" },
     create: { tenantId: DEFAULT_TENANT_ID, planId: businessPlan.id, status: "ACTIVE" },
   });
+}
+
+/**
+ * Sets a tenant's business mode directly (docs/adr/0041) — the fixture
+ * equivalent of a platform admin promoting the tenant. Defaults to the
+ * bootstrap tenant. Effective access is recomputed per request, so it applies
+ * to the very next `getCurrentUser()`.
+ */
+export async function setTestBusinessMode(mode: "ONLINE_ONLY" | "ONLINE_AND_OFFLINE", tenantId: string = DEFAULT_TENANT_ID) {
+  await prisma.tenant.update({ where: { id: tenantId }, data: { businessMode: mode } });
 }

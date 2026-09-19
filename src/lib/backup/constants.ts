@@ -58,4 +58,6 @@ export const EXCLUDED_MODELS: Record<string, string> = {
   ShipmentWebhookEvent: "delivery replay-protection dedupe log — meaningless after reconnect",
   SyncRun: "integration sync run history — meaningless after reconnect",
   BackupRun: "the backup module's own bookkeeping — never backs itself up",
+  UserChannel: "per-user access configuration — users are merged, never restored (docs/adr/0038)",
+  UserPermissionOverride: "per-user access configuration — users are merged, never restored (docs/adr/0039)",
 };

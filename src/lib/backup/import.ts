@@ -168,6 +168,17 @@ export async function restoreTenantBackup(params: {
   return runWithTenant(activeTenantId, "backup:restore", () =>
     prisma.$transaction(
       async (tx) => {
+        // 0 — per-user access configuration (which locations / channels a user may
+        // work in) is not part of a backup and must never be silently erased by a
+        // restore: UserLocation RESTRICTS a Warehouse delete and UserChannel
+        // CASCADES from a SalesChannel delete, so both must be lifted around the
+        // wipe. Users are merged, never deleted, so the rows are re-attached below
+        // to every warehouse / channel the restore brings back (docs/adr/0037, 0038).
+        const keptLocations = await tx.userLocation.findMany({});
+        const keptChannels = await tx.userChannel.findMany({});
+        await tx.userLocation.deleteMany({});
+        await tx.userChannel.deleteMany({});
+
         // 1 — wipe every "replace" model, child-first.
         for (const m of [...REPLACE_MODELS].reverse()) {
           await delegateOf(tx, m.accessor).deleteMany({});
@@ -211,6 +222,15 @@ export async function restoreTenantBackup(params: {
             deferredWork.push({ model: m, rows: deferredRows });
           }
         }
+
+        // 2b — re-attach the preserved per-user access rows (see step 0), dropping
+        // only those whose warehouse / channel is not in the restored package.
+        const warehouseIds = new Set((await tx.warehouse.findMany({ select: { id: true } })).map((w) => w.id));
+        const channelIds = new Set((await tx.salesChannel.findMany({ select: { id: true } })).map((c) => c.id));
+        const locationsBack = keptLocations.filter((l) => warehouseIds.has(l.warehouseId));
+        const channelsBack = keptChannels.filter((c) => channelIds.has(c.salesChannelId));
+        if (locationsBack.length > 0) await tx.userLocation.createMany({ data: locationsBack });
+        if (channelsBack.length > 0) await tx.userChannel.createMany({ data: channelsBack });
 
         // 3 — patch deferred (self / forward) FKs.
         for (const { model, rows } of deferredWork) {

@@ -1,10 +1,13 @@
 import type { DocArticle, DocCategoryId } from "./types";
+import { isCategoryAvailable } from "./categories";
+import type { TenantCapability } from "@/lib/tenant/business-mode";
 import { bienDemarrerArticles } from "./content/bien-demarrer";
 import { integrationsArticles } from "./content/integrations";
 import { produitsArticles } from "./content/produits";
 import { clientsArticles } from "./content/clients";
 import { commandesArticles } from "./content/commandes";
 import { stockArticles } from "./content/stock";
+import { magasinArticles } from "./content/magasin";
 import { confirmationArticles } from "./content/confirmation";
 import { livraisonArticles } from "./content/livraison";
 import { financeArticles } from "./content/finance";
@@ -27,6 +30,7 @@ export const ALL_ARTICLES: DocArticle[] = [
   ...clientsArticles,
   ...commandesArticles,
   ...stockArticles,
+  ...magasinArticles,
   ...confirmationArticles,
   ...livraisonArticles,
   ...financeArticles,
@@ -37,6 +41,11 @@ export const ALL_ARTICLES: DocArticle[] = [
   ...abonnementArticles,
   ...troubleshootingArticles,
 ];
+
+/** Every article a tenant with these capabilities may see (docs/adr/0041). */
+export function articlesFor(capabilities: ReadonlySet<TenantCapability>): DocArticle[] {
+  return ALL_ARTICLES.filter((a) => isCategoryAvailable(a.category, capabilities));
+}
 
 const bySlug = new Map<string, DocArticle>(ALL_ARTICLES.map((a) => [a.slug, a]));
 

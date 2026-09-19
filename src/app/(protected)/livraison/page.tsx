@@ -27,7 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import {
   listShippingProviders,
   listShipments,
@@ -71,7 +71,7 @@ export default async function LivraisonPage({
   }>;
 }) {
   const user = await requirePermission("delivery.view");
-  const canManage = hasPermission(user.role, "delivery.manage");
+  const canManage = userHasPermission(user, "delivery.manage");
   const params = await searchParams;
   const page = Number(params.page) || 1;
   const aexpPage = Number(params.aexp) || 1;

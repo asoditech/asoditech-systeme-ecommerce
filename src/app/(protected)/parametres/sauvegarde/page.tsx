@@ -2,6 +2,7 @@ import { PageHeader } from "@/components/page-header";
 import { SettingsNav } from "@/components/settings/settings-nav";
 import { BackupPanel } from "@/components/settings/backup-panel";
 import { requirePermission } from "@/lib/auth/guards";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { getBackupStatus } from "@/lib/queries/backup";
 
 export const metadata = { title: "Sauvegarde & Portabilité — ASODITECH Gestion E-commerce" };
@@ -34,7 +35,7 @@ export default async function SauvegardePage({
         description="Exportez, téléchargez et restaurez les données de votre entreprise. Chiffré, isolé par compte, sans secret."
       />
       <div className="max-w-3xl">
-        <SettingsNav canManage />
+        <SettingsNav canManage canManageChannels={userHasPermission(user, "channels.manage")} />
         {notice && (
           <p
             className={

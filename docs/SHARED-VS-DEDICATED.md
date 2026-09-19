@@ -90,7 +90,7 @@ URL itself is not tenant-specific**; there is exactly one
 `/api/webhooks/woocommerce` and one `/api/webhooks/shopify` for the whole
 deployment, shared by every tenant connected to that provider.
 
-**Provisioning a new tenant on a shared deployment**: a platform admin
+**Provisioning a new tenant on a shared deployment** (choose its *business mode* — `En ligne seul`, the default and identical to the pre-existing product, or `En ligne + Magasin`, which unlocks store sales, suppliers/receptions, barcodes and traceability; see `docs/adr/0041-tenant-business-mode.md`): a platform admin
 (`User.isPlatformAdmin = true` — a flag independent of RBAC roles, see
 `docs/adr/0027` §1) uses `/platform` to create a `Tenant` row and issue
 that tenant's first `Invitation` (OWNER role) in one action. See

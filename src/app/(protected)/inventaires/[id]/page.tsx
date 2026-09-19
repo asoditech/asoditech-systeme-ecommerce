@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { StocktakeCountForm } from "@/components/stocktakes/stocktake-count-form";
 import { StocktakeLifecycleActions } from "@/components/stocktakes/stocktake-lifecycle-actions";
 import { requirePermission } from "@/lib/auth/guards";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { getStocktakeSessionDetail, getStocktakeAuditTimeline } from "@/lib/queries/stocktakes";
 import { formatDateTime, displayStocktakeNumber } from "@/lib/format";
 import { STOCKTAKE_STATUS_LABELS } from "@/lib/status-labels";
@@ -18,7 +18,7 @@ export default async function InventaireDetailPage({ params }: { params: Promise
   const session = await getStocktakeSessionDetail(id);
   if (!session) notFound();
 
-  const canCount = hasPermission(user.role, "inventory.count");
+  const canCount = userHasPermission(user, "inventory.count");
   const timeline = await getStocktakeAuditTimeline(id);
   const ref = displayStocktakeNumber(session);
   const isOpen = session.status === "EN_COURS";

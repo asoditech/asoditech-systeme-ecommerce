@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth/session";
-import { hasPermission } from "@/lib/auth/permissions";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { recordAuditEvent } from "@/lib/audit";
 import { runWithTenant } from "@/lib/tenant/context";
 import { downloadDriveBackup } from "@/lib/backup/google-drive-service";
@@ -17,7 +17,7 @@ import { GoogleDriveAuthError, GoogleDriveApiError, GoogleDriveConfigError } fro
 export async function GET(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return new Response("Non authentifié.", { status: 401 });
-  if (!hasPermission(user.role, "settings.manage")) {
+  if (!userHasPermission(user, "settings.manage")) {
     return new Response("Permission « settings.manage » requise.", { status: 403 });
   }
 
