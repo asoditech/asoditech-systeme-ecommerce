@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "name": "Asoditech Systeme Ecommerce",
+  "dir": "asoditech systeme ecommerce",
+  "github": {
+    "owner": "asoditech",
+    "repo": "asoditech-systeme-ecommerce",
+    "account": "asoditech"
+  },
+  "vercel": {
+    "project": "asoditech-systeme-ecommerce",
+    "projectId": "prj_mF5U9IbAiIatB6AWFDOehmcb9OTn",
+    "orgId": "team_mgMhVLMhK6eX7sAXCIUVIDFK",
+    "scope": "asoditech",
+    "profile": null
+  },
+  "productionBranch": "main",
+  "productionDomain": null
+}
