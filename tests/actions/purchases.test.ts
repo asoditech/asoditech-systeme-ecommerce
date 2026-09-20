@@ -10,6 +10,8 @@ import {
   recordSupplierPaymentAction,
 } from "@/actions/purchases";
 import { getSupplierBalance, getReceptionRemaining } from "@/lib/receptions";
+import { getReceptionDetail } from "@/lib/queries/purchases";
+import { variantLabel } from "@/lib/catalog/lookup";
 import { resetDb, setTestBusinessMode } from "../helpers/db";
 import { loginAsTestUser, createTestUser, grantLocationAccess } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
@@ -134,6 +136,12 @@ describe("reception → stock (the canonical movement is the authority)", () => 
     const item = await prisma.inventoryItem.findFirstOrThrow({ where: { variationId: v.id } });
     expect(item.quantityOnHand).toBe(6);
     expect(item.productId).toBeNull(); // product XOR variation invariant intact
+
+    // The document can identify the exact unit (labelling only — snapshots untouched).
+    const detail = await getReceptionDetail(id);
+    expect(detail?.lines[0]).toMatchObject({ variationId: v.id, skuSnapshot: "SKOUBA-B-42" });
+    // JSONB does not preserve attribute key order — assert the parts, not their order.
+    expect(variantLabel(detail?.lines[0].variation?.attributes)?.split(" / ").sort()).toEqual(["42", "Bleu"]);
   });
 
   it("refuses a variable parent line and an untracked product", async () => {

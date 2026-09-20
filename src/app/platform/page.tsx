@@ -107,7 +107,7 @@ export default async function PlatformPage() {
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <TenantModeDialog tenantId={row.id} currentMode={row.businessMode} />
+                    <TenantModeDialog tenantId={row.id} tenantName={row.name} currentMode={row.businessMode} />
                     <TenantPlanDialog tenantId={row.id} currentPlanCode={row.planCode} currentStatus={row.subscriptionStatus} />
                     <DeleteTenantButton tenantId={row.id} tenantSlug={row.slug} tenantName={row.name} />
                   </div>

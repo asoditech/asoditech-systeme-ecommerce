@@ -5,6 +5,8 @@ import { createSaleAction, createSaleReturnAction, lookupForSaleAction } from "@
 import { createOrderAction, updateOrderStatusAction } from "@/actions/orders";
 import { confirmPhysicalReturnAction } from "@/actions/returns";
 import { getCurrentUser } from "@/lib/auth/session";
+import { getSaleDetail } from "@/lib/queries/sales";
+import { variantLabel } from "@/lib/catalog/lookup";
 import { saleChannelWhere } from "@/lib/auth/channel-access";
 import { ensureDefaultOnlineChannel } from "@/lib/channels";
 import { resetDb, setTestBusinessMode } from "../helpers/db";
@@ -90,6 +92,10 @@ describe("successful sale", () => {
     expect(s.salesChannelId).toBe(ctx.channel.id);
     expect(s.lines[0]).toMatchObject({ nameSnapshot: "Basket", skuSnapshot: "BASKET-1", quantity: 2 });
     expect(Number(s.lines[0].costSnapshot)).toBe(120);
+    // A plain (non-variant) product line carries no variation, so the document shows no invented variant label.
+    const plain = await getSaleDetail((await getCurrentUser())!, r.data.id);
+    expect(plain?.lines[0].variationId).toBeNull();
+    expect(plain?.lines[0].variation).toBeNull();
     expect(s.payments.map((p) => [p.method, Number(p.amount)])).toEqual([["ESPECES", 600]]);
     expect(await prisma.auditEvent.count({ where: { action: "sale.created", actorUserId: admin.id } })).toBe(1);
   });
@@ -137,6 +143,13 @@ describe("successful sale", () => {
     expect(r.ok).toBe(true);
     expect((await stock(i42.id)).quantityOnHand).toBe(3);
     expect((await stock(i43.id)).quantityOnHand).toBe(5); // siblings untouched
+
+    // The document can identify the exact unit: the detail query carries the variation's
+    // attributes (labelling only — the stored snapshots are untouched).
+    const detail = await getSaleDetail((await getCurrentUser())!, r.ok ? r.data.id : "");
+    expect(detail?.lines[0]).toMatchObject({ variationId: v42.id, skuSnapshot: "SKOUBA-B-42" });
+    // JSONB does not preserve attribute key order — assert the parts, not their order.
+    expect(variantLabel(detail?.lines[0].variation?.attributes)?.split(" / ").sort()).toEqual(["42", "Bleu"]);
   });
 });
 

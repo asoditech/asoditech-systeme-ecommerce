@@ -81,7 +81,7 @@ export async function getReceptionDetail(id: string) {
     include: {
       supplier: true,
       warehouse: { select: { id: true, name: true } },
-      lines: { orderBy: { createdAt: "asc" } },
+      lines: { orderBy: { createdAt: "asc" }, include: { variation: { select: { attributes: true } } } }, // variation: only to label a variant line
       payments: { orderBy: { paidAt: "desc" } },
     },
   });

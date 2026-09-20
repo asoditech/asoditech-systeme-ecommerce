@@ -65,7 +65,9 @@ export async function getSaleDetail(viewer: Viewer, id: string) {
       salesChannel: { select: { id: true, name: true } },
       warehouse: { select: { id: true, name: true } },
       customer: { select: { id: true, fullName: true } },
-      lines: { orderBy: { createdAt: "asc" }, include: { returnLines: { select: { quantitySellable: true, quantityDamaged: true } } } },
+      // `variation` is read only to LABEL a variant line on the document (the size/colour);
+      // the stored snapshots are unchanged.
+      lines: { orderBy: { createdAt: "asc" }, include: { variation: { select: { attributes: true } }, returnLines: { select: { quantitySellable: true, quantityDamaged: true } } } },
       payments: { orderBy: { createdAt: "asc" } },
       returns: { orderBy: { receivedAt: "desc" }, include: { lines: true } },
     },

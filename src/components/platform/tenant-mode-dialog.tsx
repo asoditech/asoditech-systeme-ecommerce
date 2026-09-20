@@ -16,7 +16,7 @@ import { BUSINESS_MODES, BUSINESS_MODE_DESCRIPTIONS, BUSINESS_MODE_LABELS, type 
  * refuses any other caller. A downgrade is PREVIEWED and refused while the tenant
  * owns Offline documents — the reason is shown here, and enforced again on save.
  */
-export function TenantModeDialog({ tenantId, currentMode }: { tenantId: string; currentMode: BusinessMode }) {
+export function TenantModeDialog({ tenantId, tenantName, currentMode }: { tenantId: string; tenantName: string; currentMode: BusinessMode }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<BusinessMode>(currentMode);
@@ -64,7 +64,7 @@ export function TenantModeDialog({ tenantId, currentMode }: { tenantId: string; 
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Mode d&apos;activité</DialogTitle>
+          <DialogTitle>Mode d&apos;activité — {tenantName}</DialogTitle>
         </DialogHeader>
         <div className="space-y-2">
           {BUSINESS_MODES.map((m) => (

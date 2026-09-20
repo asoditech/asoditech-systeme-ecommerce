@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
+import { variantLabel } from "@/lib/catalog/lookup";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { getReceptionDetail } from "@/lib/queries/purchases";
 import { displayReceptionNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/format";
@@ -69,7 +70,11 @@ export default async function ReceptionDetailPage({ params }: { params: Promise<
             <TableBody>
               {r.lines.map((l) => (
                 <TableRow key={l.id}>
-                  <TableCell className="font-medium">{l.nameSnapshot}</TableCell>
+                  <TableCell className="font-medium">
+                    {l.nameSnapshot}
+                    {variantLabel(l.variation?.attributes) && <span className="font-normal text-muted-foreground"> — {variantLabel(l.variation?.attributes)}</span>}
+                    {l.variationId && <div className="font-mono text-xs font-normal text-muted-foreground">{l.skuSnapshot}</div>}
+                  </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">{l.barcodeSnapshot ?? l.skuSnapshot}</TableCell>
                   <TableCell className="text-right tabular-nums">{l.quantity}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatCurrency(l.unitCost.toString())}</TableCell>

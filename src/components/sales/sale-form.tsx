@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ScanBarcode, Trash2, AlertTriangle } from "lucide-react";
@@ -13,6 +13,19 @@ import { formatCurrency } from "@/lib/format";
 import { CASH_PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
 
 const selectClass = "h-9 w-full rounded-md border border-input bg-background px-3 text-sm";
+
+/** True below Tailwind's `sm` breakpoint. Server/first render = false (no hydration mismatch). */
+function useNarrowScreen() {
+  return useSyncExternalStore(
+    (notify) => {
+      const mq = window.matchMedia("(max-width: 639px)");
+      mq.addEventListener("change", notify);
+      return () => mq.removeEventListener("change", notify);
+    },
+    () => window.matchMedia("(max-width: 639px)").matches,
+    () => false
+  );
+}
 
 interface Line {
   key: string;
@@ -51,6 +64,7 @@ export function SaleForm({
   canOverridePrice: boolean;
 }) {
   const router = useRouter();
+  const narrow = useNarrowScreen();
   const [isPending, startTransition] = useTransition();
   const idempotencyKey = useRef<string>(crypto.randomUUID());
   const [channelId, setChannelId] = useState(channels[0]?.id ?? "");
@@ -123,7 +137,7 @@ export function SaleForm({
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_22rem]">
+    <div className="grid gap-4 pb-14 sm:pb-0 lg:grid-cols-[1fr_22rem]">
       <div className="space-y-4">
         <Card>
           <CardContent className="grid gap-3 pt-6 sm:grid-cols-3">
@@ -168,12 +182,12 @@ export function SaleForm({
             <CardTitle className="text-[15px]">Articles</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Input
                 autoFocus
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Scanner un code-barres ou saisir référence / nom…"
+                placeholder={narrow ? "Code-barres, réf., nom…" : "Scanner un code-barres ou saisir référence / nom…"}
                 aria-label="Rechercher un article"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -182,7 +196,7 @@ export function SaleForm({
                   }
                 }}
               />
-              <Button type="button" variant="outline" onClick={search}>
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={search}>
                 <ScanBarcode className="size-4" />
                 Chercher
               </Button>
@@ -216,10 +230,21 @@ export function SaleForm({
                       <div className="text-sm font-medium">{l.label}</div>
                       <div className="font-mono text-xs text-muted-foreground">{l.sku} · dispo {l.available}</div>
                     </div>
-                    <Input type="number" min={1} max={l.available} value={l.quantity} aria-label="Quantité" onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, quantity: Math.min(x.available, Math.max(1, Number(e.target.value) || 1)) } : x)))} />
-                    <Input type="number" min={0} step="0.01" value={l.unitPrice} disabled={!canOverridePrice} aria-label="Prix unitaire" title={canOverridePrice ? undefined : "Modification du prix non autorisée"} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, unitPrice: Math.max(0, Number(e.target.value) || 0) } : x)))} />
-                    <Input type="number" min={0} step="0.01" value={l.discount} disabled={!canOverridePrice} aria-label="Remise" placeholder="Remise" title={canOverridePrice ? undefined : "Remise non autorisée"} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, discount: Math.max(0, Number(e.target.value) || 0) } : x)))} />
-                    <Button type="button" variant="ghost" size="icon" aria-label="Retirer" onClick={() => setLines((p) => p.filter((x) => x.key !== l.key))}>
+                    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)] gap-2 sm:contents">
+                      <div className="space-y-1">
+                        <span className="block text-[11px] text-muted-foreground sm:hidden">Quantité</span>
+                        <Input type="number" min={1} max={l.available} value={l.quantity} aria-label="Quantité" onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, quantity: Math.min(x.available, Math.max(1, Number(e.target.value) || 1)) } : x)))} />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="block text-[11px] text-muted-foreground sm:hidden">Prix unitaire</span>
+                        <Input type="number" min={0} step="0.01" value={l.unitPrice} disabled={!canOverridePrice} aria-label="Prix unitaire" title={canOverridePrice ? undefined : "Modification du prix non autorisée"} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, unitPrice: Math.max(0, Number(e.target.value) || 0) } : x)))} />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="block text-[11px] text-muted-foreground sm:hidden">Remise</span>
+                        <Input type="number" min={0} step="0.01" value={l.discount} disabled={!canOverridePrice} aria-label="Remise" placeholder="Remise" title={canOverridePrice ? undefined : "Remise non autorisée"} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, discount: Math.max(0, Number(e.target.value) || 0) } : x)))} />
+                      </div>
+                    </div>
+                    <Button type="button" variant="ghost" size="icon" className="justify-self-end sm:justify-self-auto" aria-label="Retirer" onClick={() => setLines((p) => p.filter((x) => x.key !== l.key))}>
                       <Trash2 className="size-4" />
                     </Button>
                   </div>
@@ -235,9 +260,9 @@ export function SaleForm({
           <CardTitle className="text-[15px]">Paiement</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex items-baseline justify-between">
+          <div className="flex items-baseline justify-between gap-2 pr-10 sm:pr-0">
             <span className="text-sm text-muted-foreground">Total</span>
-            <span className="text-2xl font-semibold tabular-nums">{formatCurrency(String(total))}</span>
+            <span className="text-xl font-semibold tabular-nums sm:text-2xl">{formatCurrency(String(total))}</span>
           </div>
           {payments.map((p) => (
             <div key={p.key} className="flex gap-2">
