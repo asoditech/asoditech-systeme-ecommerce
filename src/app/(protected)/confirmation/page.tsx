@@ -15,6 +15,7 @@ import {
   listOrdersConfirmedByAgent,
   getMyConfirmationStats,
   getConfirmationDashboardSummary,
+  flagInsufficientStock,
   CONFIRMATION_RETRY_FLAG,
 } from "@/lib/queries/order-confirmation";
 import {
@@ -36,7 +37,10 @@ type TabKey = (typeof TABS)[number]["key"];
 
 type QueueSourceOrder = Awaited<ReturnType<typeof listOrdersAwaitingConfirmation>>["orders"][number];
 
-function toQueueOrders(orders: QueueSourceOrder[]): ConfirmationQueueOrder[] {
+async function toQueueOrders(orders: QueueSourceOrder[]): Promise<ConfirmationQueueOrder[]> {
+  // Batch 3, Task 8 — one batched availability query for the whole page,
+  // not one per order (see flagInsufficientStock's own doc comment).
+  const flagged = await flagInsufficientStock(orders);
   return orders.map((o) => ({
     id: o.id,
     displayNumber: displayOrderNumber(o),
@@ -50,6 +54,7 @@ function toQueueOrders(orders: QueueSourceOrder[]): ConfirmationQueueOrder[] {
     itemCount: o._count.items,
     attemptCount: o.confirmationAttemptCount,
     flagged: o.confirmationAttemptCount >= CONFIRMATION_RETRY_FLAG,
+    stockWarning: flagged.has(o.id),
     recentAttempts: o.confirmationAttempts.map((a) => ({
       outcome: a.outcome,
       agentName: a.agent?.name ?? null,
@@ -115,7 +120,7 @@ export default async function ConfirmationPage({
 
 async function QueueTab({ search, page, onlyRetried }: { search?: string; page: number; onlyRetried: boolean }) {
   const { orders, total, pageSize } = await listOrdersAwaitingConfirmation({ page, search, onlyRetried });
-  const queueOrders = toQueueOrders(orders);
+  const queueOrders = await toQueueOrders(orders);
   const tabParam = onlyRetried ? "rappeler" : "a-confirmer";
 
   return (

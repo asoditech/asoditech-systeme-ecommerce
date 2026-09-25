@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Search, Trash2 } from "lucide-react";
-import { createReceptionAction, updateReceptionDraftAction } from "@/actions/purchases";
+import { createReceptionAction, updateReceptionDraftAction, getLatestPurchasePriceAction } from "@/actions/purchases";
 import { lookupSellableUnitsAction } from "@/actions/catalog";
 import type { SellableUnit } from "@/lib/catalog/lookup";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 
 const selectClass = "h-9 w-full rounded-md border border-input bg-background px-3 text-sm";
 
@@ -24,6 +24,9 @@ interface Line {
   sku: string;
   quantity: number;
   unitCost: number;
+  /** "Dernier achat" hint (Batch 3, Task 3A) — undefined while loading, null once
+   * confirmed there is no purchase history for this unit. */
+  lastPurchase?: { unitCost: number; supplierName: string; date: string } | null;
 }
 
 /**
@@ -77,6 +80,7 @@ export function ReceptionForm({
 
   function add(u: SellableUnit) {
     const key = u.variationId ? `v:${u.variationId}` : `p:${u.productId}`;
+    const isNewLine = !lines.some((l) => l.key === key);
     setLines((prev) =>
       prev.some((l) => l.key === key)
         ? prev.map((l) => (l.key === key ? { ...l, quantity: l.quantity + 1 } : l))
@@ -84,6 +88,25 @@ export function ReceptionForm({
     );
     setHits([]);
     setQuery("");
+
+    // "Dernier achat" hint (Task 3A) — fetched once per new line, never
+    // blocks adding the line, and never overwrites the price the operator
+    // may already be typing.
+    if (isNewLine) {
+      getLatestPurchasePriceAction({ productId: u.variationId ? null : u.productId, variationId: u.variationId })
+        .then((last) => {
+          setLines((prev) =>
+            prev.map((l) =>
+              l.key === key
+                ? { ...l, lastPurchase: last ? { unitCost: last.unitCost, supplierName: last.supplierName, date: new Date(last.date).toISOString() } : null }
+                : l
+            )
+          );
+        })
+        .catch(() => {
+          // Purely informational — a failed lookup just leaves no hint.
+        });
+    }
   }
 
   const total = lines.reduce((s, l) => s + l.quantity * l.unitCost, 0);
@@ -215,6 +238,12 @@ export function ReceptionForm({
                     </TableCell>
                     <TableCell>
                       <Input type="number" min={0} step="0.01" value={l.unitCost} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, unitCost: Math.max(0, Number(e.target.value) || 0) } : x)))} />
+                      {l.lastPurchase && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Dernier achat : {formatCurrency(String(l.lastPurchase.unitCost))} chez {l.lastPurchase.supplierName} le{" "}
+                          {formatDate(l.lastPurchase.date)}
+                        </p>
+                      )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrency(String(l.quantity * l.unitCost))}</TableCell>
                     <TableCell>

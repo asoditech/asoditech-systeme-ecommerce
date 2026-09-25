@@ -585,3 +585,83 @@ describe("sale lookup for the POS screen", () => {
     void createTestUser;
   });
 });
+
+// Batch 4 — Variant System Rebuild: variation salePrice precedence + inactive enforcement.
+describe("variation salePrice / isActive at POS (Batch 4)", () => {
+  async function seedVariantStore(overrides: { variationPrice?: number | null; variationSalePrice?: number | null; productSalePrice?: number | null; isActive?: boolean } = {}) {
+    const store = await prisma.warehouse.create({ data: { name: "Boutique", type: "MAGASIN", isDefault: true } });
+    const channel = await prisma.salesChannel.create({ data: { name: "Magasin A", kind: "OFFLINE" } });
+    await prisma.salesChannelLocation.create({ data: { salesChannelId: channel.id, warehouseId: store.id } });
+    const product = await prisma.product.create({
+      data: { name: "T-Shirt", sku: `TSH-${Math.random()}`, price: 200, salePrice: overrides.productSalePrice, status: "ACTIF" },
+    });
+    await prisma.productSalesChannel.create({ data: { productId: product.id, salesChannelId: channel.id } });
+    const variation = await prisma.productVariation.create({
+      data: {
+        productId: product.id,
+        sku: `TSH-V-${Math.random()}`,
+        attributes: { Taille: "M" },
+        price: overrides.variationPrice,
+        salePrice: overrides.variationSalePrice,
+        isActive: overrides.isActive ?? true,
+      },
+    });
+    const item = await prisma.inventoryItem.create({ data: { warehouseId: store.id, variationId: variation.id, quantityOnHand: 10 } });
+    return { store, channel, product, variation, item };
+  }
+
+  it("uses the variation's own salePrice as the top-priority default price", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const ctx = await seedVariantStore({ variationPrice: 180, variationSalePrice: 150, productSalePrice: 190 });
+
+    const r = await createSaleAction(sale(ctx, [{ variationId: ctx.variation.id, quantity: 1 }], [{ method: "ESPECES", amount: 150 }]));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const s = await prisma.sale.findUniqueOrThrow({ where: { id: r.data.id }, include: { lines: true } });
+    expect(Number(s.lines[0].unitPrice)).toBe(150);
+  });
+
+  it("falls back through variation.price -> product.salePrice -> product.price when salePrice is unset", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const ctx = await seedVariantStore({ variationPrice: 175 });
+
+    const r = await createSaleAction(sale(ctx, [{ variationId: ctx.variation.id, quantity: 1 }], [{ method: "ESPECES", amount: 175 }]));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const s = await prisma.sale.findUniqueOrThrow({ where: { id: r.data.id }, include: { lines: true } });
+    expect(Number(s.lines[0].unitPrice)).toBe(175);
+  });
+
+  it("without sales.override_price, a submitted price different from the variation's resolved salePrice is rejected", async () => {
+    const seller = await loginAsTestUser({ role: "WAREHOUSE", channels: "none" });
+    const ctx = await seedVariantStore({ variationSalePrice: 150 });
+    await grantChannelAccess(seller.id, ctx.channel.id);
+    await grantLocationAccess(seller.id, ctx.store.id);
+    await prisma.userPermissionOverride.create({ data: { userId: seller.id, permission: "sales.create", effect: "GRANT" } });
+
+    // the resolved default (150, the variation's salePrice) is accepted
+    const ok = await createSaleAction(sale(ctx, [{ variationId: ctx.variation.id, quantity: 1 }], [{ method: "ESPECES", amount: 150 }]));
+    expect(ok.ok).toBe(true);
+
+    // a different submitted price is refused without sales.override_price
+    const r = await createSaleAction(sale(ctx, [{ variationId: ctx.variation.id, quantity: 1, unitPrice: 999 }], [{ method: "ESPECES", amount: 999 }]));
+    expect(r.ok).toBe(false);
+  });
+
+  it("rejects selling an inactive variation, even via a direct action call bypassing the search UI", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const ctx = await seedVariantStore({ isActive: false });
+
+    const r = await createSaleAction(sale(ctx, [{ variationId: ctx.variation.id, quantity: 1 }], [{ method: "ESPECES", amount: 200 }]));
+    expect(r.ok).toBe(false);
+    expect(await prisma.sale.count()).toBe(0);
+  });
+
+  it("an inactive variation never appears in the POS lookup", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const ctx = await seedVariantStore({ isActive: false });
+
+    const hits = await lookupForSaleAction({ query: ctx.variation.sku, salesChannelId: ctx.channel.id, warehouseId: ctx.store.id });
+    expect(hits).toHaveLength(0);
+  });
+});

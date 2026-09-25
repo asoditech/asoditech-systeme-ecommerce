@@ -3,6 +3,7 @@ import { ShoppingCart, Plus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { StopPropagationLink } from "@/components/stop-propagation-link";
@@ -236,7 +237,10 @@ export default async function CommandesPage({
             <TableBody>
               {orders.map((o) => (
                 <ClickableTableRow key={o.id} href={`/commandes/${o.id}`}>
-                  <TableCell className="font-medium">{displayOrderNumber(o)}</TableCell>
+                  <TableCell className="font-medium">
+                    {displayOrderNumber(o)}
+                    {o._count.returns > 0 && <Badge variant="outline" className="ml-2">retour</Badge>}
+                  </TableCell>
                   <TableCell>
                     <span className="block max-w-[8rem] truncate">{displayOrderRecipient(o)}</span>
                   </TableCell>

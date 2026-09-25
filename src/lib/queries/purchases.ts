@@ -86,3 +86,91 @@ export async function getReceptionDetail(id: string) {
     },
   });
 }
+
+export interface PurchasePriceHistoryEntry {
+  date: Date;
+  supplierName: string;
+  unitCost: number;
+  receptionId: string;
+  receptionNumber: number;
+  receptionDisplayNumber: number | null;
+}
+
+/**
+ * Purchase-price history for one sellable unit (Batch 3, Task 3) — read
+ * straight off the existing `ReceptionLine`/`Reception` data, no new table.
+ * Only VALIDEE receptions count as an actual purchase (a BROUILLON's price
+ * is a draft, ANNULEE never happened) — same "counted" posture the
+ * inventory/finance layers already use for receptions elsewhere. Newest
+ * first, `limit`-capped. Does not touch `Product.cost` (the ASODITECH-owned
+ * operational field) — this is historical information alongside it, never
+ * a replacement for it.
+ */
+export async function getPurchasePriceHistory(
+  ref: { productId?: string | null; variationId?: string | null },
+  limit = 10
+): Promise<PurchasePriceHistoryEntry[]> {
+  if (!ref.productId && !ref.variationId) return [];
+  const lines = await prisma.receptionLine.findMany({
+    where: {
+      ...(ref.variationId ? { variationId: ref.variationId } : { productId: ref.productId, variationId: null }),
+      reception: { status: "VALIDEE" },
+    },
+    orderBy: { reception: { receptionDate: "desc" } },
+    take: limit,
+    include: { reception: { select: { id: true, receptionNumber: true, displayNumber: true, receptionDate: true, supplier: { select: { name: true } } } } },
+  });
+  return lines.map((l) => ({
+    date: l.reception.receptionDate,
+    supplierName: l.reception.supplier.name,
+    unitCost: Number(l.unitCost),
+    receptionId: l.reception.id,
+    receptionNumber: l.reception.receptionNumber,
+    receptionDisplayNumber: l.reception.displayNumber,
+  }));
+}
+
+/** Just the most recent entry — the reception-line-entry hint (Task 3A) only needs one. */
+export async function getLatestPurchasePrice(ref: { productId?: string | null; variationId?: string | null }) {
+  const [latest] = await getPurchasePriceHistory(ref, 1);
+  return latest ?? null;
+}
+
+/**
+ * The same "last purchase" fact as `getLatestPurchasePrice`, batched for a
+ * whole product page (Task 3B: the product's own price plus every
+ * variation's) — one query for every unit at once instead of N+1, reduced
+ * to "keep only the first (=latest, thanks to the `desc` order) row per
+ * unit" in JS.
+ */
+export async function getLatestPurchasePricesForUnits(
+  productIds: string[],
+  variationIds: string[]
+): Promise<Map<string, PurchasePriceHistoryEntry>> {
+  if (productIds.length === 0 && variationIds.length === 0) return new Map();
+  const lines = await prisma.receptionLine.findMany({
+    where: {
+      reception: { status: "VALIDEE" },
+      OR: [
+        ...(productIds.length > 0 ? [{ productId: { in: productIds }, variationId: null }] : []),
+        ...(variationIds.length > 0 ? [{ variationId: { in: variationIds } }] : []),
+      ],
+    },
+    orderBy: { reception: { receptionDate: "desc" } },
+    include: { reception: { select: { id: true, receptionNumber: true, displayNumber: true, receptionDate: true, supplier: { select: { name: true } } } } },
+  });
+  const byUnit = new Map<string, PurchasePriceHistoryEntry>();
+  for (const l of lines) {
+    const key = l.variationId ?? l.productId!;
+    if (byUnit.has(key)) continue; // already have a more recent row for this unit
+    byUnit.set(key, {
+      date: l.reception.receptionDate,
+      supplierName: l.reception.supplier.name,
+      unitCost: Number(l.unitCost),
+      receptionId: l.reception.id,
+      receptionNumber: l.reception.receptionNumber,
+      receptionDisplayNumber: l.reception.displayNumber,
+    });
+  }
+  return byUnit;
+}

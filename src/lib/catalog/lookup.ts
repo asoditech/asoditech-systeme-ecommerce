@@ -38,7 +38,12 @@ export interface SellableUnit {
   reference: string | null;
   primaryBarcode: string | null;
   categoryName: string | null;
-  /** Server-resolved default unit price: variation.price ?? product.salePrice ?? product.price. */
+  /**
+   * Server-resolved default unit price. Batch 4 adds ONE new top tier —
+   * a variation's own `salePrice`, when set — on top of the pre-existing
+   * chain, which is otherwise unchanged: variation.salePrice ??
+   * variation.price ?? product.salePrice ?? product.price.
+   */
   price: number;
   cost: number | null;
   status: "ACTIF" | "BROUILLON" | "ARCHIVE";
@@ -48,7 +53,8 @@ export interface SellableUnit {
 
 export interface LookupOptions {
   limit?: number;
-  /** Only ACTIF products (what a sale/order may sell). Default true. */
+  /** Only ACTIF products AND, for a variation, only an active one — what a
+   * new sale/order/POS operation may sell (Batch 4, Task 11). Default true. */
   onlyActive?: boolean;
   /** Restrict to products enabled on this channel (ProductSalesChannel). */
   channelId?: string | null;
@@ -104,7 +110,7 @@ function unitFromVariation(p: ProductRow, v: VariationRow, matchedBy: MatchedBy)
     reference: p.reference,
     primaryBarcode: v.barcodes[0]?.code ?? null,
     categoryName: p.category?.name ?? null,
-    price: num(v.price) ?? num(p.salePrice) ?? num(p.price) ?? 0,
+    price: num(v.salePrice) ?? num(v.price) ?? num(p.salePrice) ?? num(p.price) ?? 0,
     cost: num(v.cost) ?? num(p.cost),
     status: p.status,
     trackInventory: p.trackInventory,
@@ -112,11 +118,18 @@ function unitFromVariation(p: ProductRow, v: VariationRow, matchedBy: MatchedBy)
   };
 }
 
-/** Expands a product into its sellable units (a variable parent → its variations). */
-function unitsOf(p: ProductRow, matchedBy: MatchedBy, onlyVariationId?: string): SellableUnit[] {
+/**
+ * Expands a product into its sellable units (a variable parent → its
+ * variations). `onlyActive` (Batch 4, Task 11) drops an inactive variation
+ * from the result — never the product itself, and never a simple product
+ * (which has no variation-level active flag), so a product with SOME
+ * inactive variations still returns its remaining active ones.
+ */
+function unitsOf(p: ProductRow, matchedBy: MatchedBy, opts: { onlyVariationId?: string; onlyActive?: boolean } = {}): SellableUnit[] {
   if (p.variations.length === 0) return [unitFromProduct(p, matchedBy)];
   return p.variations
-    .filter((v) => (onlyVariationId ? v.id === onlyVariationId : true))
+    .filter((v) => (opts.onlyVariationId ? v.id === opts.onlyVariationId : true))
+    .filter((v) => (opts.onlyActive === false ? true : v.isActive))
     .map((v) => unitFromVariation(p, v, matchedBy));
 }
 
@@ -145,9 +158,12 @@ export async function lookupSellableUnits(db: Db, rawQuery: string, opts: Lookup
       ? { ...base, variations: { some: { id: barcode.variationId } } }
       : { ...base, id: barcode.productId! };
     const product = await db.product.findFirst({ where: productWhere, include: productInclude });
-    if (product) return unitsOf(product, "barcode", barcode.variationId ?? undefined);
+    if (product) {
+      return unitsOf(product, "barcode", { onlyVariationId: barcode.variationId ?? undefined, onlyActive: opts.onlyActive });
+    }
     // A code that exists but is not sellable here (archived / not on this
-    // channel) must NOT fall through to a fuzzy match — a scan is exact.
+    // channel / an inactive variation) must NOT fall through to a fuzzy
+    // match — a scan is exact.
     return [];
   }
 
@@ -167,8 +183,8 @@ export async function lookupSellableUnits(db: Db, rawQuery: string, opts: Lookup
     const out: SellableUnit[] = [];
     for (const p of bySku) {
       const matchedVariation = p.variations.find((v) => v.sku.toLowerCase() === query.toLowerCase());
-      if (matchedVariation) out.push(...unitsOf(p, "sku", matchedVariation.id));
-      else out.push(...unitsOf(p, "sku"));
+      if (matchedVariation) out.push(...unitsOf(p, "sku", { onlyVariationId: matchedVariation.id, onlyActive: opts.onlyActive }));
+      else out.push(...unitsOf(p, "sku", { onlyActive: opts.onlyActive }));
     }
     return out.slice(0, limit);
   }
@@ -189,6 +205,6 @@ export async function lookupSellableUnits(db: Db, rawQuery: string, opts: Lookup
     take: limit,
   });
   const out: SellableUnit[] = [];
-  for (const p of partial) out.push(...unitsOf(p, "partial"));
+  for (const p of partial) out.push(...unitsOf(p, "partial", { onlyActive: opts.onlyActive }));
   return out.slice(0, limit);
 }

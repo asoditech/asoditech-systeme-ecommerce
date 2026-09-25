@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
+import { availableStockTotal } from "@/lib/inventory";
 
 /**
  * Reads for the order-confirmation workflow — see
@@ -49,6 +50,10 @@ export async function listOrdersAwaitingConfirmation(
       include: {
         customer: true,
         _count: { select: { items: true } },
+        // Batch 3, Task 8: item lines (product/variation/quantity only — no
+        // name needed here) so the queue can flag a backorder without a
+        // second round-trip; see `flagInsufficientStock` below.
+        items: { select: { productId: true, variationId: true, quantity: true } },
         confirmationAttempts: {
           orderBy: { createdAt: "desc" },
           take: 3,
@@ -60,6 +65,64 @@ export async function listOrdersAwaitingConfirmation(
   ]);
 
   return { orders, total, page, pageSize: PAGE_SIZE };
+}
+
+/**
+ * Backorder warning at confirmation time (Batch 3, Task 8) — purely
+ * informational, never blocks confirming (backorders are allowed by
+ * design, docs/adr/0030). Reuses the exact same available-stock definition
+ * (`availableStockTotal`, Physical − Reserved) as
+ * `checkAndNotifyInsufficientStockForOrder` in src/lib/notifications.ts, but
+ * batched for a whole page of orders in ONE query instead of one per line —
+ * this runs on every render of the confirmation queue, not once per order.
+ */
+export async function flagInsufficientStock(
+  orders: { id: string; items: { productId: string | null; variationId: string | null; quantity: number }[] }[]
+): Promise<Set<string>> {
+  const productIds = new Set<string>();
+  const variationIds = new Set<string>();
+  for (const o of orders) {
+    for (const item of o.items) {
+      if (item.productId) productIds.add(item.productId);
+      if (item.variationId) variationIds.add(item.variationId);
+    }
+  }
+  if (productIds.size === 0 && variationIds.size === 0) return new Set();
+
+  const rows = await prisma.inventoryItem.findMany({
+    where: {
+      OR: [
+        ...(productIds.size > 0 ? [{ productId: { in: [...productIds] } }] : []),
+        ...(variationIds.size > 0 ? [{ variationId: { in: [...variationIds] } }] : []),
+      ],
+    },
+    select: { productId: true, variationId: true, quantityOnHand: true, quantityReserved: true },
+  });
+  const byUnit = new Map<string, { quantityOnHand: number; quantityReserved: number }[]>();
+  for (const r of rows) {
+    const key = r.variationId ?? r.productId;
+    if (!key) continue;
+    const list = byUnit.get(key) ?? [];
+    list.push(r);
+    byUnit.set(key, list);
+  }
+
+  const flagged = new Set<string>();
+  for (const o of orders) {
+    for (const item of o.items) {
+      if (item.quantity <= 0) continue;
+      const key = item.variationId ?? item.productId;
+      if (!key) continue;
+      const units = byUnit.get(key);
+      if (!units) continue; // not stock-tracked — nothing to compare against
+      const available = availableStockTotal(units) ?? 0;
+      if (item.quantity > available) {
+        flagged.add(o.id);
+        break;
+      }
+    }
+  }
+  return flagged;
 }
 
 /** Full call-attempt history for one order (newest first) — order detail page. */

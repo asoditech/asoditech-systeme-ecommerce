@@ -4,12 +4,27 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { resolveActiveTenantIdForRawSql } from "@/lib/tenant/resolve";
 import { runRawBatchWithTenant } from "@/lib/tenant/rls";
+import { availableStock } from "@/lib/inventory";
+import { variantLabel } from "@/lib/catalog/lookup";
 
 const PAGE_SIZE = 25;
 
 const INVENTORY_INCLUDE = {
   product: { include: { images: { take: 1, orderBy: { position: "asc" } } } },
   variation: { include: { product: { include: { images: { take: 1, orderBy: { position: "asc" } } } } } },
+  warehouse: true,
+} satisfies Prisma.InventoryItemInclude;
+
+/** Extra columns the CSV export needs that the on-screen table doesn't
+ * (category, reference, barcode) — same rows, richer projection. */
+const INVENTORY_EXPORT_INCLUDE = {
+  product: { include: { category: { select: { name: true } }, barcodes: { where: { isPrimary: true }, select: { code: true }, take: 1 } } },
+  variation: {
+    include: {
+      product: { include: { category: { select: { name: true } } } },
+      barcodes: { where: { isPrimary: true }, select: { code: true }, take: 1 },
+    },
+  },
   warehouse: true,
 } satisfies Prisma.InventoryItemInclude;
 
@@ -86,6 +101,32 @@ function sortClause(sort: InventorySort | undefined): Prisma.Sql {
   return Prisma.sql`ORDER BY ii."updatedAt" DESC`;
 }
 
+/** The "all"-status filter set shared by `listInventoryItems` and the CSV
+ * export (`listInventoryItemsForExport`) — kept in one place so the two
+ * never drift apart (docs/adr — Batch 3, Task 4: the export must show
+ * exactly what the page shows, for the SAME filters). */
+function buildInventoryWhere(params: { q?: string; warehouseId?: string; categoryId?: string }): Prisma.InventoryItemWhereInput {
+  const conditions: Prisma.InventoryItemWhereInput[] = [];
+  if (params.q) {
+    conditions.push({
+      OR: [
+        { product: { name: { contains: params.q, mode: "insensitive" } } },
+        { product: { sku: { contains: params.q, mode: "insensitive" } } },
+        { variation: { sku: { contains: params.q, mode: "insensitive" } } },
+      ],
+    });
+  }
+  if (params.warehouseId) {
+    conditions.push({ warehouseId: params.warehouseId });
+  }
+  if (params.categoryId) {
+    conditions.push({
+      OR: [{ product: { categoryId: params.categoryId } }, { variation: { product: { categoryId: params.categoryId } } }],
+    });
+  }
+  return conditions.length > 0 ? { AND: conditions } : {};
+}
+
 export async function listInventoryItems(params: {
   q?: string;
   warehouseId?: string;
@@ -124,29 +165,7 @@ export async function listInventoryItems(params: {
     return { items, total: Number(countRows[0]?.count ?? 0), page, pageSize: PAGE_SIZE };
   }
 
-  // Built as an AND-list of independent conditions rather than spreading
-  // each into one object — `q` and `categoryId` each need their own `OR`
-  // clause, and a plain object spread would let the second `OR` key
-  // silently overwrite the first instead of combining them.
-  const conditions: Prisma.InventoryItemWhereInput[] = [];
-  if (q) {
-    conditions.push({
-      OR: [
-        { product: { name: { contains: q, mode: "insensitive" } } },
-        { product: { sku: { contains: q, mode: "insensitive" } } },
-        { variation: { sku: { contains: q, mode: "insensitive" } } },
-      ],
-    });
-  }
-  if (params.warehouseId) {
-    conditions.push({ warehouseId: params.warehouseId });
-  }
-  if (params.categoryId) {
-    conditions.push({
-      OR: [{ product: { categoryId: params.categoryId } }, { variation: { product: { categoryId: params.categoryId } } }],
-    });
-  }
-  const where: Prisma.InventoryItemWhereInput = conditions.length > 0 ? { AND: conditions } : {};
+  const where = buildInventoryWhere({ q, warehouseId: params.warehouseId, categoryId: params.categoryId });
 
   const orderBy: Prisma.InventoryItemOrderByWithRelationInput =
     params.sort === "quantity-asc"
@@ -167,6 +186,79 @@ export async function listInventoryItems(params: {
   ]);
 
   return { items, total, page, pageSize: PAGE_SIZE };
+}
+
+export interface InventoryExportRow {
+  productName: string;
+  variantLabel: string | null;
+  reference: string | null;
+  sku: string;
+  barcode: string | null;
+  categoryName: string | null;
+  warehouseName: string;
+  quantityOnHand: number;
+  quantityReserved: number;
+  available: number;
+  quantityDamaged: number;
+}
+
+/**
+ * The General Stock CSV export (Batch 3, Task 4) — the exact same filters
+ * (`buildInventoryWhere`/`stockStatusFrom`, so tenant scope and the caller's
+ * chosen q/warehouse/category/status are identical to what `/stock` shows),
+ * unpaginated, with a few extra display columns the page doesn't need
+ * (`INVENTORY_EXPORT_INCLUDE`). Authorization is the caller's job — see the
+ * `/stock/export` route, which resolves the exact same `inventory.view`
+ * permission gate as the page before calling this.
+ */
+export async function listInventoryItemsForExport(params: {
+  q?: string;
+  warehouseId?: string;
+  categoryId?: string;
+  stockStatus?: StockStatusFilter;
+  sort?: InventorySort;
+}): Promise<InventoryExportRow[]> {
+  const q = params.q?.trim() || undefined;
+  const stockStatus = params.stockStatus ?? "all";
+
+  type ExportRow = Prisma.InventoryItemGetPayload<{ include: typeof INVENTORY_EXPORT_INCLUDE }>;
+  let items: ExportRow[];
+
+  if (stockStatus === "low" || stockStatus === "out") {
+    const tenantId = await resolveActiveTenantIdForRawSql("queries/inventory.listInventoryItemsForExport(low|out)");
+    const from = stockStatusFrom(tenantId, stockStatus, { q, warehouseId: params.warehouseId, categoryId: params.categoryId });
+    const [idRows] = (await runRawBatchWithTenant(tenantId, [
+      prisma.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT ii.id ${from} ${sortClause(params.sort)}`),
+    ])) as [{ id: string }[]];
+    const ids = idRows.map((r) => r.id);
+    const rows = await prisma.inventoryItem.findMany({ where: { id: { in: ids } }, include: INVENTORY_EXPORT_INCLUDE });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    items = ids.map((id) => byId.get(id)).filter((r): r is ExportRow => Boolean(r));
+  } else {
+    const where = buildInventoryWhere({ q, warehouseId: params.warehouseId, categoryId: params.categoryId });
+    const orderBy: Prisma.InventoryItemOrderByWithRelationInput =
+      params.sort === "quantity-asc" ? { quantityOnHand: "asc" } : params.sort === "quantity-desc" ? { quantityOnHand: "desc" } : { updatedAt: "desc" };
+    items = await prisma.inventoryItem.findMany({ where, include: INVENTORY_EXPORT_INCLUDE, orderBy });
+  }
+
+  return items.map((i) => {
+    const product = i.product ?? i.variation?.product ?? null;
+    const category = i.product?.category ?? i.variation?.product.category ?? null;
+    const barcode = i.product?.barcodes[0]?.code ?? i.variation?.barcodes[0]?.code ?? null;
+    return {
+      productName: product?.name ?? "—",
+      variantLabel: i.variation ? variantLabel(i.variation.attributes) : null,
+      reference: product?.reference ?? null,
+      sku: i.variation?.sku ?? product?.sku ?? "—",
+      barcode,
+      categoryName: category?.name ?? null,
+      warehouseName: i.warehouse.name,
+      quantityOnHand: i.quantityOnHand,
+      quantityReserved: i.quantityReserved,
+      available: availableStock(i),
+      quantityDamaged: i.quantityDamaged,
+    };
+  });
 }
 
 export async function getLowStockCount(): Promise<number> {

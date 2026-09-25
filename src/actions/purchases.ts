@@ -9,6 +9,7 @@ import { recordAuditEvent } from "@/lib/audit";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
 import { validateReceptionInTx, getReceptionRemaining, ReceptionError } from "@/lib/receptions";
+import { getLatestPurchasePrice, type PurchasePriceHistoryEntry } from "@/lib/queries/purchases";
 import { displayReceptionNumber } from "@/lib/format";
 import {
   createSupplierSchema,
@@ -408,4 +409,19 @@ export async function recordSupplierPaymentAction(input: SupplierPaymentInput): 
     if (error instanceof OverpayError || error instanceof BadReceptionError) return actionError(error.message);
     throw error;
   }
+}
+
+/**
+ * The reception line-entry hint (Batch 3, Task 3A) — "Dernier achat : X MAD
+ * chez Y, le Z" shown next to the price input as the operator adds a unit,
+ * from the existing ReceptionLine history (getLatestPurchasePrice). Purely
+ * informational: never pre-fills or blocks anything, and never touches
+ * Product.cost. Same permission as the reception screen itself.
+ */
+export async function getLatestPurchasePriceAction(input: {
+  productId?: string | null;
+  variationId?: string | null;
+}): Promise<PurchasePriceHistoryEntry | null> {
+  await requirePermissionForAction("purchases.create");
+  return getLatestPurchasePrice(input);
 }

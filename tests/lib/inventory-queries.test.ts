@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { listInventoryItems, getLowStockCount } from "@/lib/queries/inventory";
+import { listInventoryItems, getLowStockCount, listInventoryItemsForExport } from "@/lib/queries/inventory";
 import { resetDb } from "../helpers/db";
 
 /**
@@ -157,5 +157,82 @@ describe("getLowStockCount", () => {
     await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, variationId: variation.id, quantityOnHand: 4 } });
 
     expect(await getLowStockCount()).toBe(2);
+  });
+});
+
+// Batch 3, Task 4 — General Stock CSV export: same filters/scope as the
+// visible /stock table, plus the extra display columns (category, reference,
+// barcode) the on-screen table doesn't need.
+describe("listInventoryItemsForExport", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+  afterEach(async () => {
+    await resetDb();
+  });
+
+  it("includes category, reference, barcode, and the same on-hand/reserved/available figures as the page", async () => {
+    const warehouse = await prisma.warehouse.create({ data: { name: "Principal", isDefault: true } });
+    const category = await prisma.category.create({ data: { name: "Chaussures", slug: "chaussures" } });
+    const product = await prisma.product.create({
+      data: { name: "Basket", sku: "BSK-1", reference: "MODEL-X", price: 200, status: "ACTIF", categoryId: category.id },
+    });
+    await prisma.barcode.create({ data: { code: "1234567890123", productId: product.id, isPrimary: true } });
+    await prisma.inventoryItem.create({
+      data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 10, quantityReserved: 3, quantityDamaged: 1 },
+    });
+
+    const rows = await listInventoryItemsForExport({});
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      productName: "Basket",
+      reference: "MODEL-X",
+      sku: "BSK-1",
+      barcode: "1234567890123",
+      categoryName: "Chaussures",
+      warehouseName: "Principal",
+      quantityOnHand: 10,
+      quantityReserved: 3,
+      available: 7,
+      quantityDamaged: 1,
+    });
+  });
+
+  it("returns every matching row unpaginated, unlike listInventoryItems' page of 25", async () => {
+    const warehouse = await prisma.warehouse.create({ data: { name: "Principal", isDefault: true } });
+    for (let i = 0; i < 30; i++) {
+      const product = await prisma.product.create({
+        data: { name: `p${i}`, sku: `EXP-${i}`, price: 10, status: "ACTIF" },
+      });
+      await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: product.id, quantityOnHand: 1 } });
+    }
+    const rows = await listInventoryItemsForExport({});
+    expect(rows).toHaveLength(30);
+  });
+
+  it("respects the same warehouseId/categoryId/q filters as the page", async () => {
+    const w1 = await prisma.warehouse.create({ data: { name: "A", isDefault: true } });
+    const w2 = await prisma.warehouse.create({ data: { name: "B" } });
+    const p1 = await prisma.product.create({ data: { name: "Chemise", sku: "CH-1", price: 50, status: "ACTIF" } });
+    const p2 = await prisma.product.create({ data: { name: "Pantalon", sku: "PT-1", price: 50, status: "ACTIF" } });
+    await prisma.inventoryItem.create({ data: { warehouseId: w1.id, productId: p1.id, quantityOnHand: 5 } });
+    await prisma.inventoryItem.create({ data: { warehouseId: w2.id, productId: p2.id, quantityOnHand: 5 } });
+
+    const byWarehouse = await listInventoryItemsForExport({ warehouseId: w1.id });
+    expect(byWarehouse.map((r) => r.sku)).toEqual(["CH-1"]);
+
+    const byQuery = await listInventoryItemsForExport({ q: "pant" });
+    expect(byQuery.map((r) => r.sku)).toEqual(["PT-1"]);
+  });
+
+  it("honours the low/out stockStatus filter, same as the page's raw-SQL path", async () => {
+    const warehouse = await prisma.warehouse.create({ data: { name: "Principal", isDefault: true } });
+    const low = await prisma.product.create({ data: { name: "Bas", sku: "LOW-1", price: 10, status: "ACTIF", lowStockThreshold: 5 } });
+    const ok = await prisma.product.create({ data: { name: "Haut", sku: "OK-1", price: 10, status: "ACTIF", lowStockThreshold: 5 } });
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: low.id, quantityOnHand: 1 } });
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: ok.id, quantityOnHand: 99 } });
+
+    const lowRows = await listInventoryItemsForExport({ stockStatus: "low" });
+    expect(lowRows.map((r) => r.sku)).toEqual(["LOW-1"]);
   });
 });

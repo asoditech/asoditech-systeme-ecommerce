@@ -10,7 +10,7 @@ import { requireChannelAccessForAction, saleChannelWhere } from "@/lib/auth/chan
 import { recordAuditEvent } from "@/lib/audit";
 import { applyStockMovement, applySaleReturnLine, InsufficientStockError } from "@/lib/inventory";
 import { isProductAvailableOnChannel } from "@/lib/channels";
-import { lookupSellableUnits, type SellableUnit } from "@/lib/catalog/lookup";
+import { lookupSellableUnits, variantLabel, type SellableUnit } from "@/lib/catalog/lookup";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
@@ -173,13 +173,19 @@ export async function createSaleAction(input: CreateSaleInput): Promise<ActionRe
       });
       if (!v) return actionError("Une variation sélectionnée est introuvable.");
       if (v.product.status !== "ACTIF") return actionError(`« ${v.product.name} » n'est plus disponible à la vente.`);
+      // The search-assisted UI only ever offers an active variation (see
+      // lookupSellableUnits' onlyActive), but this is the real authority
+      // boundary (Batch 4, Task 11) — a crafted request supplying an
+      // inactive variation's id directly must be rejected here too.
+      if (!v.isActive) return actionError(`« ${v.product.name} » (${variantLabel(v.attributes) ?? v.sku}) n'est plus disponible à la vente.`);
       if (!v.product.trackInventory) return actionError(`Le suivi de stock est désactivé pour « ${v.product.name} ».`);
       productId = v.productId;
       variationId = v.id;
       name = v.product.name;
       sku = v.sku;
       barcode = v.barcodes[0]?.code ?? null;
-      defaultPrice = v.price ?? v.product.salePrice ?? v.product.price;
+      // Batch 4: variation.salePrice is a new top tier on this existing chain.
+      defaultPrice = v.salePrice ?? v.price ?? v.product.salePrice ?? v.product.price;
       cost = v.cost ?? v.product.cost ?? null;
     } else {
       const p = await prisma.product.findUnique({

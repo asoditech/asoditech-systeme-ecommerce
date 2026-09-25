@@ -138,16 +138,22 @@ export async function searchProductsForOrderAction(query: string) {
 
   // Decimal fields aren't serializable across the Server Action boundary —
   // convert to plain strings before returning to the client component.
+  // Batch 4, Task 11: an inactive variation is dropped here — never offered
+  // to a NEW order, exactly like lookupSellableUnits' onlyActive already
+  // does for Sale/POS/Reception/Traceability.
   return products.map((p) => ({
     ...p,
     price: p.price.toString(),
     salePrice: p.salePrice?.toString() ?? null,
     cost: p.cost?.toString() ?? null,
-    variations: p.variations.map((v) => ({
-      ...v,
-      price: v.price?.toString() ?? null,
-      cost: v.cost?.toString() ?? null,
-    })),
+    variations: p.variations
+      .filter((v) => v.isActive)
+      .map((v) => ({
+        ...v,
+        price: v.price?.toString() ?? null,
+        cost: v.cost?.toString() ?? null,
+        salePrice: v.salePrice?.toString() ?? null,
+      })),
   }));
 }
 
@@ -242,6 +248,13 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
       // audit; see docs/adr/0002-domain-model.md's audit addendum.
       if (variation.product.status !== "ACTIF") {
         return actionError("Ce produit n'est plus disponible à la vente.");
+      }
+      // Batch 4, Task 11 — same real-authority-boundary reasoning as the
+      // product-status check just above, one level down: the search UI
+      // never offers an inactive variation, but a crafted request supplying
+      // one's id directly must be rejected here too.
+      if (!variation.isActive) {
+        return actionError("Cette variation n'est plus disponible à la vente.");
       }
       resolvedItems.push({
         productId: variation.productId,

@@ -25,6 +25,20 @@ export async function listShipmentProviderOptions() {
   });
 }
 
+/**
+ * The tenant's active providers, narrowed to just what
+ * `cityGuidanceFromProviders` (docs/adr/0018 — Group 2 of the post-audit UX
+ * fixes) needs to de-hardcode the "match the carrier's city exactly"
+ * warning that generic order UI shows. Same `isActive` scope as
+ * `listShipmentProviderOptions` above.
+ */
+export async function listActiveProvidersForCityGuidance() {
+  return prisma.shippingProvider.findMany({
+    where: { isActive: true },
+    select: { name: true, capabilities: true },
+  });
+}
+
 export async function listShipments(params: {
   status?: ShipmentStatus;
   providerId?: string;

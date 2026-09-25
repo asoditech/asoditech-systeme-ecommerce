@@ -4,14 +4,17 @@ import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { listAccessibleActiveWarehouses } from "@/lib/auth/location-access";
 import { listAssignableCommissionAgents } from "@/lib/queries/commissions";
+import { listActiveProvidersForCityGuidance } from "@/lib/queries/delivery";
+import { cityGuidanceFromProviders } from "@/lib/integrations/delivery/city-guidance";
 
 export const metadata = { title: "Nouvelle commande — ASODITECH Gestion E-commerce" };
 
 export default async function NouvelleCommandePage() {
   const user = await requirePermission("orders.create");
-  const [warehouses, commissionAgents] = await Promise.all([
+  const [warehouses, commissionAgents, providers] = await Promise.all([
     listAccessibleActiveWarehouses(user),
     userHasPermission(user, "commissions.manage") ? listAssignableCommissionAgents() : Promise.resolve([]),
+    listActiveProvidersForCityGuidance(),
   ]);
 
   return (
@@ -24,6 +27,7 @@ export default async function NouvelleCommandePage() {
         <OrderForm
           warehouses={warehouses}
           commissionAgents={commissionAgents.map((a) => ({ id: a.id, name: a.name }))}
+          cityGuidance={cityGuidanceFromProviders(providers)}
         />
       </div>
     </div>

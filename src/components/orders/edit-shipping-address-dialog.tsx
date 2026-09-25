@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Pencil } from "lucide-react";
 import { updateOrderShippingAddressAction } from "@/actions/orders";
+import { cityGuidanceMessage, type CityGuidance } from "@/lib/integrations/delivery/city-guidance";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,7 +28,16 @@ type Address = {
   shippingPhone: string | null;
 };
 
-export function EditShippingAddressDialog({ orderId, address }: { orderId: string; address: Address }) {
+export function EditShippingAddressDialog({
+  orderId,
+  address,
+  cityGuidance = { tone: "none" },
+}: {
+  orderId: string;
+  address: Address;
+  /** Which delivery provider (if any) the city warning should name — never hard-coded (docs/adr/0018). */
+  cityGuidance?: CityGuidance;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
@@ -85,8 +95,7 @@ export function EditShippingAddressDialog({ orderId, address }: { orderId: strin
             </div>
           </div>
           <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-            <strong>Ville :</strong> écrivez-la exactement comme chez la société de livraison (OzonExpress), sinon le
-            colis ne pourra pas être créé.
+            <strong>Important :</strong> {cityGuidanceMessage(cityGuidance)}
           </p>
           <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
             <strong>Téléphone :</strong> format local marocain à 10 chiffres, ex.{" "}

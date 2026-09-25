@@ -10,7 +10,7 @@ import { variantLabel } from "@/lib/catalog/lookup";
 import { requireChannelKind } from "@/lib/auth/channel-access";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { getSaleDetail } from "@/lib/queries/sales";
-import { displaySaleNumber, displaySaleReturnNumber, formatCurrency, formatDateTime } from "@/lib/format";
+import { displaySaleNumber, displaySaleReturnNumber, formatCurrency, formatDateTime, returnStateLabel } from "@/lib/format";
 import { CASH_PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
 
 export const metadata = { title: "Vente — ASODITECH Gestion E-commerce" };
@@ -30,6 +30,10 @@ export default async function VenteDetailPage({ params }: { params: Promise<{ id
     sold: l.quantity,
     returned: l.returnLines.reduce((s, x) => s + x.quantitySellable + x.quantityDamaged, 0),
   }));
+  const returnState = returnStateLabel(
+    returnable.reduce((s, l) => s + l.sold, 0),
+    returnable.reduce((s, l) => s + l.returned, 0)
+  );
 
   return (
     <div className="space-y-6">
@@ -38,9 +42,12 @@ export default async function VenteDetailPage({ params }: { params: Promise<{ id
         breadcrumbs={[{ label: "Ventes magasin", href: "/ventes" }, { label: displaySaleNumber(sale) }]}
         description={`${sale.salesChannel.name} · ${sale.warehouse.name} · ${formatDateTime(sale.soldAt)} · ${sale.soldByName ?? "—"}${sale.customerLabel ? ` · ${sale.customerLabel}` : ""}`}
         actions={
-          userHasPermission(user, "sales.return") ? (
-            <SaleReturnDialog saleId={sale.id} lines={returnable} refundable={Number(sale.total) - refunded} />
-          ) : undefined
+          <div className="flex flex-wrap items-center gap-2">
+            {returnState && <Badge variant="outline">{returnState}</Badge>}
+            {userHasPermission(user, "sales.return") && (
+              <SaleReturnDialog saleId={sale.id} lines={returnable} refundable={Number(sale.total) - refunded} />
+            )}
+          </div>
         }
       />
       <Card>

@@ -29,6 +29,16 @@ type Viewer = Pick<CurrentUser, "channels">;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const num = (d: { toString(): string } | null | undefined) => (d == null ? 0 : Number(d.toString()));
 
+/**
+ * Online + Offline net → Total, the ONE formula (exported so the dashboard's
+ * "Chiffre d'affaires total" KPI — Batch 3, Task 5 — reuses it instead of
+ * re-deriving it, even though it already has both figures on hand and could
+ * compute inline; this keeps the two permanently in sync with `total` below).
+ */
+export function combinedChannelRevenue(onlineRevenue: number, offlineNetSales: number): number {
+  return round2(onlineRevenue + offlineNetSales);
+}
+
 export interface ChannelReportFilters {
   kind?: "all" | "online" | "offline";
   salesChannelId?: string;
@@ -100,6 +110,6 @@ export async function getChannelReport(viewer: Viewer, range: PeriodRange, filte
     online,
     offline,
     // Only when BOTH sources are present in this report — never a partial "total".
-    total: online && offline ? { revenue: round2(online.revenue + offline.netSales) } : null,
+    total: online && offline ? { revenue: combinedChannelRevenue(online.revenue, offline.netSales) } : null,
   };
 }

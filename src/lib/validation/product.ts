@@ -90,21 +90,24 @@ export const updateVariationOperationalSettingsSchema = z.object({
 });
 
 /**
- * A manually-supplied image link — the only image path for an INTERNE
- * product (no storage/upload backend exists; a WooCommerce/Shopify
- * product gets its image from the sync instead, see
- * docs/adr/0010/0011 — never through this action, blocked server-side by
- * `externalSourceError`). Empty string clears the image. http(s) only —
- * never `javascript:`/`data:`/`file:` in an `<img src>`.
+ * A manually-supplied image link — the only image path this app offers
+ * (no storage/upload backend exists). Empty string clears the image.
+ * http(s) only — never `javascript:`/`data:`/`file:` in an `<img src>`.
+ * Shared by the product image field (`updateProductImageSchema`, blocked
+ * server-side by `externalSourceError` for a synced product) and the
+ * variation image field below (Batch 4 — ASODITECH-owned, never blocked
+ * by source, exactly like `cost`).
  */
+export const imageUrlSchema = z
+  .string()
+  .trim()
+  .max(2000)
+  .refine((v) => v === "" || /^https?:\/\//i.test(v), "L'image doit être un lien http(s).")
+  .refine((v) => v === "" || z.string().url().safeParse(v).success, "Lien invalide.");
+
 export const updateProductImageSchema = z.object({
   id: z.string().min(1),
-  imageUrl: z
-    .string()
-    .trim()
-    .max(2000)
-    .refine((v) => v === "" || /^https?:\/\//i.test(v), "L'image doit être un lien http(s).")
-    .refine((v) => v === "" || z.string().url().safeParse(v).success, "Lien invalide."),
+  imageUrl: imageUrlSchema,
 });
 
 export const createProductVariationSchema = z.object({
@@ -115,6 +118,43 @@ export const createProductVariationSchema = z.object({
   }),
   price: z.coerce.number().min(0).nullish(),
   cost: z.coerce.number().min(0).nullish(),
+});
+
+/**
+ * The combination generator's input (Batch 4, Task 4) — an option name plus
+ * its possible values (e.g. "Couleur" → ["Noir", "Blanc"]). Capped at 6
+ * options / 30 values each purely as a sanity bound (6 options × 30 values
+ * would already be an unrealistic combinatorial explosion for a clothing
+ * SKU) — never a business rule, just guards against a pathological request.
+ */
+export const generateVariationCombinationsSchema = z.object({
+  productId: z.string().min(1),
+  options: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1, "Le nom de l'option est requis.").max(60),
+        values: z.array(z.string().trim().min(1).max(60)).min(1, "Ajoutez au moins une valeur.").max(30),
+      })
+    )
+    .min(1, "Ajoutez au moins une option (ex. Couleur, Taille).")
+    .max(6),
+});
+
+/**
+ * The editable, ASODITECH-owned fields of an EXISTING variation (Batch 4) —
+ * everything except sku/attributes/price, which stay provider-owned once a
+ * variation is synced (see each provider's sync/products.ts "Field
+ * ownership" note) and are never touched by this schema. `isActive`
+ * defaults `true` only as a schema fallback; the actual default state of a
+ * newly-created row comes from the DB column default, not from this being
+ * submitted.
+ */
+export const updateVariationDetailsSchema = z.object({
+  id: z.string().min(1),
+  cost: z.coerce.number().min(0).nullish(),
+  salePrice: z.coerce.number().min(0).nullish(),
+  imageUrl: imageUrlSchema,
+  isActive: z.coerce.boolean().default(true),
 });
 
 export type CreateProductInput = z.infer<typeof createProductSchema>;

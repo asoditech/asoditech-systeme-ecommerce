@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Phone, PhoneOff, Check, X, RotateCcw, MapPin, Package, Clock } from "lucide-react";
+import { Phone, PhoneOff, Check, X, RotateCcw, MapPin, Package, Clock, TriangleAlert } from "lucide-react";
 import { recordConfirmationAttemptAction } from "@/actions/order-confirmation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,9 @@ export interface ConfirmationQueueOrder {
   itemCount: number;
   attemptCount: number;
   flagged: boolean;
+  /** Batch 3, Task 8 — at least one line requests more than is currently
+   * available. Informational only: confirming is never blocked by this. */
+  stockWarning: boolean;
   recentAttempts: { outcome: string; agentName: string | null; createdAt: string }[];
 }
 
@@ -161,6 +164,16 @@ function ConfirmationCard({ order }: { order: ConfirmationQueueOrder }) {
         <span className="text-muted-foreground">·</span>
         <span className="font-semibold">{formatCurrency(order.total, order.currency)}</span>
       </div>
+
+      {order.stockWarning && (
+        <div className="mt-2 flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            Stock actuellement insuffisant pour au moins un article — la commande reste confirmable, la quantité
+            manquante pourra être livrée en différé.
+          </span>
+        </div>
+      )}
 
       {order.recentAttempts.length > 0 && (
         <ul className="mt-3 space-y-0.5 border-l-2 border-muted pl-3 text-xs text-muted-foreground">

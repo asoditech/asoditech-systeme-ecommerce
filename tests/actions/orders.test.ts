@@ -11,6 +11,7 @@ import {
   reopenOrderAction,
   createRefundAction,
   updateRefundStatusAction,
+  searchProductsForOrderAction,
 } from "@/actions/orders";
 import { createOrderSchema } from "@/lib/validation/order";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -1678,5 +1679,56 @@ describe("createOrderAction — RBAC and entitlement are independent, both requi
     await loginAsTestUser({ role: "OWNER" });
     const result = await createOrderAction(orderInput(customer.id, product.id));
     expect(result.ok).toBe(true);
+  });
+});
+
+// Batch 4 — Variant System Rebuild: inactive variation enforcement.
+describe("inactive variation (Batch 4, Task 11)", () => {
+  beforeEach(async () => await resetDb());
+  afterEach(async () => await resetDb());
+
+  async function seedInactiveVariation() {
+    const { warehouse, customer } = await seedOrderable();
+    const parent = await prisma.product.create({
+      data: { name: "Robe", sku: `ROBE-${Math.random()}`, price: 200, status: "ACTIF" },
+    });
+    const variation = await prisma.productVariation.create({
+      data: { productId: parent.id, sku: `ROBE-V-${Math.random()}`, attributes: { Taille: "M" }, isActive: false },
+    });
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, variationId: variation.id, quantityOnHand: 12 } });
+    return { parent, variation, customer };
+  }
+
+  it("never appears in searchProductsForOrderAction's results", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { parent } = await seedInactiveVariation();
+
+    const results = await searchProductsForOrderAction(parent.name);
+    const found = results.find((p) => p.id === parent.id);
+    expect(found?.variations ?? []).toHaveLength(0);
+  });
+
+  it("createOrderAction rejects it even via a direct call bypassing the search UI", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { variation, customer } = await seedInactiveVariation();
+
+    const result = await createOrderAction({
+      customerId: customer.id,
+      paymentMethod: "PAIEMENT_LIVRAISON",
+      shippingCost: 0,
+      discountTotal: 0,
+      currency: "MAD",
+      notes: "",
+      internalNotes: "",
+      shippingAddressLine1: "",
+      shippingAddressLine2: "",
+      shippingCity: "",
+      shippingRegion: "",
+      shippingCountry: "",
+      shippingPhone: "",
+      items: [{ variationId: variation.id, quantity: 1, unitPrice: 200, discount: 0 }],
+    });
+    expect(result.ok).toBe(false);
+    expect(await prisma.order.count()).toBe(0);
   });
 });

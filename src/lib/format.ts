@@ -152,6 +152,22 @@ export function displaySaleReturnNumber(r: { returnNumber: number; displayNumber
   return formatSaleReturnNumber(resolvedDisplayNumber(r, r.returnNumber));
 }
 
+/**
+ * The return-state tag for an Order or a Sale (docs/adr/0036/0040 physical
+ * returns — Group 1 of the Online/Offline UX fixes): "Aucun retour" /
+ * "Retour partiel X/Y" / "Retour complet X/Y", from the quantity a document
+ * actually shipped/sold vs. how much of it has been physically returned so
+ * far (sellable + damaged together — a damaged return is still a return).
+ * Pure and reusable: both the order and the sale detail pages already
+ * compute (consumed, returned) per line for their own return dialogs; this
+ * only turns the page-level totals into one label.
+ */
+export function returnStateLabel(totalConsumed: number, totalReturned: number): string | null {
+  if (totalConsumed <= 0 || totalReturned <= 0) return null;
+  const state = totalReturned >= totalConsumed ? "complet" : "partiel";
+  return `Retour ${state} — ${totalReturned}/${totalConsumed}`;
+}
+
 /** Stock transfer reference from the row itself — prefers the per-tenant
  * `displayNumber` (Phase 3) over the legacy global `transferNumber`. */
 export function displayTransferNumber(transfer: { transferNumber: number; displayNumber?: number | null }): string {

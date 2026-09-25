@@ -27,10 +27,13 @@ import { KpiCard } from "@/components/kpi-card";
 import { ProductForm } from "@/components/products/product-form";
 import { BackfillCostButton } from "@/components/products/backfill-cost-button";
 import { RemoveProductButton } from "@/components/products/remove-product-button";
-import { VariationForm } from "@/components/products/variation-form";
 import { VariationCostCell } from "@/components/products/variation-cost-cell";
+import { VariantCombinationGenerator } from "@/components/products/variant-combination-generator";
+import { VariantEditDialog } from "@/components/products/variant-edit-dialog";
+import { VariantRemoveButton } from "@/components/products/variant-remove-button";
 import { OperationalSettingsForm } from "@/components/products/operational-settings-form";
 import { ProductImageForm } from "@/components/products/product-image-form";
+import { ProductImagePreview } from "@/components/products/product-image-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,13 +42,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { getProductDetail, getProductSalesStats, getProductProfitStats, listCategories } from "@/lib/queries/products";
+import { getLatestPurchasePricesForUnits, getPurchasePriceHistory, type PurchasePriceHistoryEntry } from "@/lib/queries/purchases";
 import { listActiveChannels } from "@/lib/queries/channels";
 import { ProductIdentityPanel } from "@/components/products/product-identity-panel";
 import { variantLabel } from "@/lib/catalog/lookup";
 import { unitEconomics } from "@/lib/profitability";
 import { availableStock } from "@/lib/inventory";
 import { resolveExternalProductEditUrl } from "@/lib/integrations/shared";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDate, displayReceptionNumber } from "@/lib/format";
 import { PRODUCT_STATUS_LABELS, RECORD_SOURCE_LABELS } from "@/lib/status-labels";
 import { cn } from "@/lib/utils";
 import type { RecordSource } from "@prisma/client";
@@ -211,6 +215,22 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
   const economics = canViewFinance ? unitEconomics(product.price, product.cost) : null;
   const canEdit = userHasPermission(user, "products.edit");
   const totalStock = product.inventoryItems.reduce((sum, i) => sum + i.quantityOnHand, 0);
+
+  // "Dernier prix d'achat" / purchase-price history (Batch 3, Task 3B) — read
+  // straight off the existing Reception/ReceptionLine data, gated by the
+  // purchases permission (this is supplier/purchase data, independent of
+  // finance.view). A variable product's price lives per variation, so the
+  // history list only applies to a simple product; each variation instead
+  // gets its own "Dernier achat" figure in the variations table below.
+  const canViewPurchases = userHasPermission(user, "purchases.view");
+  const isSimpleProduct = product.variations.length === 0;
+  const [latestPurchasePrices, purchaseHistory] = await Promise.all([
+    canViewPurchases
+      ? getLatestPurchasePricesForUnits(isSimpleProduct ? [product.id] : [], product.variations.map((v) => v.id))
+      : Promise.resolve(new Map<string, PurchasePriceHistoryEntry>()),
+    canViewPurchases && isSimpleProduct ? getPurchasePriceHistory({ productId: product.id }, 10) : Promise.resolve([] as PurchasePriceHistoryEntry[]),
+  ]);
+  const latestPurchasePrice = isSimpleProduct ? latestPurchasePrices.get(product.id) : undefined;
 
   // A variable product keeps no price or stock of its own (WooCommerce
   // puts both on the variations) — surface the aggregate so the header
@@ -401,8 +421,60 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
                 value={product.cost ? formatCurrency(product.cost.toString()) : "Non renseigné"}
                 muted={!product.cost}
               />
+              {canViewPurchases && isSimpleProduct && (
+                <SpecItem
+                  icon={Receipt}
+                  label="Dernier prix d'achat"
+                  value={
+                    latestPurchasePrice
+                      ? `${formatCurrency(String(latestPurchasePrice.unitCost))} — ${latestPurchasePrice.supplierName}`
+                      : "Aucun achat enregistré"
+                  }
+                  muted={!latestPurchasePrice}
+                />
+              )}
             </CardContent>
           </Card>
+
+          {canViewPurchases && isSimpleProduct && purchaseHistory.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-[15px]">Historique des achats</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <p className="px-6 pb-3 text-xs text-muted-foreground">
+                  Prix constatés sur les réceptions validées — information historique, ne remplace pas le « Coût
+                  d&apos;achat » ci-dessus (utilisé pour la marge).
+                </p>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Fournisseur</TableHead>
+                        <TableHead>Réception</TableHead>
+                        <TableHead className="text-right">Prix unitaire</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {purchaseHistory.map((h, i) => (
+                        <TableRow key={`${h.receptionId}-${i}`}>
+                          <TableCell className="text-muted-foreground">{formatDate(h.date)}</TableCell>
+                          <TableCell>{h.supplierName}</TableCell>
+                          <TableCell>
+                            <Link href={`/receptions/${h.receptionId}`} className="hover:underline">
+                              {displayReceptionNumber({ receptionNumber: h.receptionNumber, displayNumber: h.receptionDisplayNumber })}
+                            </Link>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">{formatCurrency(String(h.unitCost))}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {isExternal && !externalEditUrl && (
             <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/8 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
@@ -451,55 +523,123 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
                     <TableRow>
                       <TableHead>SKU</TableHead>
                       <TableHead>Attributs</TableHead>
+                      <TableHead>Code-barres</TableHead>
                       <TableHead className="text-right">Prix</TableHead>
                       {canViewFinance && (
                         <TableHead className="text-right whitespace-nowrap">Coût d&apos;achat</TableHead>
                       )}
+                      {canViewPurchases && (
+                        <TableHead className="text-right whitespace-nowrap">Dernier achat</TableHead>
+                      )}
                       <TableHead className="text-right">Stock</TableHead>
+                      <TableHead>Statut</TableHead>
+                      {canEdit && !isExternal && <TableHead className="w-20" />}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {product.variations.map((v) => (
-                      <TableRow key={v.id}>
-                        <TableCell className="font-medium">{v.sku}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {Object.entries(v.attributes as Record<string, string>).map(([k, val]) => (
-                              <Badge key={k} variant="outline">
-                                {k}: {val}
+                    {product.variations.map((v) => {
+                      const label = `${product.name} (${variantLabel(v.attributes) ?? v.sku})`;
+                      const effectivePrice = v.salePrice ?? v.price ?? product.price;
+                      const regularPrice = v.price ?? product.price;
+                      return (
+                        <TableRow key={v.id}>
+                          <TableCell className="font-medium">
+                            <ProductImagePreview imageUrl={v.imageUrl} name={label}>
+                              {v.sku}
+                            </ProductImagePreview>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1">
+                              {Object.entries(v.attributes as Record<string, string>).map(([k, val]) => (
+                                <Badge key={k} variant="outline">
+                                  {k}: {val}
+                                </Badge>
+                              ))}
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-muted-foreground">
+                            {v.barcodes[0]?.code ?? "—"}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatCurrency(effectivePrice.toString())}
+                            {v.salePrice != null && (
+                              <Badge variant="destructive" className="ml-1.5 align-middle">
+                                Promo
                               </Badge>
-                            ))}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatCurrency((v.price ?? product.price).toString())}
-                        </TableCell>
-                        {canViewFinance && (
-                          <TableCell className="text-right whitespace-nowrap tabular-nums">
-                            {canEdit ? (
-                              <VariationCostCell variationId={v.id} cost={v.cost?.toString() ?? null} />
-                            ) : v.cost ? (
-                              formatCurrency(v.cost.toString())
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
                             )}
                           </TableCell>
-                        )}
-                        <TableCell className="text-right tabular-nums">
-                          {v.inventoryItems.reduce((sum, i) => sum + i.quantityOnHand, 0)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                          {canViewFinance && (
+                            <TableCell className="text-right whitespace-nowrap tabular-nums">
+                              {canEdit ? (
+                                // key forces a remount when the server value changes from elsewhere
+                                // (e.g. VariantEditDialog also writes `cost`) — otherwise this cell's
+                                // own local input state would keep showing what it had before a
+                                // `router.refresh()`, same fix as ProductImageForm's `key={currentUrl}`.
+                                <VariationCostCell key={v.cost?.toString() ?? ""} variationId={v.id} cost={v.cost?.toString() ?? null} />
+                              ) : v.cost ? (
+                                formatCurrency(v.cost.toString())
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                          )}
+                          {canViewPurchases && (
+                            <TableCell className="text-right whitespace-nowrap text-xs text-muted-foreground">
+                              {latestPurchasePrices.get(v.id) ? formatCurrency(String(latestPurchasePrices.get(v.id)!.unitCost)) : "—"}
+                            </TableCell>
+                          )}
+                          <TableCell className="text-right tabular-nums">
+                            {v.inventoryItems.reduce((sum, i) => sum + i.quantityOnHand, 0)}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={v.isActive ? "default" : "outline"}>{v.isActive ? "Actif" : "Inactif"}</Badge>
+                          </TableCell>
+                          {canEdit && !isExternal && (
+                            <TableCell>
+                              <div className="flex items-center justify-end gap-0.5">
+                                <VariantEditDialog
+                                  variation={{
+                                    id: v.id,
+                                    cost: v.cost?.toString() ?? null,
+                                    salePrice: v.salePrice?.toString() ?? null,
+                                    imageUrl: v.imageUrl,
+                                    isActive: v.isActive,
+                                  }}
+                                  label={label}
+                                  regularPrice={regularPrice.toString()}
+                                />
+                                <VariantRemoveButton variationId={v.id} label={label} />
+                              </div>
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
             </>
           )}
-          {/* Creating a new variation is catalog editing — for an
-              externally-sourced product that belongs on the platform the
-              product lives on, not a second editor here. See
-              docs/adr/0017-product-management-boundary.md. */}
-          {canEdit && !isExternal && <VariationForm productId={product.id} showBarcode={identityEnabled} />}
+          {/* Managing variations is catalog editing — for an externally-sourced
+              product that belongs on the platform the product lives on, not a
+              second editor here. See docs/adr/0017-product-management-boundary.md.
+              Barcodes per variation are managed in the Identité tab, not here. */}
+          {canEdit && !isExternal && (
+            <VariantCombinationGenerator
+              productId={product.id}
+              existingAttributes={product.variations.map((v) => v.attributes as Record<string, string>)}
+            />
+          )}
+          {canEdit && isExternal && (
+            <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+              <Info className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                Les tailles/couleurs de ce produit viennent de{" "}
+                {product.source === "WOOCOMMERCE" ? "WooCommerce" : "Shopify"} — ajoutez-en sur la plateforme
+                d&apos;origine, pas depuis ASODITECH.
+              </span>
+            </p>
+          )}
         </TabsContent>
 
         {identityEnabled && (

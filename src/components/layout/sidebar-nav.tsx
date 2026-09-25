@@ -32,6 +32,7 @@ import {
   PackagePlus,
   Building2,
   ScanBarcode,
+  Tag,
 } from "lucide-react";
 
 interface NavItem {
@@ -83,6 +84,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Catalogue",
     items: [
       { href: "/produits", label: "Produits", icon: Package, permission: "products.view" },
+      { href: "/catalogue/categories", label: "Catégories", icon: Tag, permission: "products.view" },
       { href: "/stock", label: "Stock", icon: Boxes, permission: "inventory.view" },
       { href: "/receptions", label: "Réceptions", icon: PackagePlus, permission: "purchases.view" },
       { href: "/fournisseurs", label: "Fournisseurs", icon: Building2, permission: "suppliers.view" },

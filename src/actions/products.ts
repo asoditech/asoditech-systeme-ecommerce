@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { addBarcodeInTx, assertSkuFreeOfBarcodeAndSiblings, BarcodeError } from "@/lib/catalog/barcodes";
+import { generateAttributeCombinations, attributesKey, suggestVariationSku } from "@/lib/catalog/variations";
 import { ensureDefaultOnlineChannel } from "@/lib/channels";
 import { recordAuditEvent } from "@/lib/audit";
 import { getDefaultWarehouseId } from "@/lib/inventory";
@@ -14,7 +15,10 @@ import {
   updateVariationOperationalSettingsSchema,
   updateProductImageSchema,
   createCategorySchema,
+  updateCategorySchema,
   createProductVariationSchema,
+  generateVariationCombinationsSchema,
+  updateVariationDetailsSchema,
 } from "@/lib/validation/product";
 import { syncProductLeadImage } from "@/lib/integrations/shared";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
@@ -79,6 +83,15 @@ export async function createProductAction(formData: FormData): Promise<ActionRes
   });
   if (!parsed.success) {
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+
+  // Optional pasted image link (Batch 3, Task 2) — same field, same rules
+  // (http(s), valid URL) as the existing edit-form image path
+  // (updateProductImageSchema/updateProductImageAction below); a create is
+  // always INTERNE, so the provider-owned boundary never applies here.
+  const imageUrlParsed = updateProductImageSchema.shape.imageUrl.safeParse(formData.get("imageUrl") ?? "");
+  if (!imageUrlParsed.success) {
+    return actionError("Champs invalides.", { imageUrl: imageUrlParsed.error.flatten().formErrors });
   }
 
   // Cross-table reference guard (docs/adr/0038): sku is unique per table, so
@@ -162,6 +175,12 @@ export async function createProductAction(formData: FormData): Promise<ActionRes
       return actionError("Un produit avec ce SKU existe déjà.", { sku: ["SKU déjà utilisé."] });
     }
     throw error;
+  }
+
+  // Best-effort, same as updateProductImageAction: the product itself is
+  // already committed, so a bad image host must never roll back creation.
+  if (imageUrlParsed.data) {
+    await syncProductLeadImage(product.id, imageUrlParsed.data);
   }
 
   await recordAuditEvent({
@@ -301,6 +320,76 @@ export async function createCategoryAction(formData: FormData): Promise<ActionRe
   });
 
   revalidatePath("/produits");
+  revalidatePath("/catalogue/categories");
+  return actionOk(category);
+}
+
+/**
+ * A category synced from WooCommerce/Shopify (`source`/`externalId`) is
+ * provider-owned exactly like a synced product's definition
+ * (docs/adr/0017/0038, `externalSourceError` above) — the next sync would
+ * silently overwrite a local edit, so it is refused here rather than
+ * silently lost.
+ */
+export async function updateCategoryAction(formData: FormData): Promise<ActionResult<Category>> {
+  const user = await requirePermissionForAction("products.edit");
+
+  const existing = await prisma.category.findUnique({ where: { id: String(formData.get("id") ?? "") } });
+  if (!existing) return actionError("Catégorie introuvable.");
+  if (existing.source !== "INTERNE") {
+    const platform = existing.source === "WOOCOMMERCE" ? "WooCommerce" : "Shopify";
+    return actionError(`Cette catégorie provient de ${platform} — modifiez-la directement sur ${platform}, pas depuis ASODITECH.`);
+  }
+
+  const parsed = updateCategorySchema.safeParse({
+    id: existing.id,
+    name: formData.get("name"),
+    slug: formData.get("slug"),
+    description: formData.get("description"),
+    parentId: formData.get("parentId"),
+  });
+  if (!parsed.success) {
+    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+  if (parsed.data.parentId === existing.id) {
+    return actionError("Une catégorie ne peut pas être sa propre catégorie parente.", { parentId: ["Choix invalide."] });
+  }
+
+  if (parsed.data.slug !== existing.slug) {
+    const slugTaken = await prisma.category.findFirst({ where: { slug: parsed.data.slug, id: { not: existing.id } } });
+    if (slugTaken) return actionError("Ce slug est déjà utilisé.", { slug: ["Slug déjà utilisé."] });
+  }
+
+  let category;
+  try {
+    category = await prisma.category.update({
+      where: { id: existing.id },
+      data: {
+        name: parsed.data.name,
+        slug: parsed.data.slug,
+        description: normalizeOptional(parsed.data.description),
+        parentId: normalizeOptional(parsed.data.parentId),
+      },
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return actionError("Ce slug est déjà utilisé.", { slug: ["Slug déjà utilisé."] });
+    }
+    throw error;
+  }
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "category.updated",
+    entityType: "Category",
+    entityId: category.id,
+    previousValue: { name: existing.name, slug: existing.slug },
+    newValue: { name: category.name, slug: category.slug },
+  });
+
+  revalidatePath("/produits");
+  revalidatePath("/catalogue/categories");
   return actionOk(category);
 }
 
@@ -395,6 +484,248 @@ export async function createProductVariationAction(
 
   revalidatePath(`/produits/${parsed.data.productId}`);
   return actionOk({ id: variation.id });
+}
+
+/**
+ * Server-authoritative uniqueness for a suggested SKU (Batch 4, Task 6):
+ * reuses `assertSkuFreeOfBarcodeAndSiblings` — the same cross-table
+ * (Product/ProductVariation/Barcode) guard every other SKU-writing path
+ * already goes through — retrying with a numeric suffix until free. The
+ * client-side suggestion is cosmetic only; this is what actually decides.
+ */
+async function resolveUniqueSku(candidate: string, reservedInBatch: Set<string>): Promise<string> {
+  let sku = candidate;
+  let n = 2;
+  while (reservedInBatch.has(sku.toLowerCase()) || (await assertSkuFreeOfBarcodeAndSiblings(sku)) !== null) {
+    sku = `${candidate}-${n}`;
+    n++;
+  }
+  reservedInBatch.add(sku.toLowerCase());
+  return sku;
+}
+
+/**
+ * The combination generator's write side (Batch 4, Task 4) — computes the
+ * full desired combination set from the given options, diffs it against
+ * this product's EXISTING variations (by attribute set, not by row order),
+ * and creates ONLY the new ones. Never touches, reorders, or removes an
+ * existing variation — regenerating with a narrower option set simply
+ * creates nothing new; removing an existing combination is a separate,
+ * explicit action (`removeVariationAction`), never implicit here.
+ *
+ * Each new SKU is server-suggested (`suggestVariationSku`) then made
+ * unique the same way a single manual variation already is. All rows are
+ * created in ONE transaction, each with its own default-warehouse
+ * `InventoryItem` — identical initialization to `createProductVariationAction`.
+ */
+export async function generateProductVariationsAction(input: {
+  productId: string;
+  options: { name: string; values: string[] }[];
+}): Promise<ActionResult<{ created: number; skippedExisting: number }>> {
+  const user = await requirePermissionForAction("products.edit");
+  const parsed = generateVariationCombinationsSchema.safeParse(input);
+  if (!parsed.success) return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+
+  const product = await prisma.product.findUnique({ where: { id: parsed.data.productId } });
+  if (!product) return actionError("Produit introuvable.");
+  const sourceError = externalSourceError(product);
+  if (sourceError) return actionError(sourceError);
+
+  const desired = generateAttributeCombinations(parsed.data.options);
+  if (desired.length === 0) return actionError("Aucune combinaison à générer.");
+
+  const existing = await prisma.productVariation.findMany({
+    where: { productId: product.id },
+    select: { attributes: true },
+  });
+  const existingKeys = new Set(existing.map((v) => attributesKey(v.attributes as Record<string, unknown>)));
+  const toCreate = desired.filter((combo) => !existingKeys.has(attributesKey(combo)));
+
+  if (toCreate.length === 0) {
+    return actionOk({ created: 0, skippedExisting: desired.length });
+  }
+
+  const reservedSkus = new Set<string>();
+  const rows: { attributes: Record<string, string>; sku: string }[] = [];
+  for (const combo of toCreate) {
+    const suggestion = suggestVariationSku(product.reference ?? product.name, combo);
+    const sku = await resolveUniqueSku(suggestion, reservedSkus);
+    rows.push({ attributes: combo, sku });
+  }
+
+  let createdCount = 0;
+  try {
+    createdCount = await prisma.$transaction(async (tx) => {
+      const defaultWarehouseId = await getDefaultWarehouseId(tx);
+      for (const row of rows) {
+        const created = await tx.productVariation.create({
+          data: { productId: product.id, sku: row.sku, attributes: row.attributes },
+        });
+        if (defaultWarehouseId) {
+          await tx.inventoryItem.create({
+            data: { warehouseId: defaultWarehouseId, variationId: created.id, quantityOnHand: 0 },
+          });
+        }
+      }
+      return rows.length;
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return actionError("Une des combinaisons a un SKU déjà utilisé — réessayez.");
+    }
+    throw error;
+  }
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "product.updated",
+    entityType: "Product",
+    entityId: product.id,
+    metadata: { variationsGenerated: createdCount, skus: rows.map((r) => r.sku) },
+  });
+
+  revalidatePath(`/produits/${product.id}`);
+  return actionOk({ created: createdCount, skippedExisting: desired.length - toCreate.length });
+}
+
+/**
+ * Updates the ASODITECH-owned fields of an EXISTING variation — cost (as
+ * before), plus sale price / image / active state (Batch 4). Never sku/
+ * attributes/price: those stay provider-owned once a variation is synced
+ * (see each provider's sync/products.ts "Field ownership" note), exactly
+ * like `updateProductOperationalSettingsAction` at the product level — this
+ * is its variation-level counterpart, and works for a synced variation too.
+ */
+export async function updateVariationDetailsAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("products.edit");
+
+  const parsed = updateVariationDetailsSchema.safeParse({
+    id: formData.get("id"),
+    cost: formData.get("cost") || undefined,
+    salePrice: formData.get("salePrice") || undefined,
+    imageUrl: formData.get("imageUrl") ?? "",
+    isActive: formData.get("isActive") === "on" || formData.get("isActive") === "true",
+  });
+  if (!parsed.success) {
+    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+
+  const existing = await prisma.productVariation.findUnique({
+    where: { id: parsed.data.id },
+    include: { product: { select: { price: true } } },
+  });
+  if (!existing) return actionError("Variation introuvable.");
+
+  // Same "a promo above the regular price is a data-entry mistake" rule as
+  // Product.salePrice vs Product.price — the effective regular price here
+  // is the variation's own `price` override if set, else the product's.
+  const effectiveRegularPrice = Number(existing.price ?? existing.product.price);
+  if (parsed.data.salePrice != null && parsed.data.salePrice > effectiveRegularPrice) {
+    return actionError("Le prix promotionnel ne peut pas dépasser le prix normal de la variation.", {
+      salePrice: ["Le prix promotionnel ne peut pas dépasser le prix normal."],
+    });
+  }
+
+  const variation = await prisma.productVariation.update({
+    where: { id: parsed.data.id },
+    data: {
+      cost: parsed.data.cost ?? null,
+      salePrice: parsed.data.salePrice ?? null,
+      imageUrl: parsed.data.imageUrl || null,
+      isActive: parsed.data.isActive,
+    },
+  });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "product.updated",
+    entityType: "Product",
+    entityId: existing.productId,
+    metadata: { variationId: variation.id, sku: variation.sku, isActive: variation.isActive },
+  });
+
+  revalidatePath(`/produits/${existing.productId}`);
+  return actionOk({ id: variation.id });
+}
+
+/**
+ * Removes a variation from active use — Batch 4, Task 4/11's "do not
+ * silently delete an inventory-bearing variation" rule, mirroring
+ * `removeProductAction`'s exact delete-vs-archive pattern one level down:
+ * hard-delete only when NOTHING references it yet (no order line, no sale
+ * line, no stock movement on any of its InventoryItem rows); otherwise
+ * deactivate (`isActive: false`) so every historical record — reception,
+ * order, sale, movement — stays fully readable.
+ *
+ * A provider-synced variation is never hard-deleted (its sku/attributes/
+ * price stay provider-owned, and the next sync would just recreate or
+ * re-link it via externalId) — "remove" always means deactivate for it,
+ * the one ASODITECH-owned lifecycle field it has, regardless of history.
+ */
+export async function removeVariationAction(formData: FormData): Promise<ActionResult<{ id: string; deleted: boolean }>> {
+  const user = await requirePermissionForAction("products.edit");
+
+  const id = String(formData.get("id") ?? "");
+  if (!id) return actionError("Variation invalide.");
+
+  const variation = await prisma.productVariation.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      productId: true,
+      sku: true,
+      source: true,
+      isActive: true,
+      _count: { select: { orderItems: true, saleLines: true } },
+    },
+  });
+  if (!variation) return actionError("Variation introuvable.");
+
+  if (variation.source !== "INTERNE") {
+    if (!variation.isActive) return actionOk({ id, deleted: false });
+    await prisma.productVariation.update({ where: { id }, data: { isActive: false } });
+    await recordAuditEvent({
+      actorType: "USER",
+      actorUserId: user.id,
+      action: "product.updated",
+      entityType: "Product",
+      entityId: variation.productId,
+      metadata: { variationId: id, sku: variation.sku, removed: "deactivated", reason: "provider_owned" },
+    });
+    revalidatePath(`/produits/${variation.productId}`);
+    return actionOk({ id, deleted: false });
+  }
+
+  const movementCount = await prisma.inventoryMovement.count({ where: { inventoryItem: { variationId: id } } });
+  const usedCount = variation._count.orderItems + variation._count.saleLines + movementCount;
+
+  if (usedCount === 0) {
+    await prisma.productVariation.delete({ where: { id } });
+    await recordAuditEvent({
+      actorType: "USER",
+      actorUserId: user.id,
+      action: "product.updated",
+      entityType: "Product",
+      entityId: variation.productId,
+      metadata: { variationId: id, sku: variation.sku, removed: "deleted" },
+    });
+    revalidatePath(`/produits/${variation.productId}`);
+    return actionOk({ id, deleted: true });
+  }
+
+  await prisma.productVariation.update({ where: { id }, data: { isActive: false } });
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "product.updated",
+    entityType: "Product",
+    entityId: variation.productId,
+    metadata: { variationId: id, sku: variation.sku, removed: "deactivated", usedCount },
+  });
+  revalidatePath(`/produits/${variation.productId}`);
+  return actionOk({ id, deleted: false });
 }
 
 /**

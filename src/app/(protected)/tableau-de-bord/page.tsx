@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button";
 import { requireUser } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { auditScopeWhere } from "@/lib/auth/audit-scope";
-import { getChannelReport } from "@/lib/queries/reports/channels";
+import { getChannelReport, combinedChannelRevenue } from "@/lib/queries/reports/channels";
 import { currentDayRange, yesterdayRange, currentMonthRange, currentQuarterRange, currentYearRange } from "@/lib/queries/finance";
 import {
   getDashboardData,
@@ -77,10 +77,21 @@ function trend(current: number, previous: number) {
   };
 }
 
+/** Online / Offline / Total dashboard filter (Batch 3, Task 5) — same channel
+ * semantics as /rapports/canaux (docs/adr/0040): "Total" is only ever a real
+ * choice, never a default that a single-channel viewer stumbles into, and is
+ * only offered when the viewer may read BOTH (see `canFilterChannel` below). */
+type DashboardChannelFilter = "total" | "en-ligne" | "magasin";
+const CHANNEL_FILTER_LABELS: Record<DashboardChannelFilter, string> = {
+  total: "Tous",
+  "en-ligne": "En ligne",
+  magasin: "Magasin",
+};
+
 export default async function TableauDeBordPage({
   searchParams,
 }: {
-  searchParams: Promise<{ periode?: string; graphique?: string }>;
+  searchParams: Promise<{ periode?: string; graphique?: string; canal?: string }>;
 }) {
   const user = await requireUser();
   const params = await searchParams;
@@ -123,6 +134,22 @@ export default async function TableauDeBordPage({
     canViewCommissions ? getCommissionDashboardSummary() : Promise.resolve(null),
   ]);
 
+  // Only a viewer who can already see BOTH scopes gets a filter at all — a
+  // single-channel viewer keeps today's behaviour exactly (no selector, no
+  // possible "Total" to bypass their own scope with).
+  const canFilterChannel = canViewFinance && offlineSummary !== null;
+  const canalKey: DashboardChannelFilter =
+    canFilterChannel && (params.canal === "en-ligne" || params.canal === "magasin") ? params.canal : "total";
+  const showOnline = !canFilterChannel || canalKey !== "magasin";
+  const showOffline = !canFilterChannel || canalKey !== "en-ligne";
+  // Same formula getChannelReport's own `total` uses (combinedChannelRevenue,
+  // src/lib/queries/reports/channels.ts) — reusing the two figures already
+  // computed on this same page rather than a second call to that report.
+  const totalRevenue =
+    canFilterChannel && canalKey === "total" && offlineSummary
+      ? combinedChannelRevenue(data.finance.revenue, offlineSummary.netSales)
+      : null;
+
   return (
     <div>
       <PageHeader
@@ -144,11 +171,35 @@ export default async function TableauDeBordPage({
         }
       />
 
+      {canFilterChannel && (
+        <div className="mb-4 flex flex-wrap items-center gap-1">
+          {(Object.keys(CHANNEL_FILTER_LABELS) as DashboardChannelFilter[]).map((key) => (
+            <Button
+              key={key}
+              size="sm"
+              variant={key === canalKey ? "default" : "outline"}
+              render={<Link href={withParam(params, "canal", key === "total" ? undefined : key)} />}
+            >
+              {CHANNEL_FILTER_LABELS[key]}
+            </Button>
+          ))}
+        </div>
+      )}
+
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {canViewFinance && (
+        {totalRevenue !== null && (
+          <KpiCard
+            label={`Chiffre d'affaires total (${suffix})`}
+            value={formatCurrency(totalRevenue)}
+            hint="En ligne + Magasin net"
+            icon={Wallet}
+            tone="primary"
+          />
+        )}
+        {canViewFinance && showOnline && (
           <>
             <KpiCard
-              label={`Chiffre d'affaires (${suffix})`}
+              label={`Chiffre d'affaires${canFilterChannel ? " en ligne" : ""} (${suffix})`}
               value={formatCurrency(data.finance.revenue)}
               trend={trend(data.finance.revenue, data.previousFinance.revenue)}
               icon={Wallet}
@@ -179,10 +230,10 @@ export default async function TableauDeBordPage({
             />
           </>
         )}
-        {canViewOrders && (
+        {canViewOrders && showOnline && (
           <KpiCard label={`Commandes (${suffix})`} value={String(data.finance.ordersCount)} icon={ShoppingCart} tone="violet" />
         )}
-        {offlineSummary && (
+        {offlineSummary && showOffline && (
           <KpiCard
             label={`Ventes magasin nettes (${suffix})`}
             value={formatCurrency(offlineSummary.netSales)}
@@ -250,10 +301,12 @@ export default async function TableauDeBordPage({
         </div>
       )}
 
-      {canViewFinance && (
+      {canViewFinance && showOnline && (
         <Card className="mb-6">
           <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
-            <CardTitle>Chiffre d&apos;affaires — {REVENUE_TREND_LABELS[chartRange].toLowerCase()}</CardTitle>
+            <CardTitle>
+              Chiffre d&apos;affaires{canFilterChannel ? " en ligne" : ""} — {REVENUE_TREND_LABELS[chartRange].toLowerCase()}
+            </CardTitle>
             <div className="flex flex-wrap gap-1">
               {(Object.keys(REVENUE_TREND_LABELS) as RevenueTrendRange[]).map((key) => (
                 <Button

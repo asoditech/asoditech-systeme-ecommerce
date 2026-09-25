@@ -130,6 +130,78 @@ export async function listCategories() {
   return prisma.category.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { products: true } } } });
 }
 
+export interface CategoryWithStats {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  parentId: string | null;
+  parentName: string | null;
+  source: RecordSource;
+  productCount: number;
+  variantCount: number;
+  /** Σ InventoryItem.quantityOnHand across every product/variation in this category. */
+  stockOnHand: number;
+  createdAt: Date;
+}
+
+/**
+ * Category list for the /catalogue/categories management page (Batch 3,
+ * Task 1). Product count comes straight off the `Category.products` relation
+ * (`_count`, same as `listCategories`); variant count and stock-on-hand have
+ * no direct Category relation to `_count` (Category → Product →
+ * ProductVariation/InventoryItem is two hops), so each is one additional
+ * whole-table read reduced to a per-category map in JS — three queries
+ * total, none of them per-category (no N+1), sized to the catalogue rather
+ * than to how many categories exist.
+ */
+export async function listCategoriesWithStats(): Promise<CategoryWithStats[]> {
+  const [categories, products, inventoryItems] = await Promise.all([
+    prisma.category.findMany({
+      orderBy: { name: "asc" },
+      include: { _count: { select: { products: true } }, parent: { select: { name: true } } },
+    }),
+    prisma.product.findMany({
+      where: { categoryId: { not: null } },
+      select: { categoryId: true, _count: { select: { variations: true } } },
+    }),
+    prisma.inventoryItem.findMany({
+      select: {
+        quantityOnHand: true,
+        product: { select: { categoryId: true } },
+        variation: { select: { product: { select: { categoryId: true } } } },
+      },
+    }),
+  ]);
+
+  const variantsByCategory = new Map<string, number>();
+  for (const p of products) {
+    if (!p.categoryId) continue;
+    variantsByCategory.set(p.categoryId, (variantsByCategory.get(p.categoryId) ?? 0) + p._count.variations);
+  }
+
+  const stockByCategory = new Map<string, number>();
+  for (const item of inventoryItems) {
+    const categoryId = item.product?.categoryId ?? item.variation?.product.categoryId ?? null;
+    if (!categoryId) continue;
+    stockByCategory.set(categoryId, (stockByCategory.get(categoryId) ?? 0) + item.quantityOnHand);
+  }
+
+  return categories.map((c) => ({
+    id: c.id,
+    name: c.name,
+    slug: c.slug,
+    description: c.description,
+    parentId: c.parentId,
+    parentName: c.parent?.name ?? null,
+    source: c.source,
+    productCount: c._count.products,
+    variantCount: variantsByCategory.get(c.id) ?? 0,
+    stockOnHand: stockByCategory.get(c.id) ?? 0,
+    createdAt: c.createdAt,
+  }));
+}
+
 export async function getProductSalesStats(productId: string) {
   const stats = await prisma.orderItem.aggregate({
     where: { productId, order: { status: { notIn: ["ANNULEE", "ECHEC"] } } },

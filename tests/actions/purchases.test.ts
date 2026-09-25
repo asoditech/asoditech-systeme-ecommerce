@@ -8,6 +8,7 @@ import {
   validateReceptionAction,
   cancelReceptionAction,
   recordSupplierPaymentAction,
+  getLatestPurchasePriceAction,
 } from "@/actions/purchases";
 import { getSupplierBalance, getReceptionRemaining } from "@/lib/receptions";
 import { getReceptionDetail } from "@/lib/queries/purchases";
@@ -316,5 +317,36 @@ describe("tenant isolation — suppliers & receptions", () => {
     // sanity: a second tenant would start again at 1 (separate counter column per tenant row)
     const t = await createTestUser({ role: "OWNER" });
     expect(t.tenantId).toBe("default");
+  });
+});
+
+// Batch 3, Task 3A — "Dernier achat" hint shown when adding a reception line.
+describe("getLatestPurchasePriceAction", () => {
+  it("returns the price from the most recently VALIDATED reception, not a draft", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+
+    const older = await draft(supplier.id, warehouse.id, [line(product.id, 1, 50)]);
+    await validateReceptionAction({ id: older });
+    const newer = await draft(supplier.id, warehouse.id, [line(product.id, 1, 65)]);
+    await validateReceptionAction({ id: newer });
+    // A later DRAFT at a different price must never win over the last VALIDATED one.
+    await draft(supplier.id, warehouse.id, [line(product.id, 1, 999)]);
+
+    const result = await getLatestPurchasePriceAction({ productId: product.id });
+    expect(result?.unitCost).toBe(65);
+    expect(result?.supplierName).toBe("Fournisseur Casa");
+  });
+
+  it("returns null when there is no validated purchase history for this product", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { product } = await seed();
+    expect(await getLatestPurchasePriceAction({ productId: product.id })).toBeNull();
+  });
+
+  it("requires purchases.create, same as the reception screen", async () => {
+    await loginAsTestUser({ role: "SUPPORT" });
+    const { product } = await seed();
+    await expect(getLatestPurchasePriceAction({ productId: product.id })).rejects.toThrow(/non autorisé/i);
   });
 });

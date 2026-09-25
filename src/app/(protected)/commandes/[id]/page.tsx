@@ -27,7 +27,8 @@ import { Badge } from "@/components/ui/badge";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { getOrderDetail, getOrderAuditTimeline } from "@/lib/queries/orders";
-import { listShipmentProviderOptions } from "@/lib/queries/delivery";
+import { listShipmentProviderOptions, listActiveProvidersForCityGuidance } from "@/lib/queries/delivery";
+import { cityGuidanceFromProviders } from "@/lib/integrations/delivery/city-guidance";
 import { buildParcelContentsSummary } from "@/lib/delivery";
 import { LinkShipmentDialog } from "@/components/delivery/link-shipment-dialog";
 import { EditShippingAddressDialog } from "@/components/orders/edit-shipping-address-dialog";
@@ -44,6 +45,7 @@ import {
   displayOrderChannel,
   displayOrderRecipient,
   orderShippingCountry,
+  returnStateLabel,
 } from "@/lib/format";
 import { humanizeAuditAction } from "@/lib/audit-labels";
 import { CONFIRMATION_OUTCOME_LABELS, SHIPMENT_COST_SOURCE_LABELS } from "@/lib/status-labels";
@@ -114,14 +116,19 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
   const canViewCommissions = userHasPermission(user, "commissions.view");
   const canManageCommissions = userHasPermission(user, "commissions.manage");
   const canConfirm = userHasPermission(user, "orders.confirm");
-  const [deliveryProviders, orderCommission, commissionAgents, confirmationAttempts] = await Promise.all([
-    canManageDelivery ? listShipmentProviderOptions() : Promise.resolve([]),
-    canViewCommissions ? getOrderCommission(order.id) : Promise.resolve(null),
-    canManageCommissions ? listAssignableCommissionAgents() : Promise.resolve([]),
-    (canConfirm || canViewCommissions) && order.confirmationAttemptCount > 0
-      ? getOrderConfirmationAttempts(order.id)
-      : Promise.resolve([]),
-  ]);
+  const [deliveryProviders, orderCommission, commissionAgents, confirmationAttempts, cityGuidanceProviders] =
+    await Promise.all([
+      canManageDelivery ? listShipmentProviderOptions() : Promise.resolve([]),
+      canViewCommissions ? getOrderCommission(order.id) : Promise.resolve(null),
+      canManageCommissions ? listAssignableCommissionAgents() : Promise.resolve([]),
+      (canConfirm || canViewCommissions) && order.confirmationAttemptCount > 0
+        ? getOrderConfirmationAttempts(order.id)
+        : Promise.resolve([]),
+      // Independent of canManageDelivery: editing the shipping address (below) only
+      // needs canEdit, and the message must be accurate for that viewer too.
+      listActiveProvidersForCityGuidance(),
+    ]);
+  const cityGuidance = cityGuidanceFromProviders(cityGuidanceProviders);
   const parcelContents = buildParcelContentsSummary(order.items);
   const refundedTotal = order.refunds.filter((r) => r.status === "COMPLETE").reduce((s, r) => s + Number(r.amount), 0);
 
@@ -145,6 +152,10 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
       alreadyReturned,
     };
   });
+  const returnState = returnStateLabel(
+    returnableLines.reduce((s, l) => s + l.consumedQuantity, 0),
+    returnableLines.reduce((s, l) => s + l.alreadyReturned, 0)
+  );
   const codAmount =
     order.paymentMethod === "PAIEMENT_LIVRAISON" ? Number(order.total) - refundedTotal : null;
 
@@ -166,6 +177,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={order.status} labels={ORDER_STATUS_LABELS} />
+            {returnState && <Badge variant="outline">{returnState}</Badge>}
             <OrderStatusControl orderId={order.id} currentStatus={order.status as OrderStatusValue} canEdit={canEdit} />
             {canCancel && !["ANNULEE", "REMBOURSEE"].includes(order.status) && (
               <CancelOrderButton orderId={order.id} />
@@ -679,6 +691,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                 <div className="pt-2">
                   <EditShippingAddressDialog
                     orderId={order.id}
+                    cityGuidance={cityGuidance}
                     address={{
                       shippingAddressLine1: order.shippingAddressLine1,
                       shippingAddressLine2: order.shippingAddressLine2,

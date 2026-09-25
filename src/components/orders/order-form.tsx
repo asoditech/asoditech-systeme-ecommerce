@@ -21,6 +21,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/format";
 import { PAYMENT_METHOD_LABELS, WAREHOUSE_TYPE_LABELS, ORDER_CHANNEL_LABELS } from "@/lib/status-labels";
+import { cityGuidanceMessage, type CityGuidance } from "@/lib/integrations/delivery/city-guidance";
 import type { Customer } from "@prisma/client";
 
 interface SelectableWarehouse {
@@ -47,9 +48,12 @@ interface LineItem {
 export function OrderForm({
   warehouses = [],
   commissionAgents = [],
+  cityGuidance = { tone: "none" },
 }: {
   warehouses?: SelectableWarehouse[];
   commissionAgents?: { id: string; name: string }[];
+  /** Which delivery provider (if any) the city field's warning should name — never hard-coded (docs/adr/0018). */
+  cityGuidance?: CityGuidance;
 }) {
   const router = useRouter();
   const defaultWarehouseId = warehouses.find((w) => w.isDefault)?.id ?? warehouses[0]?.id ?? "";
@@ -124,7 +128,11 @@ export function OrderForm({
         variationId: variation?.id,
         label: variation ? `${product.name} (${Object.values(variation.attributes as Record<string, string>).join(", ")})` : product.name,
         sku: variation?.sku ?? product.sku,
-        unitPrice: Number(variation?.price ?? product.price),
+        // Batch 4: variation.salePrice is a new top tier on this screen's
+        // existing (product.salePrice-less) chain — still just a prefill,
+        // never enforced server-side (order pricing stays operator-editable
+        // by design, unlike Sale/POS — see createOrderAction).
+        unitPrice: Number(variation?.salePrice ?? variation?.price ?? product.price),
         quantity: 1,
         discount: 0,
       },
@@ -357,7 +365,7 @@ export function OrderForm({
                           {p.name} — {Object.values(v.attributes as Record<string, string>).join(", ")}
                         </span>
                         <span className="text-xs text-muted-foreground">
-                          {v.sku} · {formatCurrency((v.price ?? p.price).toString())}
+                          {v.sku} · {formatCurrency((v.salePrice ?? v.price ?? p.price).toString())}
                         </span>
                       </button>
                     ))
@@ -529,6 +537,10 @@ export function OrderForm({
                     ))}
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  L&apos;emplacement où le stock physique de cette commande est pris — distinct du canal de vente
+                  (une commande reste toujours « En ligne », quel que soit l&apos;emplacement choisi).
+                </p>
               </div>
             )}
             <div className="space-y-1.5">
@@ -546,8 +558,7 @@ export function OrderForm({
               </div>
             </div>
             <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-              <strong>Important :</strong> écrivez le nom de la ville <strong>exactement</strong> comme il apparaît chez
-              la société de livraison (OzonExpress). Une orthographe différente empêchera la création du colis.
+              <strong>Important :</strong> {cityGuidanceMessage(cityGuidance)}
             </p>
           </CardContent>
         </Card>

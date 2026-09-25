@@ -15,9 +15,12 @@ import { Button } from "@/components/ui/button";
 import { quickSearchAction, type QuickSearchResult } from "@/actions/search";
 import type { Permission } from "@/lib/auth/permissions";
 
-const QUICK_LINKS: { label: string; href: string; permission: Permission }[] = [
+const QUICK_LINKS: { label: string; href: string; permission: Permission | Permission[] }[] = [
   { label: "Tableau de bord", href: "/tableau-de-bord", permission: "dashboard.view" },
-  { label: "Nouvelle commande", href: "/commandes/nouvelle", permission: "orders.create" },
+  // Visible to either side (docs/adr/0038/0040): a user who can only create
+  // one of the two (e.g. an Offline-only seller) still sees this entry, and
+  // the page itself skips the choice for them — see /operations/nouvelle.
+  { label: "Nouvelle opération", href: "/operations/nouvelle", permission: ["orders.create", "sales.create"] },
   { label: "File de confirmation", href: "/confirmation", permission: "orders.confirm" },
   { label: "Nouveau client", href: "/clients/nouveau", permission: "customers.create" },
   { label: "Nouveau produit", href: "/produits/nouveau", permission: "products.create" },
@@ -61,7 +64,9 @@ export function CommandPalette({ permissions }: { permissions: Set<Permission> }
     router.push(href);
   }
 
-  const links = QUICK_LINKS.filter((l) => permissions.has(l.permission));
+  const links = QUICK_LINKS.filter((l) =>
+    Array.isArray(l.permission) ? l.permission.some((p) => permissions.has(p)) : permissions.has(l.permission)
+  );
 
   return (
     <>

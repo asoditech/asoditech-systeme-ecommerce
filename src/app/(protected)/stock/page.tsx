@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Boxes } from "lucide-react";
+import { Boxes, Download } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { DataTablePagination } from "@/components/data-table-pagination";
@@ -71,13 +71,28 @@ export default async function StockPage({
 
   const hasActiveFilter = Boolean(params.q || warehouseId || categoryId || stockStatus !== "all" || params.sort);
   const paginationParams = { q: params.q, warehouseId, categoryId, stockStatus: params.stockStatus, sort: params.sort };
+  // Same filters as the visible table, so the download always matches what's on screen.
+  const exportParams = new URLSearchParams();
+  if (params.q) exportParams.set("q", params.q);
+  if (warehouseId) exportParams.set("warehouseId", warehouseId);
+  if (categoryId) exportParams.set("categoryId", categoryId);
+  if (stockStatus !== "all") exportParams.set("stockStatus", stockStatus);
+  if (params.sort) exportParams.set("sort", params.sort);
 
   return (
     <div>
       <PageHeader
         title="Stock"
         description="Niveaux de stock par produit et par entrepôt."
-        actions={<SyncRefreshButton resource="products" canSync={canSync} />}
+        actions={
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" render={<a href={`/stock/export?${exportParams.toString()}`} />}>
+              <Download className="size-4" />
+              Exporter (CSV)
+            </Button>
+            <SyncRefreshButton resource="products" canSync={canSync} />
+          </div>
+        }
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">

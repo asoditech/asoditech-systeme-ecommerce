@@ -19,7 +19,7 @@ export const produitsArticles: DocArticle[] = [
         text: "Un produit importé (WooCommerce/Shopify) affiche sa plateforme d'origine. Sa fiche (nom, prix, description) ne peut être modifiée que sur la plateforme d'origine — seuls le coût d'achat et les réglages de stock restent modifiables dans ASODITECH.",
       },
     ],
-    related: ["produits/produits-simples", "produits/produits-variables", "integrations/synchronisation-produits"],
+    related: ["produits/produits-simples", "produits/produits-variables", "produits/categories", "integrations/synchronisation-produits"],
     tryNow: { label: "Ouvrir Produits", href: "/produits" },
     lastUpdated: LAST_UPDATED,
   },
@@ -218,5 +218,34 @@ export const produitsArticles: DocArticle[] = [
     tryNow: { label: "Ouvrir Produits", href: "/produits" },
     lastUpdated: LAST_UPDATED,
     keywords: ["produit supprimé", "produit disparu"],
+  },
+  {
+    slug: "produits/categories",
+    title: "Catégories",
+    category: "produits",
+    tagline: "Organisez le catalogue par catégorie — recherchez, créez et modifiez-les depuis une page dédiée.",
+    permission: "products.view",
+    prerequisites: [],
+    steps: [
+      "Ouvrir Produits → Catégories (ou Catalogue → Catégories dans le menu).",
+      "« Nouvelle catégorie » pour en créer une : nom, slug (généré automatiquement, modifiable), catégorie parente et description sont optionnels sauf le nom et le slug.",
+      "Utiliser l'icône crayon sur une ligne pour modifier une catégorie existante.",
+    ],
+    whatYouShouldSee:
+      "Un tableau avec, pour chaque catégorie : son nom et son slug, sa catégorie parente, sa source, le nombre de produits, le nombre de variantes et le stock total qu'elle contient.",
+    commonMistakes: [
+      "Vouloir modifier une catégorie importée de WooCommerce ou Shopify depuis ASODITECH — elle reste en lecture seule ici, exactement comme une fiche produit importée ; l'icône de modification n'apparaît pas pour ces lignes.",
+    ],
+    body: [
+      {
+        type: "callout",
+        tone: "info",
+        text: "Une catégorie synchronisée depuis WooCommerce ou Shopify (badge autre que « Interne ») se modifie uniquement sur la plateforme d'origine — la synchronisation suivante écraserait sinon toute modification faite ici.",
+      },
+    ],
+    related: ["produits/comprendre-les-produits"],
+    tryNow: { label: "Ouvrir Catégories", href: "/catalogue/categories" },
+    lastUpdated: "2026-09-25",
+    keywords: ["catégorie", "catégories", "organisation du catalogue"],
   },
 ];

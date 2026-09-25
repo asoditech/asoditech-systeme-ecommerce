@@ -717,6 +717,27 @@ model ProductVariation {
   attributes Json
   price      Decimal?     @db.Decimal(12, 2)
   cost       Decimal?     @db.Decimal(12, 2)
+  // Batch 4 (Variant System Rebuild) — ASODITECH-owned, exactly like `cost`:
+  // WooCommerce/Shopify variation sync (see each provider's sync/products.ts
+  // "Field ownership" note) writes only sku/attributes/price, never these.
+  //
+  // salePrice: mirrors Product.salePrice. Precedence when resolving a
+  // variation's sellable price (see src/lib/catalog/lookup.ts,
+  // src/actions/sales.ts): variation.salePrice -> variation.price ->
+  // product.salePrice -> product.price. Only ever a NEW top tier on the
+  // existing chain — the pre-existing chain itself is unchanged.
+  salePrice  Decimal?     @db.Decimal(12, 2)
+  // isActive: "cannot be selected for a NEW sale/order/POS operation" —
+  // never deletes/hides inventory, movements, or historical reception/
+  // order/sale lines, which all remain fully readable. Boolean (not the
+  // 3-state ProductStatus): a variation has no draft-before-publish
+  // workflow of its own, it's created directly via the combination
+  // generator.
+  isActive   Boolean      @default(true)
+  // Optional, single image (no gallery/position — unlike ProductImage,
+  // which a variation deliberately does not use: reuses the same URL
+  // validation/preview component, not the same table).
+  imageUrl   String?
   source     RecordSource @default(INTERNE)
   externalId String?
   createdAt  DateTime     @default(now())

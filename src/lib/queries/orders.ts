@@ -85,7 +85,11 @@ export async function listOrders(filters: OrderListFilters) {
       take: PAGE_SIZE,
       include: {
         customer: true,
-        _count: { select: { items: true } },
+        // `returns` mirrors the same lightweight count the Sale list already
+        // shows (docs/adr/0036/0040) — a cheap boolean-ish indicator; the
+        // quantity-aware "Retour partiel X/Y" label needs per-line data and
+        // is computed on the detail page instead, where it's already loaded.
+        _count: { select: { items: true, returns: true } },
         confirmationAgent: { include: { user: { select: { name: true } } } },
       },
     }),

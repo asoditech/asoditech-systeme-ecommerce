@@ -54,6 +54,9 @@ export function ProductForm({
   const [categoryId, setCategoryId] = useState<string>(product?.categoryId ?? "");
   const [newCategory, setNewCategory] = useState("");
   const [creatingCategory, setCreatingCategory] = useState(false);
+  // Create mode only (Batch 3, Task 2) — edit already has its own image card
+  // (ProductImageForm) once the product exists.
+  const [imagePreview, setImagePreview] = useState("");
   const [checkedChannels, setCheckedChannels] = useState<Set<string>>(
     new Set(channels.filter((c) => c.isDefault).map((c) => c.id))
   );
@@ -231,6 +234,38 @@ export function ProductForm({
                   <span className="text-xs text-muted-foreground">{c.kind === "ONLINE" ? "En ligne" : "Magasin"}</span>
                 </label>
               ))}
+            </div>
+          )}
+          {!product && (
+            <div className="space-y-1.5">
+              <Label htmlFor="imageUrl">Lien de l&apos;image (optionnel)</Label>
+              <div className="flex items-end gap-3">
+                <Input
+                  id="imageUrl"
+                  name="imageUrl"
+                  type="url"
+                  placeholder="https://…"
+                  className="flex-1"
+                  onChange={(e) => setImagePreview(e.target.value)}
+                />
+                {imagePreview && (
+                  // eslint-disable-next-line @next/next/no-img-element -- arbitrary externally-hosted URL, can't be allow-listed for next/image
+                  <img
+                    src={imagePreview}
+                    alt=""
+                    className="size-16 shrink-0 rounded border object-cover"
+                    onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                    onLoad={(e) => (e.currentTarget.style.visibility = "visible")}
+                  />
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Collez le lien d&apos;une image déjà hébergée ailleurs (aucun stockage de fichiers ici) — modifiable
+                plus tard depuis la fiche produit.
+              </p>
+              {state && !state.ok && state.fieldErrors?.imageUrl && (
+                <p className="text-xs text-destructive">{state.fieldErrors.imageUrl[0]}</p>
+              )}
             </div>
           )}
           <div className="space-y-1.5">
