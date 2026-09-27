@@ -93,6 +93,11 @@ export interface FakeStoreState {
   orders: FakeOrder[];
   stockUpdates: { path: string; body: unknown }[];
   orderUpdates: { orderId: number; body: unknown }[];
+  /** Batch 13 (Product Publishing) — every `POST /products` this fake
+   * server received, in call order, for asserting the exact payload sent. */
+  productCreates: Record<string, unknown>[];
+  /** Every `POST /products/{id}/variations` received. */
+  variationCreates: { productId: number; body: Record<string, unknown> }[];
 }
 
 function paginate<T>(items: T[], page: number, perPage: number): { items: T[]; totalPages: number } {
@@ -124,6 +129,26 @@ export function installFakeWooCommerceServer(state: FakeStoreState) {
       const perPage = Number(url.searchParams.get("per_page") ?? "50");
       const path = url.pathname.replace("/wp-json/wc/v3", "");
       const method = init?.method ?? "GET";
+
+      const variationCreateMatch = path.match(/^\/products\/(\d+)\/variations$/);
+      if (variationCreateMatch && method === "POST") {
+        const productId = Number(variationCreateMatch[1]);
+        const body = init?.body ? JSON.parse(init.body as string) : {};
+        state.variationCreates.push({ productId, body });
+        const id = 90000 + state.variationCreates.length;
+        const product = state.products.find((p) => p.id === productId);
+        const created: FakeVariation = {
+          id,
+          sku: body.sku ?? "",
+          regular_price: body.regular_price ?? "0",
+          price: body.regular_price ?? "0",
+          manage_stock: false,
+          stock_quantity: null,
+          attributes: body.attributes ?? [],
+        };
+        if (product) product.variationList = [...(product.variationList ?? []), created];
+        return jsonResponse(created);
+      }
 
       const variationMatch = path.match(/^\/products\/(\d+)\/variations\/?(\d+)?$/);
       if (variationMatch && method === "GET" && !variationMatch[2]) {
@@ -161,6 +186,32 @@ export function installFakeWooCommerceServer(state: FakeStoreState) {
         return jsonResponse(items, totalPages);
       }
 
+      if (path === "/products" && method === "POST") {
+        const body = init?.body ? JSON.parse(init.body as string) : {};
+        state.productCreates.push(body);
+        const id = 80000 + state.productCreates.length;
+        const created: FakeProduct = {
+          id,
+          name: body.name ?? "",
+          slug: String(body.name ?? "").toLowerCase().replace(/\s+/g, "-"),
+          sku: body.sku ?? "",
+          status: body.status === "publish" ? "publish" : "draft",
+          type: body.type ?? "simple",
+          description: body.description ?? null,
+          regular_price: body.regular_price ?? "0",
+          sale_price: body.sale_price ?? null,
+          price: body.regular_price ?? "0",
+          manage_stock: false,
+          stock_quantity: null,
+          categories: body.categories ?? [],
+          images: body.images ?? [],
+          variations: [],
+          variationList: [],
+        };
+        state.products.push(created);
+        return jsonResponse(created);
+      }
+
       if (path === "/products") {
         const { items, totalPages } = paginate(state.products, page, perPage);
         return jsonResponse(items, totalPages);
@@ -191,5 +242,5 @@ export function installFakeWooCommerceServer(state: FakeStoreState) {
 }
 
 export function emptyFakeStore(): FakeStoreState {
-  return { categories: [], products: [], orders: [], stockUpdates: [], orderUpdates: [] };
+  return { categories: [], products: [], orders: [], stockUpdates: [], orderUpdates: [], productCreates: [], variationCreates: [] };
 }

@@ -10,7 +10,11 @@ import {
   updateCategoryAction,
   generateProductVariationsAction,
   updateVariationDetailsAction,
+  updateVariationSkuAction,
   removeVariationAction,
+  addProductImageAction,
+  removeProductImageAction,
+  setPrimaryProductImageAction,
 } from "@/actions/products";
 import { resetDb } from "../helpers/db";
 import { loginAsTestUser } from "../helpers/auth";
@@ -739,5 +743,201 @@ describe("removeVariationAction", () => {
       data: { productId: product.id, sku: `P-V-${Math.random()}`, attributes: { Taille: "M" } },
     });
     await expect(removeVariationAction(formData({ id: variation.id }))).rejects.toThrow(/non autorisé/i);
+  });
+});
+
+describe("updateVariationSkuAction (Batch 11)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  async function seedVariation(overrides: Partial<{ source: "INTERNE" | "WOOCOMMERCE" }> = {}) {
+    const product = await prisma.product.create({
+      data: {
+        name: "T-Shirt",
+        sku: `TSH-${Math.random()}`,
+        price: 150,
+        status: "ACTIF",
+        source: overrides.source ?? "INTERNE",
+        externalId: overrides.source === "WOOCOMMERCE" ? "9001" : null,
+      },
+    });
+    const variation = await prisma.productVariation.create({
+      data: {
+        productId: product.id,
+        sku: `TSH-V-${Math.random()}`,
+        attributes: { Taille: "M" },
+        source: overrides.source ?? "INTERNE",
+        externalId: overrides.source === "WOOCOMMERCE" ? "9001-v" : null,
+      },
+    });
+    return { product, variation };
+  }
+
+  it("updates the SKU of an INTERNE variation", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { variation } = await seedVariation();
+
+    const result = await updateVariationSkuAction({ id: variation.id, sku: "NEW-SKU-1" });
+    expect(result.ok).toBe(true);
+    expect((await prisma.productVariation.findUniqueOrThrow({ where: { id: variation.id } })).sku).toBe("NEW-SKU-1");
+  });
+
+  it("is a no-op ok when the submitted SKU is unchanged", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { variation } = await seedVariation();
+
+    const result = await updateVariationSkuAction({ id: variation.id, sku: variation.sku });
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects a SKU already used by another product", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { variation } = await seedVariation();
+    const other = await prisma.product.create({ data: { name: "Autre", sku: "TAKEN-SKU", price: 50, status: "ACTIF" } });
+
+    const result = await updateVariationSkuAction({ id: variation.id, sku: other.sku });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.fieldErrors?.sku).toBeTruthy();
+    expect((await prisma.productVariation.findUniqueOrThrow({ where: { id: variation.id } })).sku).not.toBe(other.sku);
+  });
+
+  it("rejects a SKU already used by a sibling variation", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { product, variation } = await seedVariation();
+    const sibling = await prisma.productVariation.create({
+      data: { productId: product.id, sku: "SIBLING-SKU", attributes: { Taille: "L" } },
+    });
+
+    const result = await updateVariationSkuAction({ id: variation.id, sku: sibling.sku });
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects a SKU already used by a barcode", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { variation } = await seedVariation();
+    await prisma.barcode.create({ data: { code: "BARCODE-AS-SKU", productId: (await prisma.product.create({ data: { name: "X", sku: `X-${Math.random()}`, price: 1, status: "ACTIF" } })).id } });
+
+    const result = await updateVariationSkuAction({ id: variation.id, sku: "BARCODE-AS-SKU" });
+    expect(result.ok).toBe(false);
+  });
+
+  it("refuses to edit the SKU of a WooCommerce-sourced variation", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { variation } = await seedVariation({ source: "WOOCOMMERCE" });
+
+    const result = await updateVariationSkuAction({ id: variation.id, sku: "SHOULD-NOT-APPLY" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/WooCommerce/);
+    expect((await prisma.productVariation.findUniqueOrThrow({ where: { id: variation.id } })).sku).not.toBe("SHOULD-NOT-APPLY");
+  });
+
+  it("rejects a caller without products.edit permission", async () => {
+    await loginAsTestUser({ role: "SUPPORT" });
+    const { variation } = await seedVariation();
+    await expect(updateVariationSkuAction({ id: variation.id, sku: "X-NEW" })).rejects.toThrow(/non autorisé/i);
+  });
+});
+
+describe("product image gallery actions (Batch 11)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  async function seedProduct(overrides: Partial<{ source: "INTERNE" | "WOOCOMMERCE" }> = {}) {
+    return prisma.product.create({
+      data: {
+        name: "Produit",
+        sku: `P-${Math.random()}`,
+        price: 100,
+        status: "ACTIF",
+        source: overrides.source ?? "INTERNE",
+        externalId: overrides.source === "WOOCOMMERCE" ? "1" : null,
+      },
+    });
+  }
+
+  it("addProductImageAction: the first image added becomes position 0 (primary)", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const product = await seedProduct();
+
+    const result = await addProductImageAction({ productId: product.id, imageUrl: "https://example.com/a.jpg" });
+    expect(result.ok).toBe(true);
+    const images = await prisma.productImage.findMany({ where: { productId: product.id } });
+    expect(images).toHaveLength(1);
+    expect(images[0].position).toBe(0);
+  });
+
+  it("addProductImageAction: a second image is appended after the last position, never overwriting it", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const product = await seedProduct();
+    await addProductImageAction({ productId: product.id, imageUrl: "https://example.com/a.jpg" });
+
+    const result = await addProductImageAction({ productId: product.id, imageUrl: "https://example.com/b.jpg" });
+    expect(result.ok).toBe(true);
+    const images = await prisma.productImage.findMany({ where: { productId: product.id }, orderBy: { position: "asc" } });
+    expect(images).toHaveLength(2);
+    expect(images[0].url).toBe("https://example.com/a.jpg");
+    expect(images[0].position).toBe(0);
+    expect(images[1].url).toBe("https://example.com/b.jpg");
+    expect(images[1].position).toBe(1);
+  });
+
+  it("addProductImageAction: rejects an empty/invalid URL and a WooCommerce-sourced product", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const product = await seedProduct();
+    const badUrl = await addProductImageAction({ productId: product.id, imageUrl: "" });
+    expect(badUrl.ok).toBe(false);
+
+    const external = await seedProduct({ source: "WOOCOMMERCE" });
+    const result = await addProductImageAction({ productId: external.id, imageUrl: "https://example.com/a.jpg" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/WooCommerce/);
+  });
+
+  it("removeProductImageAction: removes exactly the targeted image, leaving others untouched", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const product = await seedProduct();
+    await addProductImageAction({ productId: product.id, imageUrl: "https://example.com/a.jpg" });
+    const b = await addProductImageAction({ productId: product.id, imageUrl: "https://example.com/b.jpg" });
+    if (!b.ok) throw new Error("setup failed");
+
+    const result = await removeProductImageAction({ id: b.data.id });
+    expect(result.ok).toBe(true);
+    const images = await prisma.productImage.findMany({ where: { productId: product.id } });
+    expect(images).toHaveLength(1);
+    expect(images[0].url).toBe("https://example.com/a.jpg");
+  });
+
+  it("setPrimaryProductImageAction: swaps positions so the chosen image becomes 0", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const product = await seedProduct();
+    await addProductImageAction({ productId: product.id, imageUrl: "https://example.com/a.jpg" });
+    const b = await addProductImageAction({ productId: product.id, imageUrl: "https://example.com/b.jpg" });
+    if (!b.ok) throw new Error("setup failed");
+
+    const result = await setPrimaryProductImageAction({ id: b.data.id });
+    expect(result.ok).toBe(true);
+    const images = await prisma.productImage.findMany({ where: { productId: product.id }, orderBy: { position: "asc" } });
+    expect(images[0].url).toBe("https://example.com/b.jpg");
+    expect(images[0].position).toBe(0);
+    expect(images[1].url).toBe("https://example.com/a.jpg");
+    expect(images[1].position).toBe(1);
+  });
+
+  it("rejects gallery mutations for a caller without products.edit permission", async () => {
+    await loginAsTestUser({ role: "SUPPORT" });
+    const product = await seedProduct();
+    await expect(addProductImageAction({ productId: product.id, imageUrl: "https://example.com/a.jpg" })).rejects.toThrow(/non autorisé/i);
   });
 });

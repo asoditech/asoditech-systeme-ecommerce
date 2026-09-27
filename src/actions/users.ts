@@ -43,6 +43,13 @@ export async function updateUserStatusAction(formData: FormData): Promise<Action
   const existing = await prisma.user.findUnique({ where: { id: parsed.data.id } });
   if (!existing) return actionError("Utilisateur introuvable.");
   if (existing.role === "OWNER") return actionError("Impossible de désactiver le compte propriétaire.");
+  // Batch 16 — same self-targeting protection `deleteUserAction` already
+  // has, extended here: an admin disabling their OWN account would lock
+  // themselves out immediately (session destruction below), with no one
+  // else necessarily around to re-enable them.
+  if (existing.id === actor.id && parsed.data.status === "DISABLED") {
+    return actionError("Vous ne pouvez pas désactiver votre propre compte.");
+  }
 
   const user = await prisma.user.update({ where: { id: parsed.data.id }, data: { status: parsed.data.status } });
   if (parsed.data.status === "DISABLED") {
@@ -168,6 +175,13 @@ export async function updateUserRoleAction(formData: FormData): Promise<ActionRe
   const existing = await prisma.user.findUnique({ where: { id: parsed.data.id } });
   if (!existing) return actionError("Utilisateur introuvable.");
   if (existing.role === "OWNER") return actionError("Impossible de modifier le rôle du propriétaire.");
+  // Batch 16 — same self-targeting protection `deleteUserAction` already
+  // has: an admin cannot change their OWN role (accidental self-demotion
+  // out of `users.manage` with no one else immediately around to fix it).
+  // A genuine role change for that account must come from someone else.
+  if (existing.id === actor.id) {
+    return actionError("Vous ne pouvez pas modifier votre propre rôle.");
+  }
 
   const user = await prisma.user.update({ where: { id: parsed.data.id }, data: { role: parsed.data.role } });
 

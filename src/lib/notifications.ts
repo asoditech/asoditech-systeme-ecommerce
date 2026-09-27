@@ -5,6 +5,7 @@ import type { Permission } from "@/lib/auth/permissions";
 import { loadEffectiveAccessMany } from "@/lib/auth/access-loader";
 import { formatCurrency, formatOrderNumber, displayOrderNumber } from "@/lib/format";
 import { availableStockTotal } from "@/lib/inventory";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import type { NotificationType, RecordSource } from "@prisma/client";
 
 /**
@@ -131,9 +132,10 @@ export async function notifyNewOrder(
   exceptUserId?: string | null
 ): Promise<void> {
   const src = SOURCE_LABEL[order.source];
+  const business = await getReportBusinessInfo();
   await notify({
     type: "NOUVELLE_COMMANDE",
-    title: `Nouvelle commande ${formatOrderNumber(order.displayNumber ?? order.orderNumber)}`,
+    title: `Nouvelle commande ${formatOrderNumber(order.displayNumber ?? order.orderNumber, business.orderNumberPrefix)}`,
     message:
       `${order.customerName} — ${formatCurrency(order.total, order.currency)}` +
       (src ? ` (importée de ${src})` : ""),
@@ -150,7 +152,8 @@ export async function notifyPaymentProblem(
   order: { id: string; orderNumber: number; displayNumber?: number | null },
   exceptUserId?: string | null
 ): Promise<void> {
-  const num = formatOrderNumber(order.displayNumber ?? order.orderNumber);
+  const business = await getReportBusinessInfo();
+  const num = formatOrderNumber(order.displayNumber ?? order.orderNumber, business.orderNumberPrefix);
   await notify({
     type: "PROBLEME_PAIEMENT",
     title: `Problème de paiement — commande ${num}`,
@@ -168,7 +171,8 @@ export async function notifyOrderReturned(
   order: { id: string; orderNumber: number; displayNumber?: number | null; customerName: string },
   exceptUserId?: string | null
 ): Promise<void> {
-  const num = formatOrderNumber(order.displayNumber ?? order.orderNumber);
+  const business = await getReportBusinessInfo();
+  const num = formatOrderNumber(order.displayNumber ?? order.orderNumber, business.orderNumberPrefix);
   await notify({
     type: "COMMANDE_RETOURNEE",
     title: `Commande retournée ${num}`,
@@ -193,7 +197,8 @@ export async function notifyShipmentFailed(
   },
   exceptUserId?: string | null
 ): Promise<void> {
-  const num = formatOrderNumber(shipment.orderDisplayNumber ?? shipment.orderNumber);
+  const business = await getReportBusinessInfo();
+  const num = formatOrderNumber(shipment.orderDisplayNumber ?? shipment.orderNumber, business.orderNumberPrefix);
   await notify({
     type: "ECHEC_LIVRAISON",
     title: `Échec de livraison — commande ${num}`,
@@ -316,7 +321,8 @@ export async function notifyWorkflowMismatch(order: {
   localStatus: string;
   externalStatus: string;
 }): Promise<void> {
-  const num = displayOrderNumber(order);
+  const business = await getReportBusinessInfo();
+  const num = displayOrderNumber(order, business.orderNumberPrefix);
   const src = SOURCE_LABEL[order.source] ?? order.source;
   const externalRef = order.externalNumber ? ` (${order.externalNumber})` : "";
   await notify({
@@ -440,7 +446,8 @@ export async function checkAndNotifyInsufficientStockForOrder(
   lines: { productId?: string | null; variationId?: string | null; quantity: number }[]
 ): Promise<void> {
   try {
-    const num = displayOrderNumber(order);
+    const business = await getReportBusinessInfo();
+    const num = displayOrderNumber(order, business.orderNumberPrefix);
     for (const line of lines) {
       if (line.quantity <= 0) continue;
       if (!line.productId && !line.variationId) continue;

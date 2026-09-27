@@ -19,6 +19,10 @@ import {
   createProductVariationSchema,
   generateVariationCombinationsSchema,
   updateVariationDetailsSchema,
+  updateVariationSkuSchema,
+  addProductImageSchema,
+  removeProductImageSchema,
+  setPrimaryProductImageSchema,
 } from "@/lib/validation/product";
 import { syncProductLeadImage } from "@/lib/integrations/shared";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
@@ -651,6 +655,70 @@ export async function updateVariationDetailsAction(formData: FormData): Promise<
 }
 
 /**
+ * Batch 11 — a variation's SKU, editable after creation (previously only
+ * settable once, at creation time, via `createProductVariationAction` /
+ * `generateProductVariationsAction`). Deliberately a SEPARATE action from
+ * `updateVariationDetailsAction`, which never touches sku (see its own doc
+ * comment) — this keeps that action's documented invariant intact rather
+ * than special-casing sku into it.
+ *
+ * Blocked for a WooCommerce/Shopify-sourced variation, same rule as every
+ * other identity field (`externalSourceError`): the sku there is
+ * provider-owned and the next sync would just overwrite a manual edit.
+ * Server-side uniqueness is authoritative — `assertSkuFreeOfBarcodeAndSiblings`
+ * is the same cross-table (product/variation/barcode) check every other
+ * SKU-writing path in this file already uses, with this variation excepted
+ * from its own check.
+ */
+export async function updateVariationSkuAction(input: {
+  id: string;
+  sku: string;
+}): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("products.edit");
+
+  const parsed = updateVariationSkuSchema.safeParse(input);
+  if (!parsed.success) {
+    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+
+  const existing = await prisma.productVariation.findUnique({
+    where: { id: parsed.data.id },
+    include: { product: { select: { source: true } } },
+  });
+  if (!existing) return actionError("Variation introuvable.");
+  const sourceError = externalSourceError(existing.product);
+  if (sourceError) return actionError(sourceError);
+
+  if (existing.sku === parsed.data.sku) {
+    return actionOk({ id: existing.id });
+  }
+
+  const skuProblem = await assertSkuFreeOfBarcodeAndSiblings(parsed.data.sku, {
+    kind: "variation",
+    id: existing.id,
+  });
+  if (skuProblem) return actionError(skuProblem, { sku: ["SKU déjà utilisé."] });
+
+  const variation = await prisma.productVariation.update({
+    where: { id: existing.id },
+    data: { sku: parsed.data.sku },
+  });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "product.updated",
+    entityType: "Product",
+    entityId: existing.productId,
+    previousValue: { variationSku: existing.sku },
+    newValue: { variationSku: variation.sku },
+  });
+
+  revalidatePath(`/produits/${existing.productId}`);
+  return actionOk({ id: variation.id });
+}
+
+/**
  * Removes a variation from active use — Batch 4, Task 4/11's "do not
  * silently delete an inventory-bearing variation" rule, mirroring
  * `removeProductAction`'s exact delete-vs-archive pattern one level down:
@@ -815,6 +883,148 @@ export async function updateProductImageAction(formData: FormData): Promise<Acti
   revalidatePath(`/produits/${product.id}`);
   revalidatePath("/produits");
   return actionOk({ id: product.id });
+}
+
+/**
+ * Batch 11 — product image GALLERY (`ProductImage[]`), additive on top of
+ * the pre-existing single "lead" position-0 image the WooCommerce/Shopify
+ * sync owns (`syncProductLeadImage`). Only the position-0 row is ever
+ * touched by a sync (see that helper's own doc comment: "never touches...
+ * a product's other, non-position-0 images"), so every image this action
+ * (and the two below) manage is one this app's own sync never reaches —
+ * but, matching the pre-existing single-image form's own gate, still kept
+ * INTERNE-only for now: there is no UI surface for it on a synced product
+ * in this batch, and adding one is a small, separate, low-risk follow-up
+ * (see the final report's "discovered out-of-scope" section) rather than
+ * something to decide silently here.
+ *
+ * Always APPENDS (never overwrites in place, unlike the old single-image
+ * form) — at `(max existing position for this product) + 1`, or `0` when
+ * the product has no images at all yet.
+ */
+export async function addProductImageAction(input: {
+  productId: string;
+  imageUrl: string;
+}): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("products.edit");
+
+  const parsed = addProductImageSchema.safeParse(input);
+  if (!parsed.success) {
+    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  }
+
+  const product = await prisma.product.findUnique({ where: { id: parsed.data.productId } });
+  if (!product) return actionError("Produit introuvable.");
+  const sourceError = externalSourceError(product);
+  if (sourceError) return actionError(sourceError);
+
+  const last = await prisma.productImage.findFirst({
+    where: { productId: product.id },
+    orderBy: { position: "desc" },
+    select: { position: true },
+  });
+  const image = await prisma.productImage.create({
+    data: { productId: product.id, url: parsed.data.imageUrl, position: last ? last.position + 1 : 0 },
+  });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "product.updated",
+    entityType: "Product",
+    entityId: product.id,
+    metadata: { imageAdded: image.id, position: image.position },
+  });
+
+  revalidatePath(`/produits/${product.id}`);
+  revalidatePath("/produits");
+  return actionOk({ id: image.id });
+}
+
+/**
+ * Batch 11 — removes one image from the gallery. INTERNE-only (see
+ * `addProductImageAction`'s own doc comment); removing the lead (position
+ * 0) image of a synced product must go through the sync instead, exactly
+ * like `updateProductImageAction` already refuses to touch it directly.
+ */
+export async function removeProductImageAction(input: { id: string }): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("products.edit");
+
+  const parsed = removeProductImageSchema.safeParse(input);
+  if (!parsed.success) return actionError("Champs invalides.");
+
+  const image = await prisma.productImage.findUnique({
+    where: { id: parsed.data.id },
+    include: { product: { select: { id: true, source: true } } },
+  });
+  if (!image) return actionError("Image introuvable.");
+  const sourceError = externalSourceError(image.product);
+  if (sourceError) return actionError(sourceError);
+
+  await prisma.productImage.delete({ where: { id: image.id } });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "product.updated",
+    entityType: "Product",
+    entityId: image.productId,
+    metadata: { imageRemoved: image.id, position: image.position },
+  });
+
+  revalidatePath(`/produits/${image.productId}`);
+  revalidatePath("/produits");
+  return actionOk({ id: image.productId });
+}
+
+/**
+ * Batch 11 — promotes one gallery image to position 0 ("Principal"), the
+ * position the product list thumbnail / hover preview and the WooCommerce/
+ * Shopify sync both read as the product's lead image. Swaps positions with
+ * whatever currently holds position 0 (if any) rather than renumbering the
+ * whole gallery — `ProductImage` has no unique constraint on
+ * `(productId, position)`, so the two updates in this transaction can never
+ * conflict with each other regardless of order.
+ */
+export async function setPrimaryProductImageAction(input: { id: string }): Promise<ActionResult<IdResult>> {
+  const user = await requirePermissionForAction("products.edit");
+
+  const parsed = setPrimaryProductImageSchema.safeParse(input);
+  if (!parsed.success) return actionError("Champs invalides.");
+
+  const image = await prisma.productImage.findUnique({
+    where: { id: parsed.data.id },
+    include: { product: { select: { id: true, source: true } } },
+  });
+  if (!image) return actionError("Image introuvable.");
+  const sourceError = externalSourceError(image.product);
+  if (sourceError) return actionError(sourceError);
+
+  if (image.position !== 0) {
+    const currentLead = await prisma.productImage.findFirst({
+      where: { productId: image.productId, position: 0 },
+      select: { id: true },
+    });
+    await prisma.$transaction(async (tx) => {
+      if (currentLead) {
+        await tx.productImage.update({ where: { id: currentLead.id }, data: { position: image.position } });
+      }
+      await tx.productImage.update({ where: { id: image.id }, data: { position: 0 } });
+    });
+  }
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "product.updated",
+    entityType: "Product",
+    entityId: image.productId,
+    metadata: { imageSetPrimary: image.id },
+  });
+
+  revalidatePath(`/produits/${image.productId}`);
+  revalidatePath("/produits");
+  return actionOk({ id: image.productId });
 }
 
 /**

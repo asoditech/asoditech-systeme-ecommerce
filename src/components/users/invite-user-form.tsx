@@ -24,7 +24,7 @@ const ASSIGNABLE_ROLES = Object.entries(USER_ROLE_LABELS).filter(([value]) => va
 
 type InviteResult = ActionResult<IdResult & { inviteUrl: string }>;
 
-export function InviteUserForm() {
+export function InviteUserForm({ channelsEnabled = false }: { channelsEnabled?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
@@ -122,6 +122,12 @@ export function InviteUserForm() {
                   </SelectContent>
                 </Select>
               </div>
+              {channelsEnabled && (
+                <p className="text-xs text-muted-foreground">
+                  Une fois le compte créé, il aura accès au canal En ligne par défaut. Ajustez les canaux, les
+                  emplacements et les permissions individuelles depuis la liste des utilisateurs.
+                </p>
+              )}
               {state && !state.ok && <p className="text-sm text-destructive">{state.error}</p>}
               <DialogFooter>
                 <Button type="submit" disabled={isPending}>

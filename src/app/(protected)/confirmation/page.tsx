@@ -24,6 +24,7 @@ import {
   getAgentCommissionBreakdown,
 } from "@/lib/queries/commissions";
 import { displayOrderNumber, displayOrderRecipient, formatCurrency } from "@/lib/format";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 
 export const metadata = { title: "Confirmation — ASODITECH Gestion E-commerce" };
 
@@ -40,10 +41,10 @@ type QueueSourceOrder = Awaited<ReturnType<typeof listOrdersAwaitingConfirmation
 async function toQueueOrders(orders: QueueSourceOrder[]): Promise<ConfirmationQueueOrder[]> {
   // Batch 3, Task 8 — one batched availability query for the whole page,
   // not one per order (see flagInsufficientStock's own doc comment).
-  const flagged = await flagInsufficientStock(orders);
+  const [flagged, business] = await Promise.all([flagInsufficientStock(orders), getReportBusinessInfo()]);
   return orders.map((o) => ({
     id: o.id,
-    displayNumber: displayOrderNumber(o),
+    displayNumber: displayOrderNumber(o, business.orderNumberPrefix),
     customerName: displayOrderRecipient(o),
     customerPhone: o.shippingPhone ?? o.customer.phone ?? null,
     customerWhatsapp: o.customer.whatsapp ?? null,
@@ -156,10 +157,13 @@ async function QueueTab({ search, page, onlyRetried }: { search?: string; page: 
 }
 
 async function ConfirmedTab({ search, page }: { search?: string; page: number }) {
-  const { orders, total, pageSize } = await listRecentlyConfirmedOrders({ page, search });
+  const [{ orders, total, pageSize }, business] = await Promise.all([
+    listRecentlyConfirmedOrders({ page, search }),
+    getReportBusinessInfo(),
+  ]);
   const rows: ConfirmedOrderRow[] = orders.map((o) => ({
     id: o.id,
-    displayNumber: displayOrderNumber(o),
+    displayNumber: displayOrderNumber(o, business.orderNumberPrefix),
     customerName: displayOrderRecipient(o),
     total: o.total.toString(),
     currency: o.currency,
@@ -212,16 +216,17 @@ async function MyConfirmationsTab({
     );
   }
 
-  const [pipeline, breakdown, { orders, total, pageSize }] = await Promise.all([
+  const [pipeline, breakdown, { orders, total, pageSize }, business] = await Promise.all([
     getAgentOrderPipeline(agentId),
     getAgentCommissionBreakdown(agentId),
     listOrdersConfirmedByAgent(agentId, { page }),
+    getReportBusinessInfo(),
   ]);
 
   const potentialCommission = stats.ratePerOrder !== null ? stats.ratePerOrder * pipeline.confirmed : null;
   const rows: ConfirmedOrderRow[] = orders.map((o) => ({
     id: o.id,
-    displayNumber: displayOrderNumber(o),
+    displayNumber: displayOrderNumber(o, business.orderNumberPrefix),
     customerName: displayOrderRecipient(o),
     total: o.total.toString(),
     currency: o.currency,

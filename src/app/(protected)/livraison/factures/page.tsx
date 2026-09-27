@@ -8,12 +8,13 @@ import { requirePermission } from "@/lib/auth/guards";
 import { listInvoiceableShipments } from "@/lib/queries/delivery-invoice";
 import { formatCurrency, formatDate, displayOrderNumber } from "@/lib/format";
 import { SHIPMENT_STATUS_LABELS } from "@/lib/status-labels";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 
 export const metadata = { title: "Factures de livraison — ASODITECH Gestion E-commerce" };
 
 export default async function FacturesLivraisonPage() {
   await requirePermission("delivery.view");
-  const shipments = await listInvoiceableShipments();
+  const [shipments, business] = await Promise.all([listInvoiceableShipments(), getReportBusinessInfo()]);
 
   return (
     <div>
@@ -42,7 +43,7 @@ export default async function FacturesLivraisonPage() {
             <TableBody>
               {shipments.map((s) => (
                 <ClickableTableRow key={s.id} href={`/livraison/factures/${s.id}`}>
-                  <TableCell className="font-medium">{displayOrderNumber(s.order)}</TableCell>
+                  <TableCell className="font-medium">{displayOrderNumber(s.order, business.orderNumberPrefix)}</TableCell>
                   <TableCell>{s.order.customer.fullName}</TableCell>
                   <TableCell className="text-muted-foreground">{s.order.shippingCity ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{s.provider.name}</TableCell>

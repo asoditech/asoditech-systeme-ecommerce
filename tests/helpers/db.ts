@@ -92,6 +92,8 @@ export async function resetDb() {
     await tx.userPermissionOverride.deleteMany();
     await tx.salesChannelLocation.deleteMany();
     await tx.productSalesChannel.deleteMany();
+    // Batch 13 (Product Publishing) — must precede product.deleteMany() below.
+    await tx.productPublication.deleteMany();
     await tx.barcode.deleteMany();
     await tx.salesChannel.deleteMany();
     await tx.warehouse.deleteMany();

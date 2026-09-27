@@ -3,6 +3,8 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { PeriodRange } from "@/lib/queries/finance";
 import { displayOrderRecipient } from "@/lib/format";
+import { saleChannelWhere } from "@/lib/auth/channel-access";
+import type { CurrentUser } from "@/lib/auth/session";
 
 /**
  * Physical returns — built directly off `OrderReturn`/`OrderReturnLine`
@@ -139,5 +141,128 @@ export async function getReturnsReport(range: PeriodRange): Promise<ReturnsRepor
     },
     byProduct: [...byProductMap.values()].sort((a, b) => b.unitsTotal - a.unitsTotal),
     byOrder,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Offline (in-store) returns — Batch 15. Same shape and posture as the Online
+// report above (built off the real ledger — `SaleReturn`/`SaleReturnLine`,
+// docs/adr/0040 — grouped by snapshot, never the live product), a SEPARATE
+// query rather than a merged one: an Order return and a Sale return are
+// different business events (placed-then-shipped vs. cash-and-carry) and
+// must never be reported as the same row. Channel-scoped via
+// `saleChannelWhere` — never a bare `sale.findMany`, so a viewer only ever
+// sees returns for their own authorized store channels (docs/adr/0039).
+// ---------------------------------------------------------------------------
+
+export interface OfflineReturnsByOrderRow {
+  saleReturnId: string;
+  saleId: string;
+  saleNumber: number;
+  displayNumber: number | null;
+  customerName: string;
+  channelName: string;
+  receivedAt: Date;
+  receivedByName: string | null;
+  unitsSellable: number;
+  unitsDamaged: number;
+  refundAmount: number;
+  note: string | null;
+}
+
+export interface OfflineReturnsReport {
+  totals: ReturnsReportTotals & { refundTotal: number };
+  byProduct: ReturnsByProductRow[];
+  bySale: OfflineReturnsByOrderRow[];
+}
+
+export async function getOfflineReturnsReport(
+  range: PeriodRange,
+  viewer: Pick<CurrentUser, "channels">
+): Promise<OfflineReturnsReport> {
+  const returns = await prisma.saleReturn.findMany({
+    where: { receivedAt: { gte: range.from, lte: range.to }, sale: saleChannelWhere(viewer) },
+    orderBy: { receivedAt: "desc" },
+    include: {
+      sale: {
+        select: {
+          id: true,
+          saleNumber: true,
+          displayNumber: true,
+          customerLabel: true,
+          customer: { select: { fullName: true } },
+          salesChannel: { select: { name: true } },
+        },
+      },
+      lines: { select: { nameSnapshot: true, skuSnapshot: true, quantitySellable: true, quantityDamaged: true } },
+    },
+  });
+
+  let unitsSellable = 0;
+  let unitsDamaged = 0;
+  let refundTotal = 0;
+  const saleIds = new Set<string>();
+  const byProductMap = new Map<string, ReturnsByProductRow>();
+  const bySale: OfflineReturnsByOrderRow[] = [];
+
+  for (const r of returns) {
+    saleIds.add(r.saleId);
+    refundTotal += Number(r.refundAmount);
+    let eventSellable = 0;
+    let eventDamaged = 0;
+
+    for (const line of r.lines) {
+      unitsSellable += line.quantitySellable;
+      unitsDamaged += line.quantityDamaged;
+      eventSellable += line.quantitySellable;
+      eventDamaged += line.quantityDamaged;
+
+      const key = line.skuSnapshot || line.nameSnapshot;
+      const existing = byProductMap.get(key);
+      if (existing) {
+        existing.unitsSellable += line.quantitySellable;
+        existing.unitsDamaged += line.quantityDamaged;
+        existing.unitsTotal += line.quantitySellable + line.quantityDamaged;
+        existing.lines += 1;
+      } else {
+        byProductMap.set(key, {
+          key,
+          name: line.nameSnapshot,
+          sku: line.skuSnapshot,
+          unitsSellable: line.quantitySellable,
+          unitsDamaged: line.quantityDamaged,
+          unitsTotal: line.quantitySellable + line.quantityDamaged,
+          lines: 1,
+        });
+      }
+    }
+
+    bySale.push({
+      saleReturnId: r.id,
+      saleId: r.saleId,
+      saleNumber: r.sale.saleNumber,
+      displayNumber: r.sale.displayNumber,
+      customerName: r.sale.customerLabel ?? r.sale.customer?.fullName ?? "—",
+      channelName: r.sale.salesChannel.name,
+      receivedAt: r.receivedAt,
+      receivedByName: r.receivedByName,
+      unitsSellable: eventSellable,
+      unitsDamaged: eventDamaged,
+      refundAmount: Number(r.refundAmount),
+      note: r.note,
+    });
+  }
+
+  return {
+    totals: {
+      returnEvents: returns.length,
+      ordersReturned: saleIds.size,
+      unitsSellable,
+      unitsDamaged,
+      unitsTotal: unitsSellable + unitsDamaged,
+      refundTotal: Math.round(refundTotal * 100) / 100,
+    },
+    byProduct: [...byProductMap.values()].sort((a, b) => b.unitsTotal - a.unitsTotal),
+    bySale,
   };
 }

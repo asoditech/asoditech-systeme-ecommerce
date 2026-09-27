@@ -73,7 +73,7 @@ export default async function UtilisateursPage() {
             ? "Comptes d'accès et rôles. Les permissions sont définies par rôle ; des ajustements individuels et les canaux de vente se règlent par utilisateur."
             : "Comptes d'accès et rôles. Les permissions sont définies par rôle ; des ajustements individuels se règlent par utilisateur."
         }
-        actions={canManage ? <InviteUserForm /> : undefined}
+        actions={canManage ? <InviteUserForm channelsEnabled={storeChannelsOn} /> : undefined}
       />
 
       {canManage && (

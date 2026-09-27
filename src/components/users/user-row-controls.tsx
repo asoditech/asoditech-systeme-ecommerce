@@ -90,7 +90,28 @@ export function UserRowControls({
     return <span className="text-sm text-muted-foreground">Propriétaire</span>;
   }
 
+  // Concise access summary (Batch 9, Group 11.E) — computed from the same
+  // props already passed to the row, no new data fetch. Makes it obvious at
+  // a glance what a user can reach without opening either dialog: which
+  // channels (or "Tous" for a global-location role), how many locations,
+  // and how many individual permission overrides are in effect.
+  const summaryParts: string[] = [];
+  if (access?.channelsEnabled) {
+    const names = access.channels.filter((c) => access.assignedChannelIds.includes(c.id)).map((c) => c.name);
+    summaryParts.push(`Canaux : ${names.length > 0 ? names.join(", ") : "aucun"}`);
+  }
+  summaryParts.push(
+    hasGlobalLocationAccess
+      ? "Emplacements : tous"
+      : `Emplacements : ${assignedWarehouseIds.length > 0 ? assignedWarehouseIds.length : "aucun"}`
+  );
+  if (access) {
+    const overrideCount = access.grants.length + access.denies.length;
+    summaryParts.push(overrideCount > 0 ? `${overrideCount} permission(s) personnalisée(s)` : "Permissions : rôle seul");
+  }
+
   return (
+    <div className="space-y-1">
     <div className="flex items-center gap-3">
       <Select
         value={role}
@@ -180,6 +201,8 @@ export function UserRowControls({
       >
         <Trash2 className="size-4" />
       </Button>
+    </div>
+    <p className="text-xs text-muted-foreground">{summaryParts.join(" · ")}</p>
 
       <Dialog
         open={deleteOpen}

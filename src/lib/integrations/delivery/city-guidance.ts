@@ -44,17 +44,25 @@ export function cityGuidanceFromProviders(providers: DeliveryProviderForGuidance
   return { tone: "generic", providerName: providers.length === 1 ? providers[0].name : null };
 }
 
-/** The actual warning text for each tone — used by both order-form.tsx and
- * edit-shipping-address-dialog.tsx so the wording never drifts between them. */
+/**
+ * The actual warning text for each tone — used by both order-form.tsx and
+ * edit-shipping-address-dialog.tsx so the wording never drifts between them.
+ *
+ * Provider-neutral by requirement (Batch 9, Group 1): never names the
+ * carrier in the user-facing message, even when exactly one is active and
+ * even when it is FETCH_CITIES-capable. `guidance.providerName` still exists
+ * on the `CityGuidance` value above for any future non-message use — this
+ * function deliberately never reads it. The `exact` tone keeps a stronger
+ * phrasing ("empêchera" vs "peut empêcher") since that fact — an exact
+ * catalogue match is required — is real and worth conveying without naming
+ * who enforces it.
+ */
 export function cityGuidanceMessage(guidance: CityGuidance): string {
   switch (guidance.tone) {
     case "exact":
-      return `Écrivez le nom de la ville exactement comme il apparaît chez ${guidance.providerName}. Une orthographe différente empêchera la création du colis.`;
+      return "Écrivez le nom de la ville exactement comme attendu par le transporteur sélectionné. Une orthographe différente empêchera la création du colis.";
     case "generic":
-      return guidance.providerName
-        ? `Écrivez le nom de la ville tel qu'attendu par ${guidance.providerName}.`
-        : "Écrivez le nom de la ville exactement comme attendu par le transporteur sélectionné.";
     case "none":
-      return "Écrivez le nom de la ville exactement comme attendu par le transporteur sélectionné.";
+      return "Écrivez le nom de la ville exactement comme attendu par le transporteur sélectionné. Une orthographe différente peut empêcher la création du colis.";
   }
 }

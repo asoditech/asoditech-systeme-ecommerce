@@ -40,9 +40,13 @@ const BATCH = 6;
 export function AwaitingShipmentTable({
   orders,
   providers,
+  orderNumberPrefix,
 }: {
   orders: AwaitingOrderRow[];
   providers: ShipmentProviderOption[];
+  /** Tenant's configured order-number prefix (docs — Batch 17/Final Audit).
+   * Optional so any other caller that doesn't pass it keeps the old "CMD" default. */
+  orderNumberPrefix?: string;
 }) {
   const router = useRouter();
   const apiProviders = useMemo(
@@ -91,7 +95,7 @@ export function AwaitingShipmentTable({
           if (r.ok) created++;
           else
             failures.push(
-              `${displayOrderNumber({ orderNumber: r.orderNumber, displayNumber: r.orderDisplayNumber, source: "INTERNE", externalNumber: null })} : ${r.error ?? "échec"}`
+              `${displayOrderNumber({ orderNumber: r.orderNumber, displayNumber: r.orderDisplayNumber, source: "INTERNE", externalNumber: null }, orderNumberPrefix)} : ${r.error ?? "échec"}`
             );
         }
         remaining = remaining.filter((id) => !done.has(id));
@@ -138,7 +142,7 @@ export function AwaitingShipmentTable({
             <Truck className={running ? "size-4 animate-pulse" : "size-4"} />
             {running ? "Création…" : `Créer les expéditions (${selected.size})`}
           </Button>
-          {bulkProviderId && (
+          {bulkProviderId && apiProviders.find((p) => p.id === bulkProviderId)?.capabilities.includes("FETCH_CITIES") && (
             <CityMappingDialog
               providerId={bulkProviderId}
               providerName={apiProviders.find((p) => p.id === bulkProviderId)?.name ?? ""}
@@ -173,12 +177,12 @@ export function AwaitingShipmentTable({
                   <Checkbox
                     checked={selected.has(o.id)}
                     onCheckedChange={() => toggle(o.id)}
-                    aria-label={`Sélectionner ${displayOrderNumber(o)}`}
+                    aria-label={`Sélectionner ${displayOrderNumber(o, orderNumberPrefix)}`}
                   />
                 </TableCell>
                 <TableCell className="font-medium align-top">
                   <Link href={`/commandes/${o.id}`} className="hover:underline">
-                    {displayOrderNumber(o)}
+                    {displayOrderNumber(o, orderNumberPrefix)}
                   </Link>
                 </TableCell>
                 <TableCell className="align-top">

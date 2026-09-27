@@ -199,3 +199,97 @@ export function mapPaymentMethod(wcPaymentMethod: string | null | undefined): Pa
 export function totalRefundedAmount(wc: WcOrder): number {
   return wc.refunds.reduce((sum, r) => sum + Math.abs(Number(r.total) || 0), 0);
 }
+
+// ---------------------------------------------------------------------------
+// Batch 13 — Product Publishing (local ASODITECH Product → WooCommerce).
+// The reverse direction of `mapProductFields` above: pure, no network, no
+// Prisma — the server action resolves the local product/variations/images
+// and passes plain data in; this only ever decides the WooCommerce payload
+// shape. Status is deliberately the one field NOT mirrored 1:1: a WooCommerce
+// product is either "publish" or "draft" (never a 3-state BROUILLON/ACTIF/
+// ARCHIVE), and eligibility already refuses to publish anything but an ACTIF
+// product, so this always sends "publish".
+// ---------------------------------------------------------------------------
+
+export interface PublishableProductInput {
+  name: string;
+  sku: string;
+  description: string | null;
+  price: number;
+  salePrice: number | null;
+  images: { url: string }[];
+  /** The Woo category id this product's local category is already linked to
+   * (its own `externalId`, when `source: "WOOCOMMERCE"`) — omitted entirely
+   * when the category has no such link, so the product is simply created
+   * uncategorized rather than blocking publication (Section 22). */
+  wooCategoryId: number | null;
+}
+
+export interface PublishableVariationInput {
+  sku: string;
+  price: number | null;
+  salePrice: number | null;
+  /** e.g. { Couleur: "Noir", Taille: "M" } */
+  attributes: Record<string, string>;
+}
+
+const money = (n: number) => n.toFixed(2);
+
+/**
+ * The parent product payload for `WooCommerceClient.createProduct`.
+ * `variations.length === 0` → a WooCommerce "simple" product, its own
+ * price/sku sent directly. Otherwise → "variable": price/sku are NOT sent
+ * on the parent (WooCommerce derives its display price range from the
+ * variations themselves, exactly like this app's own product list does for
+ * a variable product — see `listProducts`), and `attributes` declares every
+ * axis (Couleur/Taille/…) the variations below actually use, so the
+ * storefront's variation picker has something to render.
+ */
+export function buildWooCommerceProductPayload(
+  product: PublishableProductInput,
+  variations: PublishableVariationInput[]
+): Parameters<import("./client").WooCommerceClient["createProduct"]>[0] {
+  const isVariable = variations.length > 0;
+  const attributeNames = isVariable
+    ? [...new Set(variations.flatMap((v) => Object.keys(v.attributes)))]
+    : [];
+
+  return {
+    name: product.name,
+    sku: isVariable ? product.sku : product.sku,
+    type: isVariable ? "variable" : "simple",
+    status: "publish",
+    description: product.description ?? undefined,
+    ...(isVariable
+      ? {}
+      : {
+          regular_price: money(product.price),
+          ...(product.salePrice != null ? { sale_price: money(product.salePrice) } : {}),
+        }),
+    images: product.images.map((img) => ({ src: img.url })),
+    ...(product.wooCategoryId != null ? { categories: [{ id: product.wooCategoryId }] } : {}),
+    ...(isVariable
+      ? {
+          attributes: attributeNames.map((name) => ({
+            name,
+            variation: true,
+            options: [...new Set(variations.map((v) => v.attributes[name]).filter((v): v is string => Boolean(v)))],
+          })),
+        }
+      : {}),
+  };
+}
+
+/** One variation's payload for `WooCommerceClient.createProductVariation`, called once per variation after the parent exists. */
+export function buildWooCommerceVariationPayload(
+  variation: PublishableVariationInput,
+  parentPrice: number
+): Parameters<import("./client").WooCommerceClient["createProductVariation"]>[1] {
+  const regularPrice = variation.price ?? parentPrice;
+  return {
+    sku: variation.sku,
+    regular_price: money(regularPrice),
+    ...(variation.salePrice != null ? { sale_price: money(variation.salePrice) } : {}),
+    attributes: Object.entries(variation.attributes).map(([name, option]) => ({ name, option })),
+  };
+}

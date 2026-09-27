@@ -1,10 +1,10 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Pencil } from "lucide-react";
-import { updateVariationDetailsAction } from "@/actions/products";
+import { updateVariationDetailsAction, updateVariationSkuAction } from "@/actions/products";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,16 +14,21 @@ import type { ActionResult, IdResult } from "@/actions/types";
 
 /**
  * Edit dialog for a single variation's ASODITECH-owned fields (Batch 4):
- * cost, sale price, image URL, active state. Never sku/attributes/price —
- * those stay provider-owned once synced (see updateVariationDetailsAction's
- * own doc comment) and have no edit control here.
+ * cost, sale price, image URL, active state — plus, since Batch 11, its SKU.
+ * SKU is submitted through a SEPARATE small action (`updateVariationSkuAction`)
+ * rather than folded into the main form: `updateVariationDetailsAction`'s own
+ * doc comment documents that it never touches sku/attributes/price, and this
+ * keeps that invariant intact instead of special-casing it. This whole
+ * dialog is only ever rendered by the page for an INTERNE product
+ * (`canEdit && !isExternal`), so no extra prop is needed here to gate it —
+ * the server action re-checks the same boundary regardless.
  */
 export function VariantEditDialog({
   variation,
   label,
   regularPrice,
 }: {
-  variation: { id: string; cost: string | null; salePrice: string | null; imageUrl: string | null; isActive: boolean };
+  variation: { id: string; sku: string; cost: string | null; salePrice: string | null; imageUrl: string | null; isActive: boolean };
   label: string;
   /** The effective regular price (variation.price ?? product.price) — shown so the sale-price field's ceiling makes sense. */
   regularPrice: string;
@@ -31,6 +36,9 @@ export function VariantEditDialog({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [imagePreview, setImagePreview] = useState(variation.imageUrl ?? "");
+  const [sku, setSku] = useState(variation.sku);
+  const [skuError, setSkuError] = useState<string | null>(null);
+  const [skuPending, startSkuTransition] = useTransition();
 
   const [state, formAction, isPending] = useActionState(
     async (_prev: ActionResult<IdResult> | undefined, formData: FormData) => {
@@ -47,8 +55,39 @@ export function VariantEditDialog({
     undefined
   );
 
+  function saveSku() {
+    const next = sku.trim();
+    if (!next || next === variation.sku) return;
+    setSkuError(null);
+    startSkuTransition(async () => {
+      const result = await updateVariationSkuAction({ id: variation.id, sku: next });
+      if (result.ok) {
+        toast.success("SKU mis à jour.");
+        router.refresh();
+      } else {
+        setSkuError(result.error);
+        toast.error(result.error);
+      }
+    });
+  }
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        // The input itself remounts fresh (base-ui unmounts closed dialog
+        // content), but this preview state lives on the outer component and
+        // would otherwise keep an abandoned, never-saved draft across a
+        // close+reopen (Batch 8, Area 1) — resync it to the current value
+        // every time the dialog opens. Same reasoning for the SKU draft.
+        if (next) {
+          setImagePreview(variation.imageUrl ?? "");
+          setSku(variation.sku);
+          setSkuError(null);
+        }
+      }}
+    >
       <DialogTrigger render={<Button type="button" size="icon" variant="ghost" aria-label={`Modifier ${label}`} />}>
         <Pencil className="size-4" />
       </DialogTrigger>
@@ -56,6 +95,31 @@ export function VariantEditDialog({
         <DialogHeader>
           <DialogTitle>{label}</DialogTitle>
         </DialogHeader>
+        <div className="space-y-1.5 border-b pb-3">
+          <Label htmlFor={`vsku-${variation.id}`}>SKU</Label>
+          <div className="flex gap-2">
+            <Input
+              id={`vsku-${variation.id}`}
+              value={sku}
+              onChange={(e) => setSku(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  saveSku();
+                }
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={skuPending || !sku.trim() || sku.trim() === variation.sku}
+              onClick={saveSku}
+            >
+              Enregistrer
+            </Button>
+          </div>
+          {skuError && <p className="text-xs text-destructive">{skuError}</p>}
+        </div>
         <form action={formAction} className="space-y-3">
           <input type="hidden" name="id" value={variation.id} />
           <div className="grid gap-3 sm:grid-cols-2">

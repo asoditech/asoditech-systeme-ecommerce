@@ -13,9 +13,9 @@ import { getStockValuationReport } from "@/lib/queries/reports/stock-valuation";
 import { getDeliveryPerformanceReport } from "@/lib/queries/reports/delivery";
 import { getCustomerReport } from "@/lib/queries/reports/customers";
 import { getCashflowReport } from "@/lib/queries/reports/cashflow";
-import { getReturnsReport } from "@/lib/queries/reports/returns";
+import { getReturnsReport, getOfflineReturnsReport } from "@/lib/queries/reports/returns";
 import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
-import { formatOrderNumber } from "@/lib/format";
+import { formatOrderNumber, formatSaleNumber } from "@/lib/format";
 
 /**
  * One CSV export endpoint for every /rapports page — `/rapports/export/<type>`
@@ -34,7 +34,16 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
   const { type } = await ctx.params;
   // Every report except the stock valuation aggregates delivery ORDERS: a CSV
   // export must not be a way around the on-screen channel scope (docs/adr/0039).
-  if (type !== "stock" && type !== "canaux") requireChannelKind(user, "ONLINE");
+  // "retours" (Batch 15) covers BOTH domains and gates each section on its
+  // own channel below, exactly like its page — only reject it here if the
+  // caller has neither channel at all (nothing this export could ever show);
+  // a Response, not `redirect()` — the latter is for pages, same convention
+  // as the "canaux" case just below.
+  if (type === "retours") {
+    if (!user.channels.online && !user.channels.offline) return new Response("Forbidden", { status: 403 });
+  } else if (type !== "stock" && type !== "canaux") {
+    requireChannelKind(user, "ONLINE");
+  }
   const url = new URL(request.url);
   const params = {
     period: url.searchParams.get("period") ?? undefined,
@@ -248,12 +257,14 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
     }
 
     case "retours": {
-      const r = await getReturnsReport(resolved.range);
-      return csvDocumentResponse(
-        `rapport-retours-${stamp}`,
-        doc("Rapport des retours", [
+      // Batch 15: same domain split as the page — each section only built
+      // (and only ever shown) when the caller may read that channel.
+      const sections: CsvSection[] = [];
+      if (user.channels.online) {
+        const r = await getReturnsReport(resolved.range);
+        sections.push(
           {
-            heading: "Résumé",
+            heading: "En ligne — Résumé",
             headers: ["Indicateur", "Valeur"],
             rows: [
               ["Retours enregistrés", r.totals.returnEvents],
@@ -264,15 +275,15 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
             ],
           },
           {
-            heading: "Par produit",
+            heading: "En ligne — Par produit",
             headers: ["Produit", "SKU", "Revendables", "Endommagées", "Total"],
             rows: r.byProduct.map((p) => [p.name, p.sku, p.unitsSellable, p.unitsDamaged, p.unitsTotal]),
           },
           {
-            heading: "Par commande",
+            heading: "En ligne — Par commande",
             headers: ["Commande", "Client", "Reçu par", "Date", "Revendables", "Endommagées", "Note"],
             rows: r.byOrder.map((o) => [
-              formatOrderNumber(o.displayNumber ?? o.orderNumber),
+              formatOrderNumber(o.displayNumber ?? o.orderNumber, business.orderNumberPrefix),
               o.customerName,
               o.receivedByName ?? "—",
               o.receivedAt.toLocaleString("fr-FR"),
@@ -280,9 +291,45 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
               o.unitsDamaged,
               o.note ?? "—",
             ]),
+          }
+        );
+      }
+      if (user.channels.offline) {
+        const or = await getOfflineReturnsReport(resolved.range, user);
+        sections.push(
+          {
+            heading: "Magasin — Résumé",
+            headers: ["Indicateur", "Valeur"],
+            rows: [
+              ["Retours enregistrés", or.totals.returnEvents],
+              ["Ventes concernées", or.totals.ordersReturned],
+              ["Unités revendables", or.totals.unitsSellable],
+              ["Unités endommagées", or.totals.unitsDamaged],
+              ["Total remboursé", or.totals.refundTotal],
+            ],
           },
-        ])
-      );
+          {
+            heading: "Magasin — Par produit",
+            headers: ["Produit", "SKU", "Revendables", "Endommagées", "Total"],
+            rows: or.byProduct.map((p) => [p.name, p.sku, p.unitsSellable, p.unitsDamaged, p.unitsTotal]),
+          },
+          {
+            heading: "Magasin — Par vente",
+            headers: ["Vente", "Canal", "Client", "Reçu par", "Date", "Revendables", "Endommagées", "Remboursé"],
+            rows: or.bySale.map((s) => [
+              formatSaleNumber(s.displayNumber ?? s.saleNumber),
+              s.channelName,
+              s.customerName,
+              s.receivedByName ?? "—",
+              s.receivedAt.toLocaleString("fr-FR"),
+              s.unitsSellable,
+              s.unitsDamaged,
+              s.refundAmount,
+            ]),
+          }
+        );
+      }
+      return csvDocumentResponse(`rapport-retours-${stamp}`, doc("Rapport des retours", sections));
     }
 
     case "clients": {

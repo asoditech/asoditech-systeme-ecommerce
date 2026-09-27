@@ -264,6 +264,58 @@ export class WooCommerceClient {
     return this.requestJson(wcProductSchema, `/products/${id}`);
   }
 
+  /**
+   * Batch 13 (Product Publishing) — the one and only place this adapter
+   * CREATES a new product on the connected store, as opposed to every other
+   * method here (stock/order push), which only ever updates a resource the
+   * store already owns. `POST /products`, WooCommerce's own documented
+   * product-creation endpoint (https://woocommerce.github.io/woocommerce-rest-api-docs/#create-a-product).
+   * `payload.type: "variable"` creates the PARENT only — its actual
+   * variations are created afterward, one at a time, via
+   * `createProductVariation` (mirrors WooCommerce's own two-step model:
+   * a variable product's variations are a child resource of the product,
+   * never created inline with it).
+   */
+  async createProduct(payload: {
+    name: string;
+    sku: string;
+    type: "simple" | "variable";
+    regular_price?: string;
+    sale_price?: string;
+    description?: string;
+    status: "publish" | "draft";
+    images?: { src: string }[];
+    categories?: { id: number }[];
+    /** Required (and only meaningful) when `type: "variable"` — the
+     * attribute names used by its variations (e.g. "Couleur", "Taille"),
+     * each flagged `variation: true` so WooCommerce treats it as a real
+     * variation axis rather than a plain display attribute, and `options`
+     * listing every value in use so the storefront's own attribute
+     * selectors have something to render. */
+    attributes?: { name: string; variation: boolean; options: string[] }[];
+  }): Promise<WcProduct> {
+    return this.requestJson(wcProductSchema, "/products", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /** Batch 13 — creates one variation of an already-created variable product (see `createProduct`). */
+  async createProductVariation(
+    productId: number,
+    payload: {
+      sku: string;
+      regular_price?: string;
+      sale_price?: string;
+      attributes: { name: string; option: string }[];
+    }
+  ): Promise<WcProductVariation> {
+    return this.requestJson(wcProductVariationSchema, `/products/${productId}/variations`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
   /** System → WooCommerce stock push. `variationId` targets a specific variation instead of the parent product. */
   async updateStock(productId: number, quantity: number, variationId?: number): Promise<void> {
     const path = variationId ? `/products/${productId}/variations/${variationId}` : `/products/${productId}`;

@@ -51,6 +51,12 @@ export async function listSales(viewer: Viewer, filters: SaleListFilters = {}) {
         warehouse: { select: { name: true } },
         payments: { select: { method: true, amount: true } },
         _count: { select: { lines: true, returns: true } },
+        // Batch 9, Group 8: the list's own partial/full return badge, reusing
+        // `returnStateLabel` (the sale detail page's own function) fed with
+        // cheap aggregate sums — this view never needs which specific line a
+        // unit was returned from.
+        lines: { select: { quantity: true } },
+        returns: { select: { lines: { select: { quantitySellable: true, quantityDamaged: true } } } },
       },
     }),
     prisma.sale.count({ where }),

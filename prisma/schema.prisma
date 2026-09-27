@@ -97,6 +97,7 @@ model Tenant {
   salesChannels             SalesChannel[]
   salesChannelLocations     SalesChannelLocation[]
   productSalesChannels      ProductSalesChannel[]
+  productPublications       ProductPublication[]
   userChannels              UserChannel[]
   userPermissionOverrides   UserPermissionOverride[]
   barcodes                  Barcode[]
@@ -377,6 +378,7 @@ model User {
   customersCreated           Customer[]                 @relation("CustomerCreatedBy")
   ordersCreated              Order[]                    @relation("OrderCreatedBy")
   productsCreated            Product[]                  @relation("ProductCreatedBy")
+  productPublications        ProductPublication[]       @relation("ProductPublicationPublishedBy")
   warehousesCreated          Warehouse[]                @relation("WarehouseCreatedBy")
   inventoryMovements         InventoryMovement[]        @relation("MovementPerformedBy")
   expensesRecorded           Expense[]                  @relation("ExpenseRecordedBy")
@@ -679,6 +681,7 @@ model Product {
   salesChannels  ProductSalesChannel[]
   receptionLines ReceptionLine[]
   saleLines      SaleLine[]
+  publications   ProductPublication[]
 
   // Phase 3 (docs/adr/0025): sku is unique per tenant, not globally.
   @@unique([tenantId, sku])
@@ -946,6 +949,54 @@ model ProductSalesChannel {
   @@index([salesChannelId])
   @@index([tenantId])
   @@map("product_sales_channels")
+}
+
+// Batch 13 — Product Publishing / External Catalog.
+//
+// Deliberately SEPARATE from `Product.source`/`Product.externalId`, which
+// mean "this product's definition is OWNED by (and was imported from) this
+// provider" (docs/adr/0017-product-management-boundary.md) — a single pair,
+// because a product's canonical origin is exactly one thing. Publishing is a
+// different fact entirely: "this local, ASODITECH-owned product ALSO exists
+// as a product on this external channel" — and one product may legitimately
+// be published to MULTIPLE channels at once (WooCommerce AND Shopify).
+// Reusing source/externalId for this would have silently flipped an
+// INTERNE product into "provider-owned" the moment it was published,
+// locking out its own name/price/description edits (exactly what Section 23
+// of this batch's own spec forbids) — so a minimal new table is the
+// smallest correct model, not a schema change taken lightly. It never
+// touches inventory (docs/adr/0036) and is not a second product model: it
+// only ever answers "is this local Product published to this provider, and
+// under which external id?".
+model ProductPublication {
+  id         String              @id @default(cuid())
+  tenantId   String              @default("default")
+  productId  String
+  provider   IntegrationProvider
+  // The provider's own product id — WooCommerce: numeric id as a string
+  // (matches sync/products.ts's own `String(wc.id)` convention); Shopify:
+  // the full GraphQL gid ("gid://shopify/Product/123"), matching
+  // sync/products.ts's own `externalId: product.id`. Never re-derived or
+  // guessed — always exactly what the provider returned at publish time.
+  externalId String
+  publishedAt DateTime @default(now())
+  // Actor id + name snapshot (no FK-breaking on user deletion) — same
+  // convention as Sale.soldByName / OrderReturn.receivedByName (ADR 0038/0040).
+  publishedById   String?
+  publishedByName String?
+
+  tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  publishedBy User?   @relation("ProductPublicationPublishedBy", fields: [publishedById], references: [id], onDelete: SetNull)
+
+  // One publication row per (product, provider) — this IS the duplicate-
+  // publish guard: a second "Publish" call for the same product+provider
+  // finds this row and refuses, rather than creating a second external
+  // product. A DIFFERENT provider gets its OWN row, so multi-channel works.
+  @@unique([tenantId, productId, provider])
+  @@index([productId])
+  @@index([tenantId])
+  @@map("product_publications")
 }
 
 // The channel counterpart of UserLocation (docs/adr/0037): which channels a

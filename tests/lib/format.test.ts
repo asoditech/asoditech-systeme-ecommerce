@@ -3,6 +3,7 @@ import {
   formatOrderNumber,
   formatTransferNumber,
   formatStocktakeNumber,
+  displayOrderNumber,
   displayOrderChannel,
   returnStateLabel,
 } from "@/lib/format";
@@ -18,6 +19,28 @@ describe("reference number formatters", () => {
     expect(formatOrderNumber(123)).toBe("CMD-000123");
     expect(formatTransferNumber(123)).toBe("TR-000123");
     expect(formatStocktakeNumber(123)).toBe("INV-000123");
+  });
+});
+
+// Batch 17 — BusinessSettings.orderNumberPrefix was persisted but never
+// actually consumed by any order-number display; formatOrderNumber/
+// displayOrderNumber now accept the tenant's real prefix, defaulting to
+// "CMD" (unchanged behaviour) for any caller that doesn't pass one.
+describe("formatOrderNumber / displayOrderNumber — configurable prefix (Batch 17)", () => {
+  it("formatOrderNumber uses a custom prefix when given one, CMD otherwise", () => {
+    expect(formatOrderNumber(123, "ORD")).toBe("ORD-000123");
+    expect(formatOrderNumber(123)).toBe("CMD-000123");
+  });
+
+  it("displayOrderNumber applies the custom prefix to an INTERNE order", () => {
+    const order = { orderNumber: 42, displayNumber: null, source: "INTERNE" as const, externalNumber: null };
+    expect(displayOrderNumber(order, "ORD")).toBe("ORD-000042");
+    expect(displayOrderNumber(order)).toBe("CMD-000042"); // omitted prefix keeps old behaviour
+  });
+
+  it("a synced (WooCommerce/Shopify) order still shows its own external number, prefix or not", () => {
+    const order = { orderNumber: 42, displayNumber: null, source: "WOOCOMMERCE" as const, externalNumber: "9001" };
+    expect(displayOrderNumber(order, "ORD")).toBe("#9001");
   });
 });
 

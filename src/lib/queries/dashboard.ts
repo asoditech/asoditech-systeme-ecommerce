@@ -106,6 +106,11 @@ export async function getDashboardData(
 
   return {
     periodKey,
+    // The resolved date range for `periodKey` (Batch 8, Area 4) — exposed so
+    // a caller that needs the SAME period for a second, non-Order source
+    // (e.g. the dashboard's in-store sales KPI) reuses this instead of
+    // re-deriving the periodKey → range mapping a second time.
+    period,
     source,
     finance,
     previousFinance,

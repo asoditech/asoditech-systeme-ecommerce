@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { listOrdersAwaitingShipment, listShipments, getDeliveryStats } from "@/lib/queries/delivery";
+import { listOrdersAwaitingShipment, listShipments, getDeliveryStats, listShipmentProviderOptions } from "@/lib/queries/delivery";
 import { createOrderAction, updateOrderStatusAction } from "@/actions/orders";
 import { createShippingProviderAction } from "@/actions/delivery";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -150,6 +150,78 @@ describe("listOrdersAwaitingShipment", () => {
 
     const byNumber = await listOrdersAwaitingShipment({ search: String(target.orderNumber) });
     expect(byNumber.orders.map((o) => o.id)).toEqual([targetId]);
+  });
+});
+
+/**
+ * Batch 18 — Delivery Provider UX Decoupling. The generic shipment UI
+ * (CreateShipmentDialog / CityMappingDialog / ShipmentProviderControls) now
+ * gates provider-specific affordances (city mapping, cancellation) on each
+ * provider's genuinely-declared capabilities instead of assuming every API
+ * provider supports the same operations — this is the query those
+ * decisions read from, so a regression here would silently break that
+ * gating and either show a dead-end control or hide a genuinely-supported
+ * one.
+ *
+ * Deliberately resolved from the **live adapter registry**
+ * (`providerKey` → `getDeliveryProvider(...)`), never
+ * `ShippingProvider.capabilities` (that DB column is only snapshotted on a
+ * successful connection test — see `providerCapabilities`'s own doc
+ * comment) — these two tests set `providerKey` directly and never run a
+ * connection test, proving the resolution does not depend on one.
+ */
+describe("listShipmentProviderOptions — capabilities exposed for UI capability-gating (Batch 18)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  it("resolves each real registered adapter's own capabilities — never a shared/guessed set — with no connection test ever run", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const ozon = await createShippingProviderAction(formData({ name: "OzonExpress", type: "API" }));
+    const aramex = await createShippingProviderAction(formData({ name: "Aramex", type: "API" }));
+    if (!ozon.ok || !aramex.ok) throw new Error("setup failed");
+    // providerKey set directly, bypassing configureDeliveryProviderApiAction
+    // and testDeliveryProviderConnectionAction entirely — connectionStatus
+    // stays null/CONFIGURE, never CONNECTE.
+    await prisma.shippingProvider.update({ where: { id: ozon.data.id }, data: { providerKey: "ozonexpress" } });
+    await prisma.shippingProvider.update({ where: { id: aramex.data.id }, data: { providerKey: "aramex" } });
+
+    const options = await listShipmentProviderOptions();
+    const a = options.find((p) => p.id === ozon.data.id);
+    const b = options.find((p) => p.id === aramex.data.id);
+    expect(a?.connectionStatus).not.toBe("CONNECTE");
+    expect(a?.capabilities).toContain("FETCH_CITIES");
+    expect(b?.connectionStatus).not.toBe("CONNECTE");
+    expect(b?.capabilities).not.toContain("FETCH_CITIES");
+    // Neither registered carrier supports cancellation today (no endpoint /
+    // pickup-scoped only) — both must surface the same "unsupported".
+    expect(a?.capabilities).not.toContain("CANCEL_SHIPMENT");
+    expect(b?.capabilities).not.toContain("CANCEL_SHIPMENT");
+  });
+
+  it("a MANUEL provider (no providerKey) always resolves to an empty capability set, never a guess", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const manuel = await createShippingProviderAction(formData({ name: "Livreur local", type: "MANUEL" }));
+    if (!manuel.ok) throw new Error("setup failed");
+
+    const options = await listShipmentProviderOptions();
+    const found = options.find((p) => p.id === manuel.data.id);
+    expect(found?.capabilities).toEqual([]);
+  });
+
+  it("excludes an inactive provider, same scope as the rest of this query", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const provider = await createShippingProviderAction(formData({ name: "Ancien transporteur", type: "API" }));
+    if (!provider.ok) throw new Error("setup failed");
+    await prisma.shippingProvider.update({ where: { id: provider.data.id }, data: { isActive: false } });
+
+    const options = await listShipmentProviderOptions();
+    expect(options.map((p) => p.id)).not.toContain(provider.data.id);
   });
 });
 

@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
-import { getSupplierDetail } from "@/lib/queries/purchases";
+import { getSupplierDetail, getSupplierPurchaseHistory } from "@/lib/queries/purchases";
 import { displayReceptionNumber, formatCurrency, formatDate } from "@/lib/format";
 import { RECEPTION_STATUS_LABELS, CASH_PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
 
@@ -19,7 +19,11 @@ export const metadata = { title: "Fournisseur — ASODITECH Gestion E-commerce" 
 export default async function FournisseurDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("suppliers.view");
   const { id } = await params;
-  const detail = await getSupplierDetail(id);
+  const canViewPurchases = userHasPermission(user, "purchases.view");
+  const [detail, purchaseHistory] = await Promise.all([
+    getSupplierDetail(id),
+    canViewPurchases ? getSupplierPurchaseHistory(id, 30) : Promise.resolve([]),
+  ]);
   if (!detail) notFound();
   const { supplier, balance, payments, receptions } = detail;
   const canManage = userHasPermission(user, "suppliers.manage");
@@ -104,6 +108,63 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
           </Table>
         </CardContent>
       </Card>
+
+      {canViewPurchases && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-[15px]">Produits achetés</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <p className="px-6 pb-3 text-xs text-muted-foreground">
+              Lignes des réceptions validées de ce fournisseur — les {purchaseHistory.length} plus récentes.
+            </p>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Article</TableHead>
+                    <TableHead className="text-right">Quantité</TableHead>
+                    <TableHead className="text-right">Prix unitaire</TableHead>
+                    <TableHead>Réception</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {purchaseHistory.map((l, i) => (
+                    <TableRow key={`${l.receptionId}-${i}`}>
+                      <TableCell className="text-muted-foreground">{formatDate(l.date)}</TableCell>
+                      <TableCell>
+                        <div className="font-medium">{l.productName}</div>
+                        <div className="font-mono text-xs text-muted-foreground">
+                          {l.sku}
+                          {l.variantLabel ? ` — ${l.variantLabel}` : ""}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{l.quantity}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatCurrency(String(l.unitCost))}</TableCell>
+                      <TableCell>
+                        <Link
+                          href={`/receptions/${l.receptionId}`}
+                          className="hover:underline"
+                        >
+                          {displayReceptionNumber({ receptionNumber: l.receptionNumber, displayNumber: l.receptionDisplayNumber })}
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {purchaseHistory.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center text-muted-foreground">
+                        Aucun achat validé pour le moment.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

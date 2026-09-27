@@ -11,6 +11,7 @@ import { userHasPermission } from "@/lib/auth/permissions";
 import { getAgentCommissionDetail } from "@/lib/queries/commissions";
 import { closeCommissionStatementAction, markCommissionStatementPaidAction } from "@/actions/commissions";
 import { formatCurrency, formatDate, formatDateTime, displayOrderNumber } from "@/lib/format";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
 import { AgentRateForm } from "@/components/commissions/agent-rate-form";
 import { FileText } from "lucide-react";
@@ -28,7 +29,7 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
   const user = await requirePermission("commissions.view");
   const canManage = userHasPermission(user, "commissions.manage");
   const { agentId } = await params;
-  const detail = await getAgentCommissionDetail(agentId);
+  const [detail, business] = await Promise.all([getAgentCommissionDetail(agentId), getReportBusinessInfo()]);
   if (!detail) notFound();
 
   const { agent, totals, pipeline, breakdown, statements, openMonths, openEntries } = detail;
@@ -281,12 +282,15 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
                     <TableRow key={e.id}>
                       <TableCell className="font-medium">
                         <Link href={`/commandes/${e.orderId}`} className="hover:underline">
-                          {displayOrderNumber({
-                            orderNumber: e.orderNumber,
-                            displayNumber: e.orderDisplayNumber,
-                            source: e.orderSource,
-                            externalNumber: e.orderExternalNumber,
-                          })}
+                          {displayOrderNumber(
+                            {
+                              orderNumber: e.orderNumber,
+                              displayNumber: e.orderDisplayNumber,
+                              source: e.orderSource,
+                              externalNumber: e.orderExternalNumber,
+                            },
+                            business.orderNumberPrefix
+                          )}
                         </Link>
                       </TableCell>
                       <TableCell>

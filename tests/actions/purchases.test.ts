@@ -9,9 +9,10 @@ import {
   cancelReceptionAction,
   recordSupplierPaymentAction,
   getLatestPurchasePriceAction,
+  getUnitPurchaseHistoryAction,
 } from "@/actions/purchases";
 import { getSupplierBalance, getReceptionRemaining } from "@/lib/receptions";
-import { getReceptionDetail } from "@/lib/queries/purchases";
+import { getReceptionDetail, listSuppliers, getSupplierPurchaseHistory } from "@/lib/queries/purchases";
 import { variantLabel } from "@/lib/catalog/lookup";
 import { resetDb, setTestBusinessMode } from "../helpers/db";
 import { loginAsTestUser, createTestUser, grantLocationAccess } from "../helpers/auth";
@@ -348,5 +349,103 @@ describe("getLatestPurchasePriceAction", () => {
     await loginAsTestUser({ role: "SUPPORT" });
     const { product } = await seed();
     await expect(getLatestPurchasePriceAction({ productId: product.id })).rejects.toThrow(/non autorisé/i);
+  });
+});
+
+// Batch 14 — supplier list "number of receptions" / "latest reception date".
+describe("listSuppliers — reception activity", () => {
+  it("counts non-cancelled receptions and reports the latest reception date, per supplier", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const other = await prisma.supplier.create({ data: { name: "Fournisseur Sans Activité" } });
+
+    const a = await draft(supplier.id, warehouse.id, [line(product.id, 1, 10)]);
+    await validateReceptionAction({ id: a });
+    await draft(supplier.id, warehouse.id, [line(product.id, 1, 10)]); // a second, still-draft reception
+    const cancelled = await draft(supplier.id, warehouse.id, [line(product.id, 1, 10)]);
+    await cancelReceptionAction({ id: cancelled });
+
+    const { suppliers } = await listSuppliers();
+    const row = suppliers.find((s) => s.id === supplier.id)!;
+    expect(row.receptionCount).toBe(2); // validated + draft, NOT the cancelled one
+    expect(row.lastReceptionDate).not.toBeNull();
+
+    const otherRow = suppliers.find((s) => s.id === other.id)!;
+    expect(otherRow.receptionCount).toBe(0);
+    expect(otherRow.lastReceptionDate).toBeNull();
+  });
+});
+
+// Batch 14 — line-level "which products did we buy from this supplier".
+describe("getSupplierPurchaseHistory", () => {
+  it("returns validated purchase LINES for one supplier, newest first, excluding drafts and other suppliers", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const otherSupplier = await prisma.supplier.create({ data: { name: "Autre Fournisseur" } });
+
+    const r1 = await draft(supplier.id, warehouse.id, [line(product.id, 2, 40)]);
+    await validateReceptionAction({ id: r1 });
+    const r2 = await draft(supplier.id, warehouse.id, [line(product.id, 3, 45)]);
+    await validateReceptionAction({ id: r2 });
+    await draft(supplier.id, warehouse.id, [line(product.id, 9, 999)]); // draft — must not appear
+    await draft(otherSupplier.id, warehouse.id, [line(product.id, 1, 1)]).then((id) => validateReceptionAction({ id })); // other supplier — must not appear
+
+    const history = await getSupplierPurchaseHistory(supplier.id);
+    expect(history).toHaveLength(2);
+    expect(history[0].unitCost).toBe(45); // newest first
+    expect(history[1].unitCost).toBe(40);
+    expect(history.every((h) => h.productName === "Basket")).toBe(true);
+  });
+
+  it("resolves a variation line to its own attributes, distinct from the parent product", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const variation = await prisma.productVariation.create({
+      data: { productId: product.id, sku: "BASKET-1-42", attributes: { Pointure: "42" } },
+    });
+    const r = await createReceptionAction({ supplierId: supplier.id, warehouseId: warehouse.id, lines: [{ variationId: variation.id, quantity: 1, unitCost: 55 }] });
+    if (!r.ok) throw new Error(r.error);
+    await validateReceptionAction({ id: r.data.id });
+
+    const history = await getSupplierPurchaseHistory(supplier.id);
+    expect(history[0].variantLabel).toBe("42");
+    expect(history[0].sku).toBe("BASKET-1-42");
+  });
+
+  it("tenant isolation: a supplier id from another tenant returns no history", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    await prismaBase.tenant.create({ data: { id: "tenant-b-purchhist", name: "B", slug: "tenant-b-purchhist" } });
+    const supB = await prismaBase.supplier.create({ data: { name: "Fournisseur B", tenantId: "tenant-b-purchhist" } });
+    expect(await getSupplierPurchaseHistory(supB.id)).toEqual([]);
+  });
+});
+
+// Batch 14 — variation-level full purchase history dialog (product page).
+describe("getUnitPurchaseHistoryAction", () => {
+  it("returns the full history for a variation, newest first", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const variation = await prisma.productVariation.create({
+      data: { productId: product.id, sku: "BASKET-1-43", attributes: { Pointure: "43" } },
+    });
+    for (const cost of [30, 35, 40]) {
+      const r = await createReceptionAction({ supplierId: supplier.id, warehouseId: warehouse.id, lines: [{ variationId: variation.id, quantity: 1, unitCost: cost }] });
+      if (!r.ok) throw new Error(r.error);
+      await validateReceptionAction({ id: r.data.id });
+    }
+    const history = await getUnitPurchaseHistoryAction({ variationId: variation.id });
+    expect(history.map((h) => h.unitCost)).toEqual([40, 35, 30]);
+  });
+
+  it("requires purchases.view — readable by a role without purchases.create", async () => {
+    await loginAsTestUser({ role: "ACCOUNTANT" }); // purchases.view yes, purchases.create no
+    const { product } = await seed();
+    expect(await getUnitPurchaseHistoryAction({ productId: product.id })).toEqual([]);
+  });
+
+  it("rejects a caller without purchases.view", async () => {
+    await loginAsTestUser({ role: "SUPPORT" });
+    const { product } = await seed();
+    await expect(getUnitPurchaseHistoryAction({ productId: product.id })).rejects.toThrow(/non autorisé/i);
   });
 });

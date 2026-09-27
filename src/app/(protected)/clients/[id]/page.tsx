@@ -19,6 +19,7 @@ import { getCustomerDetail, getCustomerStats } from "@/lib/queries/customers";
 import { deleteCustomerAddressAction } from "@/actions/customers";
 import { formatCurrency, formatDate, displayOrderNumber } from "@/lib/format";
 import { ORDER_STATUS_LABELS, CUSTOMER_SEGMENT_LABELS } from "@/lib/status-labels";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 
 export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("customers.view");
@@ -26,7 +27,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   const customer = await getCustomerDetail(id);
   if (!customer) notFound();
 
-  const stats = await getCustomerStats(id);
+  const [stats, business] = await Promise.all([getCustomerStats(id), getReportBusinessInfo()]);
   const canEdit = userHasPermission(user, "customers.edit");
   // A customer's spend / order history is Online (delivery order) data. The
   // customer record itself is shared, but its order aggregates need the
@@ -131,7 +132,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
                 <TableBody>
                   {customer.orders.map((o) => (
                     <ClickableTableRow key={o.id} href={`/commandes/${o.id}`}>
-                      <TableCell className="font-medium">{displayOrderNumber(o)}</TableCell>
+                      <TableCell className="font-medium">{displayOrderNumber(o, business.orderNumberPrefix)}</TableCell>
                       <TableCell>
                         <StatusBadge status={o.status} labels={ORDER_STATUS_LABELS} />
                       </TableCell>

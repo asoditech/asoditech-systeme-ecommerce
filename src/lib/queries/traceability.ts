@@ -37,7 +37,7 @@ export type MovementDocument =
   | { kind: "reception"; label: string; href: string; extra: string | null }
   | { kind: "sale"; label: string; href: string; extra: string | null }
   | { kind: "sale_return"; label: string; href: string; extra: string | null }
-  | { kind: "transfer"; label: string; href: string; extra: null }
+  | { kind: "transfer"; label: string; href: string; extra: string | null }
   | { kind: "stocktake"; label: string; href: string; extra: null }
   | { kind: "order"; label: string; href: string; extra: null }
   | { kind: "order_return"; label: string; href: string; extra: null };
@@ -66,7 +66,17 @@ export async function getUnitTraceability(viewer: Viewer, ref: { productId: stri
       receptionLine: { include: { reception: { include: { supplier: { select: { name: true } } } } } },
       sale: { select: { id: true, saleNumber: true, displayNumber: true } },
       saleReturn: { select: { id: true, returnNumber: true, displayNumber: true } },
-      stockTransfer: { select: { id: true, transferNumber: true, displayNumber: true } },
+      stockTransfer: {
+        select: {
+          id: true,
+          transferNumber: true,
+          displayNumber: true,
+          sourceWarehouseId: true,
+          destinationWarehouseId: true,
+          source: { select: { name: true } },
+          destination: { select: { name: true } },
+        },
+      },
       stocktakeSession: { select: { id: true, sessionNumber: true, displayNumber: true } },
       order: { select: { id: true, orderNumber: true, displayNumber: true } },
       orderReturn: { select: { id: true, orderId: true } },
@@ -113,29 +123,53 @@ export async function getUnitTraceability(viewer: Viewer, ref: { productId: stri
       actor: m.performedBy?.name ?? m.performedByName ?? null,
       reason: m.reason,
       legacy: m.onHandDelta === null,
-      document: documentOf(m),
+      document: documentOf(m, m.warehouseId),
     })),
   };
 }
 
 const pad = (n: number) => n.toString().padStart(6, "0");
 
-function documentOf(m: {
-  receptionLine: { reception: { id: string; receptionNumber: number; displayNumber: number | null; supplier: { name: string } } } | null;
-  sale: { id: string; saleNumber: number; displayNumber: number | null } | null;
-  saleReturn: { id: string; returnNumber: number; displayNumber: number | null } | null;
-  stockTransfer: { id: string; transferNumber: number; displayNumber: number | null } | null;
-  stocktakeSession: { id: string; sessionNumber: number; displayNumber: number | null } | null;
-  order: { id: string; orderNumber: number; displayNumber: number | null } | null;
-  orderReturn: { id: string; orderId: string } | null;
-}): MovementDocument | null {
+function documentOf(
+  m: {
+    receptionLine: { reception: { id: string; receptionNumber: number; displayNumber: number | null; supplier: { name: string } } } | null;
+    sale: { id: string; saleNumber: number; displayNumber: number | null } | null;
+    saleReturn: { id: string; returnNumber: number; displayNumber: number | null } | null;
+    stockTransfer: {
+      id: string;
+      transferNumber: number;
+      displayNumber: number | null;
+      sourceWarehouseId: string;
+      destinationWarehouseId: string;
+      source: { name: string };
+      destination: { name: string };
+    } | null;
+    stocktakeSession: { id: string; sessionNumber: number; displayNumber: number | null } | null;
+    order: { id: string; orderNumber: number; displayNumber: number | null } | null;
+    orderReturn: { id: string; orderId: string } | null;
+  },
+  /** This movement row's own warehouse — to name the OTHER end of a transfer inline (Batch 8, Area 2). */
+  warehouseId: string
+): MovementDocument | null {
   if (m.receptionLine) {
     const r = m.receptionLine.reception;
     return { kind: "reception", label: `REC-${pad(r.displayNumber ?? r.receptionNumber)}`, href: `/receptions/${r.id}`, extra: r.supplier.name };
   }
   if (m.saleReturn) return { kind: "sale_return", label: `RTM-${pad(m.saleReturn.displayNumber ?? m.saleReturn.returnNumber)}`, href: m.sale ? `/ventes/${m.sale.id}` : "/ventes", extra: m.sale ? `VTE-${pad(m.sale.displayNumber ?? m.sale.saleNumber)}` : null };
   if (m.sale) return { kind: "sale", label: `VTE-${pad(m.sale.displayNumber ?? m.sale.saleNumber)}`, href: `/ventes/${m.sale.id}`, extra: null };
-  if (m.stockTransfer) return { kind: "transfer", label: `TR-${pad(m.stockTransfer.displayNumber ?? m.stockTransfer.transferNumber)}`, href: `/transferts/${m.stockTransfer.id}`, extra: null };
+  if (m.stockTransfer) {
+    // This row is either the dispatch (its own warehouse = source) or the
+    // receipt (its own warehouse = destination) — name the OTHER end inline
+    // so provenance never requires a click-through (Batch 8, Area 2).
+    const isSource = m.stockTransfer.sourceWarehouseId === warehouseId;
+    const other = isSource ? m.stockTransfer.destination.name : m.stockTransfer.source.name;
+    return {
+      kind: "transfer",
+      label: `TR-${pad(m.stockTransfer.displayNumber ?? m.stockTransfer.transferNumber)}`,
+      href: `/transferts/${m.stockTransfer.id}`,
+      extra: isSource ? `→ ${other}` : `← ${other}`,
+    };
+  }
   if (m.stocktakeSession) return { kind: "stocktake", label: `INV-${pad(m.stocktakeSession.displayNumber ?? m.stocktakeSession.sessionNumber)}`, href: `/inventaires/${m.stocktakeSession.id}`, extra: null };
   if (m.orderReturn && m.order) return { kind: "order_return", label: `Retour CMD-${pad(m.order.displayNumber ?? m.order.orderNumber)}`, href: `/commandes/${m.order.id}`, extra: null };
   if (m.order) return { kind: "order", label: `CMD-${pad(m.order.displayNumber ?? m.order.orderNumber)}`, href: `/commandes/${m.order.id}`, extra: null };

@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
 
 /**
  * Catalog identity — reference, barcodes and channel availability
@@ -79,6 +80,25 @@ export function ProductIdentityPanel({
   }
 
   const unitKey = (u: IdentityUnit) => u.variationId ?? "product";
+
+  // Shared by all three ways to submit a new barcode for a unit — typing
+  // then clicking "Ajouter", a hardware scanner's Enter key, and the
+  // camera scanner (Batch 6) — so `addBarcodeAction` and its validation
+  // are reached exactly once, the same way, regardless of input method.
+  // `code` is passed explicitly rather than re-read from `drafts` so the
+  // camera's `onDetect` (which sets that state in the same tick) never
+  // submits a stale/empty value.
+  function submitBarcode(u: IdentityUnit, code: string) {
+    if (isPending || !code.trim()) return;
+    run(
+      async () => {
+        const result = await addBarcodeAction(u.variationId ? { variationId: u.variationId, code } : { productId, code });
+        if (result.ok) setDrafts((d) => ({ ...d, [unitKey(u)]: "" }));
+        return result;
+      },
+      "Code-barres ajouté."
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -157,7 +177,7 @@ export function ProductIdentityPanel({
                 ))}
               </div>
               {canEdit && (
-                <div className="flex max-w-md gap-2">
+                <div className="flex max-w-md flex-col gap-2 sm:flex-row">
                   <Input
                     value={drafts[unitKey(u)] ?? ""}
                     onChange={(e) => setDrafts((d) => ({ ...d, [unitKey(u)]: e.target.value }))}
@@ -167,32 +187,22 @@ export function ProductIdentityPanel({
                       // A hardware scanner types the code then presses Enter.
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        (e.currentTarget.nextElementSibling as HTMLButtonElement | null)?.click();
+                        submitBarcode(u, drafts[unitKey(u)] ?? "");
                       }
                     }}
                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={isPending || !(drafts[unitKey(u)] ?? "").trim()}
-                    onClick={() =>
-                      run(
-                        async () => {
-                          const result = await addBarcodeAction(
-                            u.variationId
-                              ? { variationId: u.variationId, code: drafts[unitKey(u)] }
-                              : { productId, code: drafts[unitKey(u)] }
-                          );
-                          if (result.ok) setDrafts((d) => ({ ...d, [unitKey(u)]: "" }));
-                          return result;
-                        },
-                        "Code-barres ajouté."
-                      )
-                    }
-                  >
-                    <Plus className="size-4" />
-                    Ajouter
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={isPending || !(drafts[unitKey(u)] ?? "").trim()}
+                      onClick={() => submitBarcode(u, drafts[unitKey(u)] ?? "")}
+                    >
+                      <Plus className="size-4" />
+                      Ajouter
+                    </Button>
+                    <BarcodeScanButton onDetect={(code) => { setDrafts((d) => ({ ...d, [unitKey(u)]: code })); submitBarcode(u, code); }} label="Caméra" />
+                  </div>
                 </div>
               )}
             </div>

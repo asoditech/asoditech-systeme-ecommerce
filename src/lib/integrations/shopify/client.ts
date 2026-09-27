@@ -16,6 +16,8 @@ import {
   shopifyOrdersPageSchema,
   shopifyOrderSchema,
   shopifyInventorySetQuantitiesResultSchema,
+  shopifyProductCreateResultSchema,
+  shopifyVariantsBulkUpdateResultSchema,
   type ShopifyLocation,
   type ShopifyProduct,
   type ShopifyOrder,
@@ -330,6 +332,71 @@ export class ShopifyClient {
     if (result.inventorySetQuantities.userErrors.length > 0) {
       throw new ShopifyUserError(
         `Shopify a refusé la mise à jour du stock : ${result.inventorySetQuantities.userErrors[0].message}`
+      );
+    }
+  }
+
+  /**
+   * Batch 13 (Product Publishing) — the one place this adapter CREATES a
+   * new product on the connected store, as opposed to every other method
+   * here (stock push), which only ever updates a resource the store already
+   * owns. `productCreate` is Shopify's own documented product-creation
+   * mutation. Every new product gets exactly one auto-created "Default
+   * Title" variant (Shopify's own behaviour, not a choice made here) —
+   * its id is returned so the caller can immediately set its real price/sku
+   * via `updateVariantPriceAndSku`. Simple products only in this batch: a
+   * true multi-variant Shopify product additionally needs
+   * `productOptionsCreate` + `productVariantsBulkCreate`, which this
+   * adapter does not yet implement (see the eligibility check that refuses
+   * a variable product for this provider rather than silently flattening
+   * it — Section 8/21 of the Batch 13 spec).
+   */
+  async createProduct(input: {
+    title: string;
+    descriptionHtml?: string;
+    status: "ACTIVE" | "DRAFT";
+  }): Promise<{ productId: string; defaultVariantId: string }> {
+    const result = await this.request(
+      shopifyProductCreateResultSchema,
+      `mutation CreateProduct($input: ProductCreateInput!) {
+         productCreate(product: $input) {
+           product { id variants(first: 1) { nodes { id } } }
+           userErrors { field message }
+         }
+       }`,
+      { input }
+    );
+    if (result.productCreate.userErrors.length > 0) {
+      throw new ShopifyUserError(
+        `Shopify a refusé la création du produit : ${result.productCreate.userErrors[0].message}`
+      );
+    }
+    const product = result.productCreate.product;
+    const defaultVariantId = product?.variants.nodes[0]?.id;
+    if (!product || !defaultVariantId) {
+      throw new ShopifyMalformedResponseError("Shopify n'a pas retourné le produit créé.");
+    }
+    return { productId: product.id, defaultVariantId };
+  }
+
+  /** Batch 13 — sets the price/sku Shopify's own product-creation mutation cannot set inline (see `createProduct`). */
+  async updateVariantPriceAndSku(
+    productId: string,
+    variantId: string,
+    fields: { price: string; sku: string }
+  ): Promise<void> {
+    const result = await this.request(
+      shopifyVariantsBulkUpdateResultSchema,
+      `mutation UpdateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+         productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+           userErrors { field message }
+         }
+       }`,
+      { productId, variants: [{ id: variantId, price: fields.price, inventoryItem: { sku: fields.sku } }] }
+    );
+    if (result.productVariantsBulkUpdate.userErrors.length > 0) {
+      throw new ShopifyUserError(
+        `Shopify a refusé la mise à jour de la variante : ${result.productVariantsBulkUpdate.userErrors[0].message}`
       );
     }
   }

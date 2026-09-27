@@ -187,6 +187,12 @@ export function UserAccessDialog({
                       {perms.map((p) => {
                         const state = states[p] ?? "inherit";
                         const domain = PERMISSION_CHANNEL_DOMAIN[p];
+                        // Batch 16 — the resulting access this row's choice actually
+                        // produces, spelled out next to it: (role ∪ grant) − deny,
+                        // the SAME formula this dialog's own doc comment already
+                        // states — applied here only to already-known local UI
+                        // state, never a second read of the real authorization data.
+                        const effective = state === "deny" ? false : state === "grant" ? true : base.has(p);
                         return (
                           <div key={p} className="flex items-center gap-2 text-sm">
                             <span className="flex-1 font-mono text-xs">{p}</span>
@@ -197,6 +203,13 @@ export function UserAccessDialog({
                             )}
                             <Badge variant={base.has(p) ? "secondary" : "outline"} className="text-[10px]">
                               {base.has(p) ? "rôle : oui" : "rôle : non"}
+                            </Badge>
+                            <Badge
+                              variant={effective ? "default" : "outline"}
+                              className={"text-[10px] " + (effective ? "" : "text-muted-foreground")}
+                              title="Accès effectif résultant de ce choix"
+                            >
+                              {effective ? "effectif : oui" : "effectif : non"}
                             </Badge>
                             <div className="flex overflow-hidden rounded-md border text-xs">
                               {(["inherit", "grant", "deny"] as const).map((opt) => (

@@ -4,6 +4,8 @@ import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { createProductAction, updateProductAction, createCategoryAction } from "@/actions/products";
+import { productCreateRedirectPath } from "@/lib/catalog/variations";
+import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,6 +37,7 @@ export function ProductForm({
   categories: initialCategories,
   channels = [],
   identityEnabled = false,
+  defaultLowStockThreshold = 5,
 }: {
   product?: SerializedProduct;
   categories: Category[];
@@ -46,6 +49,15 @@ export function ProductForm({
    * form is exactly the pre-existing one.
    */
   identityEnabled?: boolean;
+  /**
+   * Create mode only (Batch 17) — the tenant's own "Seuil de stock faible
+   * par défaut" (`BusinessSettings.lowStockDefaultThreshold`). Previously
+   * hardcoded to `5` here regardless of that setting, so changing it in
+   * Paramètres had no effect on any product created afterward — the one
+   * thing the setting's own label promises. An existing product keeps its
+   * own saved threshold, unaffected.
+   */
+  defaultLowStockThreshold?: number;
 }) {
   const router = useRouter();
   // Categories are real, tenant-scoped entities (docs/adr/0038 §Categories):
@@ -57,6 +69,17 @@ export function ProductForm({
   // Create mode only (Batch 3, Task 2) — edit already has its own image card
   // (ProductImageForm) once the product exists.
   const [imagePreview, setImagePreview] = useState("");
+  // "Ce produit possède des variantes" (Batch 9, Group 3) — create mode only.
+  // Variations still require an existing productId (the architecture is
+  // unchanged), so this doesn't create variants inline; it just makes the
+  // create → define-variants flow continuous by landing the operator
+  // straight on the Variations tab, generator already open, right after
+  // the product itself is created.
+  const [hasVariants, setHasVariants] = useState(false);
+  // Controlled so the camera scanner (Batch 11) can fill it, same pattern as
+  // the identity panel's barcode fields — a hardware scanner or manual typing
+  // keeps working unchanged either way.
+  const [barcode, setBarcode] = useState("");
   const [checkedChannels, setCheckedChannels] = useState<Set<string>>(
     new Set(channels.filter((c) => c.isDefault).map((c) => c.id))
   );
@@ -88,7 +111,7 @@ export function ProductForm({
   useEffect(() => {
     if (state?.ok) {
       toast.success(product ? "Produit mis à jour." : "Produit créé.");
-      router.push(`/produits/${state.data.id}`);
+      router.push(productCreateRedirectPath(state.data.id, !product && hasVariants));
       router.refresh();
     } else if (state && !state.ok) {
       toast.error(state.error);
@@ -157,7 +180,18 @@ export function ProductForm({
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="barcode">Code-barres (optionnel)</Label>
-                  <Input id="barcode" name="barcode" placeholder="Scanner ou saisir le code" autoComplete="off" />
+                  <div className="flex gap-2">
+                    <Input
+                      id="barcode"
+                      name="barcode"
+                      placeholder="Scanner ou saisir le code"
+                      autoComplete="off"
+                      value={barcode}
+                      onChange={(e) => setBarcode(e.target.value)}
+                      className="flex-1"
+                    />
+                    <BarcodeScanButton onDetect={setBarcode} label="Caméra" />
+                  </div>
                   {state && !state.ok && state.fieldErrors?.barcode && (
                     <p className="text-xs text-destructive">{state.fieldErrors.barcode[0]}</p>
                   )}
@@ -198,7 +232,7 @@ export function ProductForm({
                 name="lowStockThreshold"
                 type="number"
                 min="0"
-                defaultValue={product?.lowStockThreshold ?? 5}
+                defaultValue={product?.lowStockThreshold ?? defaultLowStockThreshold}
               />
             </div>
           </div>
@@ -266,6 +300,19 @@ export function ProductForm({
               {state && !state.ok && state.fieldErrors?.imageUrl && (
                 <p className="text-xs text-destructive">{state.fieldErrors.imageUrl[0]}</p>
               )}
+            </div>
+          )}
+          {!product && (
+            <div className="space-y-2 rounded-lg border p-3">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <Checkbox checked={hasVariants} onCheckedChange={(checked) => setHasVariants(checked === true)} />
+                Ce produit possède des variantes (couleurs, tailles…)
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Cochez pour un produit vendu en plusieurs tailles/couleurs (ex. un t-shirt). Le produit se crée
+                d&apos;abord normalement — vous définirez ensuite les variantes (couleur, taille…) sur l&apos;écran
+                suivant, qui s&apos;ouvrira directement dessus.
+              </p>
             </div>
           )}
           <div className="space-y-1.5">

@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { listSuppliers } from "@/lib/queries/purchases";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 
 export const metadata = { title: "Fournisseurs — ASODITECH Gestion E-commerce" };
 
@@ -41,6 +41,8 @@ export default async function FournisseursPage({ searchParams }: { searchParams:
                 <TableHead>Nom</TableHead>
                 <TableHead>Téléphone</TableHead>
                 <TableHead>Ville</TableHead>
+                <TableHead className="text-right">Réceptions</TableHead>
+                <TableHead>Dernière réception</TableHead>
                 <TableHead className="text-right">Reçu</TableHead>
                 <TableHead className="text-right">Payé</TableHead>
                 <TableHead className="text-right">Solde dû</TableHead>
@@ -57,6 +59,10 @@ export default async function FournisseursPage({ searchParams }: { searchParams:
                   </TableCell>
                   <TableCell className="text-muted-foreground">{s.phone ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{s.city ?? "—"}</TableCell>
+                  <TableCell className="text-right tabular-nums">{s.receptionCount}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {s.lastReceptionDate ? formatDate(s.lastReceptionDate) : "—"}
+                  </TableCell>
                   <TableCell className="text-right tabular-nums">{formatCurrency(s.totalReceived.toString())}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatCurrency(s.totalPaid.toString())}</TableCell>
                   <TableCell className={"text-right tabular-nums font-medium " + (s.balance.greaterThan(0) ? "text-destructive" : "")}>

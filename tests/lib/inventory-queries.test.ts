@@ -131,6 +131,45 @@ describe("listInventoryItems (DB-side filtering & pagination)", () => {
     const sortedDesc = await listInventoryItems({ sort: "quantity-desc" });
     expect(sortedDesc.items.map((i) => i.quantityOnHand)).toEqual([9, 3]);
   });
+
+  // Batch 15 — Location Access Management v1 (docs/adr/0037): a scoped
+  // caller's `allowedWarehouseIds` must be honoured even with no explicit
+  // `warehouseId` filter (the previous gap: the plain /stock page and its
+  // export had NO location scoping at all, unlike every other
+  // location-aware surface in this app).
+  it("allowedWarehouseIds restricts results even with no explicit warehouseId filter, in every stockStatus mode", async () => {
+    const w1 = await prisma.warehouse.create({ data: { name: "W1", isDefault: true } });
+    const w2 = await prisma.warehouse.create({ data: { name: "W2" } });
+    const a = await prisma.product.create({ data: { name: "in-w1", sku: `A-${Math.random()}`, price: 10, status: "ACTIF", lowStockThreshold: 5 } });
+    const b = await prisma.product.create({ data: { name: "in-w2", sku: `B-${Math.random()}`, price: 10, status: "ACTIF", lowStockThreshold: 5 } });
+    await prisma.inventoryItem.create({ data: { warehouseId: w1.id, productId: a.id, quantityOnHand: 1 } }); // low
+    await prisma.inventoryItem.create({ data: { warehouseId: w2.id, productId: b.id, quantityOnHand: 1 } }); // low
+
+    const restricted = await listInventoryItems({ allowedWarehouseIds: [w1.id] });
+    expect(restricted.items.map((i) => i.product?.name)).toEqual(["in-w1"]);
+    expect(restricted.total).toBe(1);
+
+    const restrictedLow = await listInventoryItems({ stockStatus: "low", allowedWarehouseIds: [w1.id] });
+    expect(restrictedLow.items.map((i) => i.product?.name)).toEqual(["in-w1"]);
+
+    // An explicit warehouseId for a location outside the allowed set,
+    // combined with the allowed set, must still yield nothing — never a
+    // silent fallback to "unrestricted".
+    const forged = await listInventoryItems({ warehouseId: w2.id, allowedWarehouseIds: [w1.id] });
+    expect(forged.items).toHaveLength(0);
+
+    // Zero accessible warehouses (a brand-new WAREHOUSE-role user with no
+    // assignment yet) must show nothing — never "everything".
+    const none = await listInventoryItems({ allowedWarehouseIds: [] });
+    expect(none.items).toHaveLength(0);
+    expect(none.total).toBe(0);
+    const noneLow = await listInventoryItems({ stockStatus: "low", allowedWarehouseIds: [] });
+    expect(noneLow.items).toHaveLength(0);
+
+    // `null`/omitted means unrestricted (OWNER/ADMIN) — unchanged behaviour.
+    const unrestricted = await listInventoryItems({});
+    expect(unrestricted.total).toBe(2);
+  });
 });
 
 describe("getLowStockCount", () => {
@@ -234,5 +273,43 @@ describe("listInventoryItemsForExport", () => {
 
     const lowRows = await listInventoryItemsForExport({ stockStatus: "low" });
     expect(lowRows.map((r) => r.sku)).toEqual(["LOW-1"]);
+  });
+
+  // Batch 15 — computed "Statut" export column (Rupture > Stock faible > OK).
+  it("computes a stockStatus column: Rupture wins over Stock faible, OK otherwise", async () => {
+    const warehouse = await prisma.warehouse.create({ data: { name: "Principal", isDefault: true } });
+    const out = await prisma.product.create({ data: { name: "Rupture", sku: `OUT-${Math.random()}`, price: 10, status: "ACTIF", lowStockThreshold: 5 } });
+    const low = await prisma.product.create({ data: { name: "Faible", sku: `LOW-${Math.random()}`, price: 10, status: "ACTIF", lowStockThreshold: 5 } });
+    const ok = await prisma.product.create({ data: { name: "Ok", sku: `OK-${Math.random()}`, price: 10, status: "ACTIF", lowStockThreshold: 5 } });
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: out.id, quantityOnHand: 5, quantityReserved: 5 } }); // available 0
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: low.id, quantityOnHand: 2 } }); // <= threshold
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: ok.id, quantityOnHand: 99 } });
+
+    const rows = await listInventoryItemsForExport({});
+    const byName = new Map(rows.map((r) => [r.productName, r.stockStatus]));
+    expect(byName.get("Rupture")).toBe("Rupture");
+    expect(byName.get("Faible")).toBe("Stock faible");
+    expect(byName.get("Ok")).toBe("OK");
+  });
+
+  // Batch 15 — Location Access Management v1: the export must never leak
+  // stock from a warehouse the caller cannot access, with or without an
+  // explicit warehouseId filter.
+  it("allowedWarehouseIds restricts the export, and zero accessible warehouses exports nothing", async () => {
+    const w1 = await prisma.warehouse.create({ data: { name: "W1", isDefault: true } });
+    const w2 = await prisma.warehouse.create({ data: { name: "W2" } });
+    const a = await prisma.product.create({ data: { name: "in-w1", sku: `EA-${Math.random()}`, price: 10, status: "ACTIF" } });
+    const b = await prisma.product.create({ data: { name: "in-w2", sku: `EB-${Math.random()}`, price: 10, status: "ACTIF" } });
+    await prisma.inventoryItem.create({ data: { warehouseId: w1.id, productId: a.id, quantityOnHand: 5 } });
+    await prisma.inventoryItem.create({ data: { warehouseId: w2.id, productId: b.id, quantityOnHand: 5 } });
+
+    const restricted = await listInventoryItemsForExport({ allowedWarehouseIds: [w1.id] });
+    expect(restricted.map((r) => r.productName)).toEqual(["in-w1"]);
+
+    const forged = await listInventoryItemsForExport({ warehouseId: w2.id, allowedWarehouseIds: [w1.id] });
+    expect(forged).toHaveLength(0);
+
+    const none = await listInventoryItemsForExport({ allowedWarehouseIds: [] });
+    expect(none).toHaveLength(0);
   });
 });

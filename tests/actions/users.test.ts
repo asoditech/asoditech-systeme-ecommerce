@@ -113,6 +113,29 @@ describe("users.ts — users.manage enforcement (OWNER + ADMIN)", () => {
     const row = await prisma.user.findUniqueOrThrow({ where: { id: otherOwner.id } });
     expect(row.role).toBe("OWNER");
   });
+
+  // Batch 16 — same self-targeting protection deleteUserAction already had,
+  // extended to status/role: an admin acting on their OWN account could
+  // otherwise lock themselves out with no one else necessarily around.
+  it("an ADMIN cannot disable their own account", async () => {
+    const admin = await loginAsTestUser({ role: "ADMIN" });
+
+    const result = await updateUserStatusAction(formData({ id: admin.id, status: "DISABLED" }));
+    expect(result.ok).toBe(false);
+
+    const row = await prisma.user.findUniqueOrThrow({ where: { id: admin.id } });
+    expect(row.status).toBe("ACTIVE");
+  });
+
+  it("an ADMIN cannot change their own role", async () => {
+    const admin = await loginAsTestUser({ role: "ADMIN" });
+
+    const result = await updateUserRoleAction(formData({ id: admin.id, role: "MANAGER" }));
+    expect(result.ok).toBe(false);
+
+    const row = await prisma.user.findUniqueOrThrow({ where: { id: admin.id } });
+    expect(row.role).toBe("ADMIN");
+  });
 });
 
 describe("deleteUserAction", () => {

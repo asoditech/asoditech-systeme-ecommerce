@@ -55,6 +55,7 @@ export type AuditAction =
   | "product.created"
   | "product.updated"
   | "product.archived"
+  | "product.published"
   | "category.created"
   | "category.updated"
   | "order.created"

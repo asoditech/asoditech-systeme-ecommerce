@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/auth/guards";
 import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
 import { listCategories } from "@/lib/queries/products";
 import { listActiveChannels } from "@/lib/queries/channels";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 
 export const metadata = { title: "Ajouter un produit — ASODITECH Gestion E-commerce" };
 
@@ -28,7 +29,7 @@ export default async function NouveauProduitPage() {
   // pre-existing form — no identity fields, no channels, no store-only product.
   const identityEnabled = user.capabilities.has("catalogIdentity");
   const storeChannels = user.capabilities.has("storeChannels");
-  const platforms = await getConnectedCommercePlatforms();
+  const [platforms, business] = await Promise.all([getConnectedCommercePlatforms(), getReportBusinessInfo()]);
 
   if (platforms.length === 0) {
     const [categories, channels] = await Promise.all([
@@ -43,7 +44,12 @@ export default async function NouveauProduitPage() {
           description="Aucune plateforme e-commerce connectée — créez le produit directement dans ASODITECH."
         />
         <div className="max-w-3xl">
-          <ProductForm categories={categories} channels={channels} identityEnabled={identityEnabled} />
+          <ProductForm
+            categories={categories}
+            channels={channels}
+            identityEnabled={identityEnabled}
+            defaultLowStockThreshold={business.lowStockDefaultThreshold}
+          />
           <p className="mt-3 flex items-start gap-1.5 text-xs text-muted-foreground">
             <LogIn className="mt-0.5 size-3.5 shrink-0" />
             <span>
@@ -123,7 +129,12 @@ export default async function NouveauProduitPage() {
             Aucun canal magasin actif. Créez d&apos;abord un canal « Magasin » dans Paramètres → Canaux de vente.
           </p>
         ) : (
-          <ProductForm categories={categories} channels={offlineChannels} identityEnabled={identityEnabled} />
+          <ProductForm
+            categories={categories}
+            channels={offlineChannels}
+            identityEnabled={identityEnabled}
+            defaultLowStockThreshold={business.lowStockDefaultThreshold}
+          />
         )}
       </div>
       )}

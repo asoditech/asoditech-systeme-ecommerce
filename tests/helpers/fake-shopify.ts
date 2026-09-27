@@ -81,10 +81,14 @@ export interface FakeShopifyState {
   products: FakeProduct[];
   orders: FakeOrder[];
   stockUpdates: { inventoryItemId: string; locationId: string; quantity: number }[];
+  /** Batch 13 (Product Publishing) — every `productCreate` input received, in call order. */
+  productCreates: Record<string, unknown>[];
+  /** Every `productVariantsBulkUpdate` variants array received. */
+  variantUpdates: Record<string, unknown>[];
 }
 
 export function emptyFakeShopifyStore(): FakeShopifyState {
-  return { locations: [], products: [], orders: [], stockUpdates: [] };
+  return { locations: [], products: [], orders: [], stockUpdates: [], productCreates: [], variantUpdates: [] };
 }
 
 function money(amount: number) {
@@ -174,6 +178,39 @@ export function installFakeShopifyServer(state: FakeShopifyState) {
       const body = init?.body ? JSON.parse(init.body as string) : {};
       const query: string = body.query ?? "";
       const variables: Record<string, unknown> = body.variables ?? {};
+
+      if (query.includes("mutation CreateProduct")) {
+        const input = variables.input as { title: string; descriptionHtml?: string; status: string };
+        state.productCreates.push(input);
+        const id = `gid://shopify/Product/${90000 + state.productCreates.length}`;
+        const variantId = `gid://shopify/ProductVariant/${90000 + state.productCreates.length}`;
+        state.products.push({
+          id,
+          title: input.title,
+          handle: input.title.toLowerCase().replace(/\s+/g, "-"),
+          status: input.status,
+          descriptionHtml: input.descriptionHtml ?? null,
+          variants: [{ id: variantId, title: "Default Title", sku: null, price: "0.00", inventoryItemId: `gid://shopify/InventoryItem/${id}`, tracked: false, levels: [] }],
+        });
+        return jsonResponse({
+          productCreate: { product: { id, variants: { nodes: [{ id: variantId }] } }, userErrors: [] },
+        });
+      }
+
+      if (query.includes("mutation UpdateVariant")) {
+        const variants = variables.variants as { id: string; price: string; inventoryItem: { sku: string } }[];
+        state.variantUpdates.push(...variants);
+        for (const v of variants) {
+          for (const product of state.products) {
+            const variant = product.variants.find((existing) => existing.id === v.id);
+            if (variant) {
+              variant.price = v.price;
+              variant.sku = v.inventoryItem.sku;
+            }
+          }
+        }
+        return jsonResponse({ productVariantsBulkUpdate: { userErrors: [] } });
+      }
 
       if (query.includes("mutation SetQuantities")) {
         const input = variables.input as { quantities: { inventoryItemId: string; locationId: string; quantity: number }[] };

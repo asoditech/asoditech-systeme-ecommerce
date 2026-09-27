@@ -96,7 +96,7 @@ export default async function CommissionStatementPrintPage({
             {statement.entries.map((e) => (
               <tr key={e.id} className="border-b border-slate-100">
                 <td className="py-2">{formatDate(e.createdAt)}</td>
-                <td className="py-2">{e.order ? displayOrderNumber(e.order) : "—"}</td>
+                <td className="py-2">{e.order ? displayOrderNumber(e.order, business.orderNumberPrefix) : "—"}</td>
                 <td className="py-2">{e.order?.customer.fullName ?? "—"}</td>
                 <td className="py-2">{e.type === "EARNED" ? "Commission" : "Reprise"}</td>
                 <td className="py-2 text-right tabular-nums">

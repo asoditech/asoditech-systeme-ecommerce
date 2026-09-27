@@ -38,6 +38,7 @@ import { OrderLifecycleStepper, type OrderCommissionStatus } from "@/components/
 import { getOrderCommission, listAssignableCommissionAgents } from "@/lib/queries/commissions";
 import { getOrderConfirmationAttempts } from "@/lib/queries/order-confirmation";
 import { computeOrderProfit } from "@/lib/profitability";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import {
   formatCurrency,
   formatDateTime,
@@ -56,7 +57,7 @@ import {
   SHIPMENT_STATUS_LABELS,
   REFUND_STATUS_LABELS,
 } from "@/lib/status-labels";
-import type { OrderStatusValue } from "@/lib/validation/order";
+import { canTransitionOrderStatus, type OrderStatusValue } from "@/lib/validation/order";
 
 function Row({
   label,
@@ -116,7 +117,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
   const canViewCommissions = userHasPermission(user, "commissions.view");
   const canManageCommissions = userHasPermission(user, "commissions.manage");
   const canConfirm = userHasPermission(user, "orders.confirm");
-  const [deliveryProviders, orderCommission, commissionAgents, confirmationAttempts, cityGuidanceProviders] =
+  const [deliveryProviders, orderCommission, commissionAgents, confirmationAttempts, cityGuidanceProviders, business] =
     await Promise.all([
       canManageDelivery ? listShipmentProviderOptions() : Promise.resolve([]),
       canViewCommissions ? getOrderCommission(order.id) : Promise.resolve(null),
@@ -127,6 +128,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
       // Independent of canManageDelivery: editing the shipping address (below) only
       // needs canEdit, and the message must be accurate for that viewer too.
       listActiveProvidersForCityGuidance(),
+      getReportBusinessInfo(),
     ]);
   const cityGuidance = cityGuidanceFromProviders(cityGuidanceProviders);
   const parcelContents = buildParcelContentsSummary(order.items);
@@ -172,14 +174,20 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
   return (
     <div>
       <PageHeader
-        title={displayOrderNumber(order)}
-        breadcrumbs={[{ label: "Commandes", href: "/commandes" }, { label: displayOrderNumber(order) }]}
+        title={displayOrderNumber(order, business.orderNumberPrefix)}
+        breadcrumbs={[{ label: "Commandes", href: "/commandes" }, { label: displayOrderNumber(order, business.orderNumberPrefix) }]}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {/* Business channel (docs/adr/0038) — same badge the orders list
+                already shows (Batch 9); never the fulfillment location, which
+                has its own separate "Préparé depuis" row below. */}
+            {order.salesChannel && (
+              <Badge variant="secondary">{order.salesChannel.name}</Badge>
+            )}
             <StatusBadge status={order.status} labels={ORDER_STATUS_LABELS} />
             {returnState && <Badge variant="outline">{returnState}</Badge>}
             <OrderStatusControl orderId={order.id} currentStatus={order.status as OrderStatusValue} canEdit={canEdit} />
-            {canCancel && !["ANNULEE", "REMBOURSEE"].includes(order.status) && (
+            {canCancel && canTransitionOrderStatus(order.status as OrderStatusValue, "ANNULEE") && (
               <CancelOrderButton orderId={order.id} />
             )}
             {(canEdit || canConfirm) && order.status === "ANNULEE" && order.shippedAt === null && (

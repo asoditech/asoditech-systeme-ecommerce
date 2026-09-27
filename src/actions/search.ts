@@ -6,6 +6,7 @@ import { requireUserForAction } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { displayOrderNumber, displaySaleNumber } from "@/lib/format";
 import { saleChannelWhere } from "@/lib/auth/channel-access";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 
 export interface QuickSearchResult {
   id: string;
@@ -70,11 +71,12 @@ export async function quickSearchAction(query: string): Promise<QuickSearchResul
           take: 5,
         })
       : [];
+    const business = orders.length > 0 ? await getReportBusinessInfo() : null;
     results.push(
       ...orders.map((o) => ({
         id: o.id,
         type: "order" as const,
-        title: displayOrderNumber(o),
+        title: displayOrderNumber(o, business?.orderNumberPrefix),
         subtitle: o.customer.fullName,
         href: `/commandes/${o.id}`,
       }))

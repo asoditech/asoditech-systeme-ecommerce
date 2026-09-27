@@ -121,4 +121,34 @@ describe("getOrderDetail — product id per line for the item link", () => {
     expect(byName["Variable"]).toBe(variable.id);
     expect(byName["Produit supprimé"]).toBeNull();
   });
+
+  it("includes the order's own sales channel (Batch 12 — was missing, only listOrders had it)", async () => {
+    const customer = await prisma.customer.create({ data: { fullName: "Client Test" } });
+    const channel = await prisma.salesChannel.create({
+      data: { name: "En ligne", kind: "ONLINE", isActive: true, isDefault: true },
+    });
+    const order = await prisma.order.create({
+      data: {
+        customerId: customer.id,
+        status: "NOUVELLE",
+        subtotal: 10,
+        total: 10,
+        currency: "MAD",
+        salesChannelId: channel.id,
+      },
+    });
+
+    const detail = await getOrderDetail(order.id);
+    expect(detail!.salesChannel).toEqual({ name: "En ligne", kind: "ONLINE" });
+  });
+
+  it("salesChannel is null for a legacy order with no channel attributed", async () => {
+    const customer = await prisma.customer.create({ data: { fullName: "Client Test" } });
+    const order = await prisma.order.create({
+      data: { customerId: customer.id, status: "NOUVELLE", subtotal: 10, total: 10, currency: "MAD" },
+    });
+
+    const detail = await getOrderDetail(order.id);
+    expect(detail!.salesChannel).toBeNull();
+  });
 });

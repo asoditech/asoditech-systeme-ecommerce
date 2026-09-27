@@ -159,3 +159,23 @@ export const shopifyInventorySetQuantitiesResultSchema = z.object({
     userErrors: z.array(shopifyUserErrorSchema).default([]),
   }),
 });
+
+// Batch 13 (Product Publishing) — `productCreate` returns the new product's
+// id and its single auto-created default variant's id (every Shopify
+// product always has at least one variant, even a "simple" one — see
+// mapper.ts's own `isSimpleProduct`), which the caller then feeds straight
+// into `productVariantsBulkUpdate` to set its real price/sku.
+export const shopifyProductCreateResultSchema = z.object({
+  productCreate: z.object({
+    product: z
+      .object({ id: z.string(), variants: z.object({ nodes: z.array(z.object({ id: z.string() })).default([]) }) })
+      .nullable(),
+    userErrors: z.array(shopifyUserErrorSchema).default([]),
+  }),
+});
+
+export const shopifyVariantsBulkUpdateResultSchema = z.object({
+  productVariantsBulkUpdate: z.object({
+    userErrors: z.array(shopifyUserErrorSchema).default([]),
+  }),
+});

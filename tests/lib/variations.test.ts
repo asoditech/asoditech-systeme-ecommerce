@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateAttributeCombinations, attributesKey, suggestVariationSku } from "@/lib/catalog/variations";
+import { generateAttributeCombinations, attributesKey, suggestVariationSku, productCreateRedirectPath } from "@/lib/catalog/variations";
 
 /**
  * Batch 4 (Variant System Rebuild) — pure combination generation + SKU
@@ -86,5 +86,16 @@ describe("suggestVariationSku", () => {
   it("never invents a colour-abbreviation dictionary — the literal value is kept", () => {
     // Deliberately NOT "TSH-BADYSS-BLK-M" — see suggestVariationSku's own doc comment.
     expect(suggestVariationSku("TSH-BADYSS", { Couleur: "Noir", Taille: "M" })).not.toContain("BLK");
+  });
+});
+
+/** Batch 9, Group 3 — variant discoverability: where "create product" lands afterward. */
+describe("productCreateRedirectPath", () => {
+  it("lands on the plain product page when the operator did not flag variants", () => {
+    expect(productCreateRedirectPath("prod_1", false)).toBe("/produits/prod_1");
+  });
+
+  it("lands on the Variations tab, generator auto-open flagged, when the operator checked variants", () => {
+    expect(productCreateRedirectPath("prod_1", true)).toBe("/produits/prod_1?tab=variations&variants=1");
   });
 });

@@ -99,6 +99,7 @@ const AUDIT_ACTION_META: Record<string, AuditActionMeta> = {
   "product.created": { label: "Produit créé", category: "produits_stock" },
   "product.updated": { label: "Produit modifié", category: "produits_stock" },
   "product.archived": { label: "Produit archivé", category: "produits_stock" },
+  "product.published": { label: "Produit publié sur un canal externe", category: "produits_stock" },
   "settings.updated": { label: "Paramètres modifiés", category: "parametres" },
   "support.ticket_created": { label: "Problème signalé au support", category: "parametres" },
   "shipment.created": { label: "Expédition créée", category: "livraison" },

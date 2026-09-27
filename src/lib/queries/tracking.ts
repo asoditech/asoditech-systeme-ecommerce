@@ -14,6 +14,7 @@ import { normalizeTrackingStatus, type NormalizedTrackingStatus } from "@/lib/tr
 import { buildParcelContentsSummary } from "@/lib/delivery";
 import { displayOrderNumber } from "@/lib/format";
 import type { StoredTrackingEvent } from "@/lib/integrations/delivery/tracking-service";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 
 /**
  * Read layer for the « Suivi » module (docs/adr/0033-tracking-module.md).
@@ -131,7 +132,7 @@ const NOT_A_FAILED_API_ATTEMPT: Prisma.ShipmentWhereInput = {
   NOT: { status: "ECHEC", externalId: null, provider: { type: "API" } },
 };
 
-function mapRow(s: ShipmentWithRelations, includeCosts: boolean): TrackingRow {
+function mapRow(s: ShipmentWithRelations, includeCosts: boolean, orderNumberPrefix: string): TrackingRow {
   const events = eventsOf(s.trackingEvents);
   const last = events.length > 0 ? events[events.length - 1] : null;
 
@@ -148,12 +149,15 @@ function mapRow(s: ShipmentWithRelations, includeCosts: boolean): TrackingRow {
     orderDisplayNumber: s.order.displayNumber,
     orderExternalNumber: s.order.externalNumber,
     orderSource: s.order.source,
-    orderLabel: displayOrderNumber({
-      orderNumber: s.order.orderNumber,
-      displayNumber: s.order.displayNumber,
-      source: s.order.source,
-      externalNumber: s.order.externalNumber,
-    }),
+    orderLabel: displayOrderNumber(
+      {
+        orderNumber: s.order.orderNumber,
+        displayNumber: s.order.displayNumber,
+        source: s.order.source,
+        externalNumber: s.order.externalNumber,
+      },
+      orderNumberPrefix
+    ),
     trackingNumber: s.trackingNumber,
     trackingUrl: s.trackingUrl,
     customerName: s.order.shippingName?.trim() || s.order.customer.fullName,
@@ -226,7 +230,7 @@ export async function listTrackingRows(
       : {}),
   };
 
-  const [shipments, total] = await Promise.all([
+  const [shipments, total, business] = await Promise.all([
     prisma.shipment.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -235,9 +239,15 @@ export async function listTrackingRows(
       include: trackingInclude,
     }),
     prisma.shipment.count({ where }),
+    getReportBusinessInfo(),
   ]);
 
-  return { rows: shipments.map((s) => mapRow(s, opts.includeCosts)), total, page, pageSize: PAGE_SIZE };
+  return {
+    rows: shipments.map((s) => mapRow(s, opts.includeCosts, business.orderNumberPrefix)),
+    total,
+    page,
+    pageSize: PAGE_SIZE,
+  };
 }
 
 /** KPI counts for the header cards — from the DB, with the same "failed API
@@ -298,10 +308,13 @@ export async function getTrackingDetail(
   shipmentId: string,
   opts: { includeCosts: boolean }
 ): Promise<TrackingDetail | null> {
-  const s = await prisma.shipment.findUnique({
-    where: { id: shipmentId },
-    include: trackingInclude,
-  });
+  const [s, business] = await Promise.all([
+    prisma.shipment.findUnique({
+      where: { id: shipmentId },
+      include: trackingInclude,
+    }),
+    getReportBusinessInfo(),
+  ]);
   if (!s) return null;
 
   const providerSupportsTracking =
@@ -312,7 +325,7 @@ export async function getTrackingDetail(
     );
 
   return {
-    ...mapRow(s, opts.includeCosts),
+    ...mapRow(s, opts.includeCosts, business.orderNumberPrefix),
     events: eventsOf(s.trackingEvents),
     addressLine1: s.order.shippingAddressLine1,
     addressLine2: s.order.shippingAddressLine2,

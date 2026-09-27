@@ -102,3 +102,16 @@ export function suggestVariationSku(productReference: string | null | undefined,
     .filter(Boolean);
   return [base, ...parts].filter(Boolean).join("-");
 }
+
+/**
+ * Where the create-product form lands right after a successful creation
+ * (Batch 9, Group 3 — variant discoverability). When the operator checked
+ * "Ce produit possède des variantes", land straight on the Variations tab
+ * with the combination generator already open instead of the plain
+ * overview, so create → define-variants reads as one continuous flow. No
+ * architecture change: a variation still requires the product to exist
+ * first — this only chooses the next URL.
+ */
+export function productCreateRedirectPath(productId: string, hasVariants: boolean): string {
+  return hasVariants ? `/produits/${productId}?tab=variations&variants=1` : `/produits/${productId}`;
+}

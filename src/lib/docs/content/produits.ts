@@ -1,6 +1,7 @@
 import type { DocArticle } from "../types";
 
 const LAST_UPDATED = "2026-09-10";
+const LAST_UPDATED_BATCH_11 = "2026-09-26";
 
 export const produitsArticles: DocArticle[] = [
   {
@@ -33,7 +34,9 @@ export const produitsArticles: DocArticle[] = [
     steps: [
       "Ouvrir Produits → Nouveau produit.",
       "Renseigner le nom, le SKU (unique dans votre compte), le prix de vente et, si connu, le coût d'achat.",
+      "Si applicable, coller le lien d'un code-barres existant ou le scanner avec le bouton Caméra.",
       "Enregistrer — un enregistrement de stock est automatiquement disponible pour l'entrepôt par défaut.",
+      "Une fois le produit créé, ajoutez ses images depuis l'onglet Modifier de sa fiche — plusieurs images sont possibles, la première ajoutée devenant l'image principale (modifiable ensuite).",
     ],
     troubleshooting: [
       {
@@ -47,7 +50,7 @@ export const produitsArticles: DocArticle[] = [
     ],
     related: ["produits/produits-variables", "produits/prix"],
     tryNow: { label: "Ouvrir Produits", href: "/produits" },
-    lastUpdated: LAST_UPDATED,
+    lastUpdated: LAST_UPDATED_BATCH_11,
   },
   {
     slug: "produits/produits-variables",
@@ -57,8 +60,9 @@ export const produitsArticles: DocArticle[] = [
     permission: "products.create",
     steps: [
       "Créer le produit parent (nom, description, catégorie).",
-      "Ajouter les variations : chaque variation porte ses propres attributs (ex. Couleur: Rouge, Taille: M).",
+      "Ajouter les variations : chaque variation porte ses propres attributs (ex. Couleur: Rouge, Taille: M) — le générateur de combinaisons crée toutes les tailles/couleurs en une fois.",
       "Chaque variation peut avoir son propre prix et coût — s'ils ne sont pas renseignés, ceux du produit parent sont utilisés à la vente.",
+      "Le SKU de chaque variation reste modifiable après sa création (bouton Modifier, sur un produit interne à ASODITECH) — l'unicité est revérifiée côté serveur.",
     ],
     body: [
       {
@@ -66,11 +70,16 @@ export const produitsArticles: DocArticle[] = [
         tone: "info",
         text: "Une variation n'est jamais un produit séparé dans les listes — elle reste rattachée à son produit parent, y compris lors d'une synchronisation WooCommerce/Shopify.",
       },
+      {
+        type: "callout",
+        tone: "info",
+        text: "Régénérer les combinaisons n'efface jamais une variation existante : seules les combinaisons réellement nouvelles sont ajoutées, les autres (SKU, prix, coût, code-barres…) restent inchangées.",
+      },
     ],
     commonMistakes: ["Chercher une variation dans la liste Produits comme si c'était un produit indépendant."],
     related: ["produits/prix", "produits/couts", "produits/stock-produit"],
     tryNow: { label: "Ouvrir Produits", href: "/produits" },
-    lastUpdated: LAST_UPDATED,
+    lastUpdated: LAST_UPDATED_BATCH_11,
   },
   {
     slug: "produits/prix",

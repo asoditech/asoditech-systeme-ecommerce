@@ -27,7 +27,6 @@ import { requireUser } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { auditScopeWhere } from "@/lib/auth/audit-scope";
 import { getChannelReport, combinedChannelRevenue } from "@/lib/queries/reports/channels";
-import { currentDayRange, yesterdayRange, currentMonthRange, currentQuarterRange, currentYearRange } from "@/lib/queries/finance";
 import {
   getDashboardData,
   getRevenueTrend,
@@ -39,6 +38,8 @@ import {
 } from "@/lib/queries/dashboard";
 import { getConfirmationDashboardSummary } from "@/lib/queries/order-confirmation";
 import { getCommissionDashboardSummary } from "@/lib/queries/commissions";
+import { getStockOverview } from "@/lib/queries/inventory";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import {
   formatCurrency,
   formatDate,
@@ -101,9 +102,10 @@ export default async function TableauDeBordPage({
       ? (params.graphique as RevenueTrendRange)
       : "annee";
 
-  const [data, revenueTrend] = await Promise.all([
+  const [data, revenueTrend, business] = await Promise.all([
     getDashboardData(periodKey, undefined, { auditScope: auditScopeWhere(user.channels) }),
     getRevenueTrend(chartRange),
+    getReportBusinessInfo(),
   ]);
   const suffix = PERIOD_SUFFIX[periodKey];
 
@@ -122,16 +124,21 @@ export default async function TableauDeBordPage({
   // In-store sales KPI (docs/adr/0040) — only for a viewer who may read Offline
   // data, row-scoped to their store channels; it is NEVER folded into the
   // Online figures above, so an Online-only viewer's totals cannot include it.
-  const offlineRange =
-    periodKey === "jour" ? currentDayRange() : periodKey === "hier" ? yesterdayRange()
-      : periodKey === "trimestre" ? currentQuarterRange() : periodKey === "annee" ? currentYearRange() : currentMonthRange();
+  // Reuses `data.period` (the SAME periodKey → range resolution
+  // `getDashboardData` already did for the Online/finance figures above) so
+  // the two KPIs can never drift onto different windows for "the same" period.
   const offlineSummary =
     userHasPermission(user, "sales.view") && user.channels.offline
-      ? (await getChannelReport(user, offlineRange, { kind: "offline" })).offline
+      ? (await getChannelReport(user, data.period, { kind: "offline" })).offline
       : null;
-  const [confirmationSummary, commissionSummary] = await Promise.all([
+  const [confirmationSummary, commissionSummary, stockOverview] = await Promise.all([
     canConfirm ? getConfirmationDashboardSummary() : Promise.resolve(null),
     canViewCommissions ? getCommissionDashboardSummary() : Promise.resolve(null),
+    // Batch 9, Group 10 — operational stock KPI (no monetary valuation:
+    // costing/COGS is deferred). Location-scoped through the same
+    // `listAccessibleActiveWarehouses` authorization every other
+    // location-aware surface already uses — never "all" for a scoped user.
+    canViewInventory ? getStockOverview(user) : Promise.resolve(null),
   ]);
 
   // Only a viewer who can already see BOTH scopes gets a filter at all — a
@@ -263,6 +270,13 @@ export default async function TableauDeBordPage({
             tone={data.lowStockCount > 0 ? "danger" : "primary"}
           />
         )}
+        {stockOverview && (
+          <>
+            <KpiCard label="Stock physique" value={String(stockOverview.onHand)} icon={Boxes} tone="primary" />
+            <KpiCard label="Réservé" value={String(stockOverview.reserved)} icon={Boxes} tone="warning" />
+            <KpiCard label="Disponible" value={String(stockOverview.available)} icon={Boxes} tone="success" />
+          </>
+        )}
       </div>
 
       {(confirmationSummary || commissionSummary) && (
@@ -343,7 +357,7 @@ export default async function TableauDeBordPage({
                   {data.ordersRequiringAction.map((o) => (
                     <li key={o.id} className="flex items-center justify-between py-2.5 text-sm">
                       <Link href={`/commandes/${o.id}`} className="hover:underline">
-                        <span className="font-medium">{displayOrderNumber(o)}</span>{" "}
+                        <span className="font-medium">{displayOrderNumber(o, business.orderNumberPrefix)}</span>{" "}
                         <span className="text-muted-foreground">— {displayOrderRecipient(o)}</span>
                       </Link>
                       <StatusBadge status={o.status} labels={ORDER_STATUS_LABELS} />
@@ -371,7 +385,7 @@ export default async function TableauDeBordPage({
                   {data.failedShipments.map((s) => (
                     <li key={s.id} className="flex items-center justify-between py-2.5 text-sm">
                       <Link href={`/commandes/${s.orderId}`} className="hover:underline">
-                        <span className="font-medium">{displayOrderNumber(s.order)}</span>{" "}
+                        <span className="font-medium">{displayOrderNumber(s.order, business.orderNumberPrefix)}</span>{" "}
                         <span className="text-muted-foreground">— {displayOrderRecipient(s.order)}</span>
                       </Link>
                       <span className="text-xs text-muted-foreground">{formatDate(s.updatedAt)}</span>
@@ -399,7 +413,7 @@ export default async function TableauDeBordPage({
                   {data.recentOrders.map((o) => (
                     <li key={o.id} className="flex items-center justify-between py-2.5 text-sm">
                       <Link href={`/commandes/${o.id}`} className="hover:underline">
-                        <span className="font-medium">{displayOrderNumber(o)}</span>{" "}
+                        <span className="font-medium">{displayOrderNumber(o, business.orderNumberPrefix)}</span>{" "}
                         <span className="text-muted-foreground">— {displayOrderRecipient(o)}</span>
                       </Link>
                       <span>{formatCurrency(o.total.toString(), o.currency)}</span>

@@ -7,6 +7,7 @@ import {
   listAccessibleActiveWarehouses,
   resolveAuthorizedDefaultWarehouseId,
 } from "@/lib/auth/location-access";
+import { getStockOverview } from "@/lib/queries/inventory";
 import { adjustInventoryAction } from "@/actions/inventory";
 import { createStockTransferAction, dispatchStockTransferAction, receiveStockTransferAction } from "@/actions/transfers";
 import { createStocktakeSessionAction } from "@/actions/stocktakes";
@@ -245,6 +246,49 @@ describe("inventory — location-scoped adjustments", () => {
     );
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.data.quantityOnHand).toBe(15);
+  });
+});
+
+/** Batch 9, Group 10 — dashboard stock KPI: location-scoped through the
+ * same authorization primitive as everything else in this file, never "all". */
+describe("getStockOverview — dashboard stock KPI, location-scoped", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  it("a scoped user sees only their assigned warehouse's quantities", async () => {
+    const user = await loginAsTestUser({ role: "WAREHOUSE" });
+    const { a, b } = await seedTwoWarehouses();
+    await grantLocationAccess(user.id, a.id); // only A
+    const product = await prisma.product.create({ data: { name: "P", sku: `S-${Math.random()}`, price: 10 } });
+    await prisma.inventoryItem.create({ data: { warehouseId: a.id, productId: product.id, quantityOnHand: 10, quantityReserved: 3 } });
+    await prisma.inventoryItem.create({ data: { warehouseId: b.id, productId: product.id, quantityOnHand: 100, quantityReserved: 40 } });
+
+    expect(await getStockOverview(user)).toEqual({ onHand: 10, reserved: 3, available: 7 });
+  });
+
+  it("a user with zero warehouse assignments sees zero — never the tenant total", async () => {
+    const user = await loginAsTestUser({ role: "WAREHOUSE" });
+    const { a } = await seedTwoWarehouses();
+    const product = await prisma.product.create({ data: { name: "P", sku: `S-${Math.random()}`, price: 10 } });
+    await prisma.inventoryItem.create({ data: { warehouseId: a.id, productId: product.id, quantityOnHand: 10 } });
+
+    expect(await getStockOverview(user)).toEqual({ onHand: 0, reserved: 0, available: 0 });
+  });
+
+  it("OWNER/ADMIN see the total across every active warehouse", async () => {
+    const admin = await loginAsTestUser({ role: "ADMIN" });
+    const { a, b } = await seedTwoWarehouses();
+    const product = await prisma.product.create({ data: { name: "P", sku: `S-${Math.random()}`, price: 10 } });
+    await prisma.inventoryItem.create({ data: { warehouseId: a.id, productId: product.id, quantityOnHand: 10, quantityReserved: 2 } });
+    await prisma.inventoryItem.create({ data: { warehouseId: b.id, productId: product.id, quantityOnHand: 5, quantityReserved: 1 } });
+
+    expect(await getStockOverview(admin)).toEqual({ onHand: 15, reserved: 3, available: 12 });
   });
 });
 

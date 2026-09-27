@@ -6,6 +6,7 @@ import { resolveActiveTenantIdForRawSql } from "@/lib/tenant/resolve";
 import { runRawBatchWithTenant } from "@/lib/tenant/rls";
 import { availableStock } from "@/lib/inventory";
 import { variantLabel } from "@/lib/catalog/lookup";
+import { listAccessibleActiveWarehouses } from "@/lib/auth/location-access";
 
 const PAGE_SIZE = 25;
 
@@ -68,13 +69,22 @@ export type InventorySort = "recent" | "quantity-asc" | "quantity-desc";
 function stockStatusFrom(
   tenantId: string,
   status: "low" | "out",
-  filters: { q?: string; warehouseId?: string; categoryId?: string }
+  filters: { q?: string; warehouseId?: string; categoryId?: string; allowedWarehouseIds?: string[] | null }
 ): Prisma.Sql {
   const like = filters.q ? `%${filters.q.replace(/[\\%_]/g, "\\$&")}%` : null;
   const qFilter = like
     ? Prisma.sql`AND (p.name ILIKE ${like} OR p.sku ILIKE ${like} OR pv.sku ILIKE ${like})`
     : Prisma.empty;
   const warehouseFilter = filters.warehouseId ? Prisma.sql`AND ii."warehouseId" = ${filters.warehouseId}` : Prisma.empty;
+  // Location Access Management v1 (docs/adr/0037): a scoped user's set of
+  // authorized warehouses, applied even with no explicit `warehouseId`
+  // filter — never "every warehouse in the tenant" for a location-scoped
+  // role. `null`/omitted means unrestricted (OWNER/ADMIN).
+  const allowedFilter = !filters.allowedWarehouseIds
+    ? Prisma.empty
+    : filters.allowedWarehouseIds.length === 0
+      ? Prisma.sql`AND false`
+      : Prisma.sql`AND ii."warehouseId" IN (${Prisma.join(filters.allowedWarehouseIds)})`;
   const categoryFilter = filters.categoryId
     ? Prisma.sql`AND COALESCE(p."categoryId", vp."categoryId") = ${filters.categoryId}`
     : Prisma.empty;
@@ -91,6 +101,7 @@ function stockStatusFrom(
     ${statusFilter}
     ${qFilter}
     ${warehouseFilter}
+    ${allowedFilter}
     ${categoryFilter}
   `;
 }
@@ -105,7 +116,12 @@ function sortClause(sort: InventorySort | undefined): Prisma.Sql {
  * export (`listInventoryItemsForExport`) — kept in one place so the two
  * never drift apart (docs/adr — Batch 3, Task 4: the export must show
  * exactly what the page shows, for the SAME filters). */
-function buildInventoryWhere(params: { q?: string; warehouseId?: string; categoryId?: string }): Prisma.InventoryItemWhereInput {
+function buildInventoryWhere(params: {
+  q?: string;
+  warehouseId?: string;
+  categoryId?: string;
+  allowedWarehouseIds?: string[] | null;
+}): Prisma.InventoryItemWhereInput {
   const conditions: Prisma.InventoryItemWhereInput[] = [];
   if (params.q) {
     conditions.push({
@@ -118,6 +134,12 @@ function buildInventoryWhere(params: { q?: string; warehouseId?: string; categor
   }
   if (params.warehouseId) {
     conditions.push({ warehouseId: params.warehouseId });
+  }
+  // Location Access Management v1 (docs/adr/0037) — applied even with no
+  // explicit `warehouseId` filter, so a location-scoped role never sees (or
+  // exports) stock from a warehouse outside its own authorized set.
+  if (params.allowedWarehouseIds) {
+    conditions.push({ warehouseId: { in: params.allowedWarehouseIds } });
   }
   if (params.categoryId) {
     conditions.push({
@@ -134,6 +156,10 @@ export async function listInventoryItems(params: {
   stockStatus?: StockStatusFilter;
   sort?: InventorySort;
   page?: number;
+  /** Location Access Management v1 (docs/adr/0037) — the caller's own
+   * authorized warehouse set, or `null`/omitted for an unrestricted (OWNER/
+   * ADMIN) viewer. Always resolved by the CALLER (page/route), never here. */
+  allowedWarehouseIds?: string[] | null;
 }) {
   const page = Math.max(1, params.page ?? 1);
   const skip = (page - 1) * PAGE_SIZE;
@@ -145,7 +171,12 @@ export async function listInventoryItems(params: {
     // it carries its own `ii."tenantId"` predicate instead (Phase 3 —
     // docs/adr/0025, closing the ADR 0024 "Known bypass").
     const tenantId = await resolveActiveTenantIdForRawSql("queries/inventory.listInventoryItems(low|out)");
-    const from = stockStatusFrom(tenantId, stockStatus, { q, warehouseId: params.warehouseId, categoryId: params.categoryId });
+    const from = stockStatusFrom(tenantId, stockStatus, {
+      q,
+      warehouseId: params.warehouseId,
+      categoryId: params.categoryId,
+      allowedWarehouseIds: params.allowedWarehouseIds,
+    });
     // Phase 4 (docs/adr/0026): a raw query bypasses every Prisma extension,
     // so it never picks up the RLS `app.tenant_id` GUC on its own —
     // `runRawBatchWithTenant` runs both statements in one transaction with
@@ -165,7 +196,12 @@ export async function listInventoryItems(params: {
     return { items, total: Number(countRows[0]?.count ?? 0), page, pageSize: PAGE_SIZE };
   }
 
-  const where = buildInventoryWhere({ q, warehouseId: params.warehouseId, categoryId: params.categoryId });
+  const where = buildInventoryWhere({
+    q,
+    warehouseId: params.warehouseId,
+    categoryId: params.categoryId,
+    allowedWarehouseIds: params.allowedWarehouseIds,
+  });
 
   const orderBy: Prisma.InventoryItemOrderByWithRelationInput =
     params.sort === "quantity-asc"
@@ -188,6 +224,8 @@ export async function listInventoryItems(params: {
   return { items, total, page, pageSize: PAGE_SIZE };
 }
 
+export type StockStatusLabel = "Rupture" | "Stock faible" | "OK";
+
 export interface InventoryExportRow {
   productName: string;
   variantLabel: string | null;
@@ -200,6 +238,9 @@ export interface InventoryExportRow {
   quantityReserved: number;
   available: number;
   quantityDamaged: number;
+  /** Same thresholds as `/stock`'s own on-screen badges (Batch 15) — "Rupture"
+   * wins over "Stock faible" when both would apply, matching the page. */
+  stockStatus: StockStatusLabel;
 }
 
 /**
@@ -217,6 +258,8 @@ export async function listInventoryItemsForExport(params: {
   categoryId?: string;
   stockStatus?: StockStatusFilter;
   sort?: InventorySort;
+  /** Same authorization contract as `listInventoryItems` above. */
+  allowedWarehouseIds?: string[] | null;
 }): Promise<InventoryExportRow[]> {
   const q = params.q?.trim() || undefined;
   const stockStatus = params.stockStatus ?? "all";
@@ -226,7 +269,12 @@ export async function listInventoryItemsForExport(params: {
 
   if (stockStatus === "low" || stockStatus === "out") {
     const tenantId = await resolveActiveTenantIdForRawSql("queries/inventory.listInventoryItemsForExport(low|out)");
-    const from = stockStatusFrom(tenantId, stockStatus, { q, warehouseId: params.warehouseId, categoryId: params.categoryId });
+    const from = stockStatusFrom(tenantId, stockStatus, {
+      q,
+      warehouseId: params.warehouseId,
+      categoryId: params.categoryId,
+      allowedWarehouseIds: params.allowedWarehouseIds,
+    });
     const [idRows] = (await runRawBatchWithTenant(tenantId, [
       prisma.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT ii.id ${from} ${sortClause(params.sort)}`),
     ])) as [{ id: string }[]];
@@ -235,7 +283,12 @@ export async function listInventoryItemsForExport(params: {
     const byId = new Map(rows.map((r) => [r.id, r]));
     items = ids.map((id) => byId.get(id)).filter((r): r is ExportRow => Boolean(r));
   } else {
-    const where = buildInventoryWhere({ q, warehouseId: params.warehouseId, categoryId: params.categoryId });
+    const where = buildInventoryWhere({
+      q,
+      warehouseId: params.warehouseId,
+      categoryId: params.categoryId,
+      allowedWarehouseIds: params.allowedWarehouseIds,
+    });
     const orderBy: Prisma.InventoryItemOrderByWithRelationInput =
       params.sort === "quantity-asc" ? { quantityOnHand: "asc" } : params.sort === "quantity-desc" ? { quantityOnHand: "desc" } : { updatedAt: "desc" };
     items = await prisma.inventoryItem.findMany({ where, include: INVENTORY_EXPORT_INCLUDE, orderBy });
@@ -244,6 +297,9 @@ export async function listInventoryItemsForExport(params: {
   return items.map((i) => {
     const product = i.product ?? i.variation?.product ?? null;
     const category = i.product?.category ?? i.variation?.product.category ?? null;
+    const threshold = product?.lowStockThreshold ?? 0;
+    const available = availableStock(i);
+    const status: StockStatusLabel = available <= 0 ? "Rupture" : i.quantityOnHand <= threshold ? "Stock faible" : "OK";
     const barcode = i.product?.barcodes[0]?.code ?? i.variation?.barcodes[0]?.code ?? null;
     return {
       productName: product?.name ?? "—",
@@ -255,8 +311,9 @@ export async function listInventoryItemsForExport(params: {
       warehouseName: i.warehouse.name,
       quantityOnHand: i.quantityOnHand,
       quantityReserved: i.quantityReserved,
-      available: availableStock(i),
+      available,
       quantityDamaged: i.quantityDamaged,
+      stockStatus: status,
     };
   });
 }
@@ -270,6 +327,35 @@ export async function getLowStockCount(): Promise<number> {
     prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`SELECT COUNT(*)::bigint AS count ${lowStockFrom(tenantId)}`),
   ])) as [{ count: bigint }[]];
   return Number(rows[0]?.count ?? 0);
+}
+
+export interface StockOverview {
+  onHand: number;
+  reserved: number;
+  available: number;
+}
+
+/**
+ * Dashboard "Stock physique / Réservé / Disponible" KPI (Batch 9, Group 10).
+ * Purely operational quantities — no monetary valuation (costing/COGS/FIFO
+ * are deferred, unchanged by this). Scoped through the SAME authorization
+ * primitive every other location-scoped surface already uses
+ * (`listAccessibleActiveWarehouses`, docs/adr/0037): OWNER/ADMIN see every
+ * active warehouse, anyone else sees only their own assigned set, and zero
+ * assignments means zero stock shown — never "all", matching the existing
+ * default-deny posture. No new query architecture, just this one aggregate
+ * restricted to the same warehouse id list.
+ */
+export async function getStockOverview(user: Parameters<typeof listAccessibleActiveWarehouses>[0]): Promise<StockOverview> {
+  const warehouses = await listAccessibleActiveWarehouses(user);
+  if (warehouses.length === 0) return { onHand: 0, reserved: 0, available: 0 };
+  const sums = await prisma.inventoryItem.aggregate({
+    where: { warehouseId: { in: warehouses.map((w) => w.id) } },
+    _sum: { quantityOnHand: true, quantityReserved: true },
+  });
+  const onHand = sums._sum.quantityOnHand ?? 0;
+  const reserved = sums._sum.quantityReserved ?? 0;
+  return { onHand, reserved, available: Math.max(0, onHand - reserved) };
 }
 
 /** Stock locations for the /entrepots management surface, default first,

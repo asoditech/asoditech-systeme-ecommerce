@@ -85,12 +85,17 @@ export async function listOrders(filters: OrderListFilters) {
       take: PAGE_SIZE,
       include: {
         customer: true,
-        // `returns` mirrors the same lightweight count the Sale list already
-        // shows (docs/adr/0036/0040) — a cheap boolean-ish indicator; the
-        // quantity-aware "Retour partiel X/Y" label needs per-line data and
-        // is computed on the detail page instead, where it's already loaded.
         _count: { select: { items: true, returns: true } },
         confirmationAgent: { include: { user: { select: { name: true } } } },
+        // Batch 9, Group 5/8: the list's own "Canal" (En ligne, always — an
+        // Order is never Offline, docs/adr/0038) and return badge, reusing
+        // the SAME `returnStateLabel` the detail page already uses instead
+        // of a second calculation — just fed with cheap aggregate sums here
+        // instead of the detail page's per-line matching (this view never
+        // needs which specific line a unit was returned from).
+        salesChannel: { select: { name: true, kind: true } },
+        items: { select: { quantity: true } },
+        returns: { select: { lines: { select: { quantitySellable: true, quantityDamaged: true } } } },
       },
     }),
     prisma.order.count({ where }),
@@ -115,6 +120,11 @@ export async function getOrderDetail(id: string) {
       refunds: { orderBy: { createdAt: "desc" } },
       shipments: { include: { provider: true }, orderBy: { createdAt: "desc" } },
       createdBy: true,
+      // Business channel (docs/adr/0038) — deliberately separate from
+      // `fulfillmentWarehouse` below: SalesChannel is NOT a Location. Batch
+      // 12: the order list already showed this (listOrders, Batch 9); the
+      // detail page's own query never fetched it, so it was invisible here.
+      salesChannel: { select: { name: true, kind: true } },
       fulfillmentWarehouse: { select: { name: true, type: true } },
       returns: {
         orderBy: { createdAt: "desc" },

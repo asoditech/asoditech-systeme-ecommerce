@@ -3,7 +3,7 @@ import { referenceSchema } from "@/lib/validation/catalog";
 
 export const productStatusSchema = z.enum(["ACTIF", "BROUILLON", "ARCHIVE"]);
 
-const skuSchema = z
+export const skuSchema = z
   .string()
   .trim()
   .min(2, "Le SKU est requis.")
@@ -155,6 +155,40 @@ export const updateVariationDetailsSchema = z.object({
   salePrice: z.coerce.number().min(0).nullish(),
   imageUrl: imageUrlSchema,
   isActive: z.coerce.boolean().default(true),
+});
+
+/**
+ * Batch 11 — a variation's SKU, deliberately kept OUT of
+ * `updateVariationDetailsSchema` (whose own comment documents that sku/
+ * attributes/price are never touched there). A separate, narrow schema for
+ * the one new editable identity field, gated server-side by
+ * `externalSourceError` in `updateVariationSkuAction` exactly like every
+ * other ASODITECH-owned-only-when-INTERNE field in this file.
+ */
+export const updateVariationSkuSchema = z.object({
+  id: z.string().min(1),
+  sku: skuSchema,
+});
+
+/** Batch 11 — product image gallery (`ProductImage[]`, additive on top of
+ * the existing single "lead" position-0 image the WooCommerce/Shopify sync
+ * owns). `imageUrl` is required and non-empty here — unlike
+ * `updateProductImageSchema`, adding a gallery image has no "clear" case. */
+export const addProductImageSchema = z.object({
+  productId: z.string().min(1),
+  imageUrl: imageUrlSchema.refine((v) => v.length > 0, "Lien d'image requis."),
+});
+
+export const removeProductImageSchema = z.object({ id: z.string().min(1) });
+export const setPrimaryProductImageSchema = z.object({ id: z.string().min(1) });
+
+/** Batch 13 (Product Publishing) — only the two providers with a real
+ * "create a product" capability in this batch are valid publish targets;
+ * every other `IntegrationProvider` value (META_ADS, WHATSAPP, …) is
+ * rejected here, before it ever reaches a channel lookup. */
+export const publishProductSchema = z.object({
+  productId: z.string().min(1),
+  provider: z.enum(["WOOCOMMERCE", "SHOPIFY"]),
 });
 
 export type CreateProductInput = z.infer<typeof createProductSchema>;

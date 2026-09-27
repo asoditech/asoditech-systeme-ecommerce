@@ -11,7 +11,7 @@ import { requirePermission } from "@/lib/auth/guards";
 import { requireChannelKind } from "@/lib/auth/channel-access";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { listSales } from "@/lib/queries/sales";
-import { displaySaleNumber, formatCurrency, formatDateTime } from "@/lib/format";
+import { displaySaleNumber, formatCurrency, formatDateTime, returnStateLabel } from "@/lib/format";
 import { CASH_PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
 
 export const metadata = { title: "Ventes magasin — ASODITECH Gestion E-commerce" };
@@ -57,13 +57,22 @@ export default async function VentesPage({ searchParams }: { searchParams: Promi
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sales.map((s) => (
+              {sales.map((s) => {
+                const returnLabel = returnStateLabel(
+                  s.lines.reduce((sum, l) => sum + l.quantity, 0),
+                  s.returns.flatMap((r) => r.lines).reduce((sum, l) => sum + l.quantitySellable + l.quantityDamaged, 0)
+                );
+                return (
                 <TableRow key={s.id}>
                   <TableCell className="font-medium">
                     <Link href={`/ventes/${s.id}`} className="hover:underline">
                       {displaySaleNumber(s)}
                     </Link>
-                    {s._count.returns > 0 && <Badge variant="outline" className="ml-2">retour</Badge>}
+                    {returnLabel && (
+                      <Badge variant="outline" className="ml-2">
+                        ↩ {returnLabel}
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{formatDateTime(s.soldAt)}</TableCell>
                   <TableCell>{s.salesChannel.name}</TableCell>
@@ -74,7 +83,8 @@ export default async function VentesPage({ searchParams }: { searchParams: Promi
                   </TableCell>
                   <TableCell className="text-right tabular-nums font-medium">{formatCurrency(s.total.toString(), s.currency)}</TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
           <DataTablePagination page={page} pageSize={pageSize} total={total} basePath="/ventes" searchParams={{ q: params.q }} />

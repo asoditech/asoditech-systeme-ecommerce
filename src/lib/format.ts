@@ -65,16 +65,27 @@ export function resolvedDisplayNumber(row: { displayNumber?: number | null }, le
  * customer ever sees. Falls back to the internal number if an imported
  * order somehow lacks one.
  */
-export function displayOrderNumber(order: {
-  orderNumber: number;
-  displayNumber?: number | null;
-  source: "INTERNE" | "WOOCOMMERCE" | "SHOPIFY";
-  externalNumber?: string | null;
-}): string {
+export function displayOrderNumber(
+  order: {
+    orderNumber: number;
+    displayNumber?: number | null;
+    source: "INTERNE" | "WOOCOMMERCE" | "SHOPIFY";
+    externalNumber?: string | null;
+  },
+  /**
+   * Batch 17 — `BusinessSettings.orderNumberPrefix` ("Préfixe des numéros de
+   * commande"), when the caller has it on hand (most already fetch business
+   * info for other reasons, e.g. `getReportBusinessInfo`). Defaults to the
+   * pre-existing "CMD" so every call site that hasn't been updated keeps
+   * its exact previous behaviour — never a breaking change, only an
+   * opt-in fix for the callers that now pass the tenant's real setting.
+   */
+  prefix = "CMD"
+): string {
   if (order.source !== "INTERNE" && order.externalNumber) {
     return `#${order.externalNumber}`;
   }
-  return formatOrderNumber(resolvedDisplayNumber(order, order.orderNumber));
+  return formatOrderNumber(resolvedDisplayNumber(order, order.orderNumber), prefix);
 }
 
 /**

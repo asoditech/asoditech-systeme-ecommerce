@@ -75,6 +75,42 @@ export async function getConnectedCommercePlatforms(): Promise<ConnectedCommerce
 }
 
 /**
+ * Batch 13 (Product Publishing) — the same trusted-URL-building logic
+ * `resolveExternalProductEditUrl` below already used for an IMPORTED
+ * product's (source, externalId) pair, generalized to any (provider,
+ * externalId) pair — so the publish panel's "view on WooCommerce/Shopify"
+ * link (built from a `ProductPublication` row, a DIFFERENT identity than
+ * `Product.source`/`externalId` — see the model's own doc comment) reuses
+ * this instead of a second URL-building implementation. Same trust rules:
+ * only ever built from `Integration.config` (validated at connect time)
+ * and a provider's own externalId, never client input.
+ */
+export async function resolveExternalAdminUrl(
+  provider: "WOOCOMMERCE" | "SHOPIFY",
+  externalId: string
+): Promise<string | null> {
+  if (provider === "WOOCOMMERCE") {
+    const integration = await prisma.integration.findFirst({ where: { provider: "WOOCOMMERCE" } });
+    if (!integration || integration.status !== "CONNECTE") return null;
+    const siteUrl = (integration.config as { siteUrl?: string } | null)?.siteUrl;
+    const origin = siteUrl && safeOrigin(siteUrl);
+    if (!origin) return null;
+    return `${origin}/wp-admin/post.php?post=${encodeURIComponent(externalId)}&action=edit`;
+  }
+
+  const integration = await prisma.integration.findFirst({ where: { provider: "SHOPIFY" } });
+  if (!integration || integration.status !== "CONNECTE") return null;
+  const shopDomain = (integration.config as { shopDomain?: string } | null)?.shopDomain;
+  const origin = shopDomain && safeOrigin(shopDomain);
+  if (!origin) return null;
+  // externalId is the full GraphQL gid ("gid://shopify/Product/123") — the
+  // admin URL takes just the trailing numeric id.
+  const numericId = externalId.split("/").pop();
+  if (!numericId) return null;
+  return `${origin}/admin/products/${encodeURIComponent(numericId)}`;
+}
+
+/**
  * Resolves the real external admin edit URL for one already-imported
  * product, or `null` when it cannot be safely resolved — an internal
  * product (nothing external to link to), a missing/disconnected
@@ -87,28 +123,7 @@ export async function resolveExternalProductEditUrl(product: {
   externalId: string | null;
 }): Promise<string | null> {
   if (!product.externalId) return null;
-
-  if (product.source === "WOOCOMMERCE") {
-    const integration = await prisma.integration.findFirst({ where: { provider: "WOOCOMMERCE" } });
-    if (!integration || integration.status !== "CONNECTE") return null;
-    const siteUrl = (integration.config as { siteUrl?: string } | null)?.siteUrl;
-    const origin = siteUrl && safeOrigin(siteUrl);
-    if (!origin) return null;
-    return `${origin}/wp-admin/post.php?post=${encodeURIComponent(product.externalId)}&action=edit`;
-  }
-
-  if (product.source === "SHOPIFY") {
-    const integration = await prisma.integration.findFirst({ where: { provider: "SHOPIFY" } });
-    if (!integration || integration.status !== "CONNECTE") return null;
-    const shopDomain = (integration.config as { shopDomain?: string } | null)?.shopDomain;
-    const origin = shopDomain && safeOrigin(shopDomain);
-    if (!origin) return null;
-    // externalId is the full GraphQL gid ("gid://shopify/Product/123") —
-    // the admin URL takes just the trailing numeric id.
-    const numericId = product.externalId.split("/").pop();
-    if (!numericId) return null;
-    return `${origin}/admin/products/${encodeURIComponent(numericId)}`;
-  }
-
+  if (product.source === "WOOCOMMERCE") return resolveExternalAdminUrl("WOOCOMMERCE", product.externalId);
+  if (product.source === "SHOPIFY") return resolveExternalAdminUrl("SHOPIFY", product.externalId);
   return null; // INTERNE — nothing external to link to
 }

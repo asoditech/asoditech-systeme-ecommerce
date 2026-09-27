@@ -18,7 +18,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { listOrders } from "@/lib/queries/orders";
-import { formatCurrency, formatDate, displayOrderNumber, displayOrderChannel, displayOrderRecipient } from "@/lib/format";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
+import {
+  formatCurrency,
+  formatDate,
+  displayOrderNumber,
+  displayOrderChannel,
+  displayOrderRecipient,
+  returnStateLabel,
+} from "@/lib/format";
 import { ORDER_STATUS_LABELS, ORDER_PAYMENT_STATUS_LABELS } from "@/lib/status-labels";
 import type { OrderStatus, OrderPaymentStatus } from "@prisma/client";
 
@@ -66,15 +74,18 @@ export default async function CommandesPage({
   const effectiveDateFrom = params.dateFrom || (isAll ? undefined : monthFrom);
   const effectiveDateTo = params.dateTo || (isAll ? undefined : monthTo);
 
-  const { orders, total, pageSize } = await listOrders({
-    q: params.q,
-    status: statusFilter,
-    paymentStatus: paymentStatusFilter,
-    dateFrom: effectiveDateFrom,
-    dateTo: effectiveDateTo,
-    confirmationAgentId: params.confirmationAgent,
-    page,
-  });
+  const [{ orders, total, pageSize }, business] = await Promise.all([
+    listOrders({
+      q: params.q,
+      status: statusFilter,
+      paymentStatus: paymentStatusFilter,
+      dateFrom: effectiveDateFrom,
+      dateTo: effectiveDateTo,
+      confirmationAgentId: params.confirmationAgent,
+      page,
+    }),
+    getReportBusinessInfo(),
+  ]);
   const confirmationAgentName = params.confirmationAgent
     ? orders.find((o) => o.confirmationAgent)?.confirmationAgent?.user.name ?? "cet agent"
     : null;
@@ -235,11 +246,30 @@ export default async function CommandesPage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {orders.map((o) => (
+              {orders.map((o) => {
+                // Batch 9, Group 5: an Order is always the Online side of the
+                // business (docs/adr/0038) — Sale is the separate Offline
+                // model — so this only ever reads "En ligne" or, for a
+                // legacy/unattributed row (nullable salesChannelId), the
+                // existing neutral state (no badge), never an invented one.
+                const returnLabel = returnStateLabel(
+                  o.items.reduce((s, i) => s + i.quantity, 0),
+                  o.returns.flatMap((r) => r.lines).reduce((s, l) => s + l.quantitySellable + l.quantityDamaged, 0)
+                );
+                return (
                 <ClickableTableRow key={o.id} href={`/commandes/${o.id}`}>
                   <TableCell className="font-medium">
-                    {displayOrderNumber(o)}
-                    {o._count.returns > 0 && <Badge variant="outline" className="ml-2">retour</Badge>}
+                    {displayOrderNumber(o, business.orderNumberPrefix)}
+                    {o.salesChannel && (
+                      <Badge variant="outline" className="ml-2">
+                        {o.salesChannel.kind === "ONLINE" ? "En ligne" : "Magasin"}
+                      </Badge>
+                    )}
+                    {returnLabel && (
+                      <Badge variant="outline" className="ml-2">
+                        ↩ {returnLabel}
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell>
                     <span className="block max-w-[8rem] truncate">{displayOrderRecipient(o)}</span>
@@ -274,7 +304,8 @@ export default async function CommandesPage({
                   </TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(o.placedAt)}</TableCell>
                 </ClickableTableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
           <DataTablePagination

@@ -2,11 +2,33 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import "@/lib/integrations/delivery/providers"; // populates the registry — see that module's own doc comment
-import { listDeliveryProviders } from "@/lib/integrations/delivery/registry";
+import { listDeliveryProviders, getDeliveryProvider } from "@/lib/integrations/delivery/registry";
 import { SHIPPABLE_ORDER_STATUSES, ACTIVE_SHIPMENT_STATUSES } from "@/lib/delivery";
-import type { Prisma, ShipmentStatus } from "@prisma/client";
+import type { Prisma, ShipmentStatus, ShippingProviderType } from "@prisma/client";
 
 const PAGE_SIZE = 30;
+
+/**
+ * The capabilities to gate a generic UI affordance on (Batch 18 — "Delivery
+ * Provider UX Decoupling"): show a control (city mapping, cancellation, …)
+ * only for a capability the carrier genuinely supports.
+ *
+ * Deliberately reads the **live adapter registry**, not
+ * `ShippingProvider.capabilities` — that DB column is only snapshotted on a
+ * successful `testDeliveryProviderConnectionAction` (docs/adr/0012), so
+ * using it here would conflate "connected" with "supports this capability"
+ * (exactly the three-way distinction docs/adr/0018/0028 call out: provider
+ * configured vs. connected vs. supports X). A provider that is only
+ * CONFIGURE (never yet tested, or whose last test happened to fail) still
+ * genuinely supports whatever its adapter declares — e.g. a shipment
+ * creation attempt can fail with a city error before the operator has ever
+ * run "Tester la connexion" (the server doesn't require CONNECTE to try),
+ * and the fix-it affordance must still show up then.
+ */
+export function providerCapabilities(provider: { type: ShippingProviderType; providerKey: string | null }): string[] {
+  if (provider.type !== "API" || !provider.providerKey) return [];
+  return [...(getDeliveryProvider(provider.providerKey)?.capabilities ?? [])];
+}
 
 export async function listShippingProviders() {
   return prisma.shippingProvider.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { shipments: true } } } });
@@ -15,14 +37,22 @@ export async function listShippingProviders() {
 /**
  * Narrow, client-safe provider list (no credentials / raw config) — for
  * the shipment dialogs on the order detail page. Same shape as
- * `ShipmentProviderOption`.
+ * `ShipmentProviderOption`. `capabilities` (the live adapter's, via
+ * `providerCapabilities` — not the DB snapshot) is included so the generic
+ * UI can show only the actions this provider instance genuinely supports
+ * (Batch 18 — see e.g. FETCH_CITIES gating on the "Corriger la ville"
+ * affordance) instead of assuming every API provider supports the same set.
  */
 export async function listShipmentProviderOptions() {
-  return prisma.shippingProvider.findMany({
+  const providers = await prisma.shippingProvider.findMany({
     where: { isActive: true },
     orderBy: { name: "asc" },
-    select: { id: true, name: true, type: true, connectionStatus: true },
+    select: { id: true, name: true, type: true, connectionStatus: true, providerKey: true },
   });
+  return providers.map(({ providerKey, ...rest }) => ({
+    ...rest,
+    capabilities: providerCapabilities({ type: rest.type, providerKey }),
+  }));
 }
 
 /**

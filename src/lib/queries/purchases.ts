@@ -3,6 +3,7 @@ import "server-only";
 import { Prisma, type ReceptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSupplierBalance } from "@/lib/receptions";
+import { variantLabel } from "@/lib/catalog/lookup";
 
 /** Suppliers & receptions reads — docs/adr/0040. Permission-gated by the pages (`suppliers.view` / `purchases.view`). */
 
@@ -20,14 +21,31 @@ export async function listSuppliers(params: { q?: string; page?: number } = {}) 
   ]);
   const ids = suppliers.map((s) => s.id);
   // Balances DERIVED in two grouped queries — never a query per row.
-  const [received, paid] = await Promise.all([
+  const [received, paid, activity] = await Promise.all([
     prisma.reception.groupBy({ by: ["supplierId"], where: { supplierId: { in: ids }, status: "VALIDEE" }, _sum: { totalCost: true } }),
     prisma.supplierPayment.groupBy({ by: ["supplierId"], where: { supplierId: { in: ids } }, _sum: { amount: true } }),
+    // Batch 14 — "number of receptions" / "latest reception date" (a draft
+    // still counts as purchasing ACTIVITY; only a cancelled one didn't
+    // really happen), one grouped query, no N+1.
+    prisma.reception.groupBy({
+      by: ["supplierId"],
+      where: { supplierId: { in: ids }, status: { not: "ANNULEE" } },
+      _count: { _all: true },
+      _max: { receptionDate: true },
+    }),
   ]);
   const rows = suppliers.map((s) => {
     const r = received.find((x) => x.supplierId === s.id)?._sum.totalCost ?? zero();
     const p = paid.find((x) => x.supplierId === s.id)?._sum.amount ?? zero();
-    return { ...s, totalReceived: r, totalPaid: p, balance: r.minus(p) };
+    const a = activity.find((x) => x.supplierId === s.id);
+    return {
+      ...s,
+      totalReceived: r,
+      totalPaid: p,
+      balance: r.minus(p),
+      receptionCount: a?._count._all ?? 0,
+      lastReceptionDate: a?._max.receptionDate ?? null,
+    };
   });
   return { suppliers: rows, total, page, pageSize: PAGE_SIZE };
 }
@@ -94,6 +112,49 @@ export interface PurchasePriceHistoryEntry {
   receptionId: string;
   receptionNumber: number;
   receptionDisplayNumber: number | null;
+}
+
+export interface SupplierPurchaseLine {
+  date: Date;
+  productName: string;
+  variantLabel: string | null;
+  sku: string;
+  quantity: number;
+  unitCost: number;
+  receptionId: string;
+  receptionNumber: number;
+  receptionDisplayNumber: number | null;
+}
+
+/**
+ * Batch 14 — "which products did we buy from this supplier, when, at what
+ * cost" (line-level, unlike `getSupplierDetail`'s reception-level rows).
+ * Read straight off `ReceptionLine`'s own snapshots — no new table, no join
+ * back to the live Product for the name (a snapshot is what was actually
+ * received, even if the product was since renamed). Only VALIDEE receptions
+ * count as an actual purchase, same posture as `getPurchasePriceHistory`.
+ */
+export async function getSupplierPurchaseHistory(supplierId: string, limit = 30): Promise<SupplierPurchaseLine[]> {
+  const lines = await prisma.receptionLine.findMany({
+    where: { reception: { supplierId, status: "VALIDEE" } },
+    orderBy: { reception: { receptionDate: "desc" } },
+    take: limit,
+    include: {
+      variation: { select: { attributes: true } },
+      reception: { select: { id: true, receptionNumber: true, displayNumber: true, receptionDate: true } },
+    },
+  });
+  return lines.map((l) => ({
+    date: l.reception.receptionDate,
+    productName: l.nameSnapshot,
+    variantLabel: variantLabel(l.variation?.attributes),
+    sku: l.skuSnapshot,
+    quantity: l.quantity,
+    unitCost: Number(l.unitCost),
+    receptionId: l.reception.id,
+    receptionNumber: l.reception.receptionNumber,
+    receptionDisplayNumber: l.reception.displayNumber,
+  }));
 }
 
 /**

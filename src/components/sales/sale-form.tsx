@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
 import { formatCurrency } from "@/lib/format";
 import { CASH_PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
 
@@ -99,13 +100,23 @@ export function SaleForm({
     setQuery("");
   }
 
-  async function search() {
-    if (!query.trim() || !channelId || !warehouseId) return;
-    const found = await lookupForSaleAction({ query, salesChannelId: channelId, warehouseId });
+  // `code` lets a caller (the camera scanner) feed a value straight through
+  // without waiting on `setQuery`'s next render — the EXACT same lookup
+  // (`lookupForSaleAction`) a hardware scanner's Enter key or the
+  // "Chercher" button already use, never a second implementation.
+  async function search(code?: string) {
+    const q = code ?? query;
+    if (!q.trim() || !channelId || !warehouseId) return;
+    const found = await lookupForSaleAction({ query: q, salesChannelId: channelId, warehouseId });
     if (found.length === 0) return toast.error("Aucun article trouvé sur ce canal.");
     // A scanner types the code then presses Enter → exact hit goes straight into the cart.
     if (found.length === 1 && found[0].unit.matchedBy !== "partial") addUnit(found[0]);
     else setHits(found);
+  }
+
+  function onCameraDetect(code: string) {
+    setQuery(code);
+    void search(code);
   }
 
   function submit() {
@@ -196,10 +207,11 @@ export function SaleForm({
                   }
                 }}
               />
-              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={search}>
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => void search()}>
                 <ScanBarcode className="size-4" />
                 Chercher
               </Button>
+              <BarcodeScanButton onDetect={onCameraDetect} label="Caméra" />
             </div>
             {hits.length > 0 && (
               <ul className="divide-y rounded-md border text-sm">

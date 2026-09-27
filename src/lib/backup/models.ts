@@ -60,6 +60,10 @@ export const BACKUP_MODELS: readonly BackupModel[] = [
   { model: "SalesChannel", accessor: "salesChannel", key: "sales_channels", strategy: "replace" },
   { model: "SalesChannelLocation", accessor: "salesChannelLocation", key: "sales_channel_locations", strategy: "replace" },
   { model: "ProductSalesChannel", accessor: "productSalesChannel", key: "product_sales_channels", strategy: "replace" },
+  // Batch 13 (Product Publishing): which external channels a product has
+  // been explicitly published to, and under which external id — travels
+  // with the backup like every other product-identity fact.
+  { model: "ProductPublication", accessor: "productPublication", key: "product_publications", strategy: "replace" },
   { model: "Barcode", accessor: "barcode", key: "barcodes", strategy: "replace" },
   { model: "InventoryItem", accessor: "inventoryItem", key: "inventory_items", strategy: "replace" },
   { model: "MarketingChannel", accessor: "marketingChannel", key: "marketing_channels", strategy: "replace" },

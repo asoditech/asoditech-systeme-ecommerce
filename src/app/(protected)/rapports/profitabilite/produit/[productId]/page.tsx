@@ -11,6 +11,7 @@ import { ReportFilterBar } from "@/components/reports/report-filter-bar";
 import { requirePermission } from "@/lib/auth/guards";
 import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
 import { getProfitabilityReport, listOrdersForProduct, DELETED_PRODUCT_KEY } from "@/lib/queries/reports/profitability";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { formatCurrency, formatDate, formatOrderNumber } from "@/lib/format";
 import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
 
@@ -38,7 +39,10 @@ export default async function ProfitabiliteProduitDetailPage({
   const row = report.byProduct.find((r) => (r.productId ?? DELETED_PRODUCT_KEY) === rawId);
   if (!row) notFound();
 
-  const { rows: orders, total } = await listOrdersForProduct(productId, resolved.range, page, PAGE_SIZE);
+  const [{ rows: orders, total }, business] = await Promise.all([
+    listOrdersForProduct(productId, resolved.range, page, PAGE_SIZE),
+    getReportBusinessInfo(),
+  ]);
 
   return (
     <div>
@@ -90,7 +94,7 @@ export default async function ProfitabiliteProduitDetailPage({
             <TableBody>
               {orders.map((o) => (
                 <ClickableTableRow key={o.orderId} href={`/commandes/${o.orderId}`}>
-                  <TableCell className="font-medium">{formatOrderNumber(o.displayNumber)}</TableCell>
+                  <TableCell className="font-medium">{formatOrderNumber(o.displayNumber, business.orderNumberPrefix)}</TableCell>
                   <TableCell>{o.customerName}</TableCell>
                   <TableCell>{formatDate(o.placedAt)}</TableCell>
                   <TableCell>

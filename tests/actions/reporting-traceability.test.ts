@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma, prismaBase } from "@/lib/prisma";
 import { createSaleAction, createSaleReturnAction } from "@/actions/sales";
 import { createReceptionAction, validateReceptionAction, createSupplierAction } from "@/actions/purchases";
+import { createStockTransferAction, dispatchStockTransferAction, receiveStockTransferAction } from "@/actions/transfers";
 import { quickSearchAction } from "@/actions/search";
 import { getCurrentUser, createSession } from "@/lib/auth/session";
 import { listSales, getSaleDetail } from "@/lib/queries/sales";
@@ -10,6 +11,7 @@ import { getChannelReport } from "@/lib/queries/reports/channels";
 import { getFinanceSummary } from "@/lib/queries/finance";
 import { getUnitTraceability, findTraceUnits } from "@/lib/queries/traceability";
 import { getStockValuationReport } from "@/lib/queries/reports/stock-valuation";
+import { getReturnsReport, getOfflineReturnsReport } from "@/lib/queries/reports/returns";
 import { saleChannelWhere } from "@/lib/auth/channel-access";
 import { buildTenantBackup } from "@/lib/backup/export";
 import { inspectBackup, restoreTenantBackup } from "@/lib/backup/import";
@@ -181,6 +183,92 @@ describe("channel report — Online / Offline / Total from the underlying source
   });
 });
 
+// Batch 15 — the returns report now covers BOTH domains: Online
+// (OrderReturn, pre-existing) and Offline (SaleReturn, new). Each its own
+// section, each channel-scoped independently — never merged into one row.
+describe("returns report — Online (OrderReturn) and Offline (SaleReturn), never merged", () => {
+  it("getReturnsReport (Online) counts a confirmed physical return, sellable vs damaged, by product and by order", async () => {
+    const admin = await loginAsTestUser({ role: "ADMIN" });
+    const w = await seedWorld();
+    // This report only reads OrderReturn/OrderReturnLine directly (the ledger
+    // `confirmPhysicalReturnAction` writes to, itself already covered end to
+    // end in tests/actions/returns.test.ts) — a direct fixture here tests
+    // the report's own aggregation, not the action's stock/idempotency rules.
+    const orderReturn = await prisma.orderReturn.create({
+      data: {
+        orderId: w.order.id,
+        idempotencyKey: randomUUID(),
+        receivedById: admin.id,
+        lines: {
+          create: [
+            {
+              orderItemId: (await prisma.orderItem.findFirstOrThrow({ where: { orderId: w.order.id } })).id,
+              nameSnapshot: "Basket",
+              skuSnapshot: "BASKET-1",
+              quantitySellable: 2,
+              quantityDamaged: 1,
+              warehouseId: w.whA.id,
+            },
+          ],
+        },
+      },
+    });
+    const r = await getReturnsReport(range());
+    expect(r.totals).toMatchObject({ returnEvents: 1, ordersReturned: 1, unitsSellable: 2, unitsDamaged: 1, unitsTotal: 3 });
+    expect(r.byProduct[0]).toMatchObject({ name: "Basket", sku: "BASKET-1", unitsSellable: 2, unitsDamaged: 1 });
+    expect(r.byOrder[0].orderReturnId).toBe(orderReturn.id);
+  });
+
+  it("getOfflineReturnsReport counts a confirmed sale return, and channel-scopes it exactly like getChannelReport", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const w = await seedWorld();
+    const saleId = await sell(w.chA.id, w.whA.id, w.product.id, 4);
+    const line = await prisma.saleLine.findFirstOrThrow({ where: { saleId } });
+    const ret = await createSaleReturnAction({
+      saleId, idempotencyKey: randomUUID(),
+      lines: [{ saleLineId: line.id, quantitySellable: 1, quantityDamaged: 1 }],
+      refundAmount: 100, refundMethod: "ESPECES",
+    });
+    expect(ret.ok).toBe(true);
+
+    const admin = (await getCurrentUser())!;
+    const full = await getOfflineReturnsReport(range(), admin);
+    expect(full.totals).toMatchObject({ returnEvents: 1, ordersReturned: 1, unitsSellable: 1, unitsDamaged: 1, unitsTotal: 2, refundTotal: 100 });
+    expect(full.byProduct[0]).toMatchObject({ name: "Basket", sku: "BASKET-1" });
+    expect(full.bySale[0]).toMatchObject({ saleId, channelName: "Magasin A", refundAmount: 100 });
+
+    // A store-B-only viewer sees nothing for store A's return.
+    const storeB = await loginScoped("MANAGER", [w.chB.id]);
+    const scoped = await getOfflineReturnsReport(range(), storeB);
+    expect(scoped.totals.returnEvents).toBe(0);
+    expect(scoped.bySale).toHaveLength(0);
+  });
+
+  it("the /rapports/retours CSV export includes only the section(s) the caller's channels allow, and rejects a caller with neither", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const w = await seedWorld();
+    const saleId = await sell(w.chA.id, w.whA.id, w.product.id, 2);
+    const line = await prisma.saleLine.findFirstOrThrow({ where: { saleId } });
+    await createSaleReturnAction({ saleId, idempotencyKey: randomUUID(), lines: [{ saleLineId: line.id, quantitySellable: 2, quantityDamaged: 0 }] });
+
+    const onlineOnly = await loginScoped("MANAGER", [w.online.id]);
+    const csvOnline = await (await exportReport(new Request("http://x/rapports/export/retours"), { params: Promise.resolve({ type: "retours" }) })).text();
+    expect(csvOnline).toContain("En ligne");
+    expect(csvOnline).not.toContain("Magasin —");
+    void onlineOnly;
+
+    const offlineOnly = await loginScoped("MANAGER", [w.chA.id]);
+    const csvOffline = await (await exportReport(new Request("http://x/rapports/export/retours"), { params: Promise.resolve({ type: "retours" }) })).text();
+    expect(csvOffline).toContain("Magasin —");
+    expect(csvOffline).not.toContain("En ligne —");
+    void offlineOnly;
+
+    await loginScoped("MANAGER", []);
+    const res = await exportReport(new Request("http://x/rapports/export/retours"), { params: Promise.resolve({ type: "retours" }) });
+    expect(res.status).toBe(403);
+  });
+});
+
 describe("sales reads are row-scoped", () => {
   it("listSales / getSaleDetail / the sale search never return another store's sale", async () => {
     await loginAsTestUser({ role: "ADMIN" });
@@ -286,6 +374,35 @@ describe("traceability — one ledger, from entry to sale to return", () => {
     const o = await getUnitTraceability(onlineOnly, { productId: w.product.id, variationId: null });
     expect(o!.movements.map((m) => m.document?.kind)).not.toContain("sale");
     expect(o!.movements.map((m) => m.document?.kind)).toContain("order");
+  });
+
+  // Batch 8, Area 2: a transfer's OWN row only ever showed its own single
+  // warehouse — the other end required a click-through to the transfer
+  // itself. Each side of the transfer now names the other inline.
+  it("a transfer's dispatch and receipt rows each name the OTHER warehouse inline, not just their own", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const w = await seedWorld();
+    const created = await createStockTransferAction({
+      sourceWarehouseId: w.whA.id,
+      destinationWarehouseId: w.whB.id,
+      lines: [{ productId: w.product.id, variationId: null, quantitySent: 5 }],
+    });
+    if (!created.ok) throw new Error("setup: " + created.error);
+    const dispatched = await dispatchStockTransferAction({ id: created.data.id });
+    if (!dispatched.ok) throw new Error("setup: " + dispatched.error);
+    const transferLine = await prisma.stockTransferLine.findFirstOrThrow({ where: { stockTransferId: created.data.id } });
+    const received = await receiveStockTransferAction({ id: created.data.id, lines: [{ lineId: transferLine.id, quantityReceived: 5 }] });
+    if (!received.ok) throw new Error("setup: " + received.error);
+
+    const t = await getUnitTraceability((await getCurrentUser())!, { productId: w.product.id, variationId: null });
+    const transferRows = t!.movements.filter((m) => m.document?.kind === "transfer");
+    expect(transferRows).toHaveLength(2);
+
+    const dispatchRow = transferRows.find((m) => m.location === "Boutique A")!;
+    expect(dispatchRow.document).toMatchObject({ extra: "→ Boutique B" });
+
+    const receiptRow = transferRows.find((m) => m.location === "Boutique B")!;
+    expect(receiptRow.document).toMatchObject({ extra: "← Boutique A" });
   });
 });
 

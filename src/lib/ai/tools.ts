@@ -7,6 +7,7 @@ import { getDeliveryStats } from "@/lib/queries/delivery";
 import { getLowStockCount } from "@/lib/queries/inventory";
 import { hasPermission, type Permission } from "@/lib/auth/permissions";
 import { formatCurrency, displayOrderNumber } from "@/lib/format";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import type { UserRole } from "@prisma/client";
 
 /**
@@ -134,7 +135,8 @@ export async function toolLateOrders(): Promise<string> {
   if (orders.length === 0) {
     return "Aucune commande n'est en retard (plus de 2 jours sans expédition).";
   }
-  const list = orders.map((o) => displayOrderNumber(o)).join(", ");
+  const business = await getReportBusinessInfo();
+  const list = orders.map((o) => displayOrderNumber(o, business.orderNumberPrefix)).join(", ");
   return `${orders.length} commande(s) sont en retard de traitement (plus de 2 jours) : ${list}.`;
 }
 

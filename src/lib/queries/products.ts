@@ -121,6 +121,9 @@ export async function getProductDetail(id: string) {
         orderBy: { createdAt: "asc" },
       },
       inventoryItems: { include: { warehouse: true } },
+      // Batch 13 (Product Publishing) — which external channels this
+      // product has already been explicitly published to.
+      publications: { select: { provider: true, externalId: true } },
       _count: { select: { orderItems: true } },
     },
   });

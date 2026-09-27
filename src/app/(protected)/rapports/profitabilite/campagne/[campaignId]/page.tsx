@@ -11,6 +11,7 @@ import { ReportFilterBar } from "@/components/reports/report-filter-bar";
 import { requirePermission } from "@/lib/auth/guards";
 import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
 import { getProfitabilityReport, listOrdersForCampaign, NO_CAMPAIGN_KEY } from "@/lib/queries/reports/profitability";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { formatCurrency, formatDate, formatOrderNumber } from "@/lib/format";
 import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
 
@@ -38,7 +39,10 @@ export default async function ProfitabiliteCampagneDetailPage({
   const row = report.byCampaign.find((r) => (r.campaignId ?? NO_CAMPAIGN_KEY) === rawId);
   if (!row) notFound();
 
-  const { rows: orders, total } = await listOrdersForCampaign(campaignId, resolved.range, page, PAGE_SIZE);
+  const [{ rows: orders, total }, business] = await Promise.all([
+    listOrdersForCampaign(campaignId, resolved.range, page, PAGE_SIZE),
+    getReportBusinessInfo(),
+  ]);
 
   return (
     <div>
@@ -89,7 +93,7 @@ export default async function ProfitabiliteCampagneDetailPage({
             <TableBody>
               {orders.map((o) => (
                 <ClickableTableRow key={o.orderId} href={`/commandes/${o.orderId}`}>
-                  <TableCell className="font-medium">{formatOrderNumber(o.displayNumber)}</TableCell>
+                  <TableCell className="font-medium">{formatOrderNumber(o.displayNumber, business.orderNumberPrefix)}</TableCell>
                   <TableCell>{o.customerName}</TableCell>
                   <TableCell>{formatDate(o.placedAt)}</TableCell>
                   <TableCell>

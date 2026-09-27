@@ -31,8 +31,9 @@ import { VariationCostCell } from "@/components/products/variation-cost-cell";
 import { VariantCombinationGenerator } from "@/components/products/variant-combination-generator";
 import { VariantEditDialog } from "@/components/products/variant-edit-dialog";
 import { VariantRemoveButton } from "@/components/products/variant-remove-button";
+import { VariationPurchaseHistoryDialog } from "@/components/products/variation-purchase-history-dialog";
 import { OperationalSettingsForm } from "@/components/products/operational-settings-form";
-import { ProductImageForm } from "@/components/products/product-image-form";
+import { ProductImageGallery } from "@/components/products/product-image-gallery";
 import { ProductImagePreview } from "@/components/products/product-image-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,10 +46,13 @@ import { getProductDetail, getProductSalesStats, getProductProfitStats, listCate
 import { getLatestPurchasePricesForUnits, getPurchasePriceHistory, type PurchasePriceHistoryEntry } from "@/lib/queries/purchases";
 import { listActiveChannels } from "@/lib/queries/channels";
 import { ProductIdentityPanel } from "@/components/products/product-identity-panel";
+import { ProductPublishPanel, type PublishChannel } from "@/components/products/product-publish-panel";
 import { variantLabel } from "@/lib/catalog/lookup";
 import { unitEconomics } from "@/lib/profitability";
 import { availableStock } from "@/lib/inventory";
-import { resolveExternalProductEditUrl } from "@/lib/integrations/shared";
+import { prisma } from "@/lib/prisma";
+import { resolveExternalProductEditUrl, resolveExternalAdminUrl } from "@/lib/integrations/shared";
+import { isShopifyIntegrationEnabled } from "@/lib/integrations/shopify/feature-flag";
 import { formatCurrency, formatDate, displayReceptionNumber } from "@/lib/format";
 import { PRODUCT_STATUS_LABELS, RECORD_SOURCE_LABELS } from "@/lib/status-labels";
 import { cn } from "@/lib/utils";
@@ -190,9 +194,24 @@ function DescriptionBlocks({ text }: { text: string }) {
   );
 }
 
-export default async function ProduitDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProduitDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  /**
+   * `tab` opens a specific tab on load (used by the create-product flow's
+   * "Ce produit possède des variantes" redirect, Batch 9, Group 3);
+   * `variants=1` additionally auto-opens the combination generator instead
+   * of just showing its trigger button, so create → define-variants reads
+   * as one continuous flow.
+   */
+  searchParams: Promise<{ tab?: string; variants?: string }>;
+}) {
   const user = await requirePermission("products.view");
   const { id } = await params;
+  const { tab, variants } = await searchParams;
+  const defaultTab = tab === "variations" || tab === "stock" || tab === "identite" || tab === "modifier" ? tab : "apercu";
   // Business-mode capabilities (docs/adr/0041): the Identité tab (reference,
   // barcodes, channel availability) exists only in an ONLINE_AND_OFFLINE tenant.
   const identityEnabled = user.capabilities.has("catalogIdentity");
@@ -215,6 +234,38 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
   const economics = canViewFinance ? unitEconomics(product.price, product.cost) : null;
   const canEdit = userHasPermission(user, "products.edit");
   const totalStock = product.inventoryItems.reduce((sum, i) => sum + i.quantityOnHand, 0);
+
+  // Batch 13 (Product Publishing) — connected external channels this
+  // product could be published to, and its existing publication state on
+  // each. Independent of `identityEnabled`/business mode: publishing is an
+  // online-integration concern for every tenant, not the offline-store
+  // capability set. Only a real, verified CONNECTE integration is ever
+  // offered as a target (Section 4) — a disconnected one simply isn't
+  // listed, never a disabled "fake" button. Respects the same Shopify kill
+  // switch (client feedback #10) every other Shopify entry point does.
+  const canPublish = canEdit && userHasPermission(user, "integrations.manage");
+  const publishProviders: ("WOOCOMMERCE" | "SHOPIFY")[] = isShopifyIntegrationEnabled()
+    ? ["WOOCOMMERCE", "SHOPIFY"]
+    : ["WOOCOMMERCE"];
+  const connectedIntegrations = canEdit
+    ? await prisma.integration.findMany({ where: { provider: { in: publishProviders }, status: "CONNECTE" } })
+    : [];
+  const publishChannels: PublishChannel[] = await Promise.all(
+    connectedIntegrations.map(async (integration) => {
+      const provider = integration.provider as "WOOCOMMERCE" | "SHOPIFY";
+      const existingPublication = product.publications.find((p) => p.provider === provider);
+      return {
+        provider,
+        label: provider === "WOOCOMMERCE" ? "WooCommerce" : "Shopify",
+        published: existingPublication
+          ? {
+              externalId: existingPublication.externalId,
+              adminUrl: await resolveExternalAdminUrl(provider, existingPublication.externalId),
+            }
+          : null,
+      };
+    })
+  );
 
   // "Dernier prix d'achat" / purchase-price history (Batch 3, Task 3B) — read
   // straight off the existing Reception/ReceptionLine data, gated by the
@@ -391,7 +442,7 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
         </Card>
       )}
 
-      <Tabs defaultValue="apercu">
+      <Tabs defaultValue={defaultTab}>
         <TabsList>
           <TabsTrigger value="apercu">Aperçu</TabsTrigger>
           <TabsTrigger value="variations">Variations</TabsTrigger>
@@ -584,8 +635,12 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
                             </TableCell>
                           )}
                           {canViewPurchases && (
-                            <TableCell className="text-right whitespace-nowrap text-xs text-muted-foreground">
-                              {latestPurchasePrices.get(v.id) ? formatCurrency(String(latestPurchasePrices.get(v.id)!.unitCost)) : "—"}
+                            <TableCell className="text-right whitespace-nowrap text-xs">
+                              <VariationPurchaseHistoryDialog
+                                variationId={v.id}
+                                label={label}
+                                latestUnitCost={latestPurchasePrices.get(v.id)?.unitCost ?? null}
+                              />
                             </TableCell>
                           )}
                           <TableCell className="text-right tabular-nums">
@@ -600,6 +655,7 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
                                 <VariantEditDialog
                                   variation={{
                                     id: v.id,
+                                    sku: v.sku,
                                     cost: v.cost?.toString() ?? null,
                                     salePrice: v.salePrice?.toString() ?? null,
                                     imageUrl: v.imageUrl,
@@ -628,6 +684,7 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
             <VariantCombinationGenerator
               productId={product.id}
               existingAttributes={product.variations.map((v) => v.attributes as Record<string, string>)}
+              defaultOpen={variants === "1" && product.variations.length === 0}
             />
           )}
           {canEdit && isExternal && (
@@ -786,7 +843,15 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
                 </>
               ) : (
                 <>
-                  <ProductImageForm productId={product.id} currentUrl={product.images[0]?.url ?? null} />
+                  <ProductImageGallery
+                    productId={product.id}
+                    images={product.images.map((img) => ({
+                      id: img.id,
+                      url: img.url,
+                      altText: img.altText,
+                      position: img.position,
+                    }))}
+                  />
                   <ProductForm
                     product={{
                       ...product,
@@ -798,6 +863,12 @@ export default async function ProduitDetailPage({ params }: { params: Promise<{ 
                   />
                 </>
               )}
+              <ProductPublishPanel
+                productId={product.id}
+                productName={product.name}
+                channels={publishChannels}
+                canPublish={canPublish}
+              />
             </div>
           </TabsContent>
         )}

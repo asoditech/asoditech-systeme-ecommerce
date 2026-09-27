@@ -26,7 +26,11 @@ export default async function FactureLivraisonPage({
   const money = (v: unknown) => formatCurrency(String(v ?? 0), currency);
 
   const codDue = order.paymentStatus !== "PAYE" ? Number(order.total) : 0;
-  const invoiceRef = `FL-${displayOrderNumber(order).replace(/^#/, "")}`;
+  // Same fallback as getReportBusinessInfo() — `settings` here is the raw
+  // BusinessSettings row (no shared resolver call), so the empty-string
+  // guard isn't automatic.
+  const orderNumberPrefix = settings.orderNumberPrefix?.trim() || "CMD";
+  const invoiceRef = `FL-${displayOrderNumber(order, orderNumberPrefix).replace(/^#/, "")}`;
 
   const addressLines = [
     order.shippingAddressLine1,
@@ -65,7 +69,7 @@ export default async function FactureLivraisonPage({
             <p className="text-base font-semibold uppercase tracking-wide">Facture de livraison</p>
             <p className="text-slate-600">{invoiceRef}</p>
             <p className="text-slate-600">Émise le {formatDate(new Date())}</p>
-            <p className="mt-1">Commande {displayOrderNumber(order)}</p>
+            <p className="mt-1">Commande {displayOrderNumber(order, orderNumberPrefix)}</p>
             <p className="text-slate-600">Passée le {formatDate(order.placedAt)}</p>
           </div>
         </div>

@@ -145,3 +145,29 @@ export function mapPaymentMethod(gatewayNames: string[]): PaymentMethod {
 export function totalRefundedAmount(order: ShopifyOrder): number {
   return order.totalRefundedSet.amount;
 }
+
+// ---------------------------------------------------------------------------
+// Batch 13 — Product Publishing (local ASODITECH Product → Shopify).
+// Pure, no network, no Prisma — mirrors the WooCommerce publishing mapper's
+// own shape. Simple (single-variant) products only in this batch — see
+// `ShopifyClient.createProduct`'s own doc comment for why a true
+// multi-variant product isn't mapped here at all; eligibility refuses it
+// before this is ever called.
+// ---------------------------------------------------------------------------
+
+export interface PublishableProductInput {
+  name: string;
+  description: string | null;
+}
+
+/** The `productCreate` input — price/sku are set in a second call against
+ * the auto-created default variant (see `ShopifyClient.createProduct`). */
+export function buildShopifyProductCreateInput(
+  product: PublishableProductInput
+): Parameters<import("./client").ShopifyClient["createProduct"]>[0] {
+  return {
+    title: product.name,
+    ...(product.description ? { descriptionHtml: product.description } : {}),
+    status: "ACTIVE",
+  };
+}

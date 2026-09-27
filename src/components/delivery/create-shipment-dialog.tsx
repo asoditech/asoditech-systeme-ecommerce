@@ -52,6 +52,10 @@ export interface ShipmentProviderOption {
   name: string;
   type: ShippingProviderType;
   connectionStatus: IntegrationStatus | null;
+  /** Adapter-reported capabilities (e.g. `FETCH_CITIES`, `CANCEL_SHIPMENT`)
+   * — used to show only the affordances this provider instance genuinely
+   * supports instead of assuming every API provider is the same (Batch 18). */
+  capabilities: string[];
 }
 
 export function CreateShipmentDialog({
@@ -159,7 +163,7 @@ export function CreateShipmentDialog({
               {isFixableAddressError(state.error) && (
                 <div className="flex flex-wrap gap-2">
                   {orderAddress && <EditShippingAddressDialog orderId={orderId} address={orderAddress} />}
-                  {selectedProvider?.type === "API" && (
+                  {selectedProvider?.type === "API" && selectedProvider.capabilities.includes("FETCH_CITIES") && (
                     <CityMappingDialog
                       providerId={selectedProvider.id}
                       providerName={selectedProvider.name}

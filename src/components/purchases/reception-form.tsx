@@ -1,17 +1,19 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Search, Trash2 } from "lucide-react";
 import { createReceptionAction, updateReceptionDraftAction, getLatestPurchasePriceAction } from "@/actions/purchases";
 import { lookupSellableUnitsAction } from "@/actions/catalog";
 import type { SellableUnit } from "@/lib/catalog/lookup";
+import { suggestReceptionReference } from "@/lib/purchases/reception-reference";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
 import { formatCurrency, formatDate } from "@/lib/format";
 
 const selectClass = "h-9 w-full rounded-md border border-input bg-background px-3 text-sm";
@@ -56,7 +58,15 @@ export function ReceptionForm({
   const [isPending, startTransition] = useTransition();
   const [supplierId, setSupplierId] = useState(reception?.supplierId ?? "");
   const [warehouseId, setWarehouseId] = useState(reception?.warehouseId ?? warehouses[0]?.id ?? "");
-  const [supplierReference, setSupplierReference] = useState(reception?.supplierReference ?? "");
+  // Smart initial suggestion (Batch 9, Group 9) — create mode only; an
+  // existing draft's own reference is never touched. `referenceTouched`
+  // tracks whether the OPERATOR has typed in the field: once true, this
+  // value is never auto-recomputed again, no matter what else changes —
+  // "never overwrite a manually edited value" is the one hard rule here.
+  const [supplierReference, setSupplierReference] = useState(
+    reception?.supplierReference ?? suggestReceptionReference(new Date(), null)
+  );
+  const [referenceTouched, setReferenceTouched] = useState(Boolean(reception));
   const [notes, setNotes] = useState(reception?.notes ?? "");
   const [date, setDate] = useState(reception?.date ?? new Date().toISOString().slice(0, 10));
   const [lines, setLines] = useState<Line[]>(reception?.lines ?? []);
@@ -64,10 +74,30 @@ export function ReceptionForm({
   const [hits, setHits] = useState<SellableUnit[]>([]);
   const [searching, setSearching] = useState(false);
 
-  async function search() {
-    if (!query.trim()) return;
+  // Refreshes the suggestion once the supplier becomes known — but only
+  // while the operator hasn't touched the field themselves (Batch 9, Group
+  // 9). Never runs in edit mode (`referenceTouched` starts `true` there).
+  useEffect(() => {
+    if (referenceTouched) return;
+    // Wrapped in a callback (not called synchronously in the effect body)
+    // to satisfy react-hooks/set-state-in-effect — same established fix as
+    // every other effect-driven setState in this codebase.
+    void (async () => {
+      const supplierName = suppliers.find((s) => s.id === supplierId)?.name ?? null;
+      setSupplierReference(suggestReceptionReference(new Date(date), supplierName));
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supplierId, date]);
+
+  // `code` lets the camera scanner (Batch 6) feed a value straight through
+  // without waiting on `setQuery`'s next render — the EXACT same lookup
+  // (`lookupSellableUnitsAction`) a hardware scanner's Enter key or the
+  // "Chercher" button already use, never a second implementation.
+  async function search(code?: string) {
+    const q = code ?? query;
+    if (!q.trim()) return;
     setSearching(true);
-    const found = await lookupSellableUnitsAction({ query });
+    const found = await lookupSellableUnitsAction({ query: q });
     setSearching(false);
     setHits(found);
     // A scanner types the code then presses Enter: an exact barcode/SKU hit is added straight away.
@@ -76,6 +106,11 @@ export function ReceptionForm({
       setQuery("");
       setHits([]);
     } else if (found.length === 0) toast.error("Aucun article trouvé.");
+  }
+
+  function onCameraDetect(code: string) {
+    setQuery(code);
+    void search(code);
   }
 
   function add(u: SellableUnit) {
@@ -140,6 +175,12 @@ export function ReceptionForm({
           <CardTitle className="text-[15px]">Réception</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2">
+          {!reception && (
+            <p className="text-xs text-muted-foreground sm:col-span-2">
+              Une référence interne ASODITECH (ex. REC-000123) sera générée automatiquement à l&apos;enregistrement —
+              elle ne remplace pas le numéro du bon de livraison ou de la facture du fournisseur, ci-dessous.
+            </p>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="rc-sup">Fournisseur</Label>
             <select id="rc-sup" className={selectClass} value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
@@ -167,7 +208,19 @@ export function ReceptionForm({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="rc-ref">N° bon de livraison / facture fournisseur</Label>
-            <Input id="rc-ref" value={supplierReference} onChange={(e) => setSupplierReference(e.target.value)} />
+            <Input
+              id="rc-ref"
+              value={supplierReference}
+              onChange={(e) => {
+                setReferenceTouched(true);
+                setSupplierReference(e.target.value);
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Le numéro du bon de livraison ou de la facture du fournisseur — reportez-le depuis leur document. Une
+              valeur est pré-remplie pour vous faire gagner du temps ; remplacez-la par le vrai numéro dès que vous
+              l&apos;avez.
+            </p>
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label htmlFor="rc-notes">Notes</Label>
@@ -181,7 +234,7 @@ export function ReceptionForm({
           <CardTitle className="text-[15px]">Articles reçus</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex max-w-xl gap-2">
+          <div className="flex max-w-xl flex-col gap-2 sm:flex-row">
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -194,10 +247,11 @@ export function ReceptionForm({
                 }
               }}
             />
-            <Button type="button" variant="outline" onClick={search} disabled={searching}>
+            <Button type="button" variant="outline" onClick={() => void search()} disabled={searching}>
               <Search className="size-4" />
               Chercher
             </Button>
+            <BarcodeScanButton onDetect={onCameraDetect} label="Caméra" />
           </div>
           {hits.length > 0 && (
             <ul className="max-w-xl divide-y rounded-md border text-sm">

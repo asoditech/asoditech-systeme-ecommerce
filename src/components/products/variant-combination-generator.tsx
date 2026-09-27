@@ -27,13 +27,22 @@ interface OptionDraft {
 export function VariantCombinationGenerator({
   productId,
   existingAttributes,
+  defaultOpen = false,
 }: {
   productId: string;
   /** Every existing variation's attributes, for the "already exists" preview. */
   existingAttributes: Record<string, string>[];
+  /**
+   * Opens the generator immediately instead of showing the "Générer des
+   * combinaisons" trigger button (Batch 9, Group 3) — used right after
+   * creating a product with "Ce produit possède des variantes" checked, so
+   * the create → define-variants flow feels continuous instead of leaving
+   * the operator to rediscover this button on their own.
+   */
+  defaultOpen?: boolean;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [options, setOptions] = useState<OptionDraft[]>([{ name: "", valuesText: "" }]);
   const [isPending, startTransition] = useTransition();
 

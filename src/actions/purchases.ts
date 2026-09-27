@@ -9,7 +9,7 @@ import { recordAuditEvent } from "@/lib/audit";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
 import { validateReceptionInTx, getReceptionRemaining, ReceptionError } from "@/lib/receptions";
-import { getLatestPurchasePrice, type PurchasePriceHistoryEntry } from "@/lib/queries/purchases";
+import { getLatestPurchasePrice, getPurchasePriceHistory, type PurchasePriceHistoryEntry } from "@/lib/queries/purchases";
 import { displayReceptionNumber } from "@/lib/format";
 import {
   createSupplierSchema,
@@ -424,4 +424,18 @@ export async function getLatestPurchasePriceAction(input: {
 }): Promise<PurchasePriceHistoryEntry | null> {
   await requirePermissionForAction("purchases.create");
   return getLatestPurchasePrice(input);
+}
+
+/**
+ * Batch 14 — full purchase-price history for ONE sellable unit, fetched
+ * on demand (e.g. a "Historique" dialog on a variation row). `purchases.view`
+ * (a read), not `purchases.create` — anyone who can see purchase prices on
+ * the product page can open this, even without reception-entry rights.
+ */
+export async function getUnitPurchaseHistoryAction(input: {
+  productId?: string | null;
+  variationId?: string | null;
+}): Promise<PurchasePriceHistoryEntry[]> {
+  await requirePermissionForAction("purchases.view");
+  return getPurchasePriceHistory(input, 10);
 }

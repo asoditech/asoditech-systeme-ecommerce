@@ -14,6 +14,7 @@ import { FilterSearchInput } from "@/components/filter-search-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
+import { listAccessibleActiveWarehouses, hasGlobalLocationAccess } from "@/lib/auth/location-access";
 import { listInventoryItems, listWarehousesWithStats, type StockStatusFilter, type InventorySort } from "@/lib/queries/inventory";
 import { listCategories } from "@/lib/queries/products";
 import { availableStock } from "@/lib/inventory";
@@ -48,7 +49,16 @@ export default async function StockPage({
   const params = await searchParams;
   const page = Number(params.page) || 1;
 
-  const [warehouses, categories] = await Promise.all([listWarehousesWithStats(), listCategories()]);
+  const [allWarehouses, categories] = await Promise.all([listWarehousesWithStats(), listCategories()]);
+  // Location Access Management v1 (docs/adr/0037): OWNER/ADMIN keep seeing
+  // every active-or-not warehouse (unchanged); everyone else's picker (and
+  // the underlying query below) is restricted to their own authorized set —
+  // never "every warehouse in the tenant" just because they hold
+  // `inventory.view`. Batch 15: this page and its CSV export previously had
+  // no such scoping at all.
+  const isGlobal = hasGlobalLocationAccess(user.role);
+  const accessibleIds = isGlobal ? null : new Set((await listAccessibleActiveWarehouses(user)).map((w) => w.id));
+  const warehouses = isGlobal ? allWarehouses : allWarehouses.filter((w) => accessibleIds!.has(w.id));
 
   const stockStatus: StockStatusFilter =
     params.stockStatus === "low" || params.stockStatus === "out" ? params.stockStatus : "all";
@@ -64,6 +74,7 @@ export default async function StockPage({
     stockStatus,
     sort,
     page,
+    allowedWarehouseIds: isGlobal ? null : warehouses.map((w) => w.id),
   });
   const canAdjust = userHasPermission(user, "inventory.adjust");
   const canSync =

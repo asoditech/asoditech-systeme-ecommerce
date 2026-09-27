@@ -34,6 +34,7 @@ import {
   getDeliveryStats,
   listOrdersAwaitingShipment,
   listAvailableDeliveryConnectors,
+  providerCapabilities,
 } from "@/lib/queries/delivery";
 import { deleteShippingProviderAction, deleteFailedShipmentAction } from "@/actions/delivery";
 import { formatCurrency, formatDateTime, displayOrderNumber, displayOrderRecipient, formatPercent } from "@/lib/format";
@@ -41,6 +42,7 @@ import { SHIPMENT_STATUS_LABELS, SHIPPING_PROVIDER_TYPE_LABELS } from "@/lib/sta
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
 import { resolveDateRangePreset, DATE_RANGE_PRESET_LABELS, type DateRangePreset } from "@/lib/date-range-presets";
 import { buildParcelContentsSummary } from "@/lib/delivery";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
 
 export const metadata = { title: "Livraison — ASODITECH Gestion E-commerce" };
 
@@ -96,7 +98,7 @@ export default async function LivraisonPage({
   const shipmentSearch = params.sq?.trim() || undefined;
   const shipmentFilterActive = Boolean(shipmentStatusFilter || params.sprovider || shipmentSearch);
 
-  const [stats, providers, shipmentsResult, awaitingResult, connectors] = await Promise.all([
+  const [stats, providers, shipmentsResult, awaitingResult, connectors, business] = await Promise.all([
     getDeliveryStats(dateFrom, dateTo),
     listShippingProviders(),
     listShipments({
@@ -111,6 +113,7 @@ export default async function LivraisonPage({
       ? listOrdersAwaitingShipment({ page: aexpPage, search: aexpSearch })
       : Promise.resolve({ orders: [], total: 0, page: 1, pageSize: 30 }),
     listAvailableDeliveryConnectors(),
+    getReportBusinessInfo(),
   ]);
   const { shipments, total: shipmentsTotal, pageSize: shipmentsPageSize } = shipmentsResult;
   const {
@@ -129,6 +132,7 @@ export default async function LivraisonPage({
     name: p.name,
     type: p.type,
     connectionStatus: p.connectionStatus,
+    capabilities: providerCapabilities(p),
   }));
 
   return (
@@ -229,7 +233,7 @@ export default async function LivraisonPage({
                     <TableRow key={s.id}>
                       <TableCell className="font-medium">
                         <Link href={`/commandes/${s.orderId}`} className="hover:underline">
-                          {displayOrderNumber(s.order)}
+                          {displayOrderNumber(s.order, business.orderNumberPrefix)}
                         </Link>
                       </TableCell>
                       <TableCell>
@@ -294,7 +298,10 @@ export default async function LivraisonPage({
                           {s.externalId ? (
                             <ShipmentProviderControls
                               shipmentId={s.id}
-                              canCancel={!TERMINAL_SHIPMENT_STATUSES.includes(s.status)}
+                              canCancel={
+                                !TERMINAL_SHIPMENT_STATUSES.includes(s.status) &&
+                                providerCapabilities(s.provider).includes("CANCEL_SHIPMENT")
+                              }
                             />
                           ) : s.status === "ECHEC" ? (
                             <div className="space-y-1">
@@ -302,15 +309,17 @@ export default async function LivraisonPage({
                                 <p className="max-w-[16rem] text-[11px] leading-tight text-destructive">{s.failedReason}</p>
                               )}
                               <div className="flex flex-wrap gap-1">
-                                {s.provider.type === "API" && s.order.shippingCity && (
-                                  <CityMappingDialog
-                                    providerId={s.provider.id}
-                                    providerName={s.provider.name}
-                                    defaultLocalCity={s.order.shippingCity}
-                                    triggerLabel="Corriger la ville"
-                                    triggerVariant="ghost"
-                                  />
-                                )}
+                                {s.provider.type === "API" &&
+                                  providerCapabilities(s.provider).includes("FETCH_CITIES") &&
+                                  s.order.shippingCity && (
+                                    <CityMappingDialog
+                                      providerId={s.provider.id}
+                                      providerName={s.provider.name}
+                                      defaultLocalCity={s.order.shippingCity}
+                                      triggerLabel="Corriger la ville"
+                                      triggerVariant="ghost"
+                                    />
+                                  )}
                                 {s.provider.type === "API" && (
                                   <RetryShipmentButton orderId={s.orderId} providerId={s.provider.id} />
                                 )}
@@ -407,6 +416,7 @@ export default async function LivraisonPage({
                     },
                   }))}
                   providers={shipmentProviderOptions}
+                  orderNumberPrefix={business.orderNumberPrefix}
                 />
                 <DataTablePagination
                   page={awaitingResult.page}
@@ -464,7 +474,9 @@ export default async function LivraisonPage({
                             {p.type === "API" && (
                               <>
                                 <ProviderConnectionControls providerId={p.id} providerKey={p.providerKey} connectors={connectors} />
-                                <CityMappingDialog providerId={p.id} providerName={p.name} />
+                                {providerCapabilities(p).includes("FETCH_CITIES") && (
+                                  <CityMappingDialog providerId={p.id} providerName={p.name} />
+                                )}
                               </>
                             )}
                             <ProviderPricingDialog
