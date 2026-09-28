@@ -247,6 +247,16 @@ export const RECEPTION_STATUS_LABELS: Record<
   ANNULEE: { label: "Annulée", variant: "destructive" },
 };
 
+/** A validated reception's payment state — docs/adr/0042. Derived (paid vs total), never stored. */
+export const RECEPTION_PAYMENT_STATUS_LABELS: Record<
+  string,
+  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
+> = {
+  NON_PAYE: { label: "Non payé", variant: "destructive" },
+  PARTIEL: { label: "Partiellement payé", variant: "secondary" },
+  PAYE: { label: "Payé", variant: "default" },
+};
+
 export const CASH_PAYMENT_METHOD_LABELS: Record<string, string> = {
   ESPECES: "Espèces",
   CARTE: "Carte bancaire",

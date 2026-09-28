@@ -290,6 +290,263 @@ describe("supplier payments — a separate financial record", () => {
   });
 });
 
+// docs/adr/0042 — the user enters only an amount; the server allocates it
+// across the supplier's oldest outstanding VALIDATED receptions first.
+describe("supplier payment auto-allocation (docs/adr/0042)", () => {
+  it("one unpaid reception + exact payment fully settles it", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const id = await draft(supplier.id, warehouse.id, [line(product.id, 10, 100)]); // 1 000
+    await validateReceptionAction({ id });
+
+    const r = await recordSupplierPaymentAction({ supplierId: supplier.id, amount: 1000 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.paymentGroupId).toBeNull(); // a single-reception allocation is never grouped
+    expect(r.data.allocations).toEqual([{ receptionId: id, receptionLabel: expect.any(String), amount: "1000" }]);
+    expect(r.data.remainingBalance).toBe("0");
+    expect(Number((await getReceptionRemaining(id))?.remaining)).toBe(0);
+  });
+
+  it("one unpaid reception + partial payment leaves the rest outstanding", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const id = await draft(supplier.id, warehouse.id, [line(product.id, 10, 100)]); // 1 000
+    await validateReceptionAction({ id });
+
+    const r = await recordSupplierPaymentAction({ supplierId: supplier.id, amount: 400 });
+    expect(r.ok).toBe(true);
+    expect(Number((await getReceptionRemaining(id))?.remaining)).toBe(600);
+  });
+
+  it("two unpaid receptions + payment smaller than the first debt only touches the oldest", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const r1 = await draft(supplier.id, warehouse.id, [line(product.id, 10, 100)]); // 1 000, oldest
+    await validateReceptionAction({ id: r1 });
+    const r2 = await draft(supplier.id, warehouse.id, [line(product.id, 30, 100)]); // 3 000
+    await validateReceptionAction({ id: r2 });
+
+    const r = await recordSupplierPaymentAction({ supplierId: supplier.id, amount: 300 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.allocations).toEqual([{ receptionId: r1, receptionLabel: expect.any(String), amount: "300" }]);
+    expect(Number((await getReceptionRemaining(r1))?.remaining)).toBe(700);
+    expect(Number((await getReceptionRemaining(r2))?.remaining)).toBe(3000);
+  });
+
+  it("two unpaid receptions + payment exactly covering the first debt settles it and touches nothing else", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const r1 = await draft(supplier.id, warehouse.id, [line(product.id, 10, 100)]); // 1 000
+    await validateReceptionAction({ id: r1 });
+    const r2 = await draft(supplier.id, warehouse.id, [line(product.id, 30, 100)]); // 3 000
+    await validateReceptionAction({ id: r2 });
+
+    const r = await recordSupplierPaymentAction({ supplierId: supplier.id, amount: 1000 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.allocations).toEqual([{ receptionId: r1, receptionLabel: expect.any(String), amount: "1000" }]);
+    expect(Number((await getReceptionRemaining(r1))?.remaining)).toBe(0);
+    expect(Number((await getReceptionRemaining(r2))?.remaining)).toBe(3000);
+  });
+
+  it("two unpaid receptions + payment crossing from the first into the second splits it exactly (spec example)", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const r1 = await draft(supplier.id, warehouse.id, [line(product.id, 10, 100)]); // 1 000
+    await validateReceptionAction({ id: r1 });
+    const r2 = await draft(supplier.id, warehouse.id, [line(product.id, 30, 100)]); // 3 000
+    await validateReceptionAction({ id: r2 });
+
+    const r = await recordSupplierPaymentAction({ supplierId: supplier.id, amount: 3500 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.paymentGroupId).not.toBeNull(); // split across 2 receptions — grouped for display
+    expect(r.data.allocations).toEqual([
+      { receptionId: r1, receptionLabel: expect.any(String), amount: "1000" },
+      { receptionId: r2, receptionLabel: expect.any(String), amount: "2500" },
+    ]);
+    expect(r.data.remainingBalance).toBe("500");
+    expect(Number((await getReceptionRemaining(r1))?.remaining)).toBe(0);
+    expect(Number((await getReceptionRemaining(r2))?.remaining)).toBe(500);
+    // both rows share the same group id
+    const rows = await prisma.supplierPayment.findMany({ where: { supplierId: supplier.id }, orderBy: { amount: "desc" } });
+    expect(rows.map((p) => p.paymentGroupId)).toEqual([r.data.paymentGroupId, r.data.paymentGroupId]);
+  });
+
+  it("multiple sequential payments always allocate from the real current outstanding state", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const r1 = await draft(supplier.id, warehouse.id, [line(product.id, 10, 100)]); // 1 000
+    await validateReceptionAction({ id: r1 });
+    const r2 = await draft(supplier.id, warehouse.id, [line(product.id, 30, 100)]); // 3 000
+    await validateReceptionAction({ id: r2 });
+
+    await recordSupplierPaymentAction({ supplierId: supplier.id, amount: 500 });
+    expect(Number((await getReceptionRemaining(r1))?.remaining)).toBe(500);
+    expect(Number((await getReceptionRemaining(r2))?.remaining)).toBe(3000);
+
+    await recordSupplierPaymentAction({ supplierId: supplier.id, amount: 700 });
+    expect(Number((await getReceptionRemaining(r1))?.remaining)).toBe(0);
+    expect(Number((await getReceptionRemaining(r2))?.remaining)).toBe(2800);
+
+    await recordSupplierPaymentAction({ supplierId: supplier.id, amount: 1000 });
+    expect(Number((await getReceptionRemaining(r1))?.remaining)).toBe(0);
+    expect(Number((await getReceptionRemaining(r2))?.remaining)).toBe(1800);
+  });
+
+  it("a draft reception never receives an allocation", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const r1 = await draft(supplier.id, warehouse.id, [line(product.id, 10, 100)]); // 1 000, validated
+    await validateReceptionAction({ id: r1 });
+    await draft(supplier.id, warehouse.id, [line(product.id, 50, 100)]); // 5 000, LEFT AS DRAFT
+
+    const r = await recordSupplierPaymentAction({ supplierId: supplier.id, amount: 1000 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // only the validated reception appears — the draft is invisible to allocation
+    expect(r.data.allocations.map((a) => a.receptionId)).toEqual([r1]);
+    expect(r.data.remainingBalance).toBe("0");
+  });
+
+  it("a cancelled reception never receives an allocation", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const r1 = await draft(supplier.id, warehouse.id, [line(product.id, 10, 100)]); // 1 000, validated
+    await validateReceptionAction({ id: r1 });
+    const cancelled = await draft(supplier.id, warehouse.id, [line(product.id, 50, 100)]); // would be 5 000
+    await cancelReceptionAction({ id: cancelled });
+
+    const r = await recordSupplierPaymentAction({ supplierId: supplier.id, amount: 1000 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.allocations.map((a) => a.receptionId)).toEqual([r1]);
+    expect(r.data.remainingBalance).toBe("0");
+  });
+
+  it("a fully paid reception is skipped and the next oldest debt is used instead", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const r1 = await draft(supplier.id, warehouse.id, [line(product.id, 10, 100)]); // 1 000, oldest
+    await validateReceptionAction({ id: r1 });
+    const r2 = await draft(supplier.id, warehouse.id, [line(product.id, 20, 100)]); // 2 000
+    await validateReceptionAction({ id: r2 });
+    await recordSupplierPaymentAction({ supplierId: supplier.id, amount: 1000 }); // fully settles r1
+
+    const r = await recordSupplierPaymentAction({ supplierId: supplier.id, amount: 500 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // r1 is fully paid — skipped entirely, the payment goes straight to r2
+    expect(r.data.allocations).toEqual([{ receptionId: r2, receptionLabel: expect.any(String), amount: "500" }]);
+  });
+
+  it("allocates strictly oldest-first regardless of debt size (deterministic ordering)", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    // Created in this order — smallest debt first, biggest debt last.
+    const small = await draft(supplier.id, warehouse.id, [line(product.id, 1, 100)]); // 100, oldest
+    await validateReceptionAction({ id: small });
+    const big = await draft(supplier.id, warehouse.id, [line(product.id, 40, 100)]); // 4 000, newest
+    await validateReceptionAction({ id: big });
+
+    const r = await recordSupplierPaymentAction({ supplierId: supplier.id, amount: 150 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // The oldest (smallest) debt is fully settled first, then the excess
+    // spills into the newest — NOT "biggest debt first" or "newest first".
+    expect(r.data.allocations).toEqual([
+      { receptionId: small, receptionLabel: expect.any(String), amount: "100" },
+      { receptionId: big, receptionLabel: expect.any(String), amount: "50" },
+    ]);
+  });
+
+  it("tenant isolation: allocation only ever touches the caller's own tenant's receptions", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const id = await draft(supplier.id, warehouse.id, [line(product.id, 10, 100)]); // 1 000
+    await validateReceptionAction({ id });
+
+    await prismaBase.tenant.create({ data: { id: "tenant-b-alloc", name: "B", slug: "tenant-b-alloc" } });
+    const supB = await prismaBase.supplier.create({ data: { name: "Fournisseur B", tenantId: "tenant-b-alloc" } });
+    const whB = await prismaBase.warehouse.create({ data: { name: "WB", isDefault: true, tenantId: "tenant-b-alloc" } });
+    const recB = await prismaBase.reception.create({
+      data: { supplierId: supB.id, warehouseId: whB.id, tenantId: "tenant-b-alloc", status: "VALIDEE", totalCost: 50 },
+    });
+
+    // Cross-tenant supplier id: rejected before any allocation is even planned.
+    expect((await recordSupplierPaymentAction({ supplierId: supB.id, amount: 10 })).ok).toBe(false);
+    expect(await prismaBase.supplierPayment.count({ where: { receptionId: recB.id } })).toBe(0);
+  });
+
+  it("a user without purchases.pay cannot record an auto-allocated payment", async () => {
+    const { warehouse, product, supplier } = await seed();
+    const w = await loginAsTestUser({ role: "WAREHOUSE" });
+    await grantLocationAccess(w.id, warehouse.id);
+    const id = await draft(supplier.id, warehouse.id, [line(product.id, 10, 100)]);
+    expect((await validateReceptionAction({ id })).ok).toBe(true);
+    await expect(recordSupplierPaymentAction({ supplierId: supplier.id, amount: 10 })).rejects.toThrow(/non autorisé/i);
+  });
+
+  it("concurrent payments against one reception cannot together exceed it — the second is rejected, not silently underfilled", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const id = await draft(supplier.id, warehouse.id, [line(product.id, 10, 100)]); // 1 000
+    await validateReceptionAction({ id });
+
+    const results = await Promise.all([
+      recordSupplierPaymentAction({ supplierId: supplier.id, amount: 700 }),
+      recordSupplierPaymentAction({ supplierId: supplier.id, amount: 700 }),
+    ]);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(Number((await getReceptionRemaining(id))?.remaining)).toBe(300);
+    expect(await prisma.supplierPayment.aggregate({ where: { supplierId: supplier.id }, _sum: { amount: true } }).then((a) => Number(a._sum.amount))).toBe(700);
+  });
+
+  it("overpayment beyond the total outstanding debt is rejected with a clear message, not silently absorbed as credit", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const id = await draft(supplier.id, warehouse.id, [line(product.id, 10, 100)]); // 1 000
+    await validateReceptionAction({ id });
+
+    const r = await recordSupplierPaymentAction({ supplierId: supplier.id, amount: 1500 });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toMatch(/dépasse/i);
+    expect(await prisma.supplierPayment.count()).toBe(0); // rejected atomically — nothing partially written
+    expect(Number((await getReceptionRemaining(id))?.remaining)).toBe(1000); // untouched
+  });
+
+  it("a payment against a supplier with no outstanding debt at all is rejected", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { supplier } = await seed(); // no receptions at all
+    const r = await recordSupplierPaymentAction({ supplierId: supplier.id, amount: 100 });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toMatch(/aucune dette/i);
+  });
+
+  it("the manual receptionId path still works unchanged alongside auto-allocation", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    const r1 = await draft(supplier.id, warehouse.id, [line(product.id, 10, 100)]); // 1 000
+    await validateReceptionAction({ id: r1 });
+    const r2 = await draft(supplier.id, warehouse.id, [line(product.id, 20, 100)]); // 2 000
+    await validateReceptionAction({ id: r2 });
+
+    // Explicitly targets the NEWER reception, out of allocation order — the
+    // manual override still bypasses oldest-first entirely.
+    const r = await recordSupplierPaymentAction({ supplierId: supplier.id, receptionId: r2, amount: 500 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.paymentGroupId).toBeNull();
+    expect(r.data.allocations).toEqual([{ receptionId: r2, receptionLabel: expect.any(String), amount: "500" }]);
+    expect(Number((await getReceptionRemaining(r1))?.remaining)).toBe(1000); // untouched
+    expect(Number((await getReceptionRemaining(r2))?.remaining)).toBe(1500);
+  });
+});
+
 describe("tenant isolation — suppliers & receptions", () => {
   it("a tenant-A user cannot use tenant B's supplier or read its receptions", async () => {
     await loginAsTestUser({ role: "ADMIN" });

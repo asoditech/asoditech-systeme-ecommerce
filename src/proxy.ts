@@ -11,7 +11,10 @@ const PUBLIC_PATHS = new Set(["/connexion", "/mot-de-passe-oublie"]);
 // password-reset pages carry the one-time token itself in the URL
 // (/invitations/<token>, /reinitialiser-mot-de-passe/<token>) — the token
 // IS the auth, so these must stay reachable with no session cookie.
-const PUBLIC_PATH_PREFIXES = ["/invitations/", "/reinitialiser-mot-de-passe/"];
+// docs/adr/0042: /scan/<token> is the QR-label landing page, meant to be
+// opened by anyone scanning a physical package with no ASODITECH account
+// at all — deliberately public, the same way a printed barcode is public.
+const PUBLIC_PATH_PREFIXES = ["/invitations/", "/reinitialiser-mot-de-passe/", "/scan/"];
 const STATIC_ASSET_PATTERN = /\.(?:png|svg|jpg|jpeg|webp|gif|ico)$/i;
 
 export function proxy(request: NextRequest) {

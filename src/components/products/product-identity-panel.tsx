@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { toast } from "sonner";
-import { Barcode as BarcodeIcon, Star, Trash2, Plus } from "lucide-react";
+import { Barcode as BarcodeIcon, Star, Trash2, Plus, QrCode } from "lucide-react";
 import {
   addBarcodeAction,
   removeBarcodeAction,
@@ -207,6 +208,47 @@ export function ProductIdentityPanel({
               )}
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-[15px]">Étiquette produit</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Une étiquette imprimable par article vendable : le code-barres pour le scan interne (caisse, réception,
+            stock) et un QR séparé qui ouvre une fiche produit publique quand on le scanne depuis un colis.
+          </p>
+          <div className="flex flex-col gap-2">
+            {units.map((u) => (
+              <div key={unitKey(u)} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium">{u.label}</span>
+                  <span className="text-xs text-muted-foreground">SKU {u.sku}</span>
+                  {u.barcodes.length === 0 && (
+                    <Badge variant="outline" className="text-amber-600 dark:text-amber-400">
+                      Sans code-barres
+                    </Badge>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  render={
+                    <Link
+                      href={`/produits/${productId}/etiquette${u.variationId ? `?variation=${u.variationId}` : ""}`}
+                      target="_blank"
+                    />
+                  }
+                >
+                  <QrCode className="size-3.5" />
+                  Imprimer l&apos;étiquette
+                </Button>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
 

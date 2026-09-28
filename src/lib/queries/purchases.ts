@@ -60,7 +60,12 @@ export async function getSupplierDetail(id: string) {
       take: 50,
       include: { payments: { select: { amount: true } }, warehouse: { select: { name: true } } },
     }),
-    prisma.supplierPayment.findMany({ where: { supplierId: id }, orderBy: { paidAt: "desc" }, take: 50 }),
+    prisma.supplierPayment.findMany({
+      where: { supplierId: id },
+      orderBy: { paidAt: "desc" },
+      take: 50,
+      include: { reception: { select: { receptionNumber: true, displayNumber: true } } },
+    }),
     getSupplierBalance(id),
   ]);
   return {

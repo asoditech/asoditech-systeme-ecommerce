@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/page-header";
 import { ReceptionForm } from "@/components/purchases/reception-form";
 import { requirePermission } from "@/lib/auth/guards";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { listAccessibleActiveWarehouses } from "@/lib/auth/location-access";
 import { prisma } from "@/lib/prisma";
 
@@ -17,7 +18,11 @@ export default async function NouvelleReceptionPage() {
     <div>
       <PageHeader title="Nouvelle réception" breadcrumbs={[{ label: "Réceptions", href: "/receptions" }, { label: "Nouvelle" }]} />
       <div className="max-w-4xl">
-        <ReceptionForm suppliers={suppliers} warehouses={warehouses.map((w) => ({ id: w.id, name: w.name, type: w.type }))} />
+        <ReceptionForm
+          suppliers={suppliers}
+          warehouses={warehouses.map((w) => ({ id: w.id, name: w.name, type: w.type }))}
+          canCreateSupplier={userHasPermission(user, "suppliers.manage")}
+        />
       </div>
     </div>
   );

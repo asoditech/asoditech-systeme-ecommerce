@@ -63,6 +63,7 @@ export function TransferForm({ warehouses, mode = "create", transfer }: Transfer
   const [notes, setNotes] = React.useState(transfer?.notes ?? "");
   const [stock, setStock] = React.useState<StockRow[]>([]);
   const [pickerOpen, setPickerOpen] = React.useState(false);
+  const [pickerQuery, setPickerQuery] = React.useState("");
   const [isPending, startTransition] = React.useTransition();
 
   const [lines, setLines] = React.useState<DraftLine[]>(
@@ -91,6 +92,13 @@ export function TransferForm({ warehouses, mode = "create", transfer }: Transfer
 
   const usedRefs = new Set(lines.map(refKey));
   const availableStock = stock.filter((s) => !usedRefs.has(refKey(s)));
+  const pickerStock = pickerQuery.trim()
+    ? availableStock.filter(
+        (s) =>
+          s.label.toLowerCase().includes(pickerQuery.trim().toLowerCase()) ||
+          s.sku.toLowerCase().includes(pickerQuery.trim().toLowerCase())
+      )
+    : availableStock;
 
   function addLine(row: StockRow) {
     setLines((prev) => [
@@ -106,6 +114,7 @@ export function TransferForm({ warehouses, mode = "create", transfer }: Transfer
       },
     ]);
     setPickerOpen(false);
+    setPickerQuery("");
   }
 
   function updateLine(key: string, quantitySent: number) {
@@ -218,7 +227,13 @@ export function TransferForm({ warehouses, mode = "create", transfer }: Transfer
           <CardTitle>Articles</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+          <Popover
+            open={pickerOpen}
+            onOpenChange={(next) => {
+              setPickerOpen(next);
+              if (!next) setPickerQuery("");
+            }}
+          >
             <PopoverTrigger
               render={<Button type="button" variant="outline" disabled={!sourceId} />}
             >
@@ -226,13 +241,22 @@ export function TransferForm({ warehouses, mode = "create", transfer }: Transfer
               Ajouter un article
             </PopoverTrigger>
             <PopoverContent align="start" className="w-96 p-2">
+              <Input
+                autoFocus
+                value={pickerQuery}
+                onChange={(e) => setPickerQuery(e.target.value)}
+                placeholder="Rechercher par nom ou SKU…"
+                className="mb-2"
+              />
               <div className="max-h-64 overflow-y-auto">
                 {availableStock.length === 0 ? (
                   <p className="px-2 py-1.5 text-sm text-muted-foreground">
                     Aucun stock disponible à cet emplacement.
                   </p>
+                ) : pickerStock.length === 0 ? (
+                  <p className="px-2 py-1.5 text-sm text-muted-foreground">Aucun article ne correspond.</p>
                 ) : (
-                  availableStock.map((s) => (
+                  pickerStock.map((s) => (
                     <button
                       key={refKey(s)}
                       type="button"

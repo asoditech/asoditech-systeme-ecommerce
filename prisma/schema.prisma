@@ -665,6 +665,17 @@ model Product {
   // Backfilled to `createdAt` for pre-existing rows; the next sync
   // overwrites imported rows with the true platform date.
   platformCreatedAt DateTime?
+  // Public QR-label identity — opaque, non-guessable, resolved by the
+  // unauthenticated /scan/[token] route (docs/adr/0042). Deliberately a
+  // GLOBAL unique (not `@@unique([tenantId, ...])` like everything else on
+  // this model): the scan route has no tenant context until the token
+  // itself resolves one. Unlike an invitation/reset token, this one is
+  // stored in the CLEAR, never hashed — it must be re-readable indefinitely
+  // to reprint the same label, not a one-time bearer secret (same threat
+  // model as `Barcode.code`: public once printed on a physical package).
+  // Null until a label is first generated for this product (lazy, additive
+  // — never backfilled for the whole catalog at once).
+  qrToken           String?       @unique
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -743,6 +754,11 @@ model ProductVariation {
   imageUrl   String?
   source     RecordSource @default(INTERNE)
   externalId String?
+  // Public QR-label identity for THIS variation — see Product.qrToken for
+  // the full rationale (same mechanism, same global uniqueness, same lazy
+  // generation). A variation is the physical sellable unit a printed label
+  // is stuck on, so it gets its own token, distinct from its product's.
+  qrToken    String?      @unique
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
 
@@ -2914,6 +2930,13 @@ model SupplierPayment {
   paidAt        DateTime          @default(now())
   reference     String?
   notes         String?
+  // Groups the N rows produced by ONE user-entered payment that the system
+  // auto-allocated across several outstanding receptions (oldest-first —
+  // docs/adr/0042). Null for a manually reception-targeted or legacy
+  // unassigned payment, which is still exactly one row. Purely a display
+  // grouping key — every balance/remaining calculation stays a plain sum
+  // over individual rows and never needs to know this field exists.
+  paymentGroupId String?
   createdById   String?
   createdByName String?
   createdAt     DateTime          @default(now())
@@ -2926,6 +2949,7 @@ model SupplierPayment {
   @@index([receptionId])
   @@index([paidAt])
   @@index([tenantId])
+  @@index([paymentGroupId])
   @@map("supplier_payments")
 }
 

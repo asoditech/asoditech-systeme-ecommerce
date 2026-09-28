@@ -118,3 +118,79 @@ export async function getReceptionRemaining(receptionId: string, db: typeof pris
   const totalPaid = paid._sum.amount ?? d2(0);
   return { status: reception.status, total: reception.totalCost, paid: totalPaid, remaining: reception.totalCost.minus(totalPaid) };
 }
+
+export class SupplierPaymentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SupplierPaymentError";
+  }
+}
+
+export interface SupplierPaymentAllocationLine {
+  receptionId: string;
+  receptionLabel: string;
+  amount: Prisma.Decimal;
+}
+
+/**
+ * Plans how ONE user-entered payment amount splits across a supplier's
+ * outstanding VALIDATED receptions, oldest debt first — docs/adr/0042.
+ * Never a partial allocation: if the amount exceeds the total outstanding,
+ * throws `SupplierPaymentError` instead of silently invoking a supplier-
+ * credit concept the domain doesn't have (mirrors the existing single-
+ * reception path's `OverpayError`, the one overpayment rule this codebase
+ * already establishes). Pure planning — no writes; the caller creates the
+ * `SupplierPayment` rows from the returned plan inside the same tx.
+ *
+ * Ordering is deterministic: `receptionDate` primary, `receptionNumber`
+ * (the global, never-renumbered autoincrement identity) as tie-breaker.
+ *
+ * Concurrency: the caller must take the row lock (see
+ * `recordSupplierPaymentAction`) BEFORE calling this — two concurrent
+ * payments for the same supplier must serialize on that lock so neither
+ * plans against a stale "outstanding" read.
+ */
+export async function planSupplierPaymentAllocation(
+  tx: Tx,
+  input: { supplierId: string; amount: Prisma.Decimal }
+): Promise<SupplierPaymentAllocationLine[]> {
+  const receptions = await tx.reception.findMany({
+    where: { supplierId: input.supplierId, status: "VALIDEE" },
+    orderBy: [{ receptionDate: "asc" }, { receptionNumber: "asc" }],
+    select: { id: true, receptionNumber: true, displayNumber: true, totalCost: true },
+  });
+  if (receptions.length === 0) {
+    throw new SupplierPaymentError("Aucune dette à régler pour ce fournisseur.");
+  }
+
+  const paidByReception = await tx.supplierPayment.groupBy({
+    by: ["receptionId"],
+    where: { receptionId: { in: receptions.map((r) => r.id) } },
+    _sum: { amount: true },
+  });
+  const paidMap = new Map(paidByReception.map((p) => [p.receptionId as string, p._sum.amount ?? d2(0)]));
+
+  let remaining = input.amount;
+  const allocations: SupplierPaymentAllocationLine[] = [];
+  for (const r of receptions) {
+    if (remaining.lessThanOrEqualTo(0)) break;
+    const paid = paidMap.get(r.id) ?? d2(0);
+    const outstanding = r.totalCost.minus(paid);
+    if (outstanding.lessThanOrEqualTo(0)) continue; // already fully paid — skipped, never re-allocated
+    const alloc = remaining.lessThan(outstanding) ? remaining : outstanding;
+    allocations.push({ receptionId: r.id, receptionLabel: displayReceptionNumber(r), amount: alloc });
+    remaining = remaining.minus(alloc);
+  }
+
+  if (remaining.greaterThan(0)) {
+    if (allocations.length === 0) {
+      throw new SupplierPaymentError("Aucune dette à régler pour ce fournisseur.");
+    }
+    const totalOutstanding = input.amount.minus(remaining);
+    throw new SupplierPaymentError(
+      `Le montant dépasse le solde dû du fournisseur (${totalOutstanding.toString()} MAD).`
+    );
+  }
+
+  return allocations;
+}

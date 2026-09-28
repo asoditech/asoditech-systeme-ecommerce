@@ -63,9 +63,13 @@ function DialogContent({
           <DialogPrimitive.Close
             data-slot="dialog-close"
             render={
+              // z-20: above DialogHeader/DialogFooter's sticky z-10 layers.
+              // Without this, the close button sits UNDER the sticky header
+              // (same top-right region, header painted later/higher) —
+              // invisible and unclickable, not merely visually crowded.
               <Button
                 variant="ghost"
-                className="absolute top-3.5 right-3.5 text-muted-foreground"
+                className="absolute top-3.5 right-3.5 z-20 text-muted-foreground"
                 size="icon-sm"
               />
             }

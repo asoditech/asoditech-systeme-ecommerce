@@ -3,8 +3,8 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Search, Trash2 } from "lucide-react";
-import { createReceptionAction, updateReceptionDraftAction, getLatestPurchasePriceAction } from "@/actions/purchases";
+import { Search, Trash2, Plus } from "lucide-react";
+import { createReceptionAction, updateReceptionDraftAction, getLatestPurchasePriceAction, createSupplierAction } from "@/actions/purchases";
 import { lookupSellableUnitsAction } from "@/actions/catalog";
 import type { SellableUnit } from "@/lib/catalog/lookup";
 import { suggestReceptionReference } from "@/lib/purchases/reception-reference";
@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
 import { formatCurrency, formatDate } from "@/lib/format";
 
@@ -40,10 +41,15 @@ interface Line {
 export function ReceptionForm({
   suppliers,
   warehouses,
+  canCreateSupplier = false,
   reception,
 }: {
   suppliers: { id: string; name: string }[];
   warehouses: { id: string; name: string; type: string }[];
+  /** `suppliers.manage` — shows the inline "Nouveau fournisseur" quick-create
+   * next to the supplier select. A reception-only user (`purchases.create`
+   * without `suppliers.manage`) never sees it — never a dead-end action. */
+  canCreateSupplier?: boolean;
   reception?: {
     id: string;
     supplierId: string;
@@ -57,6 +63,32 @@ export function ReceptionForm({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [supplierId, setSupplierId] = useState(reception?.supplierId ?? "");
+  // Local copy so a supplier created inline (below) appears in the select
+  // immediately, without a full page reload — the server list is still the
+  // source of truth on the next real navigation.
+  const [supplierList, setSupplierList] = useState(suppliers);
+  const [newSupplierOpen, setNewSupplierOpen] = useState(false);
+  const [newSupplierName, setNewSupplierName] = useState("");
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
+
+  function createSupplierInline() {
+    const name = newSupplierName.trim();
+    if (name.length < 2) return toast.error("Le nom du fournisseur est requis.");
+    setCreatingSupplier(true);
+    createSupplierAction({ name })
+      .then((result) => {
+        if (result.ok) {
+          setSupplierList((prev) => [...prev, { id: result.data.id, name }].sort((a, b) => a.name.localeCompare(b.name)));
+          setSupplierId(result.data.id);
+          setNewSupplierOpen(false);
+          setNewSupplierName("");
+          toast.success("Fournisseur créé.");
+        } else {
+          toast.error(result.error);
+        }
+      })
+      .finally(() => setCreatingSupplier(false));
+  }
   const [warehouseId, setWarehouseId] = useState(reception?.warehouseId ?? warehouses[0]?.id ?? "");
   // Smart initial suggestion (Batch 9, Group 9) — create mode only; an
   // existing draft's own reference is never touched. `referenceTouched`
@@ -83,7 +115,7 @@ export function ReceptionForm({
     // to satisfy react-hooks/set-state-in-effect — same established fix as
     // every other effect-driven setState in this codebase.
     void (async () => {
-      const supplierName = suppliers.find((s) => s.id === supplierId)?.name ?? null;
+      const supplierName = supplierList.find((s) => s.id === supplierId)?.name ?? null;
       setSupplierReference(suggestReceptionReference(new Date(date), supplierName));
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -182,10 +214,47 @@ export function ReceptionForm({
             </p>
           )}
           <div className="space-y-1.5">
-            <Label htmlFor="rc-sup">Fournisseur</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="rc-sup">Fournisseur</Label>
+              {canCreateSupplier && (
+                <Dialog open={newSupplierOpen} onOpenChange={setNewSupplierOpen}>
+                  <DialogTrigger render={<Button type="button" variant="ghost" size="sm" className="h-6 gap-1 px-1.5 text-xs" />}>
+                    <Plus className="size-3.5" />
+                    Nouveau fournisseur
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Nouveau fournisseur</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="rc-new-sup-name">Nom</Label>
+                      <Input
+                        id="rc-new-sup-name"
+                        autoFocus
+                        value={newSupplierName}
+                        onChange={(e) => setNewSupplierName(e.target.value)}
+                        placeholder="Nom du fournisseur"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Les autres informations (téléphone, adresse, notes…) peuvent être complétées plus tard depuis
+                        la fiche fournisseur.
+                      </p>
+                    </div>
+                    <DialogFooter>
+                      <Button type="button" variant="ghost" onClick={() => setNewSupplierOpen(false)} disabled={creatingSupplier}>
+                        Annuler
+                      </Button>
+                      <Button type="button" onClick={createSupplierInline} disabled={creatingSupplier}>
+                        {creatingSupplier ? "Création..." : "Créer"}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              )}
+            </div>
             <select id="rc-sup" className={selectClass} value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
               <option value="">— Choisir —</option>
-              {suppliers.map((s) => (
+              {supplierList.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>

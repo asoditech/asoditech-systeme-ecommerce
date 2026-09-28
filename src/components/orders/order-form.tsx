@@ -68,6 +68,7 @@ export function OrderForm({
   const [newCustName, setNewCustName] = React.useState("");
   const [newCustPhone, setNewCustPhone] = React.useState("");
   const [newCustCity, setNewCustCity] = React.useState("");
+  const [newCustAddress, setNewCustAddress] = React.useState("");
   const [savingCustomer, setSavingCustomer] = React.useState(false);
 
   const [productQuery, setProductQuery] = React.useState("");
@@ -145,6 +146,7 @@ export function OrderForm({
     setNewCustName(customerQuery.trim());
     setNewCustPhone("");
     setNewCustCity("");
+    setNewCustAddress("");
     setNewCustomerMode(true);
   }
 
@@ -159,6 +161,7 @@ export function OrderForm({
         fullName: newCustName.trim(),
         phone: newCustPhone.trim() || undefined,
         city: newCustCity.trim() || undefined,
+        addressLine1: newCustAddress.trim() || undefined,
       });
       setSavingCustomer(false);
       if (!result.ok) {
@@ -166,8 +169,19 @@ export function OrderForm({
         return;
       }
       setCustomer(result.data);
-      if (result.data.city) setShippingCity(result.data.city);
-      if (result.data.phone) setShippingPhone(result.data.phone);
+      // Pre-fill THIS order's own shipping fields — the ones Livraison
+      // actually checks — from the client feedback that a customer created
+      // here, address and all, still showed up as "no address" once a
+      // shipment was attempted: that gap was the order's own
+      // shippingAddressLine1 never being set, only city/phone were.
+      if (result.data.defaultAddress) {
+        setShippingAddress(result.data.defaultAddress.addressLine1);
+        setShippingCity(result.data.defaultAddress.city);
+        if (result.data.defaultAddress.phone) setShippingPhone(result.data.defaultAddress.phone);
+      } else {
+        if (result.data.city) setShippingCity(result.data.city);
+        if (result.data.phone) setShippingPhone(result.data.phone);
+      }
       setNewCustomerMode(false);
       setCustomerOpen(false);
       setCustomerQuery("");
@@ -260,7 +274,13 @@ export function OrderForm({
                   <p className="px-1 text-sm font-medium">Nouveau client</p>
                   <Input placeholder="Nom complet" value={newCustName} onChange={(e) => setNewCustName(e.target.value)} autoFocus />
                   <Input placeholder="Téléphone (optionnel)" value={newCustPhone} onChange={(e) => setNewCustPhone(e.target.value)} />
+                  <Input placeholder="Adresse (optionnel)" value={newCustAddress} onChange={(e) => setNewCustAddress(e.target.value)} />
                   <Input placeholder="Ville (optionnel)" value={newCustCity} onChange={(e) => setNewCustCity(e.target.value)} />
+                  {newCustAddress.trim() && !newCustCity.trim() && (
+                    <p className="px-1 text-xs text-muted-foreground">
+                      La ville est nécessaire pour enregistrer cette adresse.
+                    </p>
+                  )}
                   <div className="flex gap-2 pt-1">
                     <Button type="button" size="sm" className="flex-1" disabled={savingCustomer} onClick={submitNewCustomer}>
                       {savingCustomer ? "Création..." : "Créer et sélectionner"}
@@ -547,7 +567,7 @@ export function OrderForm({
               <Label>Adresse de livraison</Label>
               <Input value={shippingAddress} onChange={(e) => setShippingAddress(e.target.value)} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Ville</Label>
                 <Input value={shippingCity} onChange={(e) => setShippingCity(e.target.value)} />
@@ -568,7 +588,7 @@ export function OrderForm({
             <CardTitle>Résumé</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Frais de livraison</Label>
                 <Input type="number" step="0.01" min="0" value={shippingCost} onChange={(e) => setShippingCost(e.target.value)} />

@@ -8,7 +8,15 @@ import { requireLocationAccessForAction } from "@/lib/auth/location-access";
 import { recordAuditEvent } from "@/lib/audit";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
-import { validateReceptionInTx, getReceptionRemaining, ReceptionError } from "@/lib/receptions";
+import { randomUUID } from "node:crypto";
+import {
+  validateReceptionInTx,
+  getReceptionRemaining,
+  getSupplierBalance,
+  planSupplierPaymentAllocation,
+  SupplierPaymentError,
+  ReceptionError,
+} from "@/lib/receptions";
 import { getLatestPurchasePrice, getPurchasePriceHistory, type PurchasePriceHistoryEntry } from "@/lib/queries/purchases";
 import { displayReceptionNumber } from "@/lib/format";
 import {
@@ -348,15 +356,37 @@ export async function cancelReceptionAction(input: { id: string }): Promise<Acti
 // Supplier payments — a FINANCIAL record, separate from receiving stock.
 // ---------------------------------------------------------------------------
 
+export interface SupplierPaymentAllocationLine {
+  receptionId: string;
+  receptionLabel: string;
+  amount: string;
+}
+
+/** What the UI needs to render "Payment: X — allocated to REC-1 (…), REC-2 (…) — remaining balance: Y". */
+export interface SupplierPaymentResult {
+  /** Set only when the payment was split across MORE than one reception. */
+  paymentGroupId: string | null;
+  amount: string;
+  allocations: SupplierPaymentAllocationLine[];
+  remainingBalance: string;
+}
+
 /**
  * Records a payment to a supplier. Creates NO stock movement (a payment is
- * not a reception, and a reception is not a payment). When linked to a
- * reception it must be a VALIDATED one, and cumulative payments may not exceed
- * its total — enforced under a row lock (`SELECT … FOR UPDATE` on the
- * reception, the same technique as refunds/returns) so two concurrent
- * payments cannot both read the same "remaining".
+ * not a reception, and a reception is not a payment).
+ *
+ * Two modes, chosen by whether the caller names a reception (docs/adr/0042):
+ *  - `receptionId` given: settles exactly that VALIDATED reception — the
+ *    original, still-supported manual path, unchanged behaviour.
+ *  - `receptionId` omitted: AUTO-ALLOCATES the amount across the supplier's
+ *    outstanding validated receptions, oldest debt first (the primary UX —
+ *    the user only enters an amount). See `planSupplierPaymentAllocation`.
+ *
+ * Both modes run under the same row-lock technique so concurrent payments
+ * for one supplier/reception can never both read the same stale "remaining"
+ * and together overpay it.
  */
-export async function recordSupplierPaymentAction(input: SupplierPaymentInput): Promise<ActionResult<IdResult>> {
+export async function recordSupplierPaymentAction(input: SupplierPaymentInput): Promise<ActionResult<SupplierPaymentResult>> {
   const user = await requirePermissionForAction("purchases.pay");
   const parsed = supplierPaymentSchema.safeParse(input);
   if (!parsed.success) return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
@@ -364,34 +394,51 @@ export async function recordSupplierPaymentAction(input: SupplierPaymentInput): 
   const supplier = await prisma.supplier.findUnique({ where: { id: parsed.data.supplierId } });
   if (!supplier) return actionError("Fournisseur introuvable.");
   const receptionId = parsed.data.receptionId && parsed.data.receptionId.length > 0 ? parsed.data.receptionId : null;
+  const amount = new Prisma.Decimal(parsed.data.amount);
 
-  class OverpayError extends Error {}
   class BadReceptionError extends Error {}
   try {
-    const payment = await prisma.$transaction(async (tx) => {
+    const { paymentGroupId, rows } = await prisma.$transaction(async (tx) => {
+      const common = {
+        method: parsed.data.method,
+        paidAt: parsed.data.paidAt ?? new Date(),
+        reference: nz(parsed.data.reference),
+        notes: nz(parsed.data.notes),
+        createdById: user.id,
+        createdByName: user.name,
+      };
+
       if (receptionId) {
+        // Manual single-reception targeting — the original path.
         await tx.$queryRaw`SELECT id FROM "receptions" WHERE id = ${receptionId} FOR UPDATE`;
         const reception = await tx.reception.findUnique({ where: { id: receptionId } });
         if (!reception || reception.supplierId !== supplier.id) throw new BadReceptionError("Réception introuvable pour ce fournisseur.");
         if (reception.status !== "VALIDEE") throw new BadReceptionError("Seule une réception validée peut être réglée.");
         const remaining = await getReceptionRemaining(receptionId, tx);
-        if (remaining && new Prisma.Decimal(parsed.data.amount).greaterThan(remaining.remaining)) {
-          throw new OverpayError(`Le montant dépasse le reste à payer de cette réception (${remaining.remaining.toString()}).`);
+        if (remaining && amount.greaterThan(remaining.remaining)) {
+          throw new SupplierPaymentError(`Le montant dépasse le reste à payer de cette réception (${remaining.remaining.toString()}).`);
         }
+        const row = await tx.supplierPayment.create({ data: { supplierId: supplier.id, receptionId, amount, paymentGroupId: null, ...common } });
+        return { paymentGroupId: null, rows: [{ receptionId: row.receptionId!, receptionLabel: displayReceptionNumber(reception), amount: row.amount, id: row.id }] };
       }
-      return tx.supplierPayment.create({
-        data: {
-          supplierId: supplier.id,
-          receptionId,
-          amount: parsed.data.amount,
-          method: parsed.data.method,
-          paidAt: parsed.data.paidAt ?? new Date(),
-          reference: nz(parsed.data.reference),
-          notes: nz(parsed.data.notes),
-          createdById: user.id,
-          createdByName: user.name,
-        },
-      });
+
+      // Auto-allocation: lock every outstanding validated reception of this
+      // supplier for the duration of the tx — two concurrent payments for
+      // the same supplier serialize on this instead of both planning off
+      // the same stale "outstanding" read (same technique as above, widened
+      // from one reception to the whole set a payment might touch).
+      await tx.$queryRaw`SELECT id FROM "receptions" WHERE "supplierId" = ${supplier.id} AND status = 'VALIDEE' FOR UPDATE`;
+      const allocations = await planSupplierPaymentAllocation(tx, { supplierId: supplier.id, amount });
+      const paymentGroupId = allocations.length > 1 ? randomUUID() : null;
+      const rows = await Promise.all(
+        allocations.map(async (a) => {
+          const row = await tx.supplierPayment.create({
+            data: { supplierId: supplier.id, receptionId: a.receptionId, amount: a.amount, paymentGroupId, ...common },
+          });
+          return { receptionId: row.receptionId!, receptionLabel: a.receptionLabel, amount: row.amount, id: row.id };
+        })
+      );
+      return { paymentGroupId, rows };
     });
 
     await recordAuditEvent({
@@ -399,14 +446,27 @@ export async function recordSupplierPaymentAction(input: SupplierPaymentInput): 
       actorUserId: user.id,
       action: "supplier_payment.recorded",
       entityType: "SupplierPayment",
-      entityId: payment.id,
-      newValue: { supplierId: supplier.id, receptionId, amount: payment.amount.toString(), method: payment.method },
+      entityId: rows[0].id,
+      newValue: {
+        supplierId: supplier.id,
+        paymentGroupId,
+        amount: amount.toString(),
+        method: parsed.data.method,
+        allocations: rows.map((r) => ({ receptionId: r.receptionId, amount: r.amount.toString() })),
+      },
     });
     revalidatePath(`/fournisseurs/${supplier.id}`);
     revalidatePath("/fournisseurs");
-    return actionOk({ id: payment.id });
+
+    const balance = await getSupplierBalance(supplier.id);
+    return actionOk({
+      paymentGroupId,
+      amount: amount.toString(),
+      allocations: rows.map((r) => ({ receptionId: r.receptionId, receptionLabel: r.receptionLabel, amount: r.amount.toString() })),
+      remainingBalance: balance.balance.toString(),
+    });
   } catch (error) {
-    if (error instanceof OverpayError || error instanceof BadReceptionError) return actionError(error.message);
+    if (error instanceof SupplierPaymentError || error instanceof BadReceptionError) return actionError(error.message);
     throw error;
   }
 }

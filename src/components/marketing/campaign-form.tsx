@@ -65,7 +65,7 @@ export function CampaignForm({ channels }: { channels: MarketingChannel[] }) {
             <Label htmlFor="name">Nom de la campagne</Label>
             <Input id="name" name="name" required />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="startDate">Date de début</Label>
               <Input id="startDate" name="startDate" type="date" required />

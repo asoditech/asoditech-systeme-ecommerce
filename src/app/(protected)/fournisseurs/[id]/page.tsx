@@ -12,7 +12,15 @@ import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { getSupplierDetail, getSupplierPurchaseHistory } from "@/lib/queries/purchases";
 import { displayReceptionNumber, formatCurrency, formatDate } from "@/lib/format";
-import { RECEPTION_STATUS_LABELS, CASH_PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
+import { RECEPTION_STATUS_LABELS, RECEPTION_PAYMENT_STATUS_LABELS, CASH_PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
+import type { Prisma } from "@prisma/client";
+
+/** Non payé / Partiellement payé / Payé — only meaningful once a reception is VALIDATED (docs/adr/0042). */
+function receptionPaymentStatus(totalCost: Prisma.Decimal, paid: Prisma.Decimal): string {
+  if (paid.lessThanOrEqualTo(0)) return "NON_PAYE";
+  if (paid.greaterThanOrEqualTo(totalCost)) return "PAYE";
+  return "PARTIEL";
+}
 
 export const metadata = { title: "Fournisseur — ASODITECH Gestion E-commerce" };
 
@@ -28,9 +36,6 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
   const { supplier, balance, payments, receptions } = detail;
   const canManage = userHasPermission(user, "suppliers.manage");
   const canPay = userHasPermission(user, "purchases.pay");
-  const payable = receptions
-    .filter((r) => r.status === "VALIDEE" && r.totalCost.minus(r.paid).greaterThan(0))
-    .map((r) => ({ id: r.id, label: displayReceptionNumber(r), remaining: formatCurrency(r.totalCost.minus(r.paid).toString()) }));
 
   return (
     <div className="space-y-6">
@@ -62,7 +67,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
         <KpiCard label="Solde dû" value={formatCurrency(balance.balance.toString())} icon={Scale} tone={balance.balance.greaterThan(0) ? "danger" : "primary"} />
       </div>
 
-      {canPay && <SupplierPaymentForm supplierId={supplier.id} receptions={payable} />}
+      {canPay && <SupplierPaymentForm supplierId={supplier.id} />}
 
       <Card>
         <CardHeader>
@@ -76,6 +81,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
                 <TableHead>Date</TableHead>
                 <TableHead>Emplacement</TableHead>
                 <TableHead>Statut</TableHead>
+                <TableHead>Paiement</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Payé</TableHead>
               </TableRow>
@@ -93,13 +99,18 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
                   <TableCell>
                     <StatusBadge status={r.status} labels={RECEPTION_STATUS_LABELS} />
                   </TableCell>
+                  <TableCell>
+                    {r.status === "VALIDEE" && (
+                      <StatusBadge status={receptionPaymentStatus(r.totalCost, r.paid)} labels={RECEPTION_PAYMENT_STATUS_LABELS} />
+                    )}
+                  </TableCell>
                   <TableCell className="text-right tabular-nums">{formatCurrency(r.totalCost.toString())}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatCurrency(r.paid.toString())}</TableCell>
                 </TableRow>
               ))}
               {receptions.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground">
                     Aucune réception.
                   </TableCell>
                 </TableRow>
@@ -175,6 +186,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
             <TableHeader>
               <TableRow>
                 <TableHead>Date</TableHead>
+                <TableHead>Réception</TableHead>
                 <TableHead>Mode</TableHead>
                 <TableHead>Référence</TableHead>
                 <TableHead>Par</TableHead>
@@ -185,6 +197,15 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
               {payments.map((p) => (
                 <TableRow key={p.id}>
                   <TableCell className="text-muted-foreground">{formatDate(p.paidAt)}</TableCell>
+                  <TableCell>
+                    {p.reception ? (
+                      <Link href={`/receptions/${p.receptionId}`} className="hover:underline">
+                        {displayReceptionNumber(p.reception)}
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground">Compte fournisseur</span>
+                    )}
+                  </TableCell>
                   <TableCell>{CASH_PAYMENT_METHOD_LABELS[p.method]}</TableCell>
                   <TableCell className="text-muted-foreground">{p.reference ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{p.createdByName ?? "—"}</TableCell>
@@ -193,7 +214,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
               ))}
               {payments.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
                     Aucun paiement.
                   </TableCell>
                 </TableRow>

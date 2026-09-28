@@ -78,6 +78,12 @@ const quickCustomerSchema = z.object({
   fullName: z.string().trim().min(2, "Le nom du client est requis.").max(200),
   phone: z.string().trim().max(30).optional(),
   city: z.string().trim().max(120).optional(),
+  // Optional street address (client feedback): when supplied, saved as this
+  // customer's default CustomerAddress — the same record the Clients page
+  // manages — so it's available to this order's own shipping address AND
+  // reused automatically on every later order for the same customer,
+  // instead of only ever living on this one order's own snapshot fields.
+  addressLine1: z.string().trim().max(500).optional(),
 });
 
 /**
@@ -91,7 +97,8 @@ export async function createCustomerForOrderAction(input: {
   fullName: string;
   phone?: string;
   city?: string;
-}): Promise<ActionResult<Customer>> {
+  addressLine1?: string;
+}): Promise<ActionResult<Customer & { defaultAddress: { addressLine1: string; city: string; phone: string | null } | null }>> {
   const user = await requirePermissionForAction("orders.create");
   const parsed = quickCustomerSchema.safeParse(input);
   if (!parsed.success) {
@@ -107,6 +114,26 @@ export async function createCustomerForOrderAction(input: {
     },
   });
 
+  // A street line with no city to pair it with isn't a usable saved address
+  // (CustomerAddress.city is required) — silently skip rather than guess a
+  // city, exactly the same "never fabricate" posture the rest of this file
+  // already follows.
+  const addressLine1 = normalizeOptional(parsed.data.addressLine1);
+  const city = normalizeOptional(parsed.data.city);
+  let defaultAddress: { addressLine1: string; city: string; phone: string | null } | null = null;
+  if (addressLine1 && city) {
+    const address = await prisma.customerAddress.create({
+      data: {
+        customerId: customer.id,
+        addressLine1,
+        city,
+        phone: normalizeOptional(parsed.data.phone),
+        isDefault: true,
+      },
+    });
+    defaultAddress = { addressLine1: address.addressLine1, city: address.city, phone: address.phone };
+  }
+
   await recordAuditEvent({
     actorType: "USER",
     actorUserId: user.id,
@@ -118,7 +145,7 @@ export async function createCustomerForOrderAction(input: {
   });
 
   revalidatePath("/clients");
-  return actionOk(customer);
+  return actionOk({ ...customer, defaultAddress });
 }
 
 export async function searchProductsForOrderAction(query: string) {
