@@ -33,13 +33,20 @@ import {
   Building2,
   ScanBarcode,
   Tag,
+  PlusCircle,
 } from "lucide-react";
 
 interface NavItem {
   href: string;
   label: string;
   icon: typeof LayoutDashboard;
-  permission: Permission;
+  /**
+   * Phase 2 (user-management UX v2): an array means "shown when the viewer
+   * holds AT LEAST ONE of these" — mirrors command-palette.tsx's QUICK_LINKS
+   * pattern, used for /operations/nouvelle (orders.create OR sales.create,
+   * since the page itself forks by channel access — never both required).
+   */
+  permission: Permission | Permission[];
   /**
    * Set for a page that aggregates one activity's data under a SHARED
    * permission (analyses, finance): shown only when the viewer holds at
@@ -48,6 +55,11 @@ interface NavItem {
    * Convenience only — the page itself re-checks server-side (docs/adr/0039).
    */
   domain?: ChannelDomain;
+}
+
+/** True when `permissions` covers a nav item's requirement, single or array (OR semantics). */
+export function hasNavPermission(permissions: ReadonlySet<Permission>, required: Permission | Permission[]): boolean {
+  return Array.isArray(required) ? required.some((p) => permissions.has(p)) : permissions.has(required);
 }
 
 /** True when the (effective, channel-scoped) permission set includes any permission of `domain`. */
@@ -72,6 +84,10 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Ventes",
     items: [
+      // Phase 2 — discoverability for the already-working /operations/nouvelle
+      // fork (Online-only→/commandes/nouvelle, Offline-only→/ventes/nouvelle,
+      // both→chooser UI). The page itself owns that logic; this is only a link.
+      { href: "/operations/nouvelle", label: "Nouvelle opération", icon: PlusCircle, permission: ["orders.create", "sales.create"] },
       { href: "/commandes", label: "Commandes", icon: ShoppingCart, permission: "orders.view" },
       { href: "/ventes", label: "Ventes magasin", icon: Store, permission: "sales.view", domain: "OFFLINE" },
       { href: "/confirmation", label: "Confirmation", icon: PhoneCall, permission: "orders.confirm" },
@@ -141,7 +157,7 @@ export function SidebarNav({
   const groups = NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter(
-      (item) => permissions.has(item.permission) && (!item.domain || hasDomainAccess(permissions, item.domain))
+      (item) => hasNavPermission(permissions, item.permission) && (!item.domain || hasDomainAccess(permissions, item.domain))
     ),
   })).filter((group) => group.items.length > 0);
 

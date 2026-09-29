@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ShieldCheck } from "lucide-react";
+import type { UserRole } from "@prisma/client";
 import { setUserPermissionOverridesAction, setUserChannelsAction } from "@/actions/users";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,6 +12,12 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { PERMISSION_CHANNEL_DOMAIN, type Permission } from "@/lib/auth/permissions";
+// PURE, no Prisma/server-only (see its own doc comment) — the exact same
+// function the server uses to compute the real effective-access set, so
+// this dialog's "Accès effectif" summary is never a second, drifting
+// reimplementation of the RBAC formula (Phase 2 requirement).
+import { computeEffectiveAccess } from "@/lib/auth/effective-access";
+import type { BusinessMode } from "@/lib/tenant/business-mode";
 
 /**
  * Individual access (docs/adr/0039): the role gives a BASELINE; this dialog
@@ -52,6 +59,8 @@ type State = "inherit" | "grant" | "deny";
 export function UserAccessDialog({
   userId,
   name,
+  role,
+  businessMode,
   permissions,
   baseline,
   grants,
@@ -62,6 +71,10 @@ export function UserAccessDialog({
 }: {
   userId: string;
   name: string;
+  /** The target user's role — needed (only) to feed the SAME `computeEffectiveAccess` the server uses, for the "Accès effectif" summary. */
+  role: UserRole;
+  /** The tenant's business mode (docs/adr/0041) — same reason. */
+  businessMode: BusinessMode;
   /** Every permission a per-user override may target (users.manage excluded server-side too). */
   permissions: Permission[];
   /** What the user's ROLE already grants. */
@@ -76,7 +89,7 @@ export function UserAccessDialog({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
-  const base = new Set<string>(baseline);
+  const base = useMemo(() => new Set<string>(baseline), [baseline]);
 
   const initialStates = (): Record<string, State> => {
     const s: Record<string, State> = {};
@@ -92,11 +105,46 @@ export function UserAccessDialog({
     setSelectedChannels(new Set(assignedChannelIds));
   }
 
+  // Only what DIFFERS from the role baseline is a REAL override: "allow"
+  // something the role already has, or "deny" something it lacks, is a
+  // no-op — never stored, and never counted as "custom" in the summary.
+  // One shared computation so `save()` and the live "Accès effectif"
+  // summary can never drift from each other.
+  const newGrants = useMemo(() => permissions.filter((p) => states[p] === "grant" && !base.has(p)), [permissions, states, base]);
+  const newDenies = useMemo(() => permissions.filter((p) => states[p] === "deny" && base.has(p)), [permissions, states, base]);
+
+  // "Accès effectif" (Phase 2): computed live, from the SAME
+  // `computeEffectiveAccess` the server calls on every request — never a
+  // client reimplementation of the formula. Reflects the in-progress draft
+  // (unsaved toggle/channel changes), which is the whole point: the admin
+  // sees the consequence of a choice before clicking "Enregistrer".
+  const effectiveAccess = useMemo(
+    () =>
+      computeEffectiveAccess({
+        role,
+        overrides: [
+          ...newGrants.map((permission) => ({ permission, effect: "GRANT" as const })),
+          ...newDenies.map((permission) => ({ permission, effect: "DENY" as const })),
+        ],
+        assignedChannels: channels
+          .filter((c) => selectedChannels.has(c.id))
+          .map((c) => ({ id: c.id, kind: c.kind, isActive: true })),
+        businessMode,
+      }),
+    [role, newGrants, newDenies, channels, selectedChannels, businessMode]
+  );
+  const activeCount = permissions.filter((p) => effectiveAccess.permissions.has(p)).length;
+  const scopeLabel = !channelsEnabled
+    ? "En ligne"
+    : effectiveAccess.channels.online && effectiveAccess.channels.offline
+      ? "En ligne + Magasin"
+      : effectiveAccess.channels.online
+        ? "En ligne uniquement"
+        : effectiveAccess.channels.offline
+          ? "Magasin uniquement"
+          : "Aucun canal attribué";
+
   function save() {
-    // Only store what DIFFERS from the role: an "allow" of something the role
-    // already has, or a "deny" of something it lacks, is a no-op — not stored.
-    const newGrants = permissions.filter((p) => states[p] === "grant" && !base.has(p));
-    const newDenies = permissions.filter((p) => states[p] === "deny" && base.has(p));
     startTransition(async () => {
       const [a, b] = await Promise.all([
         setUserPermissionOverridesAction({ userId, grants: newGrants, denies: newDenies }),
@@ -140,6 +188,36 @@ export function UserAccessDialog({
           <DialogHeader>
             <DialogTitle>Accès individuels — {name}</DialogTitle>
           </DialogHeader>
+
+          {/* Phase 2 — "Accès effectif": one authoritative summary, computed
+              via computeEffectiveAccess (never a second RBAC formula),
+              reflecting the draft toggles/channels below in real time. */}
+          <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+            <p className="text-sm font-medium">Accès effectif</p>
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <Badge variant="secondary">{scopeLabel}</Badge>
+              <span className="text-muted-foreground">
+                {activeCount} permission{activeCount > 1 ? "s" : ""} sur {permissions.length} active
+                {activeCount > 1 ? "s" : ""}
+              </span>
+            </div>
+            {(newGrants.length > 0 || newDenies.length > 0) && (
+              <div className="space-y-1 text-xs text-muted-foreground">
+                {newGrants.length > 0 && (
+                  <p>
+                    <span className="font-medium text-foreground">Accordé en plus du rôle :</span>{" "}
+                    {newGrants.join(", ")}
+                  </p>
+                )}
+                {newDenies.length > 0 && (
+                  <p>
+                    <span className="font-medium text-foreground">Refusé malgré le rôle :</span>{" "}
+                    {newDenies.join(", ")}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
 
           {channelsEnabled && (
           <div className="space-y-2">

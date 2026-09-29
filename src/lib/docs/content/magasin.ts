@@ -59,7 +59,7 @@ export const magasinArticles: DocArticle[] = [
         errorStrings: ["doit être égale au total"],
       },
     ],
-    related: ["magasin/tracabilite", "magasin/canaux-et-acces"],
+    related: ["commandes/demarrer-une-nouvelle-operation", "magasin/tracabilite", "magasin/canaux-et-acces"],
     tryNow: { label: "Ouvrir Ventes magasin", href: "/ventes" },
     keywords: ["pos", "caisse", "point de vente", "code-barres", "scanner", "offline", "comptoir"],
     lastUpdated: LAST_UPDATED,

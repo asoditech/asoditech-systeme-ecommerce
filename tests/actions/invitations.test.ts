@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma, prismaBase } from "@/lib/prisma";
 import { inviteUserAction, revokeInvitationAction, acceptInvitationAction } from "@/actions/invitations";
 import { hashToken } from "@/lib/auth/tokens";
-import { DEFAULT_TENANT_ID, resetDb } from "../helpers/db";
+import { DEFAULT_TENANT_ID, resetDb, setTestBusinessMode } from "../helpers/db";
 import { loginAsTestUser, createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 import { RedirectSignal } from "../setup";
@@ -318,5 +318,185 @@ describe("Invitation acceptance — plan seat-limit enforcement (docs/adr/0035 '
     expect(redirected.length).toBe(1);
 
     expect(await prismaBase.user.count({ where: { tenantId: DEFAULT_TENANT_ID, status: "ACTIVE" } })).toBe(7);
+  });
+});
+
+/**
+ * Phase 2 (user-management UX v2) — invite-time business scope. The
+ * SalesChannel ids are resolved at ACCEPT time (never stored at invite
+ * time) — see resolveInvitationChannelIds's doc comment in
+ * src/actions/invitations.ts — so every assertion here checks the real
+ * UserChannel rows created after acceptInvitationAction, not just the
+ * Invitation.channelScope value.
+ */
+describe("invite-time business scope (channelScope)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+  });
+
+  async function acceptAndGetChannels(inviteUrl: string, email: string) {
+    mockCookieStore.clear();
+    const token = tokenFromInviteUrl(inviteUrl);
+    await expect(
+      acceptInvitationAction(undefined, formData({ token, password: "correct-horse-battery-staple" }))
+    ).rejects.toThrow(RedirectSignal);
+    const created = await prismaBase.user.findFirstOrThrow({ where: { email } });
+    const channels = await prismaBase.userChannel.findMany({
+      where: { userId: created.id },
+      include: { salesChannel: { select: { kind: true } } },
+    });
+    return { created, channels };
+  }
+
+  it("ONLINE scope assigns only the default online channel", async () => {
+    await setTestBusinessMode("ONLINE_AND_OFFLINE");
+    await prismaBase.salesChannel.create({ data: { name: "Boutique", kind: "OFFLINE" } });
+    await loginAsTestUser({ role: "ADMIN" });
+    const invite = await inviteUserAction(
+      formData({ name: "Online Person", email: "online-scope@test.local", role: "CONFIRMATION", channelScope: "ONLINE" })
+    );
+    expect(invite.ok).toBe(true);
+    if (!invite.ok) return;
+
+    const { channels } = await acceptAndGetChannels(invite.data.inviteUrl, "online-scope@test.local");
+    expect(channels).toHaveLength(1);
+    expect(channels[0]!.salesChannel.kind).toBe("ONLINE");
+  });
+
+  it("OFFLINE scope assigns every active offline channel, and no online channel", async () => {
+    await setTestBusinessMode("ONLINE_AND_OFFLINE");
+    await prismaBase.salesChannel.create({ data: { name: "Boutique A", kind: "OFFLINE" } });
+    await prismaBase.salesChannel.create({ data: { name: "Boutique B", kind: "OFFLINE" } });
+    await loginAsTestUser({ role: "ADMIN" });
+    const invite = await inviteUserAction(
+      formData({ name: "Offline Person", email: "offline-scope@test.local", role: "CONFIRMATION", channelScope: "OFFLINE" })
+    );
+    expect(invite.ok).toBe(true);
+    if (!invite.ok) return;
+
+    const { channels } = await acceptAndGetChannels(invite.data.inviteUrl, "offline-scope@test.local");
+    expect(channels).toHaveLength(2);
+    expect(channels.every((c) => c.salesChannel.kind === "OFFLINE")).toBe(true);
+  });
+
+  it("BOTH scope assigns the online channel plus every active offline channel", async () => {
+    await setTestBusinessMode("ONLINE_AND_OFFLINE");
+    await prismaBase.salesChannel.create({ data: { name: "Boutique", kind: "OFFLINE" } });
+    await loginAsTestUser({ role: "ADMIN" });
+    const invite = await inviteUserAction(
+      formData({ name: "Both Person", email: "both-scope@test.local", role: "CONFIRMATION", channelScope: "BOTH" })
+    );
+    expect(invite.ok).toBe(true);
+    if (!invite.ok) return;
+
+    const { channels } = await acceptAndGetChannels(invite.data.inviteUrl, "both-scope@test.local");
+    expect(channels.map((c) => c.salesChannel.kind).sort()).toEqual(["OFFLINE", "ONLINE"]);
+  });
+
+  it("rejects OFFLINE/BOTH scope in an ONLINE_ONLY tenant (no storeChannels capability)", async () => {
+    // Default test tenant starts ONLINE_ONLY (tests/helpers/db.ts) — no setTestBusinessMode call.
+    await loginAsTestUser({ role: "ADMIN" });
+    const offlineResult = await inviteUserAction(
+      formData({ name: "Blocked", email: "blocked-offline@test.local", role: "CONFIRMATION", channelScope: "OFFLINE" })
+    );
+    expect(offlineResult.ok).toBe(false);
+    const bothResult = await inviteUserAction(
+      formData({ name: "Blocked", email: "blocked-both@test.local", role: "CONFIRMATION", channelScope: "BOTH" })
+    );
+    expect(bothResult.ok).toBe(false);
+    expect(await prismaBase.invitation.count()).toBe(0);
+  });
+
+  it("rejects OFFLINE/BOTH scope when storeChannels is on but zero active offline channels exist yet", async () => {
+    await setTestBusinessMode("ONLINE_AND_OFFLINE");
+    await loginAsTestUser({ role: "ADMIN" });
+    const result = await inviteUserAction(
+      formData({ name: "No Channel Yet", email: "no-offline-channel@test.local", role: "CONFIRMATION", channelScope: "OFFLINE" })
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/canal magasin/i);
+  });
+
+  it("legacy behavior: an invitation with no explicit channelScope still assigns only the default online channel", async () => {
+    await setTestBusinessMode("ONLINE_AND_OFFLINE");
+    await prismaBase.salesChannel.create({ data: { name: "Boutique", kind: "OFFLINE" } });
+    await loginAsTestUser({ role: "ADMIN" });
+    // channelScope omitted entirely — exactly a pre-Phase-2 invite.
+    const invite = await inviteUserAction(formData({ name: "Legacy", email: "legacy-scope@test.local", role: "CONFIRMATION" }));
+    expect(invite.ok).toBe(true);
+    if (!invite.ok) return;
+
+    const row = await prismaBase.invitation.findUniqueOrThrow({ where: { id: invite.data.id } });
+    expect(row.channelScope).toBeNull();
+
+    const { channels } = await acceptAndGetChannels(invite.data.inviteUrl, "legacy-scope@test.local");
+    expect(channels).toHaveLength(1);
+    expect(channels[0]!.salesChannel.kind).toBe("ONLINE");
+  });
+
+  it("channelScope is silently ignored (never stored) for a global role (ADMIN/OWNER)", async () => {
+    await setTestBusinessMode("ONLINE_AND_OFFLINE");
+    await prismaBase.salesChannel.create({ data: { name: "Boutique", kind: "OFFLINE" } });
+    await loginAsTestUser({ role: "OWNER" });
+    const invite = await inviteUserAction(
+      formData({ name: "Future Admin", email: "future-admin@test.local", role: "ADMIN", channelScope: "BOTH" })
+    );
+    expect(invite.ok).toBe(true);
+    if (!invite.ok) return;
+
+    const row = await prismaBase.invitation.findUniqueOrThrow({ where: { id: invite.data.id } });
+    expect(row.channelScope).toBeNull();
+
+    const { created, channels } = await acceptAndGetChannels(invite.data.inviteUrl, "future-admin@test.local");
+    expect(channels).toHaveLength(0);
+    expect(created.role).toBe("ADMIN");
+  });
+
+  it("persists the chosen scope on the Invitation row, readable across a later lookup (survives reload)", async () => {
+    await setTestBusinessMode("ONLINE_AND_OFFLINE");
+    await prismaBase.salesChannel.create({ data: { name: "Boutique", kind: "OFFLINE" } });
+    await loginAsTestUser({ role: "ADMIN" });
+    const invite = await inviteUserAction(
+      formData({ name: "Persisted", email: "persisted-scope@test.local", role: "CONFIRMATION", channelScope: "BOTH" })
+    );
+    expect(invite.ok).toBe(true);
+    if (!invite.ok) return;
+
+    // A fresh read, as a later page load would do — not the in-memory result.
+    const reread = await prismaBase.invitation.findUniqueOrThrow({ where: { id: invite.data.id } });
+    expect(reread.channelScope).toBe("BOTH");
+  });
+
+  it("tenant isolation: OFFLINE scope resolves only THIS tenant's active offline channels, never another tenant's", async () => {
+    const TENANT_C = "tenant-c-invitations-scope";
+    await prismaBase.tenant.create({ data: { id: TENANT_C, name: "Tenant C", slug: TENANT_C } });
+    await setTestBusinessMode("ONLINE_AND_OFFLINE", TENANT_C);
+    await setTestBusinessMode("ONLINE_AND_OFFLINE", DEFAULT_TENANT_ID);
+    await prismaBase.salesChannel.create({ data: { name: "Tenant C Boutique", kind: "OFFLINE", tenantId: TENANT_C } });
+    await prismaBase.salesChannel.create({ data: { name: "Default Boutique", kind: "OFFLINE", tenantId: DEFAULT_TENANT_ID } });
+
+    await loginAsTestUser({ role: "ADMIN", tenantId: DEFAULT_TENANT_ID });
+    const invite = await inviteUserAction(
+      formData({ name: "Isolated", email: "isolated-scope@test.local", role: "CONFIRMATION", channelScope: "OFFLINE" })
+    );
+    expect(invite.ok).toBe(true);
+    if (!invite.ok) return;
+
+    const { channels } = await acceptAndGetChannels(invite.data.inviteUrl, "isolated-scope@test.local");
+    expect(channels).toHaveLength(1);
+    const assignedChannel = await prismaBase.salesChannel.findUniqueOrThrow({ where: { id: channels[0]!.salesChannelId } });
+    expect(assignedChannel.tenantId).toBe(DEFAULT_TENANT_ID);
+  });
+
+  it("rejects a caller without users.manage from choosing a channelScope at all", async () => {
+    await loginAsTestUser({ role: "CONFIRMATION" });
+    await expect(
+      inviteUserAction(formData({ name: "Nope", email: "nope-scope@test.local", role: "CONFIRMATION", channelScope: "BOTH" }))
+    ).rejects.toThrow(/non autorisé/i);
   });
 });

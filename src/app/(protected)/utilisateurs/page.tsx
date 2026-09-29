@@ -111,6 +111,7 @@ export default async function UtilisateursPage() {
                       name={u.name}
                       email={u.email}
                       role={u.role}
+                      businessMode={user.businessMode}
                       status={u.status}
                       warehouses={warehouses}
                       assignedWarehouseIds={assignedByUser.get(u.id) ?? []}

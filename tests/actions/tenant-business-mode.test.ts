@@ -13,7 +13,7 @@ import { requirePermission, requirePermissionForAction } from "@/lib/auth/guards
 import { requireCapability, requireCapabilityForAction } from "@/lib/auth/capabilities";
 import { getCurrentUser, createSession } from "@/lib/auth/session";
 import { notifyNewOrder } from "@/lib/notifications";
-import { NAV_GROUPS, hasDomainAccess } from "@/components/layout/sidebar-nav";
+import { NAV_GROUPS, hasDomainAccess, hasNavPermission } from "@/components/layout/sidebar-nav";
 import { GET as exportReport } from "@/app/(protected)/rapports/export/[type]/route";
 import { ensureDefaultOnlineChannel } from "@/lib/channels";
 import { DEFAULT_TENANT_ID, resetDb, setTestBusinessMode } from "../helpers/db";
@@ -71,7 +71,7 @@ describe("the default: every tenant is ONLINE_ONLY (= the previous system)", () 
     await loginAsTestUser({ role: "OWNER" });
     const user = (await getCurrentUser())!;
     const visible = NAV_GROUPS.flatMap((g) => g.items)
-      .filter((i) => user.permissions.has(i.permission) && (!i.domain || hasDomainAccess(user.permissions, i.domain)))
+      .filter((i) => hasNavPermission(user.permissions, i.permission) && (!i.domain || hasDomainAccess(user.permissions, i.domain)))
       .map((i) => i.href);
     for (const gated of ["/ventes", "/receptions", "/fournisseurs", "/tracabilite"]) expect(visible).not.toContain(gated);
     for (const legacy of ["/tableau-de-bord", "/commandes", "/produits", "/stock", "/transferts", "/inventaires", "/entrepots", "/rapports", "/finance", "/utilisateurs", "/parametres"]) {
@@ -203,7 +203,7 @@ describe("ONLINE_AND_OFFLINE unlocks the same surfaces", () => {
       await expect(requirePermission(p)).resolves.toBeDefined();
     }
     const visible = NAV_GROUPS.flatMap((g) => g.items)
-      .filter((i) => user.permissions.has(i.permission) && (!i.domain || hasDomainAccess(user.permissions, i.domain)))
+      .filter((i) => hasNavPermission(user.permissions, i.permission) && (!i.domain || hasDomainAccess(user.permissions, i.domain)))
       .map((i) => i.href);
     for (const href of ["/ventes", "/receptions", "/fournisseurs", "/tracabilite"]) expect(visible).toContain(href);
 

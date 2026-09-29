@@ -28,6 +28,8 @@ export function InviteUserForm({ channelsEnabled = false }: { channelsEnabled?: 
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [role, setRole] = useState("CONFIRMATION");
+  const isGlobalRole = role === "OWNER" || role === "ADMIN";
   const [state, formAction, isPending] = useActionState<InviteResult | undefined, FormData>(
     async (_prevState, formData) => {
       const result = await inviteUserAction(formData);
@@ -109,7 +111,7 @@ export function InviteUserForm({ channelsEnabled = false }: { channelsEnabled?: 
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="role">Rôle</Label>
-                <Select name="role" defaultValue="CONFIRMATION">
+                <Select name="role" value={role} onValueChange={(v) => v && setRole(v)}>
                   <SelectTrigger id="role" className="w-full">
                     <SelectValue>{(value: string) => USER_ROLE_LABELS[value] ?? value}</SelectValue>
                   </SelectTrigger>
@@ -122,10 +124,35 @@ export function InviteUserForm({ channelsEnabled = false }: { channelsEnabled?: 
                   </SelectContent>
                 </Select>
               </div>
-              {channelsEnabled && (
+              {channelsEnabled && !isGlobalRole && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="channelScope">Portée métier</Label>
+                  <Select name="channelScope" defaultValue="ONLINE">
+                    <SelectTrigger id="channelScope" className="w-full">
+                      <SelectValue>
+                        {(value: string) =>
+                          value === "OFFLINE" ? "Magasin" : value === "BOTH" ? "En ligne + Magasin" : "En ligne"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ONLINE">En ligne</SelectItem>
+                      <SelectItem value="OFFLINE">Magasin</SelectItem>
+                      <SelectItem value="BOTH">En ligne + Magasin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Détermine les canaux auxquels ce compte aura accès dès sa création. Ajustable ensuite depuis la
+                    liste des utilisateurs.
+                  </p>
+                  {state && !state.ok && state.fieldErrors?.channelScope && (
+                    <p className="text-xs text-destructive">{state.fieldErrors.channelScope[0]}</p>
+                  )}
+                </div>
+              )}
+              {channelsEnabled && isGlobalRole && (
                 <p className="text-xs text-muted-foreground">
-                  Une fois le compte créé, il aura accès au canal En ligne par défaut. Ajustez les canaux, les
-                  emplacements et les permissions individuelles depuis la liste des utilisateurs.
+                  Ce rôle a accès à tous les canaux — aucune portée métier à choisir.
                 </p>
               )}
               {state && !state.ok && <p className="text-sm text-destructive">{state.error}</p>}

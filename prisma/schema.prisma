@@ -446,6 +446,22 @@ enum InvitationStatus {
   REVOKED
 }
 
+// The inviter's explicit choice of business scope (docs/adr/0039's
+// UserChannel dimension) for the account this invitation will become —
+// Phase 2 "invite-time business scope". Deliberately NOT a new scope
+// concept: it only records which CHANNEL KIND(S) to assign at accept time,
+// resolved through the existing SalesChannel/UserChannel model (see
+// acceptInvitationAction) exactly the way `role` is already stored here and
+// only turned into a real User.role at accept time. Null on a legacy
+// invitation (created before this field existed) or when the inviter left
+// it unset — acceptInvitationAction falls back to the pre-existing default-
+// ONLINE-channel behavior in that case, unchanged.
+enum InvitationChannelScope {
+  ONLINE
+  OFFLINE
+  BOTH
+}
+
 // One pending (or resolved) invite for a specific email to join a specific
 // tenant at a specific role. Creating a User row directly (a temporary
 // admin-chosen password) is gone — every user, in every tenant, including a
@@ -459,6 +475,9 @@ model Invitation {
   email      String
   name       String
   role       UserRole
+  // Null for OWNER/ADMIN (meaningless — they bypass UserChannel entirely)
+  // and for a legacy/unset invitation. See the enum's own doc comment.
+  channelScope InvitationChannelScope?
   tokenHash  String           @unique
   status     InvitationStatus @default(PENDING)
   expiresAt  DateTime

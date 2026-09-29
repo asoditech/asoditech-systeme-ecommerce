@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { USER_ROLE_LABELS } from "@/lib/status-labels";
 import type { UserRole, UserStatus, WarehouseType } from "@prisma/client";
+import type { BusinessMode } from "@/lib/tenant/business-mode";
 
 const ASSIGNABLE_ROLES = Object.entries(USER_ROLE_LABELS).filter(([value]) => value !== "OWNER");
 
@@ -24,6 +25,7 @@ export function UserRowControls({
   name,
   email,
   role,
+  businessMode,
   status,
   warehouses,
   assignedWarehouseIds,
@@ -34,6 +36,8 @@ export function UserRowControls({
   name: string;
   email: string;
   role: UserRole;
+  /** The tenant's business mode (docs/adr/0041) — fed to UserAccessDialog's "Accès effectif" summary. */
+  businessMode: BusinessMode;
   status: UserStatus;
   warehouses: { id: string; name: string; type: WarehouseType }[];
   assignedWarehouseIds: string[];
@@ -176,7 +180,7 @@ export function UserRowControls({
           assignedWarehouseIds={assignedWarehouseIds}
         />
       )}
-      {access && <UserAccessDialog userId={userId} name={name} {...access} />}
+      {access && <UserAccessDialog userId={userId} name={name} role={role} businessMode={businessMode} {...access} />}
       <Button
         type="button"
         variant="ghost"

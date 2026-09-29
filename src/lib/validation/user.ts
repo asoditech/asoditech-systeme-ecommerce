@@ -11,6 +11,12 @@ export const userRoleSchema = z.enum([
   "ACCOUNTANT",
 ]);
 
+// Phase 2 "invite-time business scope" (docs/adr/0039's UserChannel
+// dimension, chosen up front instead of only after the account exists).
+// Optional/omittable on purpose — see inviteUserAction for the exact
+// fallback when it's absent (unchanged legacy default-ONLINE behavior).
+export const invitationChannelScopeSchema = z.enum(["ONLINE", "OFFLINE", "BOTH"]);
+
 // Phase 5 (docs/adr/0027-tenant-provisioning.md): a user account is never
 // created directly with an admin-chosen password anymore — every one, in
 // every tenant, is provisioned by inviting an address and having the
@@ -20,6 +26,7 @@ export const inviteUserSchema = z.object({
   name: z.string().trim().min(2, "Le nom est requis.").max(200),
   email: z.email("Adresse e-mail invalide."),
   role: userRoleSchema,
+  channelScope: invitationChannelScopeSchema.optional(),
 });
 
 export const userStatusSchema = z.enum(["ACTIVE", "DISABLED"]);

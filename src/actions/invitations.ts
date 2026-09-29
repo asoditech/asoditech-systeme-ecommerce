@@ -19,6 +19,9 @@ import { inviteUserSchema } from "@/lib/validation/user";
 import { acceptInvitationSchema } from "@/lib/validation/auth";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
+import { isGlobalRole } from "@/lib/auth/effective-access";
+import type { InvitationChannelScope } from "@prisma/client";
+import type { PrismaTransactionClient } from "@/lib/prisma";
 
 // Phase 5 (docs/adr/0027-tenant-provisioning.md) — tenant-scoped user
 // provisioning by invitation, replacing the old "OWNER picks a temporary
@@ -38,16 +41,50 @@ const GENERIC_INVALID_INVITATION = "Cette invitation n'est plus valide.";
 export async function inviteUserAction(formData: FormData): Promise<ActionResult<IdResult & { inviteUrl: string }>> {
   const actor = await requirePermissionForAction("users.manage");
 
+  const rawChannelScope = formData.get("channelScope");
   const parsed = inviteUserSchema.safeParse({
     name: formData.get("name"),
     email: formData.get("email"),
     role: formData.get("role"),
+    // The form only ever sends a real value when the picker was shown —
+    // an empty string (nothing selected / picker hidden) means "no explicit
+    // choice", same as omitting the field entirely.
+    channelScope: typeof rawChannelScope === "string" && rawChannelScope.length > 0 ? rawChannelScope : undefined,
   });
   if (!parsed.success) {
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
   if (parsed.data.role === "OWNER" && actor.role !== "OWNER") {
     return actionError("Seul le propriétaire peut inviter un autre propriétaire.");
+  }
+
+  // Invite-time business scope (Phase 2): meaningless for a global role —
+  // OWNER/ADMIN bypass UserChannel entirely (docs/adr/0039) — so it is
+  // silently dropped for one rather than rejecting the whole invitation
+  // over a harmless mismatched field (the form itself hides the picker
+  // for OWNER/ADMIN; this is the server-side backstop for a direct call).
+  // For a non-global role, OFFLINE/BOTH requires the `storeChannels`
+  // capability (ADR 0041) — an ONLINE_ONLY tenant has no Offline channel
+  // to assign, so this is rejected explicitly rather than silently
+  // downgraded to ONLINE, matching this codebase's existing convention
+  // for an unavailable-capability request (see setUserPermissionOverridesAction).
+  let channelScope: InvitationChannelScope | null = null;
+  if (!isGlobalRole(parsed.data.role) && parsed.data.channelScope) {
+    if (
+      (parsed.data.channelScope === "OFFLINE" || parsed.data.channelScope === "BOTH") &&
+      !actor.capabilities.has("storeChannels")
+    ) {
+      return actionError("La portée Magasin n'est pas disponible dans le mode d'activité de votre espace.");
+    }
+    if ((parsed.data.channelScope === "OFFLINE" || parsed.data.channelScope === "BOTH") && actor.capabilities.has("storeChannels")) {
+      const hasOfflineChannel = await prisma.salesChannel.findFirst({ where: { kind: "OFFLINE", isActive: true }, select: { id: true } });
+      if (!hasOfflineChannel) {
+        return actionError(
+          "Aucun canal magasin actif n'existe pour ce tenant — créez-en un depuis Paramètres → Canaux de vente avant d'inviter un utilisateur avec la portée Magasin."
+        );
+      }
+    }
+    channelScope = parsed.data.channelScope;
   }
 
   // Early, informative check — not the authoritative enforcement point
@@ -85,6 +122,7 @@ export async function inviteUserAction(formData: FormData): Promise<ActionResult
         email: parsed.data.email,
         name: parsed.data.name,
         role: parsed.data.role,
+        channelScope,
         tokenHash,
         expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
         invitedById: actor.id,
@@ -105,7 +143,7 @@ export async function inviteUserAction(formData: FormData): Promise<ActionResult
     action: "invitation.created",
     entityType: "Invitation",
     entityId: invitation.id,
-    newValue: { email: invitation.email, role: invitation.role },
+    newValue: { email: invitation.email, role: invitation.role, channelScope: invitation.channelScope },
   });
 
   const inviteUrl = `/invitations/${rawToken}`;
@@ -137,6 +175,42 @@ export async function revokeInvitationAction(formData: FormData): Promise<Action
 
   revalidatePath("/utilisateurs");
   return actionOk(undefined);
+}
+
+/**
+ * The real `SalesChannel` id(s) an invitation's chosen `channelScope`
+ * resolves to, AT ACCEPT TIME (Phase 2). `null` (no explicit choice) keeps
+ * the exact pre-Phase-2 behavior: the tenant's default ONLINE channel only.
+ * OFFLINE resolves to every currently-active OFFLINE channel — there is no
+ * "default store channel" concept (only ONLINE has one, deliberately, per
+ * the SalesChannel.isDefault doc comment), and inventing one here would be
+ * exactly the "new model" this phase is told not to introduce. If none
+ * exists at accept time (one existed at invite time but was retired since,
+ * or `inviteUserAction`'s own check was raced), the user simply ends up
+ * with zero OFFLINE channels — the existing safe-default-deny philosophy
+ * (zero rows = zero access), never a fabricated one.
+ */
+async function resolveInvitationChannelIds(
+  tx: PrismaTransactionClient,
+  channelScope: InvitationChannelScope | null
+): Promise<string[]> {
+  if (!channelScope) {
+    const defaultChannel = await ensureDefaultOnlineChannel(tx);
+    return [defaultChannel.id];
+  }
+  const ids: string[] = [];
+  if (channelScope === "ONLINE" || channelScope === "BOTH") {
+    const online = await ensureDefaultOnlineChannel(tx);
+    ids.push(online.id);
+  }
+  if (channelScope === "OFFLINE" || channelScope === "BOTH") {
+    const offlineChannels = await tx.salesChannel.findMany({
+      where: { kind: "OFFLINE", isActive: true },
+      select: { id: true },
+    });
+    ids.push(...offlineChannels.map((c) => c.id));
+  }
+  return ids;
 }
 
 /**
@@ -202,14 +276,23 @@ export async function acceptInvitationAction(
           },
         });
 
-        // Channel scope (docs/adr/0039): a new non-OWNER/non-ADMIN user starts
-        // on the tenant's default ONLINE channel — today's behaviour (a new
-        // agent can work orders). An admin then widens/narrows it from the
-        // Utilisateurs page (e.g. adds a store channel, or removes Online for
-        // an Offline-only employee). OWNER/ADMIN need no row (global by role).
-        if (created.role !== "OWNER" && created.role !== "ADMIN") {
-          const defaultChannel = await ensureDefaultOnlineChannel(tx);
-          await tx.userChannel.create({ data: { userId: created.id, salesChannelId: defaultChannel.id } });
+        // Channel scope (docs/adr/0039, widened by Phase 2's invite-time
+        // scope): OWNER/ADMIN need no row (global by role — bypass
+        // UserChannel entirely). Everyone else gets exactly what the
+        // inviter chose (`invitation.channelScope`), resolved to real
+        // channel ids NOW rather than at invite time, so a channel
+        // created/retired in between is reflected correctly. No explicit
+        // choice (legacy invitation, or the inviter left it unset) falls
+        // back to the original pre-Phase-2 behavior unchanged: the
+        // tenant's default ONLINE channel only.
+        if (!isGlobalRole(created.role)) {
+          const channelIds = await resolveInvitationChannelIds(tx, invitation.channelScope);
+          if (channelIds.length > 0) {
+            await tx.userChannel.createMany({
+              data: channelIds.map((salesChannelId) => ({ userId: created.id, salesChannelId })),
+              skipDuplicates: true,
+            });
+          }
         }
 
         await tx.invitation.update({

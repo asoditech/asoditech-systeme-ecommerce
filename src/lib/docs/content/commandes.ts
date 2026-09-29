@@ -6,6 +6,33 @@ const STOCK_LIFECYCLE_UPDATE = "2026-09-15";
 
 export const commandesArticles: DocArticle[] = [
   {
+    slug: "commandes/demarrer-une-nouvelle-operation",
+    title: "Démarrer une nouvelle opération",
+    category: "commandes",
+    tagline:
+      "Le point de départ commun pour créer une opération : une commande à livrer, ou (si votre espace a la vente en magasin) une vente directe au comptoir.",
+    permission: "orders.create",
+    prerequisites: [],
+    steps: [
+      "Ouvrir Ventes → Nouvelle opération.",
+      "Si vous n'avez accès qu'à un seul type d'opération, vous êtes redirigé directement — aucun choix à faire.",
+      "Sinon, choisir « Commande en ligne » (à livrer) ou « Vente magasin » (paiement et sortie de stock immédiats).",
+    ],
+    whatYouShouldSee:
+      "Vous arrivez directement sur le formulaire de création correspondant — Nouvelle commande ou Nouvelle vente.",
+    body: [
+      {
+        type: "callout",
+        tone: "info",
+        text: "Cette page ne crée rien elle-même : elle route uniquement vers les deux formulaires existants, selon ce que votre rôle et vos canaux vous autorisent.",
+      },
+    ],
+    related: ["commandes/creer-une-commande", "magasin/ventes-magasin"],
+    tryNow: { label: "Nouvelle opération", href: "/operations/nouvelle" },
+    lastUpdated: LAST_UPDATED,
+    keywords: ["nouvelle opération", "nouvelle vente ou commande", "quel formulaire utiliser"],
+  },
+  {
     slug: "commandes/creer-une-commande",
     title: "Créer une commande",
     category: "commandes",
@@ -47,7 +74,7 @@ export const commandesArticles: DocArticle[] = [
         errorStrings: ["Chaque article doit référencer un produit."],
       },
     ],
-    related: ["commandes/comprendre-les-statuts", "commandes/commandes-provenant-de-woocommerce-shopify"],
+    related: ["commandes/demarrer-une-nouvelle-operation", "commandes/comprendre-les-statuts", "commandes/commandes-provenant-de-woocommerce-shopify"],
     tryNow: { label: "Créer une commande", href: "/commandes/nouvelle" },
     lastUpdated: LAST_UPDATED,
   },
