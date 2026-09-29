@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Wallet, PackageCheck, Scale } from "lucide-react";
+import { PackageCheck, Scale } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
+import { MetricWithProgress } from "@/components/metric-with-progress";
+import { ProductMetricRow } from "@/components/products/product-metric-row";
 import { StatusBadge } from "@/components/status-badge";
 import { SupplierForm } from "@/components/purchases/supplier-form";
 import { SupplierPaymentForm } from "@/components/purchases/supplier-payment-form";
@@ -62,9 +64,23 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
+        <div className="sm:col-span-2">
+          <MetricWithProgress
+            label="Solde dû au fournisseur"
+            value={formatCurrency(balance.balance.toString())}
+            hint={
+              receptions.length > 0
+                ? `${receptions.length} réception(s) · dernière le ${formatDate(receptions[0].receptionDate)}`
+                : "Aucune réception"
+            }
+            icon={Scale}
+            segments={[
+              { label: "Payé", value: Math.max(0, Number(balance.totalPaid)), className: "bg-emerald-500" },
+              { label: "Restant", value: Math.max(0, Number(balance.balance)), className: "bg-amber-500" },
+            ]}
+          />
+        </div>
         <KpiCard label="Total reçu (validé)" value={formatCurrency(balance.totalReceived.toString())} icon={PackageCheck} tone="info" />
-        <KpiCard label="Total payé" value={formatCurrency(balance.totalPaid.toString())} icon={Wallet} tone="success" />
-        <KpiCard label="Solde dû" value={formatCurrency(balance.balance.toString())} icon={Scale} tone={balance.balance.greaterThan(0) ? "danger" : "primary"} />
       </div>
 
       {canPay && <SupplierPaymentForm supplierId={supplier.id} />}
@@ -145,11 +161,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
                     <TableRow key={`${l.receptionId}-${i}`}>
                       <TableCell className="text-muted-foreground">{formatDate(l.date)}</TableCell>
                       <TableCell>
-                        <div className="font-medium">{l.productName}</div>
-                        <div className="font-mono text-xs text-muted-foreground">
-                          {l.sku}
-                          {l.variantLabel ? ` — ${l.variantLabel}` : ""}
-                        </div>
+                        <ProductMetricRow name={l.productName} sku={l.sku} variantLabel={l.variantLabel} />
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{l.quantity}</TableCell>
                       <TableCell className="text-right tabular-nums">{formatCurrency(String(l.unitCost))}</TableCell>

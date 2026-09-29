@@ -49,8 +49,8 @@ export function UsageMetricCard({
   const percent = limit !== null && limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : null;
 
   return (
-    <Card>
-      <CardContent className="flex flex-col gap-3 pt-5">
+    <Card size="sm">
+      <CardContent className="flex flex-col gap-2.5">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             {Icon && <Icon className="size-4 text-muted-foreground" />}
@@ -61,13 +61,13 @@ export function UsageMetricCard({
 
         {limit === null ? (
           <>
-            <p className="text-2xl font-semibold tracking-tight">{formatNumber(used)}</p>
+            <p className="text-xl font-semibold tracking-tight">{formatNumber(used)}</p>
             <p className="text-xs text-muted-foreground">Illimité sur votre forfait.</p>
           </>
         ) : (
           <>
-            <p className="text-2xl font-semibold tracking-tight">
-              {formatNumber(used)} <span className="text-base font-normal text-muted-foreground">/ {formatNumber(limit)}</span>
+            <p className="text-xl font-semibold tracking-tight">
+              {formatNumber(used)} <span className="text-sm font-normal text-muted-foreground">/ {formatNumber(limit)}</span>
             </p>
             <Progress value={percent ?? 0} indicatorClassName={PROGRESS_TONE[status]} />
             <p className="text-xs text-muted-foreground">

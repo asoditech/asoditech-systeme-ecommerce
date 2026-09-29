@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Compass } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { DocSearch } from "@/components/docs/doc-search";
 import { RoleStartCard } from "@/components/docs/role-start-card";
 import { requireUser } from "@/lib/auth/guards";
@@ -44,14 +44,16 @@ export default async function DocumentationHomePage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {categoriesFor(user.capabilities).map((cat) => (
             <Link key={cat.id} href={`/documentation/${cat.id}`}>
-              <Card className="h-full transition-colors hover:border-primary/40">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-[15px]">
-                    <cat.icon className="size-4 text-muted-foreground" />
-                    {cat.label}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="text-sm text-muted-foreground">{cat.description}</CardContent>
+              <Card size="sm" className="h-full gap-3 transition-colors hover:border-primary/40">
+                <CardContent className="flex items-start gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <cat.icon className="size-4.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-heading text-[15px] font-semibold">{cat.label}</p>
+                    <p className="mt-0.5 text-sm text-muted-foreground">{cat.description}</p>
+                  </div>
+                </CardContent>
               </Card>
             </Link>
           ))}

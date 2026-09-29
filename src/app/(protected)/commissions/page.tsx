@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { HandCoins } from "lucide-react";
+import { HandCoins, Wallet, Clock, PiggyBank } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
+import { KpiCard } from "@/components/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
@@ -35,24 +36,9 @@ export default async function CommissionsPage() {
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Déjà payé</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold">{formatCurrency(String(totalPaid), currency)}</CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">À clôturer</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold">{formatCurrency(String(totalUnsettled), currency)}</CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total à payer</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold">{formatCurrency(String(totalRemaining), currency)}</CardContent>
-        </Card>
+        <KpiCard label="Déjà payé" value={formatCurrency(String(totalPaid), currency)} icon={PiggyBank} tone="success" />
+        <KpiCard label="À clôturer" value={formatCurrency(String(totalUnsettled), currency)} icon={Clock} tone="warning" />
+        <KpiCard label="Total à payer" value={formatCurrency(String(totalRemaining), currency)} icon={Wallet} tone="primary" />
       </div>
 
       {canManage && (

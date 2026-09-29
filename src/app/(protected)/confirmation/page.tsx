@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { PhoneCall, RotateCcw, CheckCircle2, UserCheck } from "lucide-react";
+import { PhoneCall, RotateCcw, CheckCircle2, UserCheck, ClipboardCheck, Clock } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { KpiCard } from "@/components/kpi-card";
+import { MetricBreakdown } from "@/components/metric-breakdown";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ConfirmationQueue, type ConfirmationQueueOrder } from "@/components/orders/confirmation-queue";
 import { ConfirmedOrdersList, type ConfirmedOrderRow } from "@/components/orders/confirmed-orders-list";
@@ -237,31 +239,52 @@ async function MyConfirmationsTab({
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-lg border p-3">
-          <p className="text-xs text-muted-foreground">Commandes confirmées</p>
-          <p className="text-2xl font-semibold">{pipeline.total}</p>
-          <p className="text-xs text-muted-foreground">
-            {pipeline.delivered} livrées · {pipeline.confirmed} en cours · {pipeline.returned} retournées
-          </p>
-        </div>
-        <div className="rounded-lg border p-3">
-          <p className="text-xs text-muted-foreground">Commission potentielle</p>
-          <p className="text-2xl font-semibold">{potentialCommission !== null ? formatCurrency(potentialCommission, currency) : "—"}</p>
-          <p className="text-xs text-muted-foreground">Commandes confirmées, en attente de livraison</p>
-        </div>
-        <div className="rounded-lg border p-3">
-          <p className="text-xs text-muted-foreground">Commission acquise</p>
-          <p className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400">
-            {formatCurrency(breakdown.earnedAmount, currency)}
-          </p>
-          <p className="text-xs text-muted-foreground">{breakdown.reversedCount > 0 ? `${formatCurrency(breakdown.reversedAmount, currency)} reversée(s)` : "Aucune reprise"}</p>
-        </div>
-        <div className="rounded-lg border p-3">
-          <p className="text-xs text-muted-foreground">Net</p>
-          <p className="text-2xl font-semibold">{formatCurrency(breakdown.netAmount, currency)}</p>
-          <p className="text-xs text-muted-foreground">Acquise − reversée, hors potentielle</p>
-        </div>
+      {/* Hierarchy (Phase 2 UI refinement): the result the agent cares about
+          most — net commission — leads, as a hero figure; the pipeline
+          that explains WHERE that number comes from is the supporting
+          panel next to it; the order table is the detail underneath. */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-1">
+          <CardContent className="flex h-full flex-col items-center justify-center gap-1 py-6 text-center">
+            <p className="text-xs font-medium text-muted-foreground">Commission acquise (net)</p>
+            <p className="text-3xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">
+              {formatCurrency(breakdown.netAmount, currency)}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {breakdown.reversedCount > 0
+                ? `dont ${formatCurrency(breakdown.reversedAmount, currency)} reversée(s)`
+                : "Aucune reprise"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-[15px]">Pipeline de confirmation</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <MetricBreakdown
+              className="px-6"
+              rows={[
+                {
+                  key: "total",
+                  label: "Commandes confirmées",
+                  value: String(pipeline.total),
+                  meta: `${pipeline.delivered} livrées · ${pipeline.confirmed} en cours · ${pipeline.returned} retournées`,
+                  icon: ClipboardCheck,
+                  tone: "default",
+                },
+                {
+                  key: "potential",
+                  label: "Commission potentielle",
+                  value: potentialCommission !== null ? formatCurrency(potentialCommission, currency) : "—",
+                  meta: "Confirmées, en attente de livraison",
+                  icon: Clock,
+                  tone: "warning",
+                },
+              ]}
+            />
+          </CardContent>
+        </Card>
       </div>
 
       {rows.length === 0 ? (

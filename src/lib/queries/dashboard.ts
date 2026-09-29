@@ -28,9 +28,9 @@ export function isDashboardPeriod(value: string | undefined): value is Dashboard
   return value != null && value in DASHBOARD_PERIOD_LABELS;
 }
 
-// An order that has sat NOUVELLE/CONFIRMEE for longer than this is treated
-// as history (e.g. a fulfilled store order imported from WooCommerce), not
-// something still waiting on the operator.
+// An order that has sat NOUVELLE for longer than this is treated as history
+// (e.g. a fulfilled store order imported from WooCommerce), not something
+// still waiting on the operator.
 const ACTION_WINDOW_DAYS = 21;
 
 export async function getDashboardData(
@@ -61,7 +61,6 @@ export async function getDashboardData(
     recentOrders,
     newCustomersThisPeriod,
     recentAuditEvents,
-    failedShipments,
   ] = await Promise.all([
     getFinanceSummary(period, source),
     getFinanceSummary(previousPeriod, source),
@@ -69,7 +68,11 @@ export async function getDashboardData(
     getDeliveryStats(),
     prisma.order.findMany({
       where: {
-        status: { in: ["NOUVELLE", "CONFIRMEE"] },
+        // UI refinement pass (2026-09): NOUVELLE only — "needs initial
+        // action" means nobody has acted on it yet. A CONFIRMEE order has
+        // already been acted on (it moved past NOUVELLE); it belongs to
+        // the confirmation/delivery pipeline, not this list.
+        status: "NOUVELLE",
         placedAt: { gte: actionCutoff },
         ...(source ? { source } : {}),
       },
@@ -96,12 +99,6 @@ export async function getDashboardData(
       take: 8,
       include: { actorUser: { select: { name: true } } },
     }),
-    prisma.shipment.findMany({
-      where: { status: "ECHEC" },
-      orderBy: { updatedAt: "desc" },
-      take: 5,
-      include: { order: { include: { customer: { select: { fullName: true } } } } },
-    }),
   ]);
 
   return {
@@ -120,7 +117,6 @@ export async function getDashboardData(
     recentOrders,
     newCustomersThisPeriod,
     recentAuditEvents,
-    failedShipments,
   };
 }
 

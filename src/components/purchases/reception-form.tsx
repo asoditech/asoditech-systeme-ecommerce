@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
+import { ProductMetricRow } from "@/components/products/product-metric-row";
 import { formatCurrency, formatDate } from "@/lib/format";
 
 const selectClass = "h-9 w-full rounded-md border border-input bg-background px-3 text-sm";
@@ -353,8 +354,7 @@ export function ReceptionForm({
                 {lines.map((l) => (
                   <TableRow key={l.key}>
                     <TableCell>
-                      <div className="font-medium">{l.label}</div>
-                      <div className="font-mono text-xs text-muted-foreground">{l.sku}</div>
+                      <ProductMetricRow name={l.label} sku={l.sku} />
                     </TableCell>
                     <TableCell>
                       <Input type="number" min={1} value={l.quantity} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, quantity: Math.max(1, Number(e.target.value) || 1) } : x)))} />

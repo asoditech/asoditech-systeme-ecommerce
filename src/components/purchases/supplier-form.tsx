@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormSection, FormSectionGroup } from "@/components/form-section";
 
 export interface SupplierValues {
   id: string;
@@ -63,38 +64,56 @@ export function SupplierForm({ supplier }: { supplier?: SupplierValues }) {
           <DialogHeader>
             <DialogTitle>{supplier ? "Modifier le fournisseur" : "Nouveau fournisseur"}</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="sup-name">Nom / société</Label>
-              <Input id="sup-name" value={v.name} onChange={set("name")} autoFocus />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="sup-phone">Téléphone</Label>
-              <Input id="sup-phone" value={v.phone} onChange={set("phone")} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="sup-email">E-mail</Label>
-              <Input id="sup-email" type="email" value={v.email} onChange={set("email")} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="sup-city">Ville</Label>
-              <Input id="sup-city" value={v.city} onChange={set("city")} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="sup-address">Adresse</Label>
-              <Input id="sup-address" value={v.address} onChange={set("address")} />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="sup-notes">Notes</Label>
-              <Input id="sup-notes" value={v.notes} onChange={set("notes")} />
-            </div>
+          <FormSectionGroup>
+            <FormSection title="Identité">
+              <div className="space-y-1.5">
+                <Label htmlFor="sup-name">Nom / société</Label>
+                <Input id="sup-name" value={v.name} onChange={set("name")} autoFocus />
+              </div>
+            </FormSection>
+
+            <FormSection title="Contact" description="Optionnel — utile pour les relances et confirmations.">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="sup-phone">Téléphone</Label>
+                  <Input id="sup-phone" value={v.phone} onChange={set("phone")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sup-email">E-mail</Label>
+                  <Input id="sup-email" type="email" value={v.email} onChange={set("email")} />
+                </div>
+              </div>
+            </FormSection>
+
+            <FormSection title="Adresse">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="sup-city">Ville</Label>
+                  <Input id="sup-city" value={v.city} onChange={set("city")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sup-address">Adresse</Label>
+                  <Input id="sup-address" value={v.address} onChange={set("address")} />
+                </div>
+              </div>
+            </FormSection>
+
+            <FormSection title="Notes">
+              <div className="space-y-1.5">
+                <Label htmlFor="sup-notes">Notes</Label>
+                <Input id="sup-notes" value={v.notes} onChange={set("notes")} />
+              </div>
+            </FormSection>
+
             {supplier && (
-              <label className="flex items-center gap-2 text-sm sm:col-span-2">
-                <Switch checked={v.isActive} onCheckedChange={(c) => setV((p) => ({ ...p, isActive: c }))} />
-                Fournisseur actif
-              </label>
+              <FormSection title="Statut">
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={v.isActive} onCheckedChange={(c) => setV((p) => ({ ...p, isActive: c }))} />
+                  Fournisseur actif
+                </label>
+              </FormSection>
             )}
-          </div>
+          </FormSectionGroup>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={isPending}>
               Annuler

@@ -5,9 +5,10 @@ import { cn } from "@/lib/utils"
 
 /**
  * ASODITECH text input — see docs/adr/0014-ui-design-system.md.
- * 40px tall, rounded-lg, calm 1px border that warms on hover and lifts to
- * the orange focus ring; a distinct (not just dimmed) disabled state; a
- * red border + ring for `aria-invalid`.
+ * 36px tall (UI density pass, 2026-09 — was 40px, taller than the default
+ * Button next to it), rounded-lg, calm 1px border that warms on hover and
+ * lifts to the orange focus ring; a distinct (not just dimmed) disabled
+ * state; a red border + ring for `aria-invalid`.
  */
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
@@ -15,7 +16,7 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
       type={type}
       data-slot="input"
       className={cn(
-        "h-10 w-full min-w-0 rounded-lg border border-input bg-background px-3 py-1 text-base shadow-xs transition-[color,box-shadow,border-color] outline-none",
+        "h-9 w-full min-w-0 rounded-lg border border-input bg-background px-3 py-1 text-base shadow-xs transition-[color,box-shadow,border-color] outline-none",
         "file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground",
         "placeholder:text-muted-foreground/70",
         "hover:border-ring/45",

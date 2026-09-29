@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { DocSidebar } from "@/components/docs/doc-sidebar";
+import { DocMobileNav } from "@/components/docs/doc-mobile-nav";
 import { ArticleView } from "@/components/docs/article-view";
 import { requireUser } from "@/lib/auth/guards";
 import { getArticleBySlug, ALL_ARTICLES } from "@/lib/docs/registry";
@@ -27,7 +28,14 @@ export default async function DocArticlePage({ params }: { params: Promise<{ cat
       <aside className="hidden lg:block">
         <DocSidebar activeCategory={category as DocCategoryId} activeSlug={slug} capabilities={user.capabilities} />
       </aside>
-      <ArticleView article={article} viewer={user} />
+      <div className="min-w-0">
+        <div className="mb-3 lg:hidden">
+          <DocMobileNav>
+            <DocSidebar activeCategory={category as DocCategoryId} activeSlug={slug} capabilities={user.capabilities} />
+          </DocMobileNav>
+        </div>
+        <ArticleView article={article} viewer={user} />
+      </div>
     </div>
   );
 }

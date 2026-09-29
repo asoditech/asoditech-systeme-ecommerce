@@ -39,23 +39,23 @@ export function KpiCard({
 }) {
   const colors = TONES[tone];
   return (
-    <Card className="relative overflow-hidden">
+    <Card size="sm" className="relative overflow-hidden">
       <span className={cn("absolute inset-x-0 top-0 h-0.5", colors.bar)} aria-hidden="true" />
-      <CardContent className="flex items-start justify-between gap-3 pt-5">
-        <div className="flex min-w-0 flex-col gap-1">
-          <p className="truncate text-sm text-muted-foreground">{label}</p>
+      <CardContent className="flex items-start justify-between gap-2.5">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
           {value === null ? (
             <>
-              <p className="line-clamp-2 text-base font-medium text-muted-foreground sm:text-lg">
+              <p className="line-clamp-2 text-sm font-medium text-muted-foreground">
                 {unavailableReason ?? "Données indisponibles"}
               </p>
-              {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+              {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
             </>
           ) : (
             <>
-              <p className="truncate text-2xl font-semibold tracking-tight">{value}</p>
+              <p className="truncate text-xl font-semibold tracking-tight">{value}</p>
               {(hint || trend) && (
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                   {trend && (
                     <span
                       className={cn(
@@ -67,15 +67,15 @@ export function KpiCard({
                       {trend.label}
                     </span>
                   )}
-                  {hint && <span>{hint}</span>}
+                  {hint && <span className="truncate">{hint}</span>}
                 </div>
               )}
             </>
           )}
         </div>
         {Icon && (
-          <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-lg", colors.badge)}>
-            <Icon className="size-5" />
+          <div className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg", colors.badge)}>
+            <Icon className="size-4" />
           </div>
         )}
       </CardContent>

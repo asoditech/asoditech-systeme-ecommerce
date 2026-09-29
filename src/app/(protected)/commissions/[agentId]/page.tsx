@@ -3,6 +3,9 @@ import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
+import { KpiCard } from "@/components/kpi-card";
+import { MetricBreakdown } from "@/components/metric-breakdown";
+import { MetricWithProgress } from "@/components/metric-with-progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ConfirmActionButton } from "@/components/confirm-action-button";
@@ -14,7 +17,7 @@ import { formatCurrency, formatDate, formatDateTime, displayOrderNumber } from "
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
 import { AgentRateForm } from "@/components/commissions/agent-rate-form";
-import { FileText } from "lucide-react";
+import { FileText, Clock, Scale, PhoneCall, CheckCircle2, RotateCcw, HandCoins } from "lucide-react";
 
 export const metadata = { title: "Agent — Commissions — ASODITECH" };
 
@@ -56,70 +59,76 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
       />
 
       <Card className="mb-6">
-        <CardHeader><CardTitle className="text-[15px]">Performance confirmation</CardTitle></CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <p className="text-xs text-muted-foreground">Confirmées</p>
-              <p className="text-xl font-semibold">{confirmedTotal}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Livrées</p>
-              <p className="text-xl font-semibold">{pipeline.delivered}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Conversion</p>
-              <p className="text-xl font-semibold">{conversion !== null ? `${Math.round(conversion * 100)}%` : "—"}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Retournées</p>
-              <p className="text-xl font-semibold">{pipeline.returned}</p>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-4 border-t pt-4 sm:grid-cols-3">
-            <div>
-              <p className="text-xs text-muted-foreground">Commission acquise</p>
-              <p className="text-lg font-semibold">{formatCurrency(String(breakdown.earnedAmount), agent.currency)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Commission reversée</p>
-              <p className="text-lg font-semibold text-destructive">
-                {breakdown.reversedCount > 0 ? formatCurrency(String(Math.abs(breakdown.reversedAmount)), agent.currency) : "—"}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Net</p>
-              <p className="text-lg font-semibold">{formatCurrency(String(breakdown.netAmount), agent.currency)}</p>
-            </div>
-          </div>
-          <p className="mt-3 text-xs text-muted-foreground">
-            En cours (confirmée, non livrée ni retournée) : {pipeline.confirmed}
-          </p>
+        <CardHeader>
+          <CardTitle className="text-[15px]">Performance confirmation</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <MetricBreakdown
+            className="px-6"
+            rows={[
+              { key: "confirmed", label: "Confirmées", value: String(confirmedTotal), icon: PhoneCall, tone: "default" },
+              {
+                key: "delivered",
+                label: "Livrées",
+                value: String(pipeline.delivered),
+                meta: `En cours : ${pipeline.confirmed}`,
+                icon: CheckCircle2,
+                tone: "success",
+              },
+              {
+                key: "conversion",
+                label: "Taux de conversion",
+                value: conversion !== null ? `${Math.round(conversion * 100)}%` : "—",
+                icon: Scale,
+                tone: "default",
+              },
+              {
+                key: "returned",
+                label: "Retournées",
+                value: String(pipeline.returned),
+                icon: RotateCcw,
+                tone: pipeline.returned > 0 ? "danger" : "default",
+              },
+              {
+                key: "earned",
+                label: "Commission acquise",
+                value: formatCurrency(String(breakdown.earnedAmount), agent.currency),
+                icon: HandCoins,
+                tone: "success",
+              },
+              {
+                key: "reversed",
+                label: "Commission reversée",
+                value: breakdown.reversedCount > 0 ? formatCurrency(String(Math.abs(breakdown.reversedAmount)), agent.currency) : "—",
+                meta: breakdown.reversedCount > 0 ? `${breakdown.reversedCount} commande(s) reprise(s)` : undefined,
+                icon: RotateCcw,
+                tone: breakdown.reversedCount > 0 ? "danger" : "default",
+              },
+            ]}
+          />
         </CardContent>
       </Card>
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Commissions gagnées (net)</CardTitle></CardHeader>
-          <CardContent className="text-xl font-semibold">{formatCurrency(String(totals.lifetimeNet), agent.currency)}</CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Payé</CardTitle></CardHeader>
-          <CardContent className="text-xl font-semibold">{formatCurrency(String(totals.paidTotal), agent.currency)}</CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Restant à payer</CardTitle></CardHeader>
-          <CardContent className="text-xl font-semibold">{formatCurrency(String(totals.remaining), agent.currency)}</CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Non clôturé</CardTitle></CardHeader>
-          <CardContent className="text-xl font-semibold">
-            {formatCurrency(String(totals.unsettledNet), agent.currency)}
-            <span className="block text-xs font-normal text-muted-foreground">
-              {totals.unsettledEarnedCount} livrée(s){totals.unsettledReversedCount > 0 ? `, ${totals.unsettledReversedCount} reprise(s)` : ""}
-            </span>
-          </CardContent>
-        </Card>
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        <div className="sm:col-span-2">
+          <MetricWithProgress
+            label="Commissions gagnées (net, à vie)"
+            value={formatCurrency(String(totals.lifetimeNet), agent.currency)}
+            hint="Payé vs restant à payer, toutes périodes confondues"
+            icon={Scale}
+            segments={[
+              { label: "Payé", value: Math.max(0, Number(totals.paidTotal)), className: "bg-emerald-500" },
+              { label: "Restant", value: Math.max(0, Number(totals.remaining)), className: "bg-amber-500" },
+            ]}
+          />
+        </div>
+        <KpiCard
+          label="Non clôturé"
+          value={formatCurrency(String(totals.unsettledNet), agent.currency)}
+          hint={`${totals.unsettledEarnedCount} livrée(s)${totals.unsettledReversedCount > 0 ? `, ${totals.unsettledReversedCount} reprise(s)` : ""}`}
+          icon={Clock}
+          tone="warning"
+        />
       </div>
 
       {canManage && (

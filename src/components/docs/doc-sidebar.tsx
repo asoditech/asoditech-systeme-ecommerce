@@ -21,7 +21,7 @@ export function DocSidebar({
   capabilities: ReadonlySet<TenantCapability>;
 }) {
   return (
-    <nav className="flex flex-col gap-4">
+    <nav className="flex flex-col gap-0.5">
       {categoriesFor(capabilities).map((cat) => {
         const isActiveCategory = cat.id === activeCategory;
         const articles = isActiveCategory ? getArticlesByCategory(cat.id) : [];
@@ -29,15 +29,16 @@ export function DocSidebar({
           <div key={cat.id}>
             <Link
               href={`/documentation/${cat.id}`}
-              className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium ${
+              className={`relative flex items-center gap-2 rounded-md py-1.5 pr-2.5 pl-3.5 text-sm font-medium transition-colors ${
                 isActiveCategory ? "bg-primary/10 text-primary" : "text-foreground/80 hover:bg-muted"
               }`}
             >
+              {isActiveCategory && <span className="absolute inset-y-1 left-0 w-[3px] rounded-full bg-primary" />}
               <cat.icon className="size-4 shrink-0" />
-              {cat.label}
+              <span className="truncate">{cat.label}</span>
             </Link>
             {isActiveCategory && articles.length > 0 && (
-              <ul className="mt-1 ml-4 space-y-0.5 border-l pl-3">
+              <ul className="mt-1 mb-2 ml-4 space-y-0.5 border-l pl-3">
                 {articles.map((a) => {
                   const tail = a.slug.slice(a.category.length + 1);
                   const isActive = tail === activeSlug;

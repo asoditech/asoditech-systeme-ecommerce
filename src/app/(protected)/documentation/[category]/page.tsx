@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { DocSidebar } from "@/components/docs/doc-sidebar";
+import { DocMobileNav } from "@/components/docs/doc-mobile-nav";
 import { requireUser } from "@/lib/auth/guards";
 import { DOC_CATEGORIES, getCategory, isCategoryAvailable } from "@/lib/docs/categories";
 import { getArticlesByCategory, articleHref } from "@/lib/docs/registry";
@@ -27,6 +28,11 @@ export default async function DocCategoryPage({ params }: { params: Promise<{ ca
         <DocSidebar activeCategory={cat.id} capabilities={user.capabilities} />
       </aside>
       <div className="min-w-0">
+        <div className="mb-3 lg:hidden">
+          <DocMobileNav>
+            <DocSidebar activeCategory={cat.id} capabilities={user.capabilities} />
+          </DocMobileNav>
+        </div>
         <PageHeader
           title={cat.label}
           description={cat.description}
