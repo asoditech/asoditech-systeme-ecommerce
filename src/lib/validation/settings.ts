@@ -51,3 +51,14 @@ export const updateBusinessSettingsSchema = z.object({
 });
 
 export type UpdateBusinessSettingsInput = z.infer<typeof updateBusinessSettingsSchema>;
+
+// Product costing (Phase 3 — Product Costing & Profitability input). Kept as
+// its own small schema/action, deliberately separate from
+// updateBusinessSettingsSchema above — narrow, independently submittable,
+// same precedent as updateProductOperationalSettingsSchema (docs/adr/0017).
+export const costingMethodSchema = z.enum(["MANUAL", "LAST_COST", "WEIGHTED_AVERAGE"]);
+
+export const updateCostingMethodSchema = z.object({
+  costingMethod: costingMethodSchema,
+});
+export type UpdateCostingMethodInput = z.infer<typeof updateCostingMethodSchema>;

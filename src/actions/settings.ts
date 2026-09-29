@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
-import { updateBusinessSettingsSchema } from "@/lib/validation/settings";
+import { updateBusinessSettingsSchema, updateCostingMethodSchema } from "@/lib/validation/settings";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import type { BusinessSettings } from "@prisma/client";
 
@@ -78,6 +78,48 @@ export async function updateBusinessSettingsAction(formData: FormData): Promise<
     entityType: "BusinessSettings",
     entityId: settings.id,
     newValue: { companyName: settings.companyName },
+  });
+
+  revalidatePath("/parametres");
+  return actionOk(settings);
+}
+
+/**
+ * Product costing (Phase 3 — Product Costing & Profitability input). Narrow,
+ * independently-submittable action — same `settings.manage` gate and the
+ * same tenant-scoped upsert-by-`tenantId` pattern as
+ * `updateBusinessSettingsAction` above, kept separate so this one control
+ * can be saved without resubmitting the whole company-info form (docs/adr/0017
+ * precedent: a small, focused action for a narrow field set).
+ *
+ * This ONLY changes which method future VALIDATED receptions use to update
+ * a product/variation's CURRENT cost (src/lib/receptions.ts). It never
+ * touches existing Product.cost/ProductVariation.cost values, never
+ * recalculates history, and never touches costSnapshot anywhere.
+ */
+export async function updateCostingMethodAction(formData: FormData): Promise<ActionResult<BusinessSettings>> {
+  const user = await requirePermissionForAction("settings.manage");
+
+  const parsed = updateCostingMethodSchema.safeParse({
+    costingMethod: formData.get("costingMethod"),
+  });
+  if (!parsed.success) {
+    return actionError("Méthode de calcul du coût invalide.", parsed.error.flatten().fieldErrors);
+  }
+
+  const settings = await prisma.businessSettings.upsert({
+    where: { tenantId: user.tenantId },
+    update: { costingMethod: parsed.data.costingMethod },
+    create: { costingMethod: parsed.data.costingMethod },
+  });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "settings.updated",
+    entityType: "BusinessSettings",
+    entityId: settings.id,
+    newValue: { costingMethod: settings.costingMethod },
   });
 
   revalidatePath("/parametres");

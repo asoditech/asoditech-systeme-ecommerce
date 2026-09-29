@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
 import { applyStockMovement, ensureInventoryItem } from "@/lib/inventory";
 import { displayReceptionNumber } from "@/lib/format";
+import { computeUpdatedCost } from "@/lib/catalog/costing";
 
 /**
  * Reception domain service — docs/adr/0040-offline-sales-and-receptions.md.
@@ -58,6 +59,12 @@ export async function validateReceptionInTx(
   });
   if (claimed.count === 0) return { validated: false, alreadyValidated: true };
 
+  // Product costing (Phase 3): read the tenant's chosen method ONCE, not
+  // per line. No row yet (a tenant that has never opened /parametres) is
+  // the same as MANUAL — the column's own DB default, never guessed.
+  const settings = await tx.businessSettings.findFirst({ select: { costingMethod: true } });
+  const costingMethod = settings?.costingMethod ?? "MANUAL";
+
   let total = d2(0);
   const label = displayReceptionNumber(reception);
   for (const line of reception.lines) {
@@ -88,6 +95,35 @@ export async function validateReceptionInTx(
       throw new ReceptionError(`Impossible d'enregistrer le stock de « ${line.nameSnapshot} ».`);
     }
     total = total.plus(d2(line.unitCost).times(line.quantity));
+
+    // Product costing (Phase 3): updates the CURRENT STANDARD cost only —
+    // never costSnapshot, never a second stock movement, never the
+    // quantities just applied above. MANUAL issues no write at all (the
+    // pre-existing, unchanged behavior for every tenant that hasn't opted
+    // in). Exactly the entity whose inventory was received: a variation
+    // line updates ONLY ProductVariation.cost, never the parent Product's.
+    if (costingMethod !== "MANUAL") {
+      // result.item.quantityOnHand is the POST-update on-hand for this
+      // exact line's InventoryItem row; this RECEPTION movement's own
+      // onHandDelta was `+line.quantity`, so subtracting it back out gives
+      // the on-hand BEFORE this line — no second query needed.
+      const existingOnHand = result.item.quantityOnHand - line.quantity;
+      const existingCost = line.variationId
+        ? (await tx.productVariation.findUniqueOrThrow({ where: { id: line.variationId }, select: { cost: true } })).cost
+        : (await tx.product.findUniqueOrThrow({ where: { id: line.productId! }, select: { cost: true } })).cost;
+      const newCost = computeUpdatedCost({
+        method: costingMethod,
+        existingOnHand,
+        existingCost,
+        receivedQty: line.quantity,
+        receivedUnitCost: d2(line.unitCost),
+      });
+      if (line.variationId) {
+        await tx.productVariation.update({ where: { id: line.variationId }, data: { cost: newCost } });
+      } else {
+        await tx.product.update({ where: { id: line.productId! }, data: { cost: newCost } });
+      }
+    }
   }
 
   await tx.reception.update({ where: { id: reception.id }, data: { totalCost: total } });

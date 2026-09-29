@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/page-header";
 import { BusinessSettingsForm } from "@/components/settings/business-settings-form";
+import { CostingMethodForm } from "@/components/settings/costing-method-form";
 import { SettingsNav } from "@/components/settings/settings-nav";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -24,7 +25,10 @@ export default async function ParametresPage() {
       <div className="max-w-3xl">
         <SettingsNav canManage={canManage} canManageChannels={userHasPermission(user, "channels.manage")} />
         {canManage ? (
-          <BusinessSettingsForm settings={settings} />
+          <div className="space-y-5">
+            <BusinessSettingsForm settings={settings} />
+            <CostingMethodForm settings={settings} />
+          </div>
         ) : (
           <p className="text-sm text-muted-foreground">Vous n&apos;avez pas la permission de modifier les paramètres.</p>
         )}

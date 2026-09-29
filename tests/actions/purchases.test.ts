@@ -11,10 +11,10 @@ import {
   getLatestPurchasePriceAction,
   getUnitPurchaseHistoryAction,
 } from "@/actions/purchases";
-import { getSupplierBalance, getReceptionRemaining } from "@/lib/receptions";
+import { getSupplierBalance, getReceptionRemaining, validateReceptionInTx } from "@/lib/receptions";
 import { getReceptionDetail, listSuppliers, getSupplierPurchaseHistory } from "@/lib/queries/purchases";
 import { variantLabel } from "@/lib/catalog/lookup";
-import { resetDb, setTestBusinessMode } from "../helpers/db";
+import { DEFAULT_TENANT_ID, resetDb, setTestBusinessMode } from "../helpers/db";
 import { loginAsTestUser, createTestUser, grantLocationAccess } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 
@@ -704,5 +704,207 @@ describe("getUnitPurchaseHistoryAction", () => {
     await loginAsTestUser({ role: "SUPPORT" });
     const { product } = await seed();
     await expect(getUnitPurchaseHistoryAction({ productId: product.id })).rejects.toThrow(/non autorisé/i);
+  });
+});
+
+// Product costing (Phase 3 — Product Costing & Profitability input).
+// validateReceptionInTx is the ONLY writer of Product.cost/ProductVariation.cost
+// under this feature — see src/lib/receptions.ts and src/lib/catalog/costing.ts.
+// Never touches costSnapshot, InventoryMovement.unitCost, or quantities.
+import type { CostingMethod } from "@prisma/client";
+import { runWithTenant } from "@/lib/tenant/context";
+
+async function setCostingMethod(method: CostingMethod, tenantId: string = DEFAULT_TENANT_ID) {
+  // runWithTenant (not the ambient session-scoped `prisma`): this helper is
+  // also used to set up a SECOND tenant's settings before that tenant's own
+  // session even exists — the tenant-isolation extension otherwise refuses
+  // an upsert aimed at a tenant other than the current session's.
+  await runWithTenant(tenantId, "test", () =>
+    prisma.businessSettings.upsert({
+      where: { tenantId },
+      update: { costingMethod: method },
+      create: { tenantId, costingMethod: method },
+    })
+  );
+}
+
+describe("Product costing from validated receptions (Phase 3)", () => {
+  it("default behavior (no BusinessSettings row at all) is MANUAL — Product.cost is never touched", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { warehouse, product, supplier } = await seed();
+    await prisma.product.update({ where: { id: product.id }, data: { cost: 50 } });
+    // No setCostingMethod call — this tenant has never opened /parametres.
+    const id = await draft(supplier.id, warehouse.id, [line(product.id, 10, 999)]);
+    await validateReceptionAction({ id });
+    expect(Number((await prisma.product.findUniqueOrThrow({ where: { id: product.id } })).cost)).toBe(50);
+  });
+
+  it("MANUAL: a reception does NOT update Product.cost, even when explicitly selected", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    await setCostingMethod("MANUAL");
+    const { warehouse, product, supplier } = await seed();
+    await prisma.product.update({ where: { id: product.id }, data: { cost: 50 } });
+    const id = await draft(supplier.id, warehouse.id, [line(product.id, 10, 999)]);
+    const result = await validateReceptionAction({ id });
+    expect(result.ok).toBe(true);
+    expect(Number((await prisma.product.findUniqueOrThrow({ where: { id: product.id } })).cost)).toBe(50);
+  });
+
+  it("LAST_COST: a reception updates Product.cost to the received unit cost", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    await setCostingMethod("LAST_COST");
+    const { warehouse, product, supplier } = await seed();
+    await prisma.product.update({ where: { id: product.id }, data: { cost: 50 } });
+    const id = await draft(supplier.id, warehouse.id, [line(product.id, 10, 77.5)]);
+    const result = await validateReceptionAction({ id });
+    expect(result.ok).toBe(true);
+    expect(Number((await prisma.product.findUniqueOrThrow({ where: { id: product.id } })).cost)).toBe(77.5);
+  });
+
+  it("LAST_COST: a SECOND reception replaces the cost again with the new unit cost", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    await setCostingMethod("LAST_COST");
+    const { warehouse, product, supplier } = await seed();
+
+    const first = await draft(supplier.id, warehouse.id, [line(product.id, 5, 60)]);
+    await validateReceptionAction({ id: first });
+    expect(Number((await prisma.product.findUniqueOrThrow({ where: { id: product.id } })).cost)).toBe(60);
+
+    const second = await draft(supplier.id, warehouse.id, [line(product.id, 5, 90)]);
+    await validateReceptionAction({ id: second });
+    expect(Number((await prisma.product.findUniqueOrThrow({ where: { id: product.id } })).cost)).toBe(90);
+  });
+
+  it("LAST_COST: a variation reception updates ProductVariation.cost, never the parent Product.cost", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    await setCostingMethod("LAST_COST");
+    const { warehouse, supplier } = await seed();
+    const parent = await prisma.product.create({ data: { name: "Adidas SKOUBA", sku: "SKOUBA-VAR", price: 500, status: "ACTIF", cost: 111 } });
+    const v = await prisma.productVariation.create({ data: { productId: parent.id, sku: "SKOUBA-VAR-42", attributes: { Taille: "42" }, cost: 40 } });
+
+    const id = await draft(supplier.id, warehouse.id, [{ variationId: v.id, quantity: 3, unitCost: 65 }]);
+    const result = await validateReceptionAction({ id });
+    expect(result.ok).toBe(true);
+
+    expect(Number((await prisma.productVariation.findUniqueOrThrow({ where: { id: v.id } })).cost)).toBe(65);
+    // The parent Product.cost is a DIFFERENT commercial entity — untouched.
+    expect(Number((await prisma.product.findUniqueOrThrow({ where: { id: parent.id } })).cost)).toBe(111);
+  });
+
+  it("WEIGHTED_AVERAGE: blends existing on-hand stock and cost with the newly received quantity/cost", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    await setCostingMethod("WEIGHTED_AVERAGE");
+    const { warehouse, product, item, supplier } = await seed();
+    // seed() leaves 5 units on hand — give the product a known existing cost.
+    await prisma.product.update({ where: { id: product.id }, data: { cost: 100 } });
+    expect(item.quantityOnHand).toBe(5);
+
+    // 5 @ 100 + 5 @ 200 -> (500 + 1000) / 10 = 150
+    const id = await draft(supplier.id, warehouse.id, [line(product.id, 5, 200)]);
+    const result = await validateReceptionAction({ id });
+    expect(result.ok).toBe(true);
+    expect(Number((await prisma.product.findUniqueOrThrow({ where: { id: product.id } })).cost)).toBe(150);
+  });
+
+  it("WEIGHTED_AVERAGE: a variation with zero prior stock takes the received cost outright", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    await setCostingMethod("WEIGHTED_AVERAGE");
+    const { warehouse, supplier } = await seed();
+    const parent = await prisma.product.create({ data: { name: "Nike AIRA", sku: "AIRA-VAR", price: 400, status: "ACTIF" } });
+    const v = await prisma.productVariation.create({ data: { productId: parent.id, sku: "AIRA-VAR-38", attributes: { Taille: "38" } } });
+    // No InventoryItem exists yet for this variation at this warehouse — the
+    // reception itself creates it (ensureInventoryItem), so existingOnHand = 0.
+
+    const id = await draft(supplier.id, warehouse.id, [{ variationId: v.id, quantity: 8, unitCost: 42.75 }]);
+    const result = await validateReceptionAction({ id });
+    expect(result.ok).toBe(true);
+    expect(Number((await prisma.productVariation.findUniqueOrThrow({ where: { id: v.id } })).cost)).toBe(42.75);
+  });
+
+  it("multiple lines for different products/variants each update their OWN cost correctly in one reception", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    await setCostingMethod("LAST_COST");
+    const { warehouse, product, supplier } = await seed();
+    const other = await prisma.product.create({ data: { name: "Autre produit", sku: "AUTRE-1", price: 200, status: "ACTIF", cost: 20 } });
+    const parent = await prisma.product.create({ data: { name: "Parent Var", sku: "PARVAR", price: 500, status: "ACTIF" } });
+    const v = await prisma.productVariation.create({ data: { productId: parent.id, sku: "PARVAR-1", attributes: { Taille: "M" } } });
+
+    const id = await draft(supplier.id, warehouse.id, [
+      line(product.id, 2, 11),
+      line(other.id, 3, 22),
+      { variationId: v.id, quantity: 4, unitCost: 33 },
+    ]);
+    const result = await validateReceptionAction({ id });
+    expect(result.ok).toBe(true);
+
+    expect(Number((await prisma.product.findUniqueOrThrow({ where: { id: product.id } })).cost)).toBe(11);
+    expect(Number((await prisma.product.findUniqueOrThrow({ where: { id: other.id } })).cost)).toBe(22);
+    expect(Number((await prisma.productVariation.findUniqueOrThrow({ where: { id: v.id } })).cost)).toBe(33);
+    // The variation's own line never touched its parent's cost.
+    expect((await prisma.product.findUniqueOrThrow({ where: { id: parent.id } })).cost).toBeNull();
+  });
+
+  it("transaction rollback: a failed reception validation leaves NO partial cost update, even for an earlier line that already succeeded", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    await setCostingMethod("LAST_COST");
+    const { warehouse, product, supplier } = await seed();
+    await prisma.product.update({ where: { id: product.id }, data: { cost: 5 } });
+    const doomed = await prisma.product.create({ data: { name: "Doomed", sku: "DOOMED-1", price: 1, status: "ACTIF" } });
+
+    // Line 1 (product, cost 5 -> would become 999) is processed BEFORE line 2
+    // (doomed) in validateReceptionInTx's per-line loop.
+    const id = await draft(supplier.id, warehouse.id, [line(product.id, 1, 999), line(doomed.id, 1, 1)]);
+    // Delete the second line's product from the catalog AFTER the draft was
+    // created — its ReceptionLine.productId goes NULL (onDelete: SetNull),
+    // which validateReceptionInTx explicitly rejects mid-loop.
+    await prisma.product.delete({ where: { id: doomed.id } });
+
+    const result = await validateReceptionAction({ id });
+    expect(result.ok).toBe(false);
+
+    // The whole transaction rolled back — line 1's cost update never persisted.
+    expect(Number((await prisma.product.findUniqueOrThrow({ where: { id: product.id } })).cost)).toBe(5);
+    expect(await prisma.inventoryMovement.count()).toBe(0);
+    expect((await prisma.reception.findUniqueOrThrow({ where: { id } })).status).toBe("BROUILLON");
+  });
+
+  it("tenant isolation: tenant A's costing method never applies to tenant B's reception", async () => {
+    // Exercised directly at the transaction level (runWithTenant +
+    // validateReceptionInTx), not through the session/action layer: this
+    // isolates the exact thing Phase 3 changed (which tenant's
+    // BusinessSettings.costingMethod a reception's cost update reads) from
+    // the unrelated session-cookie→tenant resolution machinery a real
+    // logged-in request goes through — the same direct style
+    // tests/lib/tenant-phase3.test.ts already uses for cross-tenant
+    // BusinessSettings isolation.
+    const TENANT_B = "tenant-b-costing";
+    await prismaBase.tenant.create({ data: { id: TENANT_B, name: "Tenant B", slug: TENANT_B, businessMode: "ONLINE_AND_OFFLINE" } });
+    await setCostingMethod("LAST_COST", DEFAULT_TENANT_ID);
+    await setCostingMethod("MANUAL", TENANT_B);
+
+    const receptionId = await runWithTenant(TENANT_B, "test", async () => {
+      const warehouseB = await prisma.warehouse.create({ data: { name: "Entrepôt B", isDefault: true } });
+      const productB = await prisma.product.create({ data: { name: "Produit B", sku: "PB-1", price: 100, status: "ACTIF", cost: 15 } });
+      const supplierB = await prisma.supplier.create({ data: { name: "Fournisseur B" } });
+      await prisma.inventoryItem.create({ data: { warehouseId: warehouseB.id, productId: productB.id } });
+      const reception = await prisma.reception.create({
+        data: {
+          supplierId: supplierB.id,
+          warehouseId: warehouseB.id,
+          lines: { create: [{ productId: productB.id, nameSnapshot: productB.name, skuSnapshot: productB.sku, quantity: 1, unitCost: 500 }] },
+        },
+      });
+      return reception.id;
+    });
+
+    const result = await runWithTenant(TENANT_B, "test", () =>
+      prisma.$transaction((tx) => validateReceptionInTx(tx, { receptionId, performedById: null, performedByName: null }))
+    );
+    expect(result.validated).toBe(true);
+
+    // Tenant B is MANUAL — its own cost must stay untouched, even though
+    // the DEFAULT tenant is LAST_COST.
+    const productB = await runWithTenant(TENANT_B, "test", () => prisma.product.findFirstOrThrow({ where: { sku: "PB-1" } }));
+    expect(Number(productB.cost)).toBe(15);
   });
 });

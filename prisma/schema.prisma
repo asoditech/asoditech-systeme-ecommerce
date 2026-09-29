@@ -2553,6 +2553,24 @@ model Notification {
 // Settings — singleton row
 // ---------------------------------------------------------------------------
 
+// Product costing (Phase 3 — Product Costing & Profitability input): how a
+// VALIDATED reception's unit cost feeds a product/variation's CURRENT
+// STANDARD cost (`Product.cost` / `ProductVariation.cost`). Deliberately
+// never touches the SEPARATE historical/realized cost concept
+// (`OrderItem.costSnapshot` / `SaleLine.costSnapshot`, frozen at time of
+// sale) — see src/lib/receptions.ts and src/lib/catalog/costing.ts.
+//   MANUAL           — unchanged pre-existing behavior: cost is only ever
+//                       edited by hand (product form / operational settings).
+//   LAST_COST        — the product/variation's cost becomes the most
+//                       recently validated reception line's unit cost.
+//   WEIGHTED_AVERAGE — the cost becomes a quantity-weighted blend of the
+//                       stock already on hand and the newly received units.
+enum CostingMethod {
+  MANUAL
+  LAST_COST
+  WEIGHTED_AVERAGE
+}
+
 // Phase 1 made this a global singleton (`id = "singleton"`); Phase 3
 // (docs/adr/0025) makes it tenant-scoped instead — one settings row per
 // tenant, looked up/created by `tenantId`. The bootstrap tenant's existing
@@ -2575,6 +2593,10 @@ model BusinessSettings {
   locale                   String  @default("fr")
   lowStockDefaultThreshold Int     @default(5)
   orderNumberPrefix        String  @default("CMD")
+  // Product costing (see the CostingMethod enum's own doc comment). Default
+  // MANUAL — every existing tenant keeps its current, unchanged behavior
+  // (cost is only ever hand-edited) unless a manager explicitly opts in.
+  costingMethod            CostingMethod @default(MANUAL)
 
   // Support & Help Center contact points, surfaced by the floating support
   // widget (src/components/support/). WhatsApp and phone are deliberately
