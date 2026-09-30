@@ -9,6 +9,7 @@ export const userRoleSchema = z.enum([
   "DELIVERY",
   "SUPPORT",
   "ACCOUNTANT",
+  "STORE_SELLER",
 ]);
 
 // Phase 2 "invite-time business scope" (docs/adr/0039's UserChannel

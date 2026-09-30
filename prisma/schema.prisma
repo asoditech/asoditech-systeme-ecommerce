@@ -326,6 +326,11 @@ enum UserRole {
   DELIVERY
   SUPPORT
   ACCOUNTANT
+  // In-store seller (Phase 4A — docs/adr/0042-store-seller-role.md): the
+  // counter role of an ONLINE_AND_OFFLINE tenant — store sales and their
+  // returns only. Its matrix (src/lib/auth/permissions.ts) holds no Online
+  // permission, and channel scope + UserLocation still decide which stores.
+  STORE_SELLER
 }
 
 enum UserStatus {

@@ -157,7 +157,7 @@ export default async function TableauDeBordPage({
       : "annee";
 
   const [data, revenueTrend, business] = await Promise.all([
-    getDashboardData(periodKey, undefined, { auditScope: auditScopeWhere(user.channels) }),
+    getDashboardData(periodKey, undefined, { auditScope: auditScopeWhere(user.channels), viewer: user }),
     getRevenueTrend(chartRange),
     getReportBusinessInfo(),
   ]);

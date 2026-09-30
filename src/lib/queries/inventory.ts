@@ -6,7 +6,7 @@ import { resolveActiveTenantIdForRawSql } from "@/lib/tenant/resolve";
 import { runRawBatchWithTenant } from "@/lib/tenant/rls";
 import { availableStock } from "@/lib/inventory";
 import { variantLabel } from "@/lib/catalog/lookup";
-import { listAccessibleActiveWarehouses } from "@/lib/auth/location-access";
+import { hasGlobalLocationAccess, listAccessibleActiveWarehouses } from "@/lib/auth/location-access";
 
 const PAGE_SIZE = 25;
 
@@ -318,15 +318,39 @@ export async function listInventoryItemsForExport(params: {
   });
 }
 
-export async function getLowStockCount(): Promise<number> {
+/**
+ * `warehouseIds` restricts the count to those locations (an empty list counts
+ * nothing — default-deny, never "all"); omitted, the count is tenant-wide
+ * exactly as before. Callers holding a viewer should use
+ * `getLowStockCountForViewer` below rather than building the list themselves.
+ */
+export async function getLowStockCount(opts: { warehouseIds?: readonly string[] } = {}): Promise<number> {
+  if (opts.warehouseIds && opts.warehouseIds.length === 0) return 0;
   // Raw cross-join count — cannot go through the tenant extension, so it
   // carries its own `ii."tenantId"` predicate instead (Phase 3 —
   // docs/adr/0025, closing the ADR 0024 "Known bypass").
   const tenantId = await resolveActiveTenantIdForRawSql("queries/inventory.getLowStockCount");
+  const locationFilter = opts.warehouseIds
+    ? Prisma.sql`AND ii."warehouseId" IN (${Prisma.join([...opts.warehouseIds])})`
+    : Prisma.empty;
   const [rows] = (await runRawBatchWithTenant(tenantId, [
-    prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`SELECT COUNT(*)::bigint AS count ${lowStockFrom(tenantId)}`),
+    prisma.$queryRaw<{ count: bigint }[]>(
+      Prisma.sql`SELECT COUNT(*)::bigint AS count ${lowStockFrom(tenantId)} ${locationFilter}`
+    ),
   ])) as [{ count: bigint }[]];
   return Number(rows[0]?.count ?? 0);
+}
+
+/**
+ * Dashboard low-stock KPI, location-aware (Phase 4A, G5 — docs/adr/0042).
+ * OWNER/ADMIN: tenant-wide, unchanged. Everyone else: only their assigned
+ * ACTIVE locations (`listAccessibleActiveWarehouses`, the same primitive as
+ * `getStockOverview` just below) — zero assignments means 0, never "all".
+ */
+export async function getLowStockCountForViewer(user: Parameters<typeof listAccessibleActiveWarehouses>[0]): Promise<number> {
+  if (hasGlobalLocationAccess(user.role)) return getLowStockCount();
+  const warehouses = await listAccessibleActiveWarehouses(user);
+  return getLowStockCount({ warehouseIds: warehouses.map((w) => w.id) });
 }
 
 export interface StockOverview {

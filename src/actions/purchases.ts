@@ -332,14 +332,19 @@ export async function cancelReceptionAction(input: { id: string }): Promise<Acti
   const parsed = receptionIdSchema.safeParse(input);
   if (!parsed.success) return actionError("Champs invalides.");
 
+  // Phase 4A (G2, docs/adr/0042): cancelling is a mutation on a location's
+  // document, so — like create/update/validate — the caller must be assigned
+  // to the reception's destination (ADR 0037). Resolved through the
+  // tenant-scoped client, so another tenant's id is simply "introuvable".
+  const reception = await prisma.reception.findUnique({ where: { id: parsed.data.id }, select: { warehouseId: true } });
+  if (!reception) return actionError("Réception introuvable.");
+  await requireLocationAccessForAction(user, reception.warehouseId);
+
   const res = await prisma.reception.updateMany({
     where: { id: parsed.data.id, status: "BROUILLON" },
     data: { status: "ANNULEE", cancelledAt: new Date() },
   });
-  if (res.count === 0) {
-    const exists = await prisma.reception.findUnique({ where: { id: parsed.data.id }, select: { id: true } });
-    return actionError(exists ? "Seul un brouillon peut être annulé." : "Réception introuvable.");
-  }
+  if (res.count === 0) return actionError("Seul un brouillon peut être annulé.");
   await recordAuditEvent({
     actorType: "USER",
     actorUserId: user.id,

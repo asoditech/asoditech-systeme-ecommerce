@@ -23,6 +23,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   DELIVERY: "Livraison",
   SUPPORT: "Support",
   ACCOUNTANT: "Comptable",
+  STORE_SELLER: "Vendeur magasin",
 };
 
 export function ArticleView({ article, viewer }: { article: DocArticle; viewer: { permissions: ReadonlySet<Permission> } }) {

@@ -10,7 +10,7 @@ import { requireChannelAccessForAction, saleChannelWhere } from "@/lib/auth/chan
 import { recordAuditEvent } from "@/lib/audit";
 import { applyStockMovement, applySaleReturnLine, InsufficientStockError } from "@/lib/inventory";
 import { isProductAvailableOnChannel } from "@/lib/channels";
-import { lookupSellableUnits, variantLabel, type SellableUnit } from "@/lib/catalog/lookup";
+import { lookupSellableUnits, toSellerSafeUnit, variantLabel, type SellerSafeUnit } from "@/lib/catalog/lookup";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
@@ -85,7 +85,8 @@ async function resolveSaleContext(
 }
 
 export interface SaleLookupResult {
-  unit: SellableUnit;
+  /** Seller-safe: no procurement cost ever leaves the server here (G1, docs/adr/0042). */
+  unit: SellerSafeUnit;
   /** onHand − reserved at the sale location (what may actually be sold). */
   available: number;
   onHand: number;
@@ -120,7 +121,12 @@ export async function lookupForSaleAction(input: {
   return units.map((unit) => {
     const item = items.find((i) => (unit.variationId ? i.variationId === unit.variationId : i.productId === unit.productId && !i.variationId));
     const onHand = item?.quantityOnHand ?? 0;
-    return { unit, onHand, available: item ? Math.max(0, item.quantityOnHand - item.quantityReserved) : 0, tracked: Boolean(item) };
+    return {
+      unit: toSellerSafeUnit(unit),
+      onHand,
+      available: item ? Math.max(0, item.quantityOnHand - item.quantityReserved) : 0,
+      tracked: Boolean(item),
+    };
   });
 }
 

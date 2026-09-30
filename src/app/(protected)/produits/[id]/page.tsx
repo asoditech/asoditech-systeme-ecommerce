@@ -42,6 +42,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
+import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { getProductDetail, getProductSalesStats, getProductProfitStats, listCategories } from "@/lib/queries/products";
 import { getLatestPurchasePricesForUnits, getPurchasePriceHistory, type PurchasePriceHistoryEntry } from "@/lib/queries/purchases";
 import { listActiveChannels } from "@/lib/queries/channels";
@@ -268,12 +269,16 @@ export default async function ProduitDetailPage({
   );
 
   // "Dernier prix d'achat" / purchase-price history (Batch 3, Task 3B) — read
-  // straight off the existing Reception/ReceptionLine data, gated by the
-  // purchases permission (this is supplier/purchase data, independent of
-  // finance.view). A variable product's price lives per variation, so the
-  // history list only applies to a simple product; each variation instead
-  // gets its own "Dernier achat" figure in the variations table below.
-  const canViewPurchases = userHasPermission(user, "purchases.view");
+  // straight off the existing Reception/ReceptionLine data. A variable
+  // product's price lives per variation, so the history list only applies to
+  // a simple product; each variation instead gets its own "Dernier achat"
+  // figure in the variations table below.
+  //
+  // Phase 4A (G3, docs/adr/0042): a reception unit price IS a procurement
+  // cost, so it now needs finance.view on top of purchases.view — and it is
+  // not even fetched otherwise, so it can't reach the page's payload.
+  const costVisibility = productCostVisibility(user);
+  const canViewPurchases = costVisibility.purchasePrices;
   const isSimpleProduct = product.variations.length === 0;
   const [latestPurchasePrices, purchaseHistory] = await Promise.all([
     canViewPurchases
@@ -466,12 +471,15 @@ export default async function ProduitDetailPage({
               <SpecItem icon={Hash} label="SKU" value={product.sku} />
               {identityEnabled && product.reference && <SpecItem icon={Hash} label="Référence modèle" value={product.reference} />}
               <SpecItem icon={FolderOpen} label="Catégorie" value={product.category?.name ?? "Aucune"} muted={!product.category} />
-              <SpecItem
-                icon={Receipt}
-                label="Coût d'achat"
-                value={product.cost ? formatCurrency(product.cost.toString()) : "Non renseigné"}
-                muted={!product.cost}
-              />
+              {/* G3 (docs/adr/0042): purchase cost only with finance.view. */}
+              {costVisibility.cost && (
+                <SpecItem
+                  icon={Receipt}
+                  label="Coût d'achat"
+                  value={product.cost ? formatCurrency(product.cost.toString()) : "Non renseigné"}
+                  muted={!product.cost}
+                />
+              )}
               {canViewPurchases && isSimpleProduct && (
                 <SpecItem
                   icon={Receipt}

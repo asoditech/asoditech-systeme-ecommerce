@@ -35,7 +35,7 @@ export const utilisateursArticles: DocArticle[] = [
     body: [
       {
         type: "p",
-        text: "Il existe 8 rôles : OWNER, ADMIN, MANAGER, CONFIRMATION, WAREHOUSE, DELIVERY, SUPPORT, ACCOUNTANT. Chaque permission (« voir les commandes », « gérer la livraison »…) est accordée par rôle — il n'existe pas d'éditeur de permissions personnalisées : changer les droits d'un rôle est un choix produit, pas un réglage utilisateur.",
+        text: "Il existe 9 rôles : OWNER, ADMIN, MANAGER, CONFIRMATION, WAREHOUSE, DELIVERY, SUPPORT, ACCOUNTANT, STORE_SELLER. Chaque permission (« voir les commandes », « gérer la livraison »…) est accordée par rôle — il n'existe pas d'éditeur de permissions personnalisées : changer les droits d'un rôle est un choix produit, pas un réglage utilisateur.",
       },
       {
         type: "callout",
@@ -114,6 +114,15 @@ export const utilisateursArticles: DocArticle[] = [
     tagline: "Le rôle comptable : finance et commissions, sans les commandes opérationnelles ni le stock.",
     permissions: ["Tableau de bord, Commandes (voir), Finance (voir/gérer), Commissions (voir/gérer), Analyses, Journal d'audit."],
     notes: "Documentation prioritaire pour ce rôle : Finance, Rapports.",
+  }),
+  roleArticle({
+    slug: "utilisateurs/role-store-seller",
+    title: "STORE_SELLER",
+    role: ["STORE_SELLER"],
+    tagline: "Le vendeur magasin : ventes au comptoir et retours magasin, rien d'autre — sans modification de prix, sans stock ni coût d'achat.",
+    permissions: ["Tableau de bord, Ventes magasin (voir / créer / retours)."],
+    notes:
+      "Invitez-le avec la portée « Magasin », puis attribuez-lui son magasin (canal) et son emplacement depuis Utilisateurs : sans emplacement attribué, il ne peut enregistrer aucune vente.",
   }),
   {
     slug: "utilisateurs/invitation",

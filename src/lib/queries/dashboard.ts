@@ -10,7 +10,7 @@ import {
   currentYearRange,
   previousPeriodOfSameLength,
 } from "@/lib/queries/finance";
-import { getLowStockCount } from "@/lib/queries/inventory";
+import { getLowStockCount, getLowStockCountForViewer } from "@/lib/queries/inventory";
 import { getDeliveryStats } from "@/lib/queries/delivery";
 import type { Prisma, RecordSource } from "@prisma/client";
 
@@ -37,7 +37,9 @@ export async function getDashboardData(
   periodKey: DashboardPeriod = "mois",
   source?: RecordSource,
   // Channel read scope (docs/adr/0039): the viewer's audit-event restriction.
-  opts: { auditScope?: Prisma.AuditEventWhereInput } = {}
+  // `viewer` (Phase 4A, G5 — docs/adr/0042): scopes the low-stock count to
+  // the viewer's locations; omitted, the count stays tenant-wide.
+  opts: { auditScope?: Prisma.AuditEventWhereInput; viewer?: Parameters<typeof getLowStockCountForViewer>[0] } = {}
 ) {
   const period =
     periodKey === "jour"
@@ -64,7 +66,7 @@ export async function getDashboardData(
   ] = await Promise.all([
     getFinanceSummary(period, source),
     getFinanceSummary(previousPeriod, source),
-    getLowStockCount(),
+    opts.viewer ? getLowStockCountForViewer(opts.viewer) : getLowStockCount(),
     getDeliveryStats(),
     prisma.order.findMany({
       where: {

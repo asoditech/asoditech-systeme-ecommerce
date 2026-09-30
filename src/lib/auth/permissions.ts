@@ -238,6 +238,13 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     "purchases.pay",
     "sales.view",
   ],
+  // In-store seller (Phase 4A — docs/adr/0042-store-seller-role.md): the
+  // counter, nothing else. Deliberately WITHOUT products.view (the product
+  // pages expose every location's stock), inventory.* (stock movements are
+  // the manager's), sales.override_price (price changes need a manager) and
+  // any Online permission. Which store(s) is decided by UserChannel +
+  // UserLocation, exactly as for every other non-global role.
+  STORE_SELLER: ["dashboard.view", "sales.view", "sales.create", "sales.return"],
 };
 
 export function hasPermission(role: UserRole, permission: Permission): boolean {

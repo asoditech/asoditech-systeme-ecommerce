@@ -51,6 +51,35 @@ export interface SellableUnit {
   matchedBy: MatchedBy;
 }
 
+/**
+ * A sellable unit as it may be sent to a SELLER's browser (Phase 4A, G1 —
+ * docs/adr/0042-store-seller-role.md): everything the sale screen needs to
+ * identify, price and add a unit, minus the procurement cost. The sale price
+ * is still resolved on the server at `createSaleAction` time, and the sale's
+ * `costSnapshot` is read from the database there — never from this payload.
+ */
+export type SellerSafeUnit = Omit<SellableUnit, "cost">;
+
+/** Explicitly rebuilt (not spread-then-delete) so a field later added to
+ * `SellableUnit` never reaches a seller's browser without a deliberate
+ * decision here. */
+export function toSellerSafeUnit(unit: SellableUnit): SellerSafeUnit {
+  return {
+    productId: unit.productId,
+    variationId: unit.variationId,
+    name: unit.name,
+    variantLabel: unit.variantLabel,
+    sku: unit.sku,
+    reference: unit.reference,
+    primaryBarcode: unit.primaryBarcode,
+    categoryName: unit.categoryName,
+    price: unit.price,
+    status: unit.status,
+    trackInventory: unit.trackInventory,
+    matchedBy: unit.matchedBy,
+  };
+}
+
 export interface LookupOptions {
   limit?: number;
   /** Only ACTIF products AND, for a variation, only an active one — what a

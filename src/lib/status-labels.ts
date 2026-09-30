@@ -149,6 +149,7 @@ export const USER_ROLE_LABELS: Record<string, string> = {
   DELIVERY: "Livraison",
   SUPPORT: "Support",
   ACCOUNTANT: "Comptable",
+  STORE_SELLER: "Vendeur magasin",
 };
 
 export const USER_STATUS_LABELS: Record<string, StatusMeta> = {
