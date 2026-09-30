@@ -5,6 +5,7 @@ import { productSearchWhere } from "@/lib/queries/products";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction, requireUserForAction } from "@/lib/auth/guards";
+import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { userHasPermission } from "@/lib/auth/permissions";
 import {
   requireLocationAccessForAction,
@@ -149,7 +150,11 @@ export async function createCustomerForOrderAction(input: {
 }
 
 export async function searchProductsForOrderAction(query: string) {
-  await requirePermissionForAction("orders.create");
+  const user = await requirePermissionForAction("orders.create");
+  // Phase 4C (docs/adr/0044): the order form never uses a purchase cost —
+  // it reaches the browser only for a `finance.view` holder. Same response
+  // shape for everyone (`cost: null` otherwise).
+  const canSeeCost = productCostVisibility(user).cost;
   if (query.trim().length < 2) return [];
   const products = await prisma.product.findMany({
     where: {
@@ -172,13 +177,13 @@ export async function searchProductsForOrderAction(query: string) {
     ...p,
     price: p.price.toString(),
     salePrice: p.salePrice?.toString() ?? null,
-    cost: p.cost?.toString() ?? null,
+    cost: canSeeCost ? (p.cost?.toString() ?? null) : null,
     variations: p.variations
       .filter((v) => v.isActive)
       .map((v) => ({
         ...v,
         price: v.price?.toString() ?? null,
-        cost: v.cost?.toString() ?? null,
+        cost: canSeeCost ? (v.cost?.toString() ?? null) : null,
         salePrice: v.salePrice?.toString() ?? null,
       })),
   }));

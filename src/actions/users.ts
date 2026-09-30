@@ -171,6 +171,13 @@ export async function updateUserRoleAction(formData: FormData): Promise<ActionRe
   if (parsed.data.role === "OWNER" && actor.role !== "OWNER") {
     return actionError("Seul le propriétaire peut attribuer le rôle propriétaire.");
   }
+  // Phase 4C (docs/adr/0044): same rule as invitation (ADR 0043) — STORE_SELLER
+  // holds only in-store permissions, inert without the `offlineSales`
+  // capability; an ONLINE_ONLY tenant would get an account that can do
+  // nothing. Enforced here, whatever the UI offers.
+  if (parsed.data.role === "STORE_SELLER" && !actor.capabilities.has("offlineSales")) {
+    return actionError("Le rôle Vendeur magasin n'est disponible que pour un espace « En ligne + Magasin ».");
+  }
 
   const existing = await prisma.user.findUnique({ where: { id: parsed.data.id } });
   if (!existing) return actionError("Utilisateur introuvable.");

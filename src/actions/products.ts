@@ -62,6 +62,11 @@ function requireCostAccess(user: { permissions: ReadonlySet<Permission> }): void
   if (!productCostVisibility(user).cost) throw new Error(COST_FORBIDDEN);
 }
 
+/** Whether a stored purchase cost actually changed (Decimal-safe, null-aware) — for the audit trail. */
+function costChanged(before: { toString(): string } | null, after: { toString(): string } | null): boolean {
+  return (before?.toString() ?? null) !== (after?.toString() ?? null);
+}
+
 /** "Chaussures Homme" → "chaussures-homme". Deterministic; collisions are caught by the slug pre-check. */
 function slugifyCategoryName(name: string): string {
   return name
@@ -852,8 +857,15 @@ export async function updateProductOperationalSettingsAction(formData: FormData)
     action: "product.updated",
     entityType: "Product",
     entityId: product.id,
-    previousValue: { cost: existing.cost?.toString() ?? null, trackInventory: existing.trackInventory, lowStockThreshold: existing.lowStockThreshold },
-    newValue: { cost: product.cost?.toString() ?? null, trackInventory: product.trackInventory, lowStockThreshold: product.lowStockThreshold },
+    // Phase 4C (docs/adr/0044): the audit trail records THAT the purchase
+    // cost changed, never its values — the cost stays readable only where
+    // finance.view gates it, not in an append-only log readable with audit.view.
+    previousValue: { trackInventory: existing.trackInventory, lowStockThreshold: existing.lowStockThreshold },
+    newValue: {
+      trackInventory: product.trackInventory,
+      lowStockThreshold: product.lowStockThreshold,
+      costChanged: costChanged(existing.cost, product.cost),
+    },
   });
 
   revalidatePath(`/produits/${product.id}`);
@@ -1076,8 +1088,9 @@ export async function updateVariationOperationalSettingsAction(formData: FormDat
     action: "product.updated",
     entityType: "Product",
     entityId: variation.productId,
-    previousValue: { variation: existing.sku, cost: existing.cost?.toString() ?? null },
-    newValue: { variation: variation.sku, cost: variation.cost?.toString() ?? null },
+    // Phase 4C: the fact of the change, never the cost values (see above).
+    previousValue: { variation: existing.sku },
+    newValue: { variation: variation.sku, costChanged: costChanged(existing.cost, variation.cost) },
   });
 
   revalidatePath(`/produits/${variation.productId}`);

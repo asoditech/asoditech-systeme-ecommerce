@@ -9,22 +9,18 @@ import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
-import { prisma } from "@/lib/prisma";
 import { formatDateTime } from "@/lib/format";
 import {
   humanizeAuditAction,
   humanizeAuditEntity,
   auditEntityHref,
-  actionsForCategory,
   AUDIT_CATEGORY_LABELS,
   type AuditCategory,
 } from "@/lib/audit-labels";
-import type { Prisma } from "@prisma/client";
-import { auditScopeWhere } from "@/lib/auth/audit-scope";
+import { listAuditJournal } from "@/lib/queries/audit";
 
 export const metadata = { title: "Journal d'audit — ASODITECH Gestion E-commerce" };
 
-const PAGE_SIZE = 30;
 
 export default async function JournalAuditPage({
   searchParams,
@@ -38,33 +34,10 @@ export default async function JournalAuditPage({
   const category: AuditCategory | undefined =
     params.category && params.category in AUDIT_CATEGORY_LABELS ? (params.category as AuditCategory) : undefined;
 
-  // Channel read scope (docs/adr/0039): drop the events of an activity the
-  // viewer has no channel for — server-side, so it holds for the count and
-  // for every page of the log, not just what happens to be rendered.
-  const conditions: Prisma.AuditEventWhereInput[] = [auditScopeWhere(user.channels)];
-  if (params.q) {
-    conditions.push({
-      OR: [
-        { action: { contains: params.q, mode: "insensitive" } },
-        { entityType: { contains: params.q, mode: "insensitive" } },
-      ],
-    });
-  }
-  if (category) {
-    conditions.push({ action: { in: actionsForCategory(category) } });
-  }
-  const where: Prisma.AuditEventWhereInput = conditions.length > 0 ? { AND: conditions } : {};
-
-  const [pageItems, total] = await Promise.all([
-    prisma.auditEvent.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      take: PAGE_SIZE,
-      skip: (page - 1) * PAGE_SIZE,
-      include: { actorUser: { select: { name: true, email: true } } },
-    }),
-    prisma.auditEvent.count({ where }),
-  ]);
+  // Channel read scope (docs/adr/0039) and the payload-free column list
+  // (Phase 4C, docs/adr/0044) both live in the query — server-side, for the
+  // count and every page of the log.
+  const { items: pageItems, total, pageSize } = await listAuditJournal(user, { q: params.q, category, page });
 
   const hasActiveFilter = Boolean(params.q || category);
 
@@ -145,7 +118,7 @@ export default async function JournalAuditPage({
           </Table>
           <DataTablePagination
             page={page}
-            pageSize={PAGE_SIZE}
+            pageSize={pageSize}
             total={total}
             basePath="/journal-audit"
             searchParams={{ q: params.q, category: params.category }}
