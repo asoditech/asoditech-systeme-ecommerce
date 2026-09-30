@@ -38,6 +38,7 @@ export function ProductForm({
   channels = [],
   identityEnabled = false,
   defaultLowStockThreshold = 5,
+  canEditCost,
 }: {
   product?: SerializedProduct;
   categories: Category[];
@@ -58,6 +59,12 @@ export function ProductForm({
    * own saved threshold, unaffected.
    */
   defaultLowStockThreshold?: number;
+  /**
+   * `finance.view` (Phase 4B): without it the purchase cost field is not
+   * rendered — so never submitted — and the server ignores a cost from this
+   * user anyway (a create stores none, an update leaves it unchanged).
+   */
+  canEditCost: boolean;
 }) {
   const router = useRouter();
   // Categories are real, tenant-scoped entities (docs/adr/0038 §Categories):
@@ -206,10 +213,12 @@ export function ProductForm({
               <Label htmlFor="salePrice">Prix promotionnel (MAD)</Label>
               <Input id="salePrice" name="salePrice" type="number" step="0.01" min="0" defaultValue={product?.salePrice ?? ""} />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="cost">Coût d&apos;achat (MAD)</Label>
-              <Input id="cost" name="cost" type="number" step="0.01" min="0" defaultValue={product?.cost ?? ""} />
-            </div>
+            {canEditCost && (
+              <div className="space-y-1.5">
+                <Label htmlFor="cost">Coût d&apos;achat (MAD)</Label>
+                <Input id="cost" name="cost" type="number" step="0.01" min="0" defaultValue={product?.cost ?? ""} />
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="status">Statut</Label>
               <Select name="status" defaultValue={product?.status ?? "BROUILLON"}>

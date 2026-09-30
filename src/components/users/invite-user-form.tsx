@@ -21,6 +21,9 @@ import { USER_ROLE_LABELS } from "@/lib/status-labels";
 import type { ActionResult, IdResult } from "@/actions/types";
 
 const ASSIGNABLE_ROLES = Object.entries(USER_ROLE_LABELS).filter(([value]) => value !== "OWNER");
+// Roles whose whole purpose is the Offline business (Phase 4B): not offered
+// when the tenant has no store capability — the server refuses them too.
+const STORE_ONLY_ROLES = new Set(["STORE_SELLER"]);
 
 type InviteResult = ActionResult<IdResult & { inviteUrl: string }>;
 
@@ -116,7 +119,7 @@ export function InviteUserForm({ channelsEnabled = false }: { channelsEnabled?: 
                     <SelectValue>{(value: string) => USER_ROLE_LABELS[value] ?? value}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {ASSIGNABLE_ROLES.map(([value, label]) => (
+                    {ASSIGNABLE_ROLES.filter(([value]) => channelsEnabled || !STORE_ONLY_ROLES.has(value)).map(([value, label]) => (
                       <SelectItem key={value} value={value}>
                         {label}
                       </SelectItem>

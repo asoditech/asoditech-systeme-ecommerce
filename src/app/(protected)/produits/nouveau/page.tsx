@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ProductForm } from "@/components/products/product-form";
 import { requirePermission } from "@/lib/auth/guards";
+import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
 import { listCategories } from "@/lib/queries/products";
 import { listActiveChannels } from "@/lib/queries/channels";
@@ -49,6 +50,7 @@ export default async function NouveauProduitPage() {
             channels={channels}
             identityEnabled={identityEnabled}
             defaultLowStockThreshold={business.lowStockDefaultThreshold}
+            canEditCost={productCostVisibility(user).cost}
           />
           <p className="mt-3 flex items-start gap-1.5 text-xs text-muted-foreground">
             <LogIn className="mt-0.5 size-3.5 shrink-0" />
@@ -134,6 +136,7 @@ export default async function NouveauProduitPage() {
             channels={offlineChannels}
             identityEnabled={identityEnabled}
             defaultLowStockThreshold={business.lowStockDefaultThreshold}
+            canEditCost={productCostVisibility(user).cost}
           />
         )}
       </div>

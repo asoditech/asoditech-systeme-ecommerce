@@ -27,9 +27,12 @@ export function VariantEditDialog({
   variation,
   label,
   regularPrice,
+  canEditCost,
 }: {
   variation: { id: string; sku: string; cost: string | null; salePrice: string | null; imageUrl: string | null; isActive: boolean };
   label: string;
+  /** `finance.view` (Phase 4B): without it the purchase cost is neither shown nor submitted. */
+  canEditCost: boolean;
   /** The effective regular price (variation.price ?? product.price) — shown so the sale-price field's ceiling makes sense. */
   regularPrice: string;
 }) {
@@ -123,10 +126,12 @@ export function VariantEditDialog({
         <form action={formAction} className="space-y-3">
           <input type="hidden" name="id" value={variation.id} />
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor={`vc-${variation.id}`}>Coût d&apos;achat (MAD)</Label>
-              <Input id={`vc-${variation.id}`} name="cost" type="number" step="0.01" min="0" defaultValue={variation.cost ?? ""} />
-            </div>
+            {canEditCost && (
+              <div className="space-y-1.5">
+                <Label htmlFor={`vc-${variation.id}`}>Coût d&apos;achat (MAD)</Label>
+                <Input id={`vc-${variation.id}`} name="cost" type="number" step="0.01" min="0" defaultValue={variation.cost ?? ""} />
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor={`vs-${variation.id}`}>Prix promotionnel (MAD)</Label>
               <Input id={`vs-${variation.id}`} name="salePrice" type="number" step="0.01" min="0" defaultValue={variation.salePrice ?? ""} />

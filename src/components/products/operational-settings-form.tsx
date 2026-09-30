@@ -20,11 +20,15 @@ import type { ActionResult, IdResult } from "@/actions/types";
 export function OperationalSettingsForm({
   productId,
   cost,
+  canEditCost,
   trackInventory,
   lowStockThreshold,
 }: {
   productId: string;
   cost: string | null;
+  /** `finance.view` (Phase 4B): without it the purchase cost is neither shown
+   * nor submitted — and the server ignores it anyway. */
+  canEditCost: boolean;
   trackInventory: boolean;
   lowStockThreshold: number;
 }) {
@@ -54,10 +58,12 @@ export function OperationalSettingsForm({
         <form action={formAction} className="space-y-4">
           <input type="hidden" name="id" value={productId} />
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="op-cost">Coût d&apos;achat (MAD)</Label>
-              <Input id="op-cost" name="cost" type="number" step="0.01" min="0" defaultValue={cost ?? ""} />
-            </div>
+            {canEditCost && (
+              <div className="space-y-1.5">
+                <Label htmlFor="op-cost">Coût d&apos;achat (MAD)</Label>
+                <Input id="op-cost" name="cost" type="number" step="0.01" min="0" defaultValue={cost ?? ""} />
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="op-lowStockThreshold">Seuil de stock faible</Label>
               <Input id="op-lowStockThreshold" name="lowStockThreshold" type="number" min="0" defaultValue={lowStockThreshold} />

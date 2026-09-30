@@ -454,90 +454,94 @@ export default async function TableauDeBordPage({
         </SummarySection>
       )}
 
-      <SummarySection title="Activité" icon={ShoppingCart}>
-        <div className="grid gap-6 lg:grid-cols-2">
-          {canViewOrders && (
-            <Card>
-              <CardHeader className="flex-row items-center justify-between">
-                <CardTitle>Commandes nécessitant une action</CardTitle>
-                <Button variant="ghost" size="sm" render={<Link href="/commandes" />}>
-                  Voir tout <ArrowRight className="size-4" />
-                </Button>
-              </CardHeader>
-              <CardContent>
-                {data.ordersRequiringAction.length === 0 ? (
-                  <EmptyState icon={ShoppingCart} title="Aucune commande en attente d'action." />
-                ) : (
-                  <ul className="divide-y">
-                    {data.ordersRequiringAction.map((o) => (
-                      <OrderRow
-                        key={o.id}
-                        order={o}
-                        orderNumberPrefix={business.orderNumberPrefix}
-                        action={
-                          <Button size="icon-xs" variant="outline" render={<Link href={`/commandes/${o.id}`} />}>
-                            <ArrowRight className="size-3.5" />
-                          </Button>
-                        }
-                      />
-                    ))}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-          )}
+      {/* Every card below needs orders.view or audit.view — without either
+          (e.g. STORE_SELLER) the section would be a bare heading (Phase 4B). */}
+      {(canViewOrders || canViewAudit) && (
+        <SummarySection title="Activité" icon={ShoppingCart}>
+          <div className="grid gap-6 lg:grid-cols-2">
+            {canViewOrders && (
+              <Card>
+                <CardHeader className="flex-row items-center justify-between">
+                  <CardTitle>Commandes nécessitant une action</CardTitle>
+                  <Button variant="ghost" size="sm" render={<Link href="/commandes" />}>
+                    Voir tout <ArrowRight className="size-4" />
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  {data.ordersRequiringAction.length === 0 ? (
+                    <EmptyState icon={ShoppingCart} title="Aucune commande en attente d'action." />
+                  ) : (
+                    <ul className="divide-y">
+                      {data.ordersRequiringAction.map((o) => (
+                        <OrderRow
+                          key={o.id}
+                          order={o}
+                          orderNumberPrefix={business.orderNumberPrefix}
+                          action={
+                            <Button size="icon-xs" variant="outline" render={<Link href={`/commandes/${o.id}`} />}>
+                              <ArrowRight className="size-3.5" />
+                            </Button>
+                          }
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
-          {canViewOrders && (
-            <Card>
-              <CardHeader className="flex-row items-center justify-between">
-                <CardTitle>Commandes récentes</CardTitle>
-                <Button variant="ghost" size="sm" render={<Link href="/commandes" />}>
-                  Voir tout <ArrowRight className="size-4" />
-                </Button>
-              </CardHeader>
-              <CardContent>
-                {data.recentOrders.length === 0 ? (
-                  <EmptyState icon={ShoppingCart} title="Aucune commande pour le moment." />
-                ) : (
-                  <ul className="divide-y">
-                    {data.recentOrders.map((o) => (
-                      <OrderRow key={o.id} order={o} orderNumberPrefix={business.orderNumberPrefix} />
-                    ))}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-          )}
+            {canViewOrders && (
+              <Card>
+                <CardHeader className="flex-row items-center justify-between">
+                  <CardTitle>Commandes récentes</CardTitle>
+                  <Button variant="ghost" size="sm" render={<Link href="/commandes" />}>
+                    Voir tout <ArrowRight className="size-4" />
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  {data.recentOrders.length === 0 ? (
+                    <EmptyState icon={ShoppingCart} title="Aucune commande pour le moment." />
+                  ) : (
+                    <ul className="divide-y">
+                      {data.recentOrders.map((o) => (
+                        <OrderRow key={o.id} order={o} orderNumberPrefix={business.orderNumberPrefix} />
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
-          {canViewAudit && (
-            <Card>
-              <CardHeader className="flex-row items-center justify-between">
-                <CardTitle>Activité récente</CardTitle>
-                <Button variant="ghost" size="sm" render={<Link href="/journal-audit" />}>
-                  Voir tout <ArrowRight className="size-4" />
-                </Button>
-              </CardHeader>
-              <CardContent>
-                {data.recentAuditEvents.length === 0 ? (
-                  <EmptyState icon={Boxes} title="Aucune activité enregistrée." />
-                ) : (
-                  <ul className="divide-y">
-                    {data.recentAuditEvents.map((e) => (
-                      <li key={e.id} className="py-2.5 text-sm">
-                        <p>
-                          <span className="font-medium">{e.actorUser?.name ?? "Système"}</span>{" "}
-                          <span className="text-muted-foreground">— {e.action}</span>
-                        </p>
-                        <p className="text-xs text-muted-foreground">{formatDateTime(e.createdAt)}</p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </SummarySection>
+            {canViewAudit && (
+              <Card>
+                <CardHeader className="flex-row items-center justify-between">
+                  <CardTitle>Activité récente</CardTitle>
+                  <Button variant="ghost" size="sm" render={<Link href="/journal-audit" />}>
+                    Voir tout <ArrowRight className="size-4" />
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  {data.recentAuditEvents.length === 0 ? (
+                    <EmptyState icon={Boxes} title="Aucune activité enregistrée." />
+                  ) : (
+                    <ul className="divide-y">
+                      {data.recentAuditEvents.map((e) => (
+                        <li key={e.id} className="py-2.5 text-sm">
+                          <p>
+                            <span className="font-medium">{e.actorUser?.name ?? "Système"}</span>{" "}
+                            <span className="text-muted-foreground">— {e.action}</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground">{formatDateTime(e.createdAt)}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </SummarySection>
+      )}
     </div>
   );
 }

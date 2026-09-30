@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getFinanceSummary, currentMonthRange, currentDayRange } from "@/lib/queries/finance";
 import { getTopProducts } from "@/lib/queries/analytics";
 import { getDeliveryStats } from "@/lib/queries/delivery";
-import { getLowStockCount } from "@/lib/queries/inventory";
+import { getLowStockCountForViewer } from "@/lib/queries/inventory";
 import { hasPermission, type Permission } from "@/lib/auth/permissions";
 import { formatCurrency, displayOrderNumber } from "@/lib/format";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
@@ -46,8 +46,13 @@ export interface AiTool {
    * tool's `permission` already covers. */
   href?: string;
   linkLabel?: string;
-  run: () => Promise<string>;
+  /** `viewer` is the user running the tool — for tools whose answer is
+   * location-scoped (Phase 4B, docs/adr/0043); every other tool ignores it. */
+  run: (viewer: AiToolViewer) => Promise<string>;
 }
+
+/** The authorization identity a location-scoped tool needs (same shape as `listAccessibleActiveWarehouses`). */
+export type AiToolViewer = { id: string; role: UserRole };
 
 // ---------------------------------------------------------------------------
 // Finance (finance.view)
@@ -178,8 +183,11 @@ export async function toolReturnsThisMonth(): Promise<string> {
 // Catalogue / stock
 // ---------------------------------------------------------------------------
 
-export async function toolLowStockProducts(): Promise<string> {
-  const count = await getLowStockCount();
+export async function toolLowStockProducts(viewer: AiToolViewer): Promise<string> {
+  // Phase 4B: the same location scope as the dashboard KPI (Phase 4A, G5) —
+  // OWNER/ADMIN tenant-wide, everyone else only their active assigned
+  // locations, zero locations → 0. Never another location's stock.
+  const count = await getLowStockCountForViewer(viewer);
   if (count === 0) {
     return "Aucun produit n'est actuellement en stock faible.";
   }

@@ -57,6 +57,13 @@ export async function inviteUserAction(formData: FormData): Promise<ActionResult
   if (parsed.data.role === "OWNER" && actor.role !== "OWNER") {
     return actionError("Seul le propriétaire peut inviter un autre propriétaire.");
   }
+  // Phase 4B (docs/adr/0043): STORE_SELLER holds only in-store permissions,
+  // which are inert without the `offlineSales` capability (ADR 0041) — an
+  // ONLINE_ONLY tenant would get a login that can do nothing. Refused here,
+  // not just hidden in the form.
+  if (parsed.data.role === "STORE_SELLER" && !actor.capabilities.has("offlineSales")) {
+    return actionError("Le rôle Vendeur magasin n'est disponible que pour un espace « En ligne + Magasin ».");
+  }
 
   // Invite-time business scope (Phase 2): meaningless for a global role —
   // OWNER/ADMIN bypass UserChannel entirely (docs/adr/0039) — so it is

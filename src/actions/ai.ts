@@ -37,7 +37,7 @@ export async function runAiToolAction(
     };
   }
 
-  const answer = await tool.run();
+  const answer = await tool.run(user);
 
   await recordAuditEvent({
     actorType: "USER",

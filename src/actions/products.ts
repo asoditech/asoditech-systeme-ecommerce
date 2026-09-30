@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
+import { productCostVisibility } from "@/lib/auth/cost-visibility";
+import type { Permission } from "@/lib/auth/permissions";
 import { addBarcodeInTx, assertSkuFreeOfBarcodeAndSiblings, BarcodeError } from "@/lib/catalog/barcodes";
 import { generateAttributeCombinations, attributesKey, suggestVariationSku } from "@/lib/catalog/variations";
 import { ensureDefaultOnlineChannel } from "@/lib/channels";
@@ -45,6 +47,19 @@ function externalSourceError(product: Pick<Product, "source">): string | null {
   if (product.source === "INTERNE") return null;
   const platform = product.source === "WOOCOMMERCE" ? "WooCommerce" : "Shopify";
   return `Ce produit provient de ${platform} — modifiez sa fiche directement sur ${platform}, pas depuis ASODITECH.`;
+}
+
+/**
+ * Phase 4B (docs/adr/0043-product-cost-hardening.md): a purchase cost is
+ * financial data — only a user holding `finance.view` may SET or CHANGE it.
+ * For anyone else the submitted `cost` is ignored: a create stores none, an
+ * update leaves the stored value untouched (never wipes it), so a form that
+ * simply doesn't carry the field can never clear a cost by omission. Actions
+ * whose ONLY purpose is a cost write refuse outright (`requireCostAccess`).
+ */
+const COST_FORBIDDEN = "Non autorisé : le coût d'achat nécessite la permission finance.view.";
+function requireCostAccess(user: { permissions: ReadonlySet<Permission> }): void {
+  if (!productCostVisibility(user).cost) throw new Error(COST_FORBIDDEN);
 }
 
 /** "Chaussures Homme" → "chaussures-homme". Deterministic; collisions are caught by the slug pre-check. */
@@ -134,7 +149,7 @@ export async function createProductAction(formData: FormData): Promise<ActionRes
           categoryId: normalizeOptional(parsed.data.categoryId),
           price: parsed.data.price,
           salePrice: parsed.data.salePrice ?? null,
-          cost: parsed.data.cost ?? null,
+          cost: productCostVisibility(user).cost ? (parsed.data.cost ?? null) : null,
           status: parsed.data.status,
           trackInventory: parsed.data.trackInventory,
           lowStockThreshold: parsed.data.lowStockThreshold,
@@ -245,7 +260,7 @@ export async function updateProductAction(formData: FormData): Promise<ActionRes
         categoryId: normalizeOptional(parsed.data.categoryId),
         price: parsed.data.price,
         salePrice: parsed.data.salePrice ?? null,
-        cost: parsed.data.cost ?? null,
+        ...(productCostVisibility(user).cost ? { cost: parsed.data.cost ?? null } : {}),
         status: parsed.data.status,
         trackInventory: parsed.data.trackInventory,
         lowStockThreshold: parsed.data.lowStockThreshold,
@@ -450,7 +465,7 @@ export async function createProductVariationAction(
           sku: parsed.data.sku,
           attributes: parsed.data.attributes,
           price: parsed.data.price ?? null,
-          cost: parsed.data.cost ?? null,
+          cost: productCostVisibility(user).cost ? (parsed.data.cost ?? null) : null,
         },
       });
 
@@ -634,7 +649,7 @@ export async function updateVariationDetailsAction(formData: FormData): Promise<
   const variation = await prisma.productVariation.update({
     where: { id: parsed.data.id },
     data: {
-      cost: parsed.data.cost ?? null,
+      ...(productCostVisibility(user).cost ? { cost: parsed.data.cost ?? null } : {}),
       salePrice: parsed.data.salePrice ?? null,
       imageUrl: parsed.data.imageUrl || null,
       isActive: parsed.data.isActive,
@@ -825,7 +840,7 @@ export async function updateProductOperationalSettingsAction(formData: FormData)
   const product = await prisma.product.update({
     where: { id: parsed.data.id },
     data: {
-      cost: parsed.data.cost ?? null,
+      ...(productCostVisibility(user).cost ? { cost: parsed.data.cost ?? null } : {}),
       trackInventory: parsed.data.trackInventory,
       lowStockThreshold: parsed.data.lowStockThreshold,
     },
@@ -1037,6 +1052,7 @@ export async function setPrimaryProductImageAction(input: { id: string }): Promi
  */
 export async function updateVariationOperationalSettingsAction(formData: FormData): Promise<ActionResult<IdResult>> {
   const user = await requirePermissionForAction("products.edit");
+  requireCostAccess(user);
 
   const parsed = updateVariationOperationalSettingsSchema.safeParse({
     id: formData.get("id"),
@@ -1148,6 +1164,8 @@ export async function backfillProductCostSnapshotsAction(
   formData: FormData
 ): Promise<ActionResult<{ id: string; updated: number }>> {
   const user = await requirePermissionForAction("products.edit");
+  // Writes purchase costs into historical sale lines — a cost write (Phase 4B).
+  requireCostAccess(user);
 
   const productId = String(formData.get("productId") ?? "");
   if (!productId) return actionError("Produit invalide.");

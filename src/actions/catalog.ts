@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
+import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { requireCapabilityForAction } from "@/lib/auth/capabilities";
 import { recordAuditEvent } from "@/lib/audit";
 import { addBarcode, removeBarcode, setPrimaryBarcode, BarcodeError } from "@/lib/catalog/barcodes";
-import { lookupSellableUnits, type SellableUnit } from "@/lib/catalog/lookup";
+import { lookupSellableUnits, toSellerSafeUnit, type SellableUnit } from "@/lib/catalog/lookup";
 import {
   addBarcodeSchema,
   barcodeIdSchema,
@@ -197,5 +198,10 @@ export async function lookupSellableUnitsAction(input: {
   requireCapabilityForAction(user, "catalogIdentity");
   const parsed = lookupQuerySchema.safeParse(input);
   if (!parsed.success) return [];
-  return lookupSellableUnits(prisma, parsed.data.query, { channelId: parsed.data.channelId ?? null, onlyActive: false });
+  const units = await lookupSellableUnits(prisma, parsed.data.query, { channelId: parsed.data.channelId ?? null, onlyActive: false });
+  // Phase 4B (docs/adr/0043): the purchase cost reaches the browser only for
+  // a `finance.view` holder. Same response shape for everyone — `cost: null`
+  // otherwise — so the reception form simply starts its price field at 0.
+  if (productCostVisibility(user).cost) return units;
+  return units.map((unit) => ({ ...toSellerSafeUnit(unit), cost: null }));
 }

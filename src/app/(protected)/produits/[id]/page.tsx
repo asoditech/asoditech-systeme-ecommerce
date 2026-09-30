@@ -57,7 +57,7 @@ import { isShopifyIntegrationEnabled } from "@/lib/integrations/shopify/feature-
 import { formatCurrency, formatDate, displayReceptionNumber } from "@/lib/format";
 import { PRODUCT_STATUS_LABELS, RECORD_SOURCE_LABELS } from "@/lib/status-labels";
 import { cn } from "@/lib/utils";
-import type { RecordSource } from "@prisma/client";
+import { Prisma, type Product, type RecordSource } from "@prisma/client";
 
 const SOURCE_ICON: Partial<Record<RecordSource, LucideIcon>> = {
   WOOCOMMERCE: Store,
@@ -279,6 +279,11 @@ export default async function ProduitDetailPage({
   // not even fetched otherwise, so it can't reach the page's payload.
   const costVisibility = productCostVisibility(user);
   const canViewPurchases = costVisibility.purchasePrices;
+  // The edit form's product payload: the product's own columns only, never
+  // its relations (Phase 4B — see ProductForm below).
+  const productScalars = Object.fromEntries(
+    Object.values(Prisma.ProductScalarFieldEnum).map((field) => [field, product[field]])
+  ) as Product;
   const isSimpleProduct = product.variations.length === 0;
   const [latestPurchasePrices, purchaseHistory] = await Promise.all([
     canViewPurchases
@@ -664,13 +669,15 @@ export default async function ProduitDetailPage({
                                   variation={{
                                     id: v.id,
                                     sku: v.sku,
-                                    cost: v.cost?.toString() ?? null,
+                                    // Phase 4B: no purchase cost reaches the browser without finance.view.
+                                    cost: costVisibility.cost ? (v.cost?.toString() ?? null) : null,
                                     salePrice: v.salePrice?.toString() ?? null,
                                     imageUrl: v.imageUrl,
                                     isActive: v.isActive,
                                   }}
                                   label={label}
                                   regularPrice={regularPrice.toString()}
+                                  canEditCost={costVisibility.cost}
                                 />
                                 <VariantRemoveButton variationId={v.id} label={label} />
                               </div>
@@ -844,7 +851,8 @@ export default async function ProduitDetailPage({
                   </Card>
                   <OperationalSettingsForm
                     productId={product.id}
-                    cost={product.cost?.toString() ?? null}
+                    cost={costVisibility.cost ? (product.cost?.toString() ?? null) : null}
+                    canEditCost={costVisibility.cost}
                     trackInventory={product.trackInventory}
                     lowStockThreshold={product.lowStockThreshold}
                   />
@@ -862,12 +870,16 @@ export default async function ProduitDetailPage({
                   />
                   <ProductForm
                     product={{
-                      ...product,
+                      // Only the product's own fields — never its relations
+                      // (variations carry their own purchase cost), and the
+                      // cost itself only with finance.view (Phase 4B).
+                      ...productScalars,
                       price: product.price.toString(),
                       salePrice: product.salePrice?.toString() ?? null,
-                      cost: product.cost?.toString() ?? null,
+                      cost: costVisibility.cost ? (product.cost?.toString() ?? null) : null,
                     }}
                     categories={categories}
+                    canEditCost={costVisibility.cost}
                   />
                 </>
               )}
