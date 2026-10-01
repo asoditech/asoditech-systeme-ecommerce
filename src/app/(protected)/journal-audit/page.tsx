@@ -71,7 +71,7 @@ export default async function JournalAuditPage({
           title={hasActiveFilter ? "Aucun évènement ne correspond à ces critères." : "Aucun évènement enregistré."}
         />
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
           <Table>
             <TableHeader>
               <TableRow>

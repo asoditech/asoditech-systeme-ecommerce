@@ -16,10 +16,14 @@
  * strategy renders a live <script> into the React tree, which is exactly
  * what trips that warning under Next 16 (Turbopack) + React 19. See
  * ThemeProvider / useTheme in theme-provider.tsx for the toggle half.
+ *
+ * Light is the product default (Phase 5 visual QA): ASODITECH is a light
+ * SaaS interface, so an OS-level dark preference no longer flips the app
+ * dark on its own — only an explicit toggle (persisted `theme=dark`) does.
  */
 const THEME_INIT_SCRIPT =
   "(function(){try{var t=localStorage.getItem('theme');" +
-  "var d=t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches);" +
+  "var d=t==='dark';" +
   "if(d)document.documentElement.classList.add('dark');" +
   "}catch(e){}})();";
 

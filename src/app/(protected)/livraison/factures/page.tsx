@@ -26,7 +26,7 @@ export default async function FacturesLivraisonPage() {
       {shipments.length === 0 ? (
         <EmptyState icon={FileText} title="Aucune expédition." description="Les factures apparaîtront dès qu'une expédition sera créée." />
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
           <Table className="text-[13px]">
             <TableHeader>
               <TableRow>

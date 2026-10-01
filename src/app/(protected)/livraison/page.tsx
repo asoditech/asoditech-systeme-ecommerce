@@ -213,7 +213,7 @@ export default async function LivraisonPage({
               }
             />
           ) : (
-            <div className="rounded-lg border">
+            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
               <Table className="text-[13px] [&_td]:px-2.5 [&_td]:py-2 [&_th]:px-2.5">
                 <TableHeader>
                   <TableRow>
@@ -435,7 +435,7 @@ export default async function LivraisonPage({
           {providers.length === 0 ? (
             <EmptyState icon={Truck} title="Aucun prestataire de livraison configuré." />
           ) : (
-            <div className="rounded-lg border">
+            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
               <Table>
                 <TableHeader>
                   <TableRow>

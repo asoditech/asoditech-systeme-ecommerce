@@ -556,7 +556,7 @@ export default async function ProduitDetailPage({
 
           {product.description && (
             <Card>
-              <CardHeader className="flex-row items-center gap-2.5 space-y-0">
+              <CardHeader className="flex flex-row items-center gap-2.5 space-y-0">
                 <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
                   <FileText className="size-4" />
                 </div>
@@ -793,7 +793,7 @@ export default async function ProduitDetailPage({
           ) : product.inventoryItems.length === 0 ? (
             <EmptyState icon={Boxes} title="Aucun enregistrement de stock." />
           ) : (
-            <div className="rounded-lg border">
+            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
               <Table>
                 <TableHeader>
                   <TableRow>

@@ -88,7 +88,7 @@ export function TenantModeDialog({ tenantId, tenantName, currentMode }: { tenant
           </p>
         )}
         <DialogFooter>
-          <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={isPending}>
+          <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
             Annuler
           </Button>
           <Button type="button" onClick={save} disabled={isPending || mode === currentMode || Boolean(refusal)}>

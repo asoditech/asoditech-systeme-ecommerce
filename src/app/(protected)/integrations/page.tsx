@@ -78,7 +78,7 @@ export default async function IntegrationsPage() {
             const brand = PLANNED_PROVIDER_BRANDS[provider];
             return (
               <Card key={provider} className="border-dashed bg-muted/20 shadow-none">
-                <CardHeader className="flex-row items-center gap-3 space-y-0">
+                <CardHeader className="flex flex-row items-center gap-3 space-y-0">
                   {brand ? (
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-white p-1.5">
                       <BrandLogo brand={brand} label={label} className="size-full opacity-90" />

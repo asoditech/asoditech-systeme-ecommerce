@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Truck } from "lucide-react";
+import { Truck, Phone } from "lucide-react";
+import { EntityAvatar } from "@/components/entity-avatar";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { DataTablePagination } from "@/components/data-table-pagination";
@@ -32,44 +33,75 @@ export default async function FournisseursPage({ searchParams }: { searchParams:
         <FilterSearchInput placeholder="Nom ou téléphone..." defaultValue={params.q} className="w-64" />
       </div>
       {suppliers.length === 0 ? (
-        <EmptyState icon={Truck} title={params.q ? "Aucun fournisseur ne correspond." : "Aucun fournisseur pour le moment."} />
+        <EmptyState
+          icon={Truck}
+          title={params.q ? "Aucun fournisseur ne correspond." : "Aucun fournisseur pour le moment."}
+          description={
+            params.q
+              ? "Essayez un autre nom ou numéro de téléphone."
+              : canManage
+                ? "Ajoutez votre premier fournisseur pour commencer à enregistrer des réceptions."
+                : undefined
+          }
+        />
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Nom</TableHead>
-                <TableHead>Téléphone</TableHead>
-                <TableHead>Ville</TableHead>
-                <TableHead className="text-right">Réceptions</TableHead>
-                <TableHead>Dernière réception</TableHead>
+                <TableHead>Fournisseur</TableHead>
+                <TableHead className="text-right">Activité</TableHead>
                 <TableHead className="text-right">Reçu</TableHead>
                 <TableHead className="text-right">Payé</TableHead>
                 <TableHead className="text-right">Solde dû</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {suppliers.map((s) => (
-                <TableRow key={s.id}>
-                  <TableCell className="font-medium">
-                    <Link href={`/fournisseurs/${s.id}`} className="hover:underline">
-                      {s.name}
-                    </Link>
-                    {!s.isActive && <Badge variant="secondary" className="ml-2">Inactif</Badge>}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{s.phone ?? "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">{s.city ?? "—"}</TableCell>
-                  <TableCell className="text-right tabular-nums">{s.receptionCount}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {s.lastReceptionDate ? formatDate(s.lastReceptionDate) : "—"}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{formatCurrency(s.totalReceived.toString())}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatCurrency(s.totalPaid.toString())}</TableCell>
-                  <TableCell className={"text-right tabular-nums font-medium " + (s.balance.greaterThan(0) ? "text-destructive" : "")}>
-                    {formatCurrency(s.balance.toString())}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {suppliers.map((s) => {
+                const owes = s.balance.greaterThan(0);
+                return (
+                  <TableRow key={s.id}>
+                    <TableCell className="whitespace-normal">
+                      <Link href={`/fournisseurs/${s.id}`} className="group/row flex items-center gap-3">
+                        <EntityAvatar name={s.name} className="size-9" />
+                        <span className="min-w-0">
+                          <span className="flex items-center gap-2">
+                            <span className="truncate font-medium group-hover/row:underline">{s.name}</span>
+                            {!s.isActive && (
+                              <Badge variant="secondary" className="shrink-0">
+                                Inactif
+                              </Badge>
+                            )}
+                          </span>
+                          <span className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+                            {s.city ?? "Ville non renseignée"}
+                            {s.phone && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <Phone className="size-3" />
+                                {s.phone}
+                              </>
+                            )}
+                          </span>
+                        </span>
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <p className="text-sm tabular-nums">{s.receptionCount} réception{s.receptionCount > 1 ? "s" : ""}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {s.lastReceptionDate ? formatDate(s.lastReceptionDate) : "Aucune réception"}
+                      </p>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{formatCurrency(s.totalReceived.toString())}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatCurrency(s.totalPaid.toString())}</TableCell>
+                    <TableCell className="text-right">
+                      <Badge variant={owes ? "warning" : "success"} className="font-semibold tabular-nums">
+                        {formatCurrency(s.balance.toString())}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
           <DataTablePagination page={page} pageSize={pageSize} total={total} basePath="/fournisseurs" searchParams={{ q: params.q }} />

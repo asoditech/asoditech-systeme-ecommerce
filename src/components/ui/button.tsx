@@ -12,20 +12,26 @@ import { cn } from "@/lib/utils"
  * `loading` for an inline spinner + disabled state.
  */
 const buttonVariants = cva(
-  "group/button relative inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-[background-color,box-shadow,border-color,color,transform] outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/35 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-55 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/25 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button relative inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-[background-color,box-shadow,border-color,color,transform] outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/35 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 disabled:shadow-none aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/25 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
+        // Phase 5 visual QA — every variant must read as a button in its
+        // DEFAULT state (no hover needed) on both the slate-50 page and a
+        // white card. Hierarchy: default (solid brand) > secondary (brand
+        // tint, for contextual "+ Ajouter"-style actions) > outline (white +
+        // real slate-300 border, the neutral workhorse) > ghost (quiet, but
+        // still full-contrast text/icon) > link.
         default:
-          "bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 active:bg-primary/95",
+          "bg-primary text-primary-foreground shadow-sm shadow-primary/25 ring-1 ring-inset ring-black/5 hover:bg-[color-mix(in_oklch,var(--primary),black_8%)] hover:shadow-md hover:shadow-primary/25 active:shadow-sm",
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_6%)] aria-expanded:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_6%)]",
+          "border-primary/25 bg-primary/10 text-accent-foreground hover:border-primary/40 hover:bg-primary/15 aria-expanded:bg-primary/15 dark:text-primary",
         outline:
-          "border-border bg-background hover:bg-accent hover:text-accent-foreground aria-expanded:bg-accent aria-expanded:text-accent-foreground dark:border-input dark:bg-input/25 dark:hover:bg-accent",
+          "border-[color-mix(in_oklch,var(--input),var(--foreground)_12%)] bg-card text-foreground shadow-xs hover:border-primary/45 hover:bg-accent hover:text-accent-foreground aria-expanded:border-primary/45 aria-expanded:bg-accent aria-expanded:text-accent-foreground dark:border-input dark:bg-input/25 dark:hover:bg-accent",
         ghost:
-          "hover:bg-accent hover:text-accent-foreground aria-expanded:bg-accent aria-expanded:text-accent-foreground dark:hover:bg-accent",
+          "text-foreground/80 hover:bg-accent hover:text-accent-foreground aria-expanded:bg-accent aria-expanded:text-accent-foreground dark:hover:bg-accent",
         destructive:
-          "bg-destructive text-white shadow-sm shadow-destructive/25 hover:bg-destructive/90 focus-visible:border-destructive focus-visible:ring-destructive/30",
+          "bg-destructive text-white shadow-sm shadow-destructive/25 hover:bg-[color-mix(in_oklch,var(--destructive),black_8%)] focus-visible:border-destructive focus-visible:ring-destructive/30 dark:bg-[color-mix(in_oklch,var(--destructive),black_35%)] dark:hover:bg-[color-mix(in_oklch,var(--destructive),black_42%)]",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

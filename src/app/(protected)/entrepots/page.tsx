@@ -27,7 +27,7 @@ export default async function EntrepotsPage() {
       {warehouses.length === 0 ? (
         <EmptyState icon={WarehouseIcon} title="Aucun emplacement de stock." />
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
           <Table>
             <TableHeader>
               <TableRow>

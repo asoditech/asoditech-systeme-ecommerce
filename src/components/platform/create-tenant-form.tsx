@@ -7,6 +7,7 @@ import { Plus, Copy } from "lucide-react";
 import { createTenantAction } from "@/actions/tenants";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -106,18 +107,17 @@ export function CreateTenantForm() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="businessMode">Mode d&apos;activité</Label>
-                <select
+                <NativeSelect
                   id="businessMode"
                   name="businessMode"
                   defaultValue="ONLINE_ONLY"
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                 >
                   {BUSINESS_MODES.map((m) => (
                     <option key={m} value={m}>
                       {BUSINESS_MODE_LABELS[m]} — {BUSINESS_MODE_DESCRIPTIONS[m]}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="ownerName">Nom du propriétaire</Label>

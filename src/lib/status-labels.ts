@@ -1,4 +1,4 @@
-type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
+type BadgeVariant = "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info";
 
 interface StatusMeta {
   label: string;
@@ -9,8 +9,8 @@ export const ORDER_STATUS_LABELS: Record<string, StatusMeta> = {
   NOUVELLE: { label: "Nouvelle", variant: "secondary" },
   CONFIRMEE: { label: "Confirmée", variant: "default" },
   EN_PREPARATION: { label: "En préparation", variant: "default" },
-  EXPEDIEE: { label: "Expédiée", variant: "default" },
-  LIVREE: { label: "Livrée", variant: "default" },
+  EXPEDIEE: { label: "Expédiée", variant: "info" },
+  LIVREE: { label: "Livrée", variant: "success" },
   ANNULEE: { label: "Annulée", variant: "outline" },
   RETOUR: { label: "Retour", variant: "destructive" },
   REMBOURSEE: { label: "Remboursée", variant: "outline" },
@@ -19,8 +19,8 @@ export const ORDER_STATUS_LABELS: Record<string, StatusMeta> = {
 
 export const ORDER_PAYMENT_STATUS_LABELS: Record<string, StatusMeta> = {
   EN_ATTENTE: { label: "En attente", variant: "secondary" },
-  PAYE: { label: "Payé", variant: "default" },
-  PARTIELLEMENT_PAYE: { label: "Partiellement payé", variant: "secondary" },
+  PAYE: { label: "Payé", variant: "success" },
+  PARTIELLEMENT_PAYE: { label: "Partiellement payé", variant: "warning" },
   ECHEC: { label: "Échec", variant: "destructive" },
   REMBOURSE: { label: "Remboursé", variant: "outline" },
 };
@@ -45,7 +45,7 @@ export const ORDER_CHANNEL_LABELS: Record<string, string> = {
 };
 
 export const PRODUCT_STATUS_LABELS: Record<string, StatusMeta> = {
-  ACTIF: { label: "Actif", variant: "default" },
+  ACTIF: { label: "Actif", variant: "success" },
   BROUILLON: { label: "Brouillon", variant: "secondary" },
   ARCHIVE: { label: "Archivé", variant: "outline" },
 };
@@ -58,8 +58,8 @@ export const RECORD_SOURCE_LABELS: Record<string, string> = {
 
 export const SHIPMENT_STATUS_LABELS: Record<string, StatusMeta> = {
   EN_ATTENTE: { label: "En attente", variant: "secondary" },
-  EN_TRANSIT: { label: "En transit", variant: "default" },
-  LIVRE: { label: "Livré", variant: "default" },
+  EN_TRANSIT: { label: "En transit", variant: "info" },
+  LIVRE: { label: "Livré", variant: "success" },
   ECHEC: { label: "Échec", variant: "destructive" },
   RETOURNE: { label: "Retourné", variant: "destructive" },
   ANNULE: { label: "Annulé", variant: "outline" },
@@ -73,7 +73,7 @@ export const SHIPPING_PROVIDER_TYPE_LABELS: Record<string, string> = {
 
 export const DELIVERY_MANIFEST_STATUS_LABELS: Record<string, StatusMeta> = {
   BROUILLON: { label: "Brouillon", variant: "secondary" },
-  FINALISE: { label: "Finalisé", variant: "default" },
+  FINALISE: { label: "Finalisé", variant: "success" },
   ECHEC: { label: "Échec", variant: "destructive" },
 };
 
@@ -95,15 +95,15 @@ export const CONFIRMATION_OUTCOME_LABELS: Record<string, string> = {
 
 export const REFUND_STATUS_LABELS: Record<string, StatusMeta> = {
   EN_ATTENTE: { label: "En attente", variant: "secondary" },
-  APPROUVE: { label: "Approuvé", variant: "default" },
+  APPROUVE: { label: "Approuvé", variant: "info" },
   REJETE: { label: "Rejeté", variant: "destructive" },
-  COMPLETE: { label: "Complété", variant: "default" },
+  COMPLETE: { label: "Complété", variant: "success" },
 };
 
 export const CAMPAIGN_STATUS_LABELS: Record<string, StatusMeta> = {
   BROUILLON: { label: "Brouillon", variant: "secondary" },
-  ACTIVE: { label: "Active", variant: "default" },
-  EN_PAUSE: { label: "En pause", variant: "outline" },
+  ACTIVE: { label: "Active", variant: "success" },
+  EN_PAUSE: { label: "En pause", variant: "warning" },
   TERMINEE: { label: "Terminée", variant: "outline" },
 };
 
@@ -128,16 +128,16 @@ export const INTEGRATION_PROVIDER_LABELS: Record<string, string> = {
 
 export const INTEGRATION_STATUS_LABELS: Record<string, StatusMeta> = {
   DECONNECTE: { label: "Non configuré", variant: "secondary" },
-  CONFIGURE: { label: "Configuré (non vérifié)", variant: "outline" },
-  CONNECTE: { label: "Connecté", variant: "default" },
+  CONFIGURE: { label: "Configuré (non vérifié)", variant: "warning" },
+  CONNECTE: { label: "Connecté", variant: "success" },
   ERREUR: { label: "Erreur de connexion", variant: "destructive" },
 };
 
 export const SYNC_RUN_STATUS_LABELS: Record<string, StatusMeta> = {
-  EN_COURS: { label: "En cours", variant: "secondary" },
-  SUCCES: { label: "Succès", variant: "default" },
+  EN_COURS: { label: "En cours", variant: "info" },
+  SUCCES: { label: "Succès", variant: "success" },
   ECHEC: { label: "Échec", variant: "destructive" },
-  PARTIEL: { label: "Partiel", variant: "outline" },
+  PARTIEL: { label: "Partiel", variant: "warning" },
 };
 
 export const USER_ROLE_LABELS: Record<string, string> = {
@@ -153,7 +153,7 @@ export const USER_ROLE_LABELS: Record<string, string> = {
 };
 
 export const USER_STATUS_LABELS: Record<string, StatusMeta> = {
-  ACTIVE: { label: "Actif", variant: "default" },
+  ACTIVE: { label: "Actif", variant: "success" },
   DISABLED: { label: "Désactivé", variant: "secondary" },
 };
 
@@ -182,14 +182,14 @@ export const INVENTORY_MOVEMENT_TYPE_LABELS: Record<string, string> = {
 
 export const TRANSFER_STATUS_LABELS: Record<string, StatusMeta> = {
   BROUILLON: { label: "Brouillon", variant: "secondary" },
-  EN_TRANSIT: { label: "En transit", variant: "default" },
-  RECU: { label: "Reçu", variant: "default" },
+  EN_TRANSIT: { label: "En transit", variant: "info" },
+  RECU: { label: "Reçu", variant: "success" },
   ANNULE: { label: "Annulé", variant: "outline" },
 };
 
 export const STOCKTAKE_STATUS_LABELS: Record<string, StatusMeta> = {
-  EN_COURS: { label: "En cours", variant: "secondary" },
-  CLOTURE: { label: "Clôturé", variant: "default" },
+  EN_COURS: { label: "En cours", variant: "info" },
+  CLOTURE: { label: "Clôturé", variant: "success" },
   ANNULE: { label: "Annulé", variant: "outline" },
 };
 
@@ -220,20 +220,19 @@ export const PLAN_CODE_LABELS: Record<string, string> = {
 };
 
 export const SUBSCRIPTION_STATUS_LABELS: Record<string, StatusMeta> = {
-  TRIALING: { label: "Essai", variant: "secondary" },
-  ACTIVE: { label: "Actif", variant: "default" },
+  TRIALING: { label: "Essai", variant: "info" },
+  ACTIVE: { label: "Actif", variant: "success" },
   PAST_DUE: { label: "Paiement en retard", variant: "destructive" },
   CANCELED: { label: "Résilié", variant: "outline" },
 };
 
 /** NORMAL/WARNING/CRITICAL/LIMIT_REACHED — the four usage states
- * (docs/adr/0035). `Badge` has only two "colored" variants (default =
- * brand orange, destructive = red), so CRITICAL and LIMIT_REACHED share
- * `destructive`; the label text and the client-facing page's emoji
+ * (docs/adr/0035). WARNING uses the amber `warning` pill; CRITICAL and
+ * LIMIT_REACHED share `destructive`; the label text and the client-facing page's emoji
  * indicators (🟢🟠🔴⚫) carry the finer distinction where it matters. */
 export const USAGE_STATUS_LABELS: Record<string, StatusMeta> = {
   NORMAL: { label: "Normal", variant: "secondary" },
-  WARNING: { label: "Approche de la limite", variant: "default" },
+  WARNING: { label: "Approche de la limite", variant: "warning" },
   CRITICAL: { label: "Critique", variant: "destructive" },
   LIMIT_REACHED: { label: "Limite atteinte", variant: "destructive" },
 };
@@ -241,21 +240,21 @@ export const USAGE_STATUS_LABELS: Record<string, StatusMeta> = {
 // Online/Offline unification (docs/adr/0040).
 export const RECEPTION_STATUS_LABELS: Record<
   string,
-  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
+  { label: string; variant: "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" }
 > = {
   BROUILLON: { label: "Brouillon", variant: "secondary" },
-  VALIDEE: { label: "Validée", variant: "default" },
-  ANNULEE: { label: "Annulée", variant: "destructive" },
+  VALIDEE: { label: "Validée", variant: "success" },
+  ANNULEE: { label: "Annulée", variant: "outline" },
 };
 
 /** A validated reception's payment state — docs/adr/0042. Derived (paid vs total), never stored. */
 export const RECEPTION_PAYMENT_STATUS_LABELS: Record<
   string,
-  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
+  { label: string; variant: "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" }
 > = {
   NON_PAYE: { label: "Non payé", variant: "destructive" },
-  PARTIEL: { label: "Partiellement payé", variant: "secondary" },
-  PAYE: { label: "Payé", variant: "default" },
+  PARTIEL: { label: "Partiellement payé", variant: "warning" },
+  PAYE: { label: "Payé", variant: "success" },
 };
 
 export const CASH_PAYMENT_METHOD_LABELS: Record<string, string> = {

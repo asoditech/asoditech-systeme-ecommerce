@@ -156,7 +156,7 @@ export function AwaitingShipmentTable({
         </div>
       )}
 
-      <div className="rounded-lg border">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-card">
         <Table className="text-[13px] [&_td]:px-2.5 [&_td]:py-2 [&_th]:px-2.5">
           <TableHeader>
             <TableRow>

@@ -39,7 +39,7 @@ export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="flex-row items-center justify-between gap-3">
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <BrandTile brand="woocommerce" label="WooCommerce" />
           <div>

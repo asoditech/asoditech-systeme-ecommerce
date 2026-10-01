@@ -3,16 +3,17 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Wallet } from "lucide-react";
 import { recordSupplierPaymentAction, type SupplierPaymentResult } from "@/actions/purchases";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/format";
 import { CASH_PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
 
-const selectClass = "h-9 w-full rounded-md border border-input bg-background px-3 text-sm";
 
 /**
  * Records a payment to a supplier — docs/adr/0042. The user enters only an
@@ -51,37 +52,50 @@ export function SupplierPaymentForm({ supplierId }: { supplierId: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-[15px]">Enregistrer un paiement</CardTitle>
+        <CardTitle>Enregistrer un paiement</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-muted-foreground">
           Indiquez seulement le montant réglé — il est affecté automatiquement aux réceptions impayées les plus
           anciennes de ce fournisseur.
         </p>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="pay-amount">Montant (MAD)</Label>
-            <Input id="pay-amount" type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
+        {/* Fields and the submit share ONE row (aligned on the input
+            baseline) — the action belongs to these three values, it should
+            not float alone on a line of its own underneath them. */}
+        <div className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto]">
+          <Field>
+            <Label htmlFor="pay-amount" required>
+              Montant (MAD)
+            </Label>
+            <Input
+              id="pay-amount"
+              type="number"
+              min="0"
+              step="0.01"
+              className="tabular-nums"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0,00"
+            />
+          </Field>
+          <Field>
             <Label htmlFor="pay-method">Mode</Label>
-            <select id="pay-method" className={selectClass} value={method} onChange={(e) => setMethod(e.target.value)}>
+            <NativeSelect id="pay-method" value={method} onChange={(e) => setMethod(e.target.value)}>
               {Object.entries(CASH_PAYMENT_METHOD_LABELS).map(([k, l]) => (
                 <option key={k} value={k}>
                   {l}
                 </option>
               ))}
-            </select>
-          </div>
-          <div className="space-y-1.5">
+            </NativeSelect>
+          </Field>
+          <Field>
             <Label htmlFor="pay-ref">Référence</Label>
             <Input id="pay-ref" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="N° chèque / virement" />
-          </div>
-          <div className="sm:col-span-3">
-            <Button type="button" onClick={submit} disabled={isPending || !(Number(amount) > 0)}>
-              {isPending ? "Enregistrement..." : "Enregistrer le paiement"}
-            </Button>
-          </div>
+          </Field>
+          <Button type="button" onClick={submit} loading={isPending} disabled={!(Number(amount) > 0)}>
+            {!isPending && <Wallet className="size-4" />}
+            Enregistrer le paiement
+          </Button>
         </div>
 
         {lastResult && (

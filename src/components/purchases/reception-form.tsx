@@ -3,22 +3,25 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Search, Trash2, Plus } from "lucide-react";
+import { Search, Trash2, Plus, PackagePlus } from "lucide-react";
 import { createReceptionAction, updateReceptionDraftAction, getLatestPurchasePriceAction, createSupplierAction } from "@/actions/purchases";
 import { lookupSellableUnitsAction } from "@/actions/catalog";
 import type { SellableUnit } from "@/lib/catalog/lookup";
 import { suggestReceptionReference } from "@/lib/purchases/reception-reference";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { Field, FieldHint, FieldRow } from "@/components/ui/field";
+import { FormActions, FormSection, FormSectionGroup } from "@/components/form-section";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
 import { ProductMetricRow } from "@/components/products/product-metric-row";
 import { formatCurrency, formatDate } from "@/lib/format";
 
-const selectClass = "h-9 w-full rounded-md border border-input bg-background px-3 text-sm";
 
 interface Line {
   key: string;
@@ -204,108 +207,143 @@ export function ReceptionForm({
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader>
-          <CardTitle className="text-[15px]">Réception</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2">
+        <CardHeader className="border-b">
+          <CardTitle>Informations de réception</CardTitle>
           {!reception && (
-            <p className="text-xs text-muted-foreground sm:col-span-2">
-              Une référence interne ASODITECH (ex. REC-000123) sera générée automatiquement à l&apos;enregistrement —
-              elle ne remplace pas le numéro du bon de livraison ou de la facture du fournisseur, ci-dessous.
-            </p>
+            <CardDescription className="text-xs">
+              Une référence interne (ex. REC-000123) est générée à l&apos;enregistrement. Elle complète — sans le
+              remplacer — le numéro du document fournisseur.
+            </CardDescription>
           )}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="rc-sup">Fournisseur</Label>
-              {canCreateSupplier && (
-                <Dialog open={newSupplierOpen} onOpenChange={setNewSupplierOpen}>
-                  <DialogTrigger render={<Button type="button" variant="ghost" size="sm" className="h-6 gap-1 px-1.5 text-xs" />}>
-                    <Plus className="size-3.5" />
-                    Nouveau fournisseur
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Nouveau fournisseur</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="rc-new-sup-name">Nom</Label>
-                      <Input
-                        id="rc-new-sup-name"
-                        autoFocus
-                        value={newSupplierName}
-                        onChange={(e) => setNewSupplierName(e.target.value)}
-                        placeholder="Nom du fournisseur"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Les autres informations (téléphone, adresse, notes…) peuvent être complétées plus tard depuis
-                        la fiche fournisseur.
-                      </p>
-                    </div>
-                    <DialogFooter>
-                      <Button type="button" variant="ghost" onClick={() => setNewSupplierOpen(false)} disabled={creatingSupplier}>
-                        Annuler
-                      </Button>
-                      <Button type="button" onClick={createSupplierInline} disabled={creatingSupplier}>
-                        {creatingSupplier ? "Création..." : "Créer"}
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              )}
-            </div>
-            <select id="rc-sup" className={selectClass} value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
-              <option value="">— Choisir —</option>
-              {supplierList.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="rc-wh">Emplacement de destination</Label>
-            <select id="rc-wh" className={selectClass} value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
-              {warehouses.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name} ({w.type === "MAGASIN" ? "Magasin" : "Entrepôt"})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="rc-date">Date de réception</Label>
-            <Input id="rc-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="rc-ref">N° bon de livraison / facture fournisseur</Label>
-            <Input
-              id="rc-ref"
-              value={supplierReference}
-              onChange={(e) => {
-                setReferenceTouched(true);
-                setSupplierReference(e.target.value);
-              }}
-            />
-            <p className="text-xs text-muted-foreground">
-              Le numéro du bon de livraison ou de la facture du fournisseur — reportez-le depuis leur document. Une
-              valeur est pré-remplie pour vous faire gagner du temps ; remplacez-la par le vrai numéro dès que vous
-              l&apos;avez.
-            </p>
-          </div>
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label htmlFor="rc-notes">Notes</Label>
-            <Input id="rc-notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </div>
+        </CardHeader>
+        <CardContent>
+          <FormSectionGroup>
+            <FormSection title="Provenance & destination">
+              <FieldRow>
+                <Field>
+                  <Label htmlFor="rc-sup" required>
+                    Fournisseur
+                  </Label>
+                  {/* The quick-create sits ON the field's row, attached to the
+                      select — the action is visibly "add a supplier to THIS
+                      list", not a stray link floating above the label. */}
+                  <div className="flex gap-2">
+                    <NativeSelect id="rc-sup" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
+                      <option value="">Sélectionner un fournisseur…</option>
+                      {supplierList.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                    {canCreateSupplier && (
+                      <Dialog open={newSupplierOpen} onOpenChange={setNewSupplierOpen}>
+                        <DialogTrigger
+                          render={<Button type="button" variant="secondary" className="shrink-0" title="Créer un nouveau fournisseur" />}
+                        >
+                          <Plus className="size-4" />
+                          Ajouter
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Nouveau fournisseur</DialogTitle>
+                            <DialogDescription>
+                              Créé immédiatement et sélectionné pour cette réception. Téléphone, adresse et notes se
+                              complètent plus tard depuis la fiche fournisseur.
+                            </DialogDescription>
+                          </DialogHeader>
+                          <Field>
+                            <Label htmlFor="rc-new-sup-name" required>
+                              Nom du fournisseur
+                            </Label>
+                            <Input
+                              id="rc-new-sup-name"
+                              autoFocus
+                              value={newSupplierName}
+                              onChange={(e) => setNewSupplierName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  createSupplierInline();
+                                }
+                              }}
+                              placeholder="Ex. Atlas Distribution"
+                            />
+                          </Field>
+                          <DialogFooter>
+                            <Button type="button" variant="outline" onClick={() => setNewSupplierOpen(false)} disabled={creatingSupplier}>
+                              Annuler
+                            </Button>
+                            <Button type="button" onClick={createSupplierInline} loading={creatingSupplier}>
+                              <Plus className="size-4" />
+                              Créer le fournisseur
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                    )}
+                  </div>
+                </Field>
+                <Field>
+                  <Label htmlFor="rc-wh" required>
+                    Emplacement de destination
+                  </Label>
+                  <NativeSelect id="rc-wh" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
+                    {warehouses.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name} ({w.type === "MAGASIN" ? "Magasin" : "Entrepôt"})
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+              </FieldRow>
+            </FormSection>
+
+            <FormSection title="Document fournisseur">
+              <FieldRow>
+                <Field>
+                  <Label htmlFor="rc-ref">N° bon de livraison / facture</Label>
+                  <Input
+                    id="rc-ref"
+                    value={supplierReference}
+                    onChange={(e) => {
+                      setReferenceTouched(true);
+                      setSupplierReference(e.target.value);
+                    }}
+                  />
+                  <FieldHint>Pré-rempli pour gagner du temps — remplacez-le par le numéro du document fournisseur.</FieldHint>
+                </Field>
+                <Field>
+                  <Label htmlFor="rc-date" required>
+                    Date de réception
+                  </Label>
+                  <Input id="rc-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                </Field>
+              </FieldRow>
+              <Field>
+                <Label htmlFor="rc-notes">Notes</Label>
+                <Textarea
+                  id="rc-notes"
+                  rows={2}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Remarques internes : état de la livraison, colis manquant…"
+                />
+              </Field>
+            </FormSection>
+          </FormSectionGroup>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-[15px]">Articles reçus</CardTitle>
+        <CardHeader className="border-b">
+          <CardTitle>Articles reçus</CardTitle>
+          <CardDescription className="text-xs">Scannez un code-barres ou recherchez par référence / nom.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex max-w-xl flex-col gap-2 sm:flex-row">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Input
+              className="sm:flex-1"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Scanner un code-barres, ou saisir référence / nom…"
@@ -317,17 +355,17 @@ export function ReceptionForm({
                 }
               }}
             />
-            <Button type="button" variant="outline" onClick={() => void search()} disabled={searching}>
-              <Search className="size-4" />
+            <Button type="button" variant="outline" onClick={() => void search()} loading={searching}>
+              {!searching && <Search className="size-4" />}
               Chercher
             </Button>
             <BarcodeScanButton onDetect={onCameraDetect} label="Caméra" />
           </div>
           {hits.length > 0 && (
-            <ul className="max-w-xl divide-y rounded-md border text-sm">
+            <ul className="divide-y overflow-hidden rounded-lg border bg-card text-sm shadow-popover">
               {hits.map((u) => (
                 <li key={`${u.productId}-${u.variationId}`}>
-                  <button type="button" className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-muted/50" onClick={() => add(u)}>
+                  <button type="button" className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left outline-none hover:bg-accent focus-visible:bg-accent" onClick={() => add(u)}>
                     <span>
                       {u.name}
                       {u.variantLabel && <span className="text-muted-foreground"> — {u.variantLabel}</span>}
@@ -339,13 +377,19 @@ export function ReceptionForm({
             </ul>
           )}
 
+          {lines.length === 0 && (
+            <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed bg-muted/30 px-4 py-8 text-sm text-muted-foreground">
+              <PackagePlus className="size-4" />
+              Aucun article pour l&apos;instant — ajoutez la marchandise reçue ci-dessus.
+            </div>
+          )}
           {lines.length > 0 && (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Article</TableHead>
                   <TableHead className="w-28">Quantité</TableHead>
-                  <TableHead className="w-36">Prix d&apos;achat</TableHead>
+                  <TableHead className="w-44">Prix d&apos;achat</TableHead>
                   <TableHead className="w-32 text-right">Total</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
@@ -357,20 +401,20 @@ export function ReceptionForm({
                       <ProductMetricRow name={l.label} sku={l.sku} />
                     </TableCell>
                     <TableCell>
-                      <Input type="number" min={1} value={l.quantity} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, quantity: Math.max(1, Number(e.target.value) || 1) } : x)))} />
+                      <Input type="number" min={1} className="w-24 tabular-nums" aria-label={`Quantité — ${l.label}`} value={l.quantity} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, quantity: Math.max(1, Number(e.target.value) || 1) } : x)))} />
                     </TableCell>
                     <TableCell>
-                      <Input type="number" min={0} step="0.01" value={l.unitCost} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, unitCost: Math.max(0, Number(e.target.value) || 0) } : x)))} />
+                      <Input type="number" min={0} step="0.01" className="w-36 tabular-nums" aria-label={`Prix d'achat — ${l.label}`} value={l.unitCost} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, unitCost: Math.max(0, Number(e.target.value) || 0) } : x)))} />
                       {l.lastPurchase && (
-                        <p className="mt-1 text-xs text-muted-foreground">
+                        <p className="mt-1 w-44 text-[11px] leading-snug whitespace-normal text-muted-foreground">
                           Dernier achat : {formatCurrency(String(l.lastPurchase.unitCost))} chez {l.lastPurchase.supplierName} le{" "}
                           {formatDate(l.lastPurchase.date)}
                         </p>
                       )}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">{formatCurrency(String(l.quantity * l.unitCost))}</TableCell>
+                    <TableCell className="text-right font-semibold tabular-nums">{formatCurrency(String(l.quantity * l.unitCost))}</TableCell>
                     <TableCell>
-                      <Button type="button" variant="ghost" size="icon" aria-label="Retirer la ligne" onClick={() => setLines((p) => p.filter((x) => x.key !== l.key))}>
+                      <Button type="button" variant="ghost" size="icon-sm" className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label="Retirer la ligne" title="Retirer la ligne" onClick={() => setLines((p) => p.filter((x) => x.key !== l.key))}>
                         <Trash2 className="size-4" />
                       </Button>
                     </TableCell>
@@ -379,21 +423,27 @@ export function ReceptionForm({
               </TableBody>
             </Table>
           )}
-          <div className="flex items-center justify-between border-t pt-3">
-            <span className="text-sm text-muted-foreground">Le stock n&apos;est ajouté qu&apos;à la validation de la réception.</span>
-            <span className="text-lg font-semibold tabular-nums">{formatCurrency(String(total))}</span>
-          </div>
         </CardContent>
       </Card>
 
-      <div className="flex justify-end gap-2">
+      <FormActions
+        context={
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+            <span>
+              <span className="font-semibold text-foreground tabular-nums">{lines.length}</span> ligne(s) · Total{" "}
+              <span className="text-base font-semibold text-foreground tabular-nums">{formatCurrency(String(total))}</span>
+            </span>
+            <span className="text-xs">Le stock n&apos;est ajouté qu&apos;à la validation.</span>
+          </div>
+        }
+      >
         <Button type="button" variant="outline" onClick={() => router.back()}>
           Annuler
         </Button>
-        <Button type="button" onClick={submit} disabled={isPending}>
-          {isPending ? "Enregistrement..." : reception ? "Enregistrer le brouillon" : "Créer le brouillon"}
+        <Button type="button" onClick={submit} loading={isPending}>
+          {reception ? "Enregistrer le brouillon" : "Créer le brouillon"}
         </Button>
-      </div>
+      </FormActions>
     </div>
   );
 }

@@ -13,6 +13,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
+import { Field, FieldError, FieldHint } from "@/components/ui/field";
+import { FormActions, FormSection, FormSectionGroup } from "@/components/form-section";
+import { ProductThumb } from "@/components/products/product-thumb";
+import { Globe, Plus, Store } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { PRODUCT_STATUS_LABELS } from "@/lib/status-labels";
 import type { Product, Category } from "@prisma/client";
 import type { ActionResult, IdResult } from "@/actions/types";
@@ -73,6 +78,7 @@ export function ProductForm({
   const [categoryId, setCategoryId] = useState<string>(product?.categoryId ?? "");
   const [newCategory, setNewCategory] = useState("");
   const [creatingCategory, setCreatingCategory] = useState(false);
+  const [newCategoryOpen, setNewCategoryOpen] = useState(false);
   // Create mode only (Batch 3, Task 2) — edit already has its own image card
   // (ProductImageForm) once the product exists.
   const [imagePreview, setImagePreview] = useState("");
@@ -103,6 +109,7 @@ export function ProductForm({
       setCategories((prev) => [...prev, result.data].sort((a, b) => a.name.localeCompare(b.name)));
       setCategoryId(result.data.id);
       setNewCategory("");
+      setNewCategoryOpen(false);
       toast.success("Catégorie créée.");
     } else {
       toast.error(result.error);
@@ -126,218 +133,321 @@ export function ProductForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
+  const identityCodes = !product && identityEnabled;
+  const skuField = (
+    <Field>
+      <Label htmlFor="sku" required>
+        SKU
+      </Label>
+      <Input
+        id="sku"
+        name="sku"
+        required
+        defaultValue={product?.sku}
+        className="font-mono"
+        aria-invalid={Boolean(state && !state.ok && state.fieldErrors?.sku) || undefined}
+      />
+      <FieldError>{state && !state.ok ? state.fieldErrors?.sku?.[0] : undefined}</FieldError>
+    </Field>
+  );
+
   return (
-    <Card>
-      <CardContent className="pt-6">
-        <form action={formAction} className="space-y-4">
-          {product && <input type="hidden" name="id" value={product.id} />}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="name">Nom du produit</Label>
-              <Input id="name" name="name" required defaultValue={product?.name} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="sku">SKU</Label>
-              <Input id="sku" name="sku" required defaultValue={product?.sku} />
-              {state && !state.ok && state.fieldErrors?.sku && (
-                <p className="text-xs text-destructive">{state.fieldErrors.sku[0]}</p>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="categoryId">Catégorie</Label>
-              <Select name="categoryId" value={categoryId} onValueChange={(v) => setCategoryId(v ?? "")}>
-                <SelectTrigger id="categoryId" className="w-full">
-                  <SelectValue placeholder="Aucune catégorie">
-                    {(value: string) => categories.find((c) => c.id === value)?.name ?? "Aucune catégorie"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {!product && identityEnabled && (
-                <div className="flex gap-2 pt-1">
-                  <Input
-                    value={newCategory}
-                    onChange={(e) => setNewCategory(e.target.value)}
-                    placeholder="Nouvelle catégorie…"
-                    aria-label="Nouvelle catégorie"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void handleCreateCategory();
-                      }
-                    }}
-                  />
-                  <Button type="button" variant="outline" disabled={creatingCategory} onClick={handleCreateCategory}>
-                    Créer
-                  </Button>
-                </div>
-              )}
-            </div>
-            {!product && identityEnabled && (
-              <>
-                <div className="space-y-1.5">
-                  <Label htmlFor="reference">Référence du modèle (optionnel)</Label>
-                  <Input id="reference" name="reference" placeholder="ex. SKOUBA" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="barcode">Code-barres (optionnel)</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="barcode"
-                      name="barcode"
-                      placeholder="Scanner ou saisir le code"
-                      autoComplete="off"
-                      value={barcode}
-                      onChange={(e) => setBarcode(e.target.value)}
-                      className="flex-1"
-                    />
-                    <BarcodeScanButton onDetect={setBarcode} label="Caméra" />
-                  </div>
-                  {state && !state.ok && state.fieldErrors?.barcode && (
-                    <p className="text-xs text-destructive">{state.fieldErrors.barcode[0]}</p>
-                  )}
-                </div>
-              </>
-            )}
-            <div className="space-y-1.5">
-              <Label htmlFor="price">Prix de vente (MAD)</Label>
-              <Input id="price" name="price" type="number" step="0.01" min="0" required defaultValue={product?.price} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="salePrice">Prix promotionnel (MAD)</Label>
-              <Input id="salePrice" name="salePrice" type="number" step="0.01" min="0" defaultValue={product?.salePrice ?? ""} />
-            </div>
-            {canEditCost && (
-              <div className="space-y-1.5">
-                <Label htmlFor="cost">Coût d&apos;achat (MAD)</Label>
-                <Input id="cost" name="cost" type="number" step="0.01" min="0" defaultValue={product?.cost ?? ""} />
+    <form action={formAction} className="space-y-4">
+      {product && <input type="hidden" name="id" value={product.id} />}
+      <Card>
+        <CardContent>
+          <FormSectionGroup>
+            <FormSection title="Identité">
+              <Field>
+                <Label htmlFor="name" required>
+                  Nom du produit
+                </Label>
+                <Input id="name" name="name" required defaultValue={product?.name} placeholder="Ex. T-shirt coton col rond" />
+              </Field>
+              {/* Classification (catégorie + statut) and codes (SKU,
+                  référence, code-barres) each read as one coherent row.
+                  Without the identity fields, SKU joins the classification
+                  row instead of sitting alone. */}
+              <div className={cn("grid gap-4", identityCodes ? "sm:grid-cols-2" : "sm:grid-cols-3")}>
+                {!identityCodes && skuField}
+                {renderCategoryField()}
+                <Field>
+                  <Label htmlFor="status">Statut</Label>
+                  <Select name="status" defaultValue={product?.status ?? "BROUILLON"}>
+                    <SelectTrigger id="status" className="w-full">
+                      <SelectValue>{(value: string) => PRODUCT_STATUS_LABELS[value]?.label ?? value}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(PRODUCT_STATUS_LABELS).map(([value, meta]) => (
+                        <SelectItem key={value} value={value}>
+                          {meta.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
               </div>
-            )}
-            <div className="space-y-1.5">
-              <Label htmlFor="status">Statut</Label>
-              <Select name="status" defaultValue={product?.status ?? "BROUILLON"}>
-                <SelectTrigger id="status" className="w-full">
-                  <SelectValue>{(value: string) => PRODUCT_STATUS_LABELS[value]?.label ?? value}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(PRODUCT_STATUS_LABELS).map(([value, meta]) => (
-                    <SelectItem key={value} value={value}>
-                      {meta.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="lowStockThreshold">Seuil de stock faible</Label>
-              <Input
-                id="lowStockThreshold"
-                name="lowStockThreshold"
-                type="number"
-                min="0"
-                defaultValue={product?.lowStockThreshold ?? defaultLowStockThreshold}
-              />
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox id="trackInventory" name="trackInventory" defaultChecked={product?.trackInventory ?? true} />
-            <Label htmlFor="trackInventory" className="font-normal">
-              Suivre le stock pour ce produit
-            </Label>
-          </div>
-          {!product && channels.length > 0 && (
-            <div className="space-y-2 rounded-lg border p-3">
-              <input type="hidden" name="channelsSubmitted" value="1" />
-              <Label>Canaux de vente</Label>
-              <p className="text-xs text-muted-foreground">
-                Où ce produit peut être vendu. Le stock reste physique, par emplacement — il n&apos;est pas dupliqué par canal.
-              </p>
-              {channels.map((c) => (
-                <label key={c.id} className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    name="salesChannelIds"
-                    value={c.id}
-                    checked={checkedChannels.has(c.id)}
-                    onCheckedChange={(checked) =>
-                      setCheckedChannels((prev) => {
-                        const next = new Set(prev);
-                        if (checked) next.add(c.id);
-                        else next.delete(c.id);
-                        return next;
-                      })
-                    }
-                  />
-                  {c.name}
-                  <span className="text-xs text-muted-foreground">{c.kind === "ONLINE" ? "En ligne" : "Magasin"}</span>
-                </label>
-              ))}
-            </div>
-          )}
-          {!product && (
-            <div className="space-y-1.5">
-              <Label htmlFor="imageUrl">Lien de l&apos;image (optionnel)</Label>
-              <div className="flex items-end gap-3">
-                <Input
-                  id="imageUrl"
-                  name="imageUrl"
-                  type="url"
-                  placeholder="https://…"
-                  className="flex-1"
-                  onChange={(e) => setImagePreview(e.target.value)}
-                />
-                {imagePreview && (
-                  // eslint-disable-next-line @next/next/no-img-element -- arbitrary externally-hosted URL, can't be allow-listed for next/image
-                  <img
-                    src={imagePreview}
-                    alt=""
-                    className="size-16 shrink-0 rounded border object-cover"
-                    onError={(e) => (e.currentTarget.style.visibility = "hidden")}
-                    onLoad={(e) => (e.currentTarget.style.visibility = "visible")}
-                  />
+              {identityCodes && (
+                <div className="grid gap-4 sm:grid-cols-3">
+                  {skuField}
+                  <Field>
+                    <Label htmlFor="reference">Référence du modèle</Label>
+                    <Input id="reference" name="reference" placeholder="Ex. SKOUBA" />
+                  </Field>
+                  <Field>
+                    <Label htmlFor="barcode">Code-barres</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="barcode"
+                        name="barcode"
+                        placeholder="Scanner ou saisir"
+                        autoComplete="off"
+                        value={barcode}
+                        onChange={(e) => setBarcode(e.target.value)}
+                        className="flex-1 font-mono"
+                        aria-invalid={Boolean(state && !state.ok && state.fieldErrors?.barcode) || undefined}
+                      />
+                      <BarcodeScanButton onDetect={setBarcode} label="" />
+                    </div>
+                    <FieldError>{state && !state.ok ? state.fieldErrors?.barcode?.[0] : undefined}</FieldError>
+                  </Field>
+                </div>
+              )}
+            </FormSection>
+
+            <FormSection
+              title="Prix"
+              description={
+                canEditCost ? "Montants en dirhams. Le coût d'achat sert au calcul de la marge et du bénéfice." : "Montants en dirhams."
+              }
+            >
+              <div className={cn("grid gap-4", canEditCost ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+                <Field>
+                  <Label htmlFor="price" required>
+                    Prix de vente
+                  </Label>
+                  <MoneyInput id="price" name="price" required defaultValue={product?.price} />
+                </Field>
+                <Field>
+                  <Label htmlFor="salePrice">Prix promotionnel</Label>
+                  <MoneyInput id="salePrice" name="salePrice" defaultValue={product?.salePrice ?? ""} />
+                </Field>
+                {canEditCost && (
+                  <Field>
+                    <Label htmlFor="cost">Coût d&apos;achat</Label>
+                    <MoneyInput id="cost" name="cost" defaultValue={product?.cost ?? ""} />
+                  </Field>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground">
-                Collez le lien d&apos;une image déjà hébergée ailleurs (aucun stockage de fichiers ici) — modifiable
-                plus tard depuis la fiche produit.
-              </p>
-              {state && !state.ok && state.fieldErrors?.imageUrl && (
-                <p className="text-xs text-destructive">{state.fieldErrors.imageUrl[0]}</p>
+            </FormSection>
+
+            <FormSection title="Stock">
+              <div className="grid items-start gap-4 sm:grid-cols-2">
+                <label
+                  htmlFor="trackInventory"
+                  className="flex cursor-pointer items-start gap-3 rounded-lg border bg-muted/30 p-3 transition-colors hover:border-primary/40"
+                >
+                  <Checkbox id="trackInventory" name="trackInventory" defaultChecked={product?.trackInventory ?? true} className="mt-0.5" />
+                  <span>
+                    <span className="block text-sm font-medium">Suivre le stock</span>
+                    <span className="block text-xs text-muted-foreground">Quantités par emplacement, alertes de stock faible.</span>
+                  </span>
+                </label>
+                <Field>
+                  <Label htmlFor="lowStockThreshold">Seuil de stock faible</Label>
+                  <Input
+                    id="lowStockThreshold"
+                    name="lowStockThreshold"
+                    type="number"
+                    min="0"
+                    className="tabular-nums"
+                    defaultValue={product?.lowStockThreshold ?? defaultLowStockThreshold}
+                  />
+                  <FieldHint>Alerte quand le stock disponible atteint ce niveau.</FieldHint>
+                </Field>
+              </div>
+            </FormSection>
+
+            {!product && channels.length > 0 && (
+              <FormSection
+                title="Canaux de vente"
+                description="Où ce produit peut être vendu. Le stock reste physique, par emplacement — il n'est pas dupliqué par canal."
+              >
+                <input type="hidden" name="channelsSubmitted" value="1" />
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {channels.map((c) => {
+                    const Icon = c.kind === "ONLINE" ? Globe : Store;
+                    const checked = checkedChannels.has(c.id);
+                    return (
+                      <label
+                        key={c.id}
+                        className={cn(
+                          "flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm transition-colors hover:border-primary/40",
+                          checked && "border-primary/40 bg-accent/60"
+                        )}
+                      >
+                        <Checkbox
+                          name="salesChannelIds"
+                          value={c.id}
+                          checked={checked}
+                          onCheckedChange={(next) =>
+                            setCheckedChannels((prev) => {
+                              const set = new Set(prev);
+                              if (next) set.add(c.id);
+                              else set.delete(c.id);
+                              return set;
+                            })
+                          }
+                        />
+                        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                          <Icon className="size-3.5" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium">{c.name}</span>
+                          <span className="block text-xs text-muted-foreground">{c.kind === "ONLINE" ? "En ligne" : "Magasin"}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </FormSection>
+            )}
+
+            <FormSection title={product ? "Description" : "Image & description"}>
+              {!product && (
+                <Field>
+                  <Label htmlFor="imageUrl">Lien de l&apos;image</Label>
+                  <div className="flex items-center gap-3">
+                    <ProductThumb imageUrl={imagePreview || null} className="size-9" />
+                    <Input
+                      id="imageUrl"
+                      name="imageUrl"
+                      type="url"
+                      placeholder="https://…"
+                      className="flex-1"
+                      onChange={(e) => setImagePreview(e.target.value)}
+                      aria-invalid={Boolean(state && !state.ok && state.fieldErrors?.imageUrl) || undefined}
+                    />
+                  </div>
+                  <FieldHint>Lien d&apos;une image déjà hébergée ailleurs — modifiable plus tard depuis la fiche produit.</FieldHint>
+                  <FieldError>{state && !state.ok ? state.fieldErrors?.imageUrl?.[0] : undefined}</FieldError>
+                </Field>
               )}
-            </div>
-          )}
-          {!product && (
-            <div className="space-y-2 rounded-lg border p-3">
-              <label className="flex items-center gap-2 text-sm font-medium">
-                <Checkbox checked={hasVariants} onCheckedChange={(checked) => setHasVariants(checked === true)} />
-                Ce produit possède des variantes (couleurs, tailles…)
-              </label>
-              <p className="text-xs text-muted-foreground">
-                Cochez pour un produit vendu en plusieurs tailles/couleurs (ex. un t-shirt). Le produit se crée
-                d&apos;abord normalement — vous définirez ensuite les variantes (couleur, taille…) sur l&apos;écran
-                suivant, qui s&apos;ouvrira directement dessus.
-              </p>
-            </div>
-          )}
-          <div className="space-y-1.5">
-            <Label htmlFor="description">Description</Label>
-            <Textarea id="description" name="description" rows={4} defaultValue={product?.description ?? ""} />
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => router.back()}>
-              Annuler
+              <Field>
+                <Label htmlFor="description">Description</Label>
+                <Textarea
+                  id="description"
+                  name="description"
+                  rows={4}
+                  defaultValue={product?.description ?? ""}
+                  placeholder="Matière, dimensions, conseils d'entretien…"
+                />
+              </Field>
+            </FormSection>
+
+            {!product && (
+              <FormSection title="Variantes">
+                <label
+                  className={cn(
+                    "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:border-primary/40",
+                    hasVariants && "border-primary/40 bg-accent/60"
+                  )}
+                >
+                  <Checkbox checked={hasVariants} onCheckedChange={(checked) => setHasVariants(checked === true)} className="mt-0.5" />
+                  <span>
+                    <span className="block text-sm font-medium">Ce produit possède des variantes (couleurs, tailles…)</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Le produit se crée d&apos;abord normalement — l&apos;écran suivant s&apos;ouvre directement sur la
+                      définition des variantes.
+                    </span>
+                  </span>
+                </label>
+              </FormSection>
+            )}
+          </FormSectionGroup>
+        </CardContent>
+      </Card>
+
+      <FormActions
+        context={!product && hasVariants ? "Étape suivante : définition des variantes." : "Les champs marqués * sont obligatoires."}
+      >
+        <Button type="button" variant="outline" onClick={() => router.back()}>
+          Annuler
+        </Button>
+        <Button type="submit" loading={isPending}>
+          {product ? "Enregistrer" : hasVariants ? "Créer et définir les variantes" : "Créer le produit"}
+        </Button>
+      </FormActions>
+    </form>
+  );
+
+  // Rendered at one of two grid positions depending on whether the identity
+  // fields (reference/barcode) are shown — a plain closure, not a component
+  // defined at module level, because it reads this form's own local state.
+  function renderCategoryField() {
+    return (
+      <Field>
+        <Label htmlFor="categoryId">Catégorie</Label>
+        <div className="flex gap-2">
+          <Select name="categoryId" value={categoryId} onValueChange={(v) => setCategoryId(v ?? "")}>
+            <SelectTrigger id="categoryId" className="w-full min-w-0 flex-1">
+              <SelectValue placeholder="Aucune catégorie">
+                {(value: string) => categories.find((c) => c.id === value)?.name ?? "Aucune catégorie"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {categories.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {!product && identityEnabled && (
+            <Button
+              type="button"
+              variant="secondary"
+              className="shrink-0"
+              aria-expanded={newCategoryOpen}
+              onClick={() => setNewCategoryOpen((o) => !o)}
+            >
+              <Plus className="size-4" />
+              Nouvelle
             </Button>
-            <Button type="submit" disabled={isPending}>
-              {isPending ? "Enregistrement..." : product ? "Enregistrer" : "Créer le produit"}
+          )}
+        </div>
+        {!product && identityEnabled && newCategoryOpen && (
+          <div className="flex gap-2 rounded-lg border border-primary/25 bg-accent/50 p-2">
+            <Input
+              autoFocus
+              value={newCategory}
+              onChange={(e) => setNewCategory(e.target.value)}
+              placeholder="Nom de la nouvelle catégorie"
+              aria-label="Nouvelle catégorie"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handleCreateCategory();
+                }
+                if (e.key === "Escape") setNewCategoryOpen(false);
+              }}
+            />
+            <Button type="button" loading={creatingCategory} onClick={handleCreateCategory}>
+              Créer
             </Button>
           </div>
-        </form>
-      </CardContent>
-    </Card>
+        )}
+      </Field>
+    );
+  }
+}
+
+/** A number input with a trailing currency unit, so the label doesn't have to carry "(MAD)". */
+function MoneyInput(props: React.ComponentProps<typeof Input>) {
+  return (
+    <div className="relative">
+      <Input type="number" step="0.01" min="0" placeholder="0,00" {...props} className="pr-12 tabular-nums" />
+      <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs font-medium text-muted-foreground">MAD</span>
+    </div>
   );
 }

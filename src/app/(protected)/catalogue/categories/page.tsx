@@ -59,7 +59,7 @@ export default async function CategoriesPage({
           description={!q && canCreate ? "Créez votre première catégorie pour organiser le catalogue." : undefined}
         />
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
           <Table>
             <TableHeader>
               <TableRow>

@@ -1,4 +1,6 @@
 import { PageHeader } from "@/components/page-header";
+import { CommandHero } from "@/components/dashboard/command-hero";
+import { ShoppingCart, ShoppingBag, Package, PhoneCall, Truck, RotateCcw } from "lucide-react";
 import { KpiCard } from "@/components/kpi-card";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,20 +49,34 @@ export default async function RapportVentesPage({
       />
       <ReportFilterBar basePath="/rapports/ventes" resolved={resolved} exportHref={exportHref} />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Chiffre d'affaires" value={formatCurrency(current.revenue)} tone="primary"
-          trend={trendFromDelta(deltas.revenue)} hint={`${formatCurrency(previous.revenue)} période préc.`} />
-        <KpiCard label="Commandes" value={String(current.ordersCount)} tone="info"
-          trend={trendFromDelta(deltas.ordersCount)} hint={`${previous.ordersCount} période préc.`} />
-        <KpiCard label="Panier moyen" value={current.avgOrderValue !== null ? formatCurrency(current.avgOrderValue) : null}
-          tone="violet" trend={trendFromDelta(deltas.avgOrderValue)} />
-        <KpiCard label="Articles vendus" value={String(current.unitsSold)} tone="primary"
-          trend={trendFromDelta(deltas.unitsSold)} />
-        <KpiCard label="Taux de confirmation" value={pct(current.confirmationRate)} tone="success"
+      {/* Report storytelling (Phase 5): the primary result first — revenue
+          with its trend and the volume figures behind it — then the three
+          funnel-quality rates as one row, then the chart, breakdowns and
+          detail. Same figures as before, nothing added or recomputed. */}
+      <CommandHero
+        eyebrow={`Résultat · ${resolved.label}`}
+        label="Chiffre d'affaires"
+        value={formatCurrency(current.revenue)}
+        hint={`${formatCurrency(previous.revenue)} sur la période précédente`}
+        trend={trendFromDelta(deltas.revenue)}
+        sparklineData={report.series.map((d) => ({ value: d.revenue }))}
+        stats={[
+          { label: "Commandes", value: String(current.ordersCount), icon: ShoppingCart },
+          {
+            label: "Panier moyen",
+            value: current.avgOrderValue !== null ? formatCurrency(current.avgOrderValue) : "—",
+            icon: ShoppingBag,
+          },
+          { label: "Articles vendus", value: String(current.unitsSold), icon: Package },
+        ]}
+      />
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        <KpiCard label="Taux de confirmation" value={pct(current.confirmationRate)} tone="info" icon={PhoneCall}
           trend={trendFromDelta(deltas.confirmationRate)} />
-        <KpiCard label="Taux de livraison" value={pct(current.deliveryRate)} tone="success"
+        <KpiCard label="Taux de livraison" value={pct(current.deliveryRate)} tone="success" icon={Truck}
           trend={trendFromDelta(deltas.deliveryRate)} />
-        <KpiCard label="Taux de retour" value={pct(current.returnRate)} tone="warning"
+        <KpiCard label="Taux de retour" value={pct(current.returnRate)} tone="warning" icon={RotateCcw}
           trend={trendFromDelta(deltas.returnRate, { invert: true })} />
       </div>
 

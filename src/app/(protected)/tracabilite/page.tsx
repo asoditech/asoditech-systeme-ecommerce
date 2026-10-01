@@ -70,7 +70,7 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
       {trace && (
         <>
           <Card>
-            <CardHeader className="flex-row flex-wrap items-center gap-3 space-y-0">
+            <CardHeader className="flex flex-row flex-wrap items-center gap-3 space-y-0">
               <CardTitle className="text-lg">{trace.identity.name}</CardTitle>
               {trace.identity.variantAttributes && <Badge variant="secondary">{variantLabel(trace.identity.variantAttributes)}</Badge>}
               {trace.identity.reference && <Badge variant="outline">Réf. modèle {trace.identity.reference}</Badge>}

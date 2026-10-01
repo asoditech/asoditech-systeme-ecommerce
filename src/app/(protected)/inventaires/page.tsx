@@ -43,7 +43,7 @@ export default async function InventairesPage({
       {sessions.length === 0 ? (
         <EmptyState icon={ClipboardCheck} title="Aucun inventaire." />
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
           <Table>
             <TableHeader>
               <TableRow>

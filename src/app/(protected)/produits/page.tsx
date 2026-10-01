@@ -10,6 +10,8 @@ import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { DisconnectedSourceBanner } from "@/components/integrations/disconnected-source-banner";
 import { ProductImagePreview } from "@/components/products/product-image-preview";
+import { ProductThumb } from "@/components/products/product-thumb";
+import { Badge } from "@/components/ui/badge";
 import { SyncRefreshButton } from "@/components/sync-refresh-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
@@ -172,16 +174,15 @@ export default async function ProduitsPage({
           }
         />
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Produit</TableHead>
-                <TableHead>SKU</TableHead>
                 <TableHead>Catégorie</TableHead>
-                <TableHead>Prix</TableHead>
-                {canViewCost && <TableHead>Coût d&apos;achat</TableHead>}
-                <TableHead>Stock</TableHead>
+                <TableHead className="text-right">Prix de vente</TableHead>
+                {canViewCost && <TableHead className="text-right">Coût d&apos;achat</TableHead>}
+                <TableHead className="text-right">Stock</TableHead>
                 <TableHead>Statut</TableHead>
               </TableRow>
             </TableHeader>
@@ -241,27 +242,44 @@ export default async function ProduitsPage({
                 const isLow = stock !== null && stockTracked && stock <= p.lowStockThreshold;
                 return (
                   <ClickableTableRow key={p.id} href={`/produits/${p.id}`}>
-                    <TableCell className="font-medium">
-                      <ProductImagePreview imageUrl={p.images[0]?.url} name={p.name}>
-                        {p.name}
-                      </ProductImagePreview>
-                      {isVariable && (
-                        <span className="ml-1.5 text-xs text-muted-foreground">
-                          ({p.variations.length} variante{p.variations.length > 1 ? "s" : ""})
-                        </span>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <ProductImagePreview imageUrl={p.images[0]?.url} name={p.name}>
+                          <ProductThumb imageUrl={p.images[0]?.url} />
+                        </ProductImagePreview>
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold">{p.name}</p>
+                          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <span className="font-mono">{p.sku}</span>
+                            {isVariable && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span>
+                                  {p.variations.length} variante{p.variations.length > 1 ? "s" : ""}
+                                </span>
+                              </>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {p.category ? (
+                        <Badge variant="outline">{p.category.name}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{p.sku}</TableCell>
-                    <TableCell className="text-muted-foreground">{p.category?.name ?? "—"}</TableCell>
-                    <TableCell>{priceLabel}</TableCell>
-                    {canViewCost && (
-                      <TableCell className="text-muted-foreground">{costLabel}</TableCell>
-                    )}
-                    <TableCell>
+                    <TableCell className="text-right font-semibold tabular-nums">{priceLabel}</TableCell>
+                    {canViewCost && <TableCell className="text-right text-muted-foreground tabular-nums">{costLabel}</TableCell>}
+                    <TableCell className="text-right">
                       {stock === null || (isVariable && !stockTracked) ? (
-                        <span className="text-muted-foreground">Non suivi</span>
+                        <span className="text-xs text-muted-foreground">Non suivi</span>
                       ) : (
-                        <span className={isLow ? "font-medium text-destructive" : ""}>{stock}</span>
+                        <div className="flex items-center justify-end gap-2">
+                          {isLow && <Badge variant={stock <= 0 ? "destructive" : "warning"}>{stock <= 0 ? "Rupture" : "Faible"}</Badge>}
+                          <span className="font-semibold tabular-nums">{stock}</span>
+                        </div>
                       )}
                     </TableCell>
                     <TableCell>

@@ -504,7 +504,7 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
             )}
           </DialogBody>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => closePreview(true)} disabled={restoring}>
+            <Button type="button" variant="outline" onClick={() => closePreview(true)} disabled={restoring}>
               Annuler
             </Button>
             <Button type="button" variant="destructive" onClick={confirmRestore} disabled={!canConfirm}>

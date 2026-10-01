@@ -1,24 +1,26 @@
 import type { LucideIcon } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
+import { TONES, type Tone } from "@/lib/design/tone";
 
-const TONES = {
-  primary: { badge: "bg-primary/12 text-primary", bar: "bg-primary" },
-  success: { badge: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400", bar: "bg-emerald-500" },
-  warning: { badge: "bg-amber-500/10 text-amber-600 dark:text-amber-400", bar: "bg-amber-500" },
-  info: { badge: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400", bar: "bg-cyan-500" },
-  violet: { badge: "bg-violet-500/10 text-violet-600 dark:text-violet-400", bar: "bg-violet-500" },
-  danger: { badge: "bg-rose-500/10 text-rose-600 dark:text-rose-400", bar: "bg-rose-500" },
-} as const;
+export type KpiTone = Tone;
 
-export type KpiTone = keyof typeof TONES;
+const TREND_ICON = { up: ArrowUpRight, down: ArrowDownRight, flat: Minus } as const;
 
 /**
- * A dashboard/analytics KPI tile. `value` is `null` when the metric genuinely
+ * A dashboard/analytics KPI tile — "Compact KPI": the default, non-dominant
+ * tile for a secondary metric. `value` is `null` when the metric genuinely
  * cannot be computed (missing data, no integration connected) — renders
  * "Non calculable" rather than fabricating a number. See the project's Data
- * Integrity Principle. `tone` only varies the icon badge color/accent bar —
- * purely visual, never implies a different data-integrity guarantee.
+ * Integrity Principle.
+ *
+ * Phase 5 visual QA: the Phase 4 decorative "floating icon" watermark and
+ * hover lift are gone — a KPI tile is not clickable, so lifting on hover
+ * signalled an action that doesn't exist, and the watermark was texture
+ * with no meaning. The small tinted badge next to the label is the one
+ * functional icon; `tone` only varies color (see src/lib/design/tone.ts)
+ * and never implies a different data-integrity guarantee.
  */
 export function KpiCard({
   label,
@@ -39,46 +41,59 @@ export function KpiCard({
 }) {
   const colors = TONES[tone];
   return (
-    <Card size="sm" className="relative overflow-hidden">
-      <span className={cn("absolute inset-x-0 top-0 h-0.5", colors.bar)} aria-hidden="true" />
-      <CardContent className="flex items-start justify-between gap-2.5">
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
-          {value === null ? (
-            <>
-              <p className="line-clamp-2 text-sm font-medium text-muted-foreground">
-                {unavailableReason ?? "Données indisponibles"}
-              </p>
-              {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
-            </>
-          ) : (
-            <>
-              <p className="truncate text-xl font-semibold tracking-tight">{value}</p>
-              {(hint || trend) && (
-                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                  {trend && (
-                    <span
-                      className={cn(
-                        "font-medium",
-                        trend.direction === "up" && "text-emerald-600 dark:text-emerald-400",
-                        trend.direction === "down" && "text-destructive"
-                      )}
-                    >
-                      {trend.label}
-                    </span>
-                  )}
-                  {hint && <span className="truncate">{hint}</span>}
-                </div>
-              )}
-            </>
+    <Card size="sm">
+      <CardContent className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          {Icon && (
+            <span className={cn("flex size-6 shrink-0 items-center justify-center rounded-md", colors.badge)}>
+              <Icon className="size-3.5" />
+            </span>
           )}
+          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
         </div>
-        {Icon && (
-          <div className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg", colors.badge)}>
-            <Icon className="size-4" />
-          </div>
+        {value === null ? (
+          <>
+            <p className="line-clamp-2 text-sm font-medium text-muted-foreground">
+              {unavailableReason ?? "Données indisponibles"}
+            </p>
+            {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+          </>
+        ) : (
+          <>
+            <p className="truncate text-2xl font-bold tracking-tight tabular-nums">{value}</p>
+            {(hint || trend) && (
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                {trend && <TrendBadge trend={trend} />}
+                {hint && <span className="truncate">{hint}</span>}
+              </div>
+            )}
+          </>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * "Trend KPI" (Phase 3 pattern E): a small directional pill (arrow + %)
+ * instead of plain colored text — communicates "up/down/flat" through
+ * shape as well as color, so it still reads correctly at a glance and for
+ * a color-blind viewer. Shared by KpiCard and HighlightKpi so a trend
+ * never looks different depending which tile it lands on.
+ */
+export function TrendBadge({ trend }: { trend: { direction: "up" | "down" | "flat"; label: string } }) {
+  const TrendIcon = TREND_ICON[trend.direction];
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-px text-[10.5px] font-semibold",
+        trend.direction === "up" && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+        trend.direction === "down" && "bg-destructive/10 text-destructive",
+        trend.direction === "flat" && "bg-muted text-muted-foreground"
+      )}
+    >
+      <TrendIcon className="size-2.5" />
+      {trend.label}
+    </span>
   );
 }

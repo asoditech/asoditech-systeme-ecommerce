@@ -241,7 +241,7 @@ export function UserRowControls({
             />
           </div>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => setDeleteOpen(false)} disabled={isPending}>
+            <Button type="button" variant="outline" onClick={() => setDeleteOpen(false)} disabled={isPending}>
               Annuler
             </Button>
             <Button

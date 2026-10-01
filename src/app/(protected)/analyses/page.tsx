@@ -152,7 +152,7 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
               {productProfit.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Aucune vente sur la période.</p>
               ) : (
-                <div className="rounded-lg border">
+                <div className="overflow-hidden rounded-xl border bg-card shadow-card">
                   <Table className="text-[13px] [&_td]:px-2.5 [&_td]:py-2 [&_th]:px-2.5">
                     <TableHeader>
                       <TableRow>

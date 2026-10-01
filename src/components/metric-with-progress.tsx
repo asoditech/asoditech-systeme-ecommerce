@@ -43,17 +43,20 @@ export function MetricWithProgress({
   return (
     <Card size="sm">
       <CardContent className="flex flex-col gap-2.5">
-        <div className="flex items-start justify-between gap-2.5">
-          <div className="flex min-w-0 flex-col gap-0.5">
+        {/* Same header grammar as KpiCard (badge beside the label, 2xl
+            value) so a progress tile sitting next to a KPI tile reads as
+            the same system, not a different component. */}
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            {Icon && (
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/12 text-primary">
+                <Icon className="size-3.5" />
+              </span>
+            )}
             <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
-            <p className="truncate text-xl font-semibold tracking-tight">{value}</p>
-            {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
           </div>
-          {Icon && (
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Icon className="size-4" />
-            </div>
-          )}
+          <p className="truncate text-2xl font-bold tracking-tight tabular-nums">{value}</p>
+          {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
         </div>
 
         {segments && segments.length > 0 && (

@@ -43,7 +43,7 @@ export default async function TransfertsPage({
       {transfers.length === 0 ? (
         <EmptyState icon={ArrowLeftRight} title="Aucun transfert." />
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
           <Table>
             <TableHeader>
               <TableRow>

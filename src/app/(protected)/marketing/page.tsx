@@ -49,7 +49,7 @@ export default async function MarketingPage() {
           {campaigns.length === 0 ? (
             <EmptyState icon={Megaphone} title="Aucune campagne pour le moment." />
           ) : (
-            <div className="rounded-lg border">
+            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -86,7 +86,7 @@ export default async function MarketingPage() {
             </div>
           )}
 
-          <div className="rounded-lg border">
+          <div className="overflow-hidden rounded-xl border bg-card shadow-card">
             <Table>
               <TableHeader>
                 <TableRow>

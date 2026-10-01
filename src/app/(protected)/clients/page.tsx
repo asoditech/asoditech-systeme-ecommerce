@@ -127,7 +127,7 @@ export default async function ClientsPage({
           }
         />
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
           <Table>
             <TableHeader>
               <TableRow>

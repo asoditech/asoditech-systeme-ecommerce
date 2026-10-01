@@ -119,7 +119,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           {customer.orders.length === 0 ? (
             <EmptyState icon={Plus} title="Aucune commande pour ce client." />
           ) : (
-            <div className="rounded-lg border">
+            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
               <Table>
                 <TableHeader>
                   <TableRow>

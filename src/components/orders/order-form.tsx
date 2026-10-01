@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Trash2, Search, ShieldAlert } from "lucide-react";
+import { Plus, Trash2, Search, ShieldAlert, AlertTriangle } from "lucide-react";
 import {
   createOrderAction,
   createCustomerForOrderAction,
@@ -15,6 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldHint, FieldRow } from "@/components/ui/field";
+import { FormActions, FormSection, FormSectionGroup } from "@/components/form-section";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -285,7 +287,7 @@ export function OrderForm({
                     <Button type="button" size="sm" className="flex-1" disabled={savingCustomer} onClick={submitNewCustomer}>
                       {savingCustomer ? "Création..." : "Créer et sélectionner"}
                     </Button>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => setNewCustomerMode(false)}>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setNewCustomerMode(false)}>
                       Annuler
                     </Button>
                   </div>
@@ -475,155 +477,174 @@ export function OrderForm({
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <Card>
-          <CardHeader>
-            <CardTitle>Livraison &amp; paiement</CardTitle>
+          <CardHeader className="border-b">
+            <CardTitle>Livraison &amp; traitement</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>Méthode de paiement</Label>
-              <Select value={paymentMethod} onValueChange={(v) => v && setPaymentMethod(v)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>{(value: string) => PAYMENT_METHOD_LABELS[value] ?? value}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Canal de la commande</Label>
-              <Select value={channel} onValueChange={(v) => v && setChannel(v)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>{(value: string) => ORDER_CHANNEL_LABELS[value] ?? value}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(ORDER_CHANNEL_LABELS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {commissionAgents.length > 0 && (
-              <div className="space-y-1.5">
-                <Label>Agent de confirmation (optionnel)</Label>
-                <Select value={confirmationAgentId || "__none__"} onValueChange={(v) => setConfirmationAgentId(v === "__none__" ? "" : (v ?? ""))}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue>
-                      {(value: string) =>
-                        value === "__none__" ? "Aucun" : commissionAgents.find((a) => a.id === value)?.name ?? "Aucun"
-                      }
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Aucun</SelectItem>
-                    {commissionAgents.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            {warehouses.length > 1 && (
-              <div className="space-y-1.5">
-                <Label>Entrepôt de préparation</Label>
-                <Select
-                  value={fulfillmentWarehouseId}
-                  onValueChange={(v) => v && setFulfillmentWarehouseId(v)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue>
-                      {(value: string) => {
-                        const w = warehouses.find((x) => x.id === value);
-                        return w ? `${w.name} (${WAREHOUSE_TYPE_LABELS[w.type]})` : value;
-                      }}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {warehouses.map((w) => (
-                      <SelectItem key={w.id} value={w.id}>
-                        {w.name} ({WAREHOUSE_TYPE_LABELS[w.type]})
-                        {w.isDefault ? " — par défaut" : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  L&apos;emplacement où le stock physique de cette commande est pris — distinct du canal de vente
-                  (une commande reste toujours « En ligne », quel que soit l&apos;emplacement choisi).
+          <CardContent>
+            <FormSectionGroup>
+              <FormSection title="Adresse de livraison">
+                <Field>
+                  <Label htmlFor="ord-address">Adresse</Label>
+                  <Input id="ord-address" value={shippingAddress} onChange={(e) => setShippingAddress(e.target.value)} placeholder="Rue, quartier, n°" />
+                </Field>
+                <FieldRow>
+                  <Field>
+                    <Label htmlFor="ord-city">Ville</Label>
+                    <Input id="ord-city" value={shippingCity} onChange={(e) => setShippingCity(e.target.value)} />
+                  </Field>
+                  <Field>
+                    <Label htmlFor="ord-phone">Téléphone</Label>
+                    <Input id="ord-phone" type="tel" value={shippingPhone} onChange={(e) => setShippingPhone(e.target.value)} />
+                  </Field>
+                </FieldRow>
+                <p className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-400">
+                  <AlertTriangle className="mt-px size-3.5 shrink-0" />
+                  <span>
+                    <strong>Important :</strong> {cityGuidanceMessage(cityGuidance)}
+                  </span>
                 </p>
-              </div>
-            )}
-            <div className="space-y-1.5">
-              <Label>Adresse de livraison</Label>
-              <Input value={shippingAddress} onChange={(e) => setShippingAddress(e.target.value)} />
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>Ville</Label>
-                <Input value={shippingCity} onChange={(e) => setShippingCity(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Téléphone</Label>
-                <Input value={shippingPhone} onChange={(e) => setShippingPhone(e.target.value)} />
-              </div>
-            </div>
-            <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-              <strong>Important :</strong> {cityGuidanceMessage(cityGuidance)}
-            </p>
+              </FormSection>
+
+              <FormSection title="Paiement & origine">
+                <FieldRow>
+                  <Field>
+                    <Label>Méthode de paiement</Label>
+                    <Select value={paymentMethod} onValueChange={(v) => v && setPaymentMethod(v)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue>{(value: string) => PAYMENT_METHOD_LABELS[value] ?? value}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field>
+                    <Label>Canal de la commande</Label>
+                    <Select value={channel} onValueChange={(v) => v && setChannel(v)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue>{(value: string) => ORDER_CHANNEL_LABELS[value] ?? value}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(ORDER_CHANNEL_LABELS).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </FieldRow>
+                {(commissionAgents.length > 0 || warehouses.length > 1) && (
+                  <FieldRow>
+                    {commissionAgents.length > 0 && (
+                      <Field>
+                        <Label>Agent de confirmation</Label>
+                        <Select value={confirmationAgentId || "__none__"} onValueChange={(v) => setConfirmationAgentId(v === "__none__" ? "" : (v ?? ""))}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue>
+                              {(value: string) =>
+                                value === "__none__" ? "Aucun" : commissionAgents.find((a) => a.id === value)?.name ?? "Aucun"
+                              }
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">Aucun</SelectItem>
+                            {commissionAgents.map((a) => (
+                              <SelectItem key={a.id} value={a.id}>
+                                {a.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                    )}
+                    {warehouses.length > 1 && (
+                      <Field>
+                        <Label>Entrepôt de préparation</Label>
+                        <Select
+                          value={fulfillmentWarehouseId}
+                          onValueChange={(v) => v && setFulfillmentWarehouseId(v)}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue>
+                              {(value: string) => {
+                                const w = warehouses.find((x) => x.id === value);
+                                return w ? `${w.name} (${WAREHOUSE_TYPE_LABELS[w.type]})` : value;
+                              }}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {warehouses.map((w) => (
+                              <SelectItem key={w.id} value={w.id}>
+                                {w.name} ({WAREHOUSE_TYPE_LABELS[w.type]})
+                                {w.isDefault ? " — par défaut" : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FieldHint>D&apos;où part le stock — la commande reste « En ligne » quel que soit l&apos;emplacement.</FieldHint>
+                      </Field>
+                    )}
+                  </FieldRow>
+                )}
+              </FormSection>
+            </FormSectionGroup>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="lg:sticky lg:top-20">
+          <CardHeader className="border-b">
             <CardTitle>Résumé</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>Frais de livraison</Label>
-                <Input type="number" step="0.01" min="0" value={shippingCost} onChange={(e) => setShippingCost(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Remise globale</Label>
-                <Input type="number" step="0.01" min="0" value={discountTotal} onChange={(e) => setDiscountTotal(e.target.value)} />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Notes (visibles client)</Label>
-              <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
-            </div>
-            <div className="space-y-1 border-t pt-3 text-sm">
+          <CardContent className="space-y-4">
+            <FieldRow>
+              <Field>
+                <Label htmlFor="ord-shipping">Frais de livraison</Label>
+                <Input id="ord-shipping" type="number" step="0.01" min="0" className="tabular-nums" value={shippingCost} onChange={(e) => setShippingCost(e.target.value)} />
+              </Field>
+              <Field>
+                <Label htmlFor="ord-discount">Remise globale</Label>
+                <Input id="ord-discount" type="number" step="0.01" min="0" className="tabular-nums" value={discountTotal} onChange={(e) => setDiscountTotal(e.target.value)} />
+              </Field>
+            </FieldRow>
+            <Field>
+              <Label htmlFor="ord-notes">Notes (visibles client)</Label>
+              <Textarea id="ord-notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Instructions de livraison, créneau…" />
+            </Field>
+            <div className="space-y-1.5 rounded-lg bg-muted/50 p-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Sous-total</span>
-                <span>{formatCurrency(subtotal)}</span>
+                <span className="tabular-nums">{formatCurrency(subtotal)}</span>
               </div>
-              <div className="flex justify-between font-medium">
-                <span>Total</span>
-                <span>{formatCurrency(total)}</span>
+              <div className="flex items-baseline justify-between border-t pt-1.5">
+                <span className="font-medium">Total</span>
+                <span className="text-lg font-bold tabular-nums">{formatCurrency(total)}</span>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <div className="flex justify-end gap-2">
+      <FormActions
+        context={
+          <span>
+            Total <span className="text-base font-semibold text-foreground tabular-nums">{formatCurrency(total)}</span>
+          </span>
+        }
+      >
         <Button type="button" variant="outline" onClick={() => router.back()}>
           Annuler
         </Button>
-        <Button type="submit" disabled={isPending}>
-          {isPending ? "Création..." : "Créer la commande"}
+        <Button type="submit" loading={isPending}>
+          Créer la commande
         </Button>
-      </div>
+      </FormActions>
     </form>
   );
 }

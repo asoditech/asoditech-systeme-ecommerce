@@ -8,6 +8,7 @@ import { DataTablePagination } from "@/components/data-table-pagination";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { StopPropagationLink } from "@/components/stop-propagation-link";
 import { Button } from "@/components/ui/button";
+import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
 import { Input } from "@/components/ui/input";
 import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
@@ -183,16 +184,17 @@ export default async function CommandesPage({
             Filtrer
           </Button>
         </form>
-        <Button
-          size="sm"
-          variant={isThisMonth ? "default" : "ghost"}
-          render={<Link href={dateScopeHref({ dateFrom: monthFrom, dateTo: monthTo })} />}
-        >
-          Ce mois-ci
-        </Button>
-        <Button size="sm" variant={isAll ? "default" : "ghost"} render={<Link href={dateScopeHref({ all: true })} />}>
-          Toutes les commandes
-        </Button>
+        {/* Period presets are a choice between positions, not actions — a
+            segmented control, never a solid primary button that competes
+            with "Nouvelle commande". */}
+        <SegmentedControl>
+          <SegmentedControlItem active={isThisMonth} href={dateScopeHref({ dateFrom: monthFrom, dateTo: monthTo })}>
+            Ce mois-ci
+          </SegmentedControlItem>
+          <SegmentedControlItem active={isAll} href={dateScopeHref({ all: true })}>
+            Toute la période
+          </SegmentedControlItem>
+        </SegmentedControl>
         {hasActiveFilter ? (
           <Button size="sm" variant="ghost" render={<Link href="/commandes" />}>
             Réinitialiser
@@ -229,20 +231,17 @@ export default async function CommandesPage({
           />
         )
       ) : (
-        <div className="rounded-lg border">
-          <Table className="text-[13px] [&_td]:px-2.5 [&_td]:py-2 [&_th]:px-2.5">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+          <Table className="[&_td]:px-3 [&_th]:px-3">
             <TableHeader>
               <TableRow>
                 <TableHead>Commande</TableHead>
                 <TableHead>Client</TableHead>
-                <TableHead>Ville</TableHead>
-                <TableHead className="text-right">Art.</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead>Statut</TableHead>
                 <TableHead>Paiement</TableHead>
                 <TableHead>Canal</TableHead>
                 <TableHead>Confirmé par</TableHead>
-                <TableHead>Date</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -258,27 +257,20 @@ export default async function CommandesPage({
                 );
                 return (
                 <ClickableTableRow key={o.id} href={`/commandes/${o.id}`}>
-                  <TableCell className="font-medium">
-                    {displayOrderNumber(o, business.orderNumberPrefix)}
-                    {o.salesChannel && (
-                      <Badge variant="outline" className="ml-2">
-                        {o.salesChannel.kind === "ONLINE" ? "En ligne" : "Magasin"}
-                      </Badge>
-                    )}
-                    {returnLabel && (
-                      <Badge variant="outline" className="ml-2">
-                        ↩ {returnLabel}
-                      </Badge>
-                    )}
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{displayOrderNumber(o, business.orderNumberPrefix)}</span>
+                      {returnLabel && <Badge variant="warning">↩ {returnLabel}</Badge>}
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {formatDate(o.placedAt)} · {o._count.items} article{o._count.items > 1 ? "s" : ""}
+                    </p>
                   </TableCell>
                   <TableCell>
-                    <span className="block max-w-[8rem] truncate">{displayOrderRecipient(o)}</span>
+                    <span className="block max-w-[11rem] truncate font-medium">{displayOrderRecipient(o)}</span>
+                    <span className="block max-w-[11rem] truncate text-xs text-muted-foreground">{o.shippingCity ?? "Ville non renseignée"}</span>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    <span className="block max-w-[7rem] truncate">{o.shippingCity ?? "—"}</span>
-                  </TableCell>
-                  <TableCell className="text-right text-muted-foreground tabular-nums">{o._count.items}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatCurrency(o.total.toString(), o.currency)}</TableCell>
+                  <TableCell className="text-right font-semibold tabular-nums">{formatCurrency(o.total.toString(), o.currency)}</TableCell>
                   <TableCell>
                     <StatusBadge status={o.status} labels={ORDER_STATUS_LABELS} />
                   </TableCell>
@@ -293,16 +285,15 @@ export default async function CommandesPage({
                           href={`/commissions/${o.confirmationAgentId}`}
                           className="max-w-[7rem] truncate hover:underline"
                         >
-                          👤 {o.confirmationAgent.user.name}
+                          {o.confirmationAgent.user.name}
                         </StopPropagationLink>
                       ) : (
-                        <span className="block max-w-[7rem] truncate">👤 {o.confirmationAgent.user.name}</span>
+                        <span className="block max-w-[7rem] truncate">{o.confirmationAgent.user.name}</span>
                       )
                     ) : (
                       "—"
                     )}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{formatDate(o.placedAt)}</TableCell>
                 </ClickableTableRow>
                 );
               })}

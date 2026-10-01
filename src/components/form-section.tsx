@@ -36,3 +36,33 @@ export function FormSection({
 export function FormSectionGroup({ children, className }: { children: React.ReactNode; className?: string }) {
   return <div className={cn("space-y-5 [&>*+*]:border-t [&>*+*]:border-border/60 [&>*+*]:pt-5", className)}>{children}</div>;
 }
+
+/**
+ * Phase 5 visual QA — a form's action area as a deliberate surface, not an
+ * afterthought row of buttons: a sticky bar (it stays in reach on a long
+ * form, pinned just above the fixed site footer) with optional context on
+ * the left (a total, a "stock is only added on validation" reminder) and
+ * the action hierarchy on the right — secondary (Annuler) then the one
+ * primary action last, where the eye ends.
+ */
+export function FormActions({
+  children,
+  context,
+  className,
+}: {
+  children: React.ReactNode;
+  context?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "sticky bottom-11 z-20 flex flex-col gap-3 rounded-xl bg-card/95 px-4 py-3 shadow-popover ring-1 ring-border backdrop-blur supports-backdrop-filter:bg-card/85 sm:flex-row sm:items-center sm:justify-between",
+        className
+      )}
+    >
+      <div className="min-w-0 text-sm text-muted-foreground">{context}</div>
+      <div className="flex shrink-0 items-center justify-end gap-2">{children}</div>
+    </div>
+  );
+}

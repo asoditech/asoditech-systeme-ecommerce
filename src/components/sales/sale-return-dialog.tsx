@@ -7,6 +7,7 @@ import { Undo2 } from "lucide-react";
 import { createSaleReturnAction } from "@/actions/sales";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CASH_PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
@@ -97,11 +98,11 @@ export function SaleReturnDialog({ saleId, lines, refundable }: { saleId: string
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="ret-method">Mode</Label>
-              <select id="ret-method" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={method} onChange={(e) => setMethod(e.target.value)}>
+              <NativeSelect id="ret-method" value={method} onChange={(e) => setMethod(e.target.value)}>
                 {Object.entries(CASH_PAYMENT_METHOD_LABELS).map(([k, lab]) => (
                   <option key={k} value={k}>{lab}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="ret-note">Note</Label>

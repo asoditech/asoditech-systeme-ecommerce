@@ -6,6 +6,7 @@ import { DataTablePagination } from "@/components/data-table-pagination";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ClickableTableRow } from "@/components/clickable-table-row";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { requireChannelKind } from "@/lib/auth/channel-access";
@@ -43,14 +44,12 @@ export default async function VentesPage({ searchParams }: { searchParams: Promi
       {sales.length === 0 ? (
         <EmptyState icon={Store} title={params.q ? "Aucune vente ne correspond." : "Aucune vente pour le moment."} />
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>N°</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Canal</TableHead>
-                <TableHead>Emplacement</TableHead>
+                <TableHead>Vente</TableHead>
+                <TableHead>Point de vente</TableHead>
                 <TableHead>Vendeur</TableHead>
                 <TableHead>Paiement</TableHead>
                 <TableHead className="text-right">Total</TableHead>
@@ -63,26 +62,33 @@ export default async function VentesPage({ searchParams }: { searchParams: Promi
                   s.returns.flatMap((r) => r.lines).reduce((sum, l) => sum + l.quantitySellable + l.quantityDamaged, 0)
                 );
                 return (
-                <TableRow key={s.id}>
-                  <TableCell className="font-medium">
-                    <Link href={`/ventes/${s.id}`} className="hover:underline">
-                      {displaySaleNumber(s)}
-                    </Link>
-                    {returnLabel && (
-                      <Badge variant="outline" className="ml-2">
-                        ↩ {returnLabel}
-                      </Badge>
+                <ClickableTableRow key={s.id} href={`/ventes/${s.id}`}>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Link href={`/ventes/${s.id}`} className="font-semibold hover:text-primary hover:underline">
+                        {displaySaleNumber(s)}
+                      </Link>
+                      {returnLabel && <Badge variant="warning">↩ {returnLabel}</Badge>}
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{formatDateTime(s.soldAt)}</p>
+                  </TableCell>
+                  <TableCell>
+                    {/* Canal and emplacement are usually the same store — show
+                        the location line only when it actually differs. */}
+                    <span className="inline-flex items-center gap-1.5 font-medium">
+                      <Store className="size-3.5 text-muted-foreground" />
+                      {s.salesChannel.name}
+                    </span>
+                    {s.warehouse.name !== s.salesChannel.name && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">Stock : {s.warehouse.name}</p>
                     )}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{formatDateTime(s.soldAt)}</TableCell>
-                  <TableCell>{s.salesChannel.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{s.warehouse.name}</TableCell>
                   <TableCell className="text-muted-foreground">{s.soldByName ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">
                     {[...new Set(s.payments.map((p) => CASH_PAYMENT_METHOD_LABELS[p.method]))].join(", ") || "—"}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums font-medium">{formatCurrency(s.total.toString(), s.currency)}</TableCell>
-                </TableRow>
+                  <TableCell className="text-right font-semibold tabular-nums">{formatCurrency(s.total.toString(), s.currency)}</TableCell>
+                </ClickableTableRow>
                 );
               })}
             </TableBody>

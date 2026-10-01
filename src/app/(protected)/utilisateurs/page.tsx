@@ -4,6 +4,7 @@ import { UserRowControls } from "@/components/users/user-row-controls";
 import { PendingInvitationsList } from "@/components/users/pending-invitations-list";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { EntityAvatar } from "@/components/entity-avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -89,12 +90,11 @@ export default async function UtilisateursPage() {
         />
       )}
 
-      <div className="rounded-lg border">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-card">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Nom</TableHead>
-              <TableHead>E-mail</TableHead>
+              <TableHead>Utilisateur</TableHead>
               <TableHead>Rôle / Statut</TableHead>
               <TableHead>Dernière connexion</TableHead>
             </TableRow>
@@ -102,8 +102,15 @@ export default async function UtilisateursPage() {
           <TableBody>
             {users.map((u) => (
               <TableRow key={u.id}>
-                <TableCell className="font-medium">{u.name}</TableCell>
-                <TableCell className="text-muted-foreground">{u.email}</TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-3">
+                    <EntityAvatar name={u.name} className="size-9 rounded-full" />
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold">{u.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+                    </div>
+                  </div>
+                </TableCell>
                 <TableCell>
                   {canManage ? (
                     <UserRowControls

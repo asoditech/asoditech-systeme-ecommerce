@@ -3,17 +3,17 @@
 import { useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ScanBarcode, Trash2, AlertTriangle } from "lucide-react";
+import { ScanBarcode, Trash2, AlertTriangle, ShoppingBasket, Banknote, Plus, CheckCircle2 } from "lucide-react";
 import { createSaleAction, lookupForSaleAction, type SaleLookupResult } from "@/actions/sales";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
 import { formatCurrency } from "@/lib/format";
 import { CASH_PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
 
-const selectClass = "h-9 w-full rounded-md border border-input bg-background px-3 text-sm";
 
 /** True below Tailwind's `sm` breakpoint. Server/first render = false (no hydration mismatch). */
 function useNarrowScreen() {
@@ -151,12 +151,14 @@ export function SaleForm({
     <div className="grid gap-4 pb-14 sm:pb-0 lg:grid-cols-[1fr_22rem]">
       <div className="space-y-4">
         <Card>
-          <CardContent className="grid gap-3 pt-6 sm:grid-cols-3">
+          <CardHeader>
+            <CardTitle>Point de vente</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-3">
             <div className="space-y-1.5">
               <Label htmlFor="sale-channel">Canal</Label>
-              <select
+              <NativeSelect
                 id="sale-channel"
-                className={selectClass}
                 value={channelId}
                 onChange={(e) => {
                   setChannelId(e.target.value);
@@ -169,17 +171,17 @@ export function SaleForm({
                     {c.name}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="sale-wh">Emplacement</Label>
-              <select id="sale-wh" className={selectClass} value={warehouseId} onChange={(e) => { setWarehouseId(e.target.value); setLines([]); }}>
+              <NativeSelect id="sale-wh" value={warehouseId} onChange={(e) => { setWarehouseId(e.target.value); setLines([]); }}>
                 {locations.map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="sale-customer">Client (optionnel)</Label>
@@ -190,7 +192,7 @@ export function SaleForm({
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-[15px]">Articles</CardTitle>
+            <CardTitle>Articles</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -233,7 +235,10 @@ export function SaleForm({
             )}
 
             {lines.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">Le panier est vide.</p>
+              <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed bg-muted/30 py-8 text-center text-sm text-muted-foreground">
+                <ShoppingBasket className="size-5" />
+                Le panier est vide — scannez ou recherchez un article.
+              </div>
             ) : (
               <div className="divide-y rounded-md border">
                 {lines.map((l) => (
@@ -269,7 +274,7 @@ export function SaleForm({
 
       <Card className="h-fit">
         <CardHeader>
-          <CardTitle className="text-[15px]">Paiement</CardTitle>
+          <CardTitle>Paiement</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-baseline justify-between gap-2 pr-10 sm:pr-0">
@@ -278,11 +283,11 @@ export function SaleForm({
           </div>
           {payments.map((p) => (
             <div key={p.key} className="flex gap-2">
-              <select className={selectClass} value={p.method} onChange={(e) => setPayments((prev) => prev.map((x) => (x.key === p.key ? { ...x, method: e.target.value } : x)))}>
+              <NativeSelect value={p.method} onChange={(e) => setPayments((prev) => prev.map((x) => (x.key === p.key ? { ...x, method: e.target.value } : x)))}>
                 {Object.entries(CASH_PAYMENT_METHOD_LABELS).map(([k, lab]) => (
                   <option key={k} value={k}>{lab}</option>
                 ))}
-              </select>
+              </NativeSelect>
               <Input type="number" min={0} step="0.01" value={p.amount} aria-label="Montant" onChange={(e) => setPayments((prev) => prev.map((x) => (x.key === p.key ? { ...x, amount: Math.max(0, Number(e.target.value) || 0) } : x)))} />
               <Button type="button" variant="ghost" size="icon" aria-label="Retirer le paiement" onClick={() => setPayments((prev) => prev.filter((x) => x.key !== p.key))}>
                 <Trash2 className="size-4" />
@@ -290,11 +295,13 @@ export function SaleForm({
             </div>
           ))}
           <div className="flex gap-2">
-            <Button type="button" variant="outline" size="sm" disabled={total <= 0} onClick={() => setPayments([{ key: crypto.randomUUID(), method: "ESPECES", amount: total }])}>
+            <Button type="button" variant="outline" size="sm" className="flex-1" disabled={total <= 0} onClick={() => setPayments([{ key: crypto.randomUUID(), method: "ESPECES", amount: total }])}>
+              <Banknote className="size-3.5" />
               Tout en espèces
             </Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => setPayments((p) => [...p, { key: crypto.randomUUID(), method: "CARTE", amount: Math.max(0, total - paid) }])}>
-              + Paiement
+            <Button type="button" variant="secondary" size="sm" className="flex-1" onClick={() => setPayments((p) => [...p, { key: crypto.randomUUID(), method: "CARTE", amount: Math.max(0, total - paid) }])}>
+              <Plus className="size-3.5" />
+              Paiement
             </Button>
           </div>
           {Math.abs(paid - total) > 0.005 && lines.length > 0 && (
@@ -303,8 +310,9 @@ export function SaleForm({
               Reste à encaisser : {formatCurrency(String(total - paid))}
             </p>
           )}
-          <Button type="button" className="w-full" size="lg" disabled={isPending || lines.length === 0} onClick={submit}>
-            {isPending ? "Enregistrement..." : "Valider la vente"}
+          <Button type="button" className="w-full" size="lg" loading={isPending} disabled={lines.length === 0} onClick={submit}>
+            {!isPending && <CheckCircle2 className="size-4" />}
+            Valider la vente
           </Button>
         </CardContent>
       </Card>

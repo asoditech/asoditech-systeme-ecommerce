@@ -81,7 +81,10 @@
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.208 0.042 265.755);
   --primary: oklch(0.705 0.174 47.5); /* ASODITECH orange ≈ #f9812f */
-  --primary-foreground: oklch(1 0 0);
+  /* Phase 5 contrast: white on the brand orange is only 2.79:1 — the same
+     deep brown-black dark mode already uses keeps the orange untouched and
+     reads 6.8:1 (5.8:1 on hover). */
+  --primary-foreground: oklch(0.18 0.03 50);
   --secondary: oklch(0.968 0.007 247.896); /* slate-100 */
   --secondary-foreground: oklch(0.279 0.041 260.031); /* slate-800 */
   --muted: oklch(0.968 0.007 247.896);
@@ -90,8 +93,8 @@
   --accent-foreground: oklch(0.47 0.15 45); /* burnt orange */
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.929 0.013 255.508); /* slate-200 */
-  --input: oklch(0.923 0.013 255.508); /* slate-200/300 — a hair stronger than border */
-  --ring: oklch(0.705 0.174 47.5);
+  --input: oklch(0.64 0.03 257); /* slate-400/500 — Phase 5 contrast: a control edge ≥ 3:1 on a white card (3.3:1) and on the page (3.2:1) */
+  --ring: oklch(0.6 0.17 45); /* Phase 5 contrast: a deeper brand orange so a focused field's edge reads ≥ 3:1 (4.2:1 on white) */
   --chart-1: oklch(0.546 0.245 262.881);
   --chart-2: oklch(0.656 0.196 253.8);
   --chart-3: oklch(0.769 0.147 251.5);
@@ -103,7 +106,7 @@
   --sidebar: oklch(1 0 0);
   --sidebar-foreground: oklch(0.279 0.041 260.031); /* slate-800 */
   --sidebar-primary: oklch(0.705 0.174 47.5);
-  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-primary-foreground: oklch(0.18 0.03 50);
   --sidebar-accent: oklch(0.966 0.024 62); /* warm tint — active nav bg */
   --sidebar-accent-foreground: oklch(0.208 0.042 265.755); /* slate-900 */
   --sidebar-border: oklch(0.929 0.013 255.508); /* slate-200 */
@@ -127,7 +130,7 @@
   --accent-foreground: oklch(0.82 0.12 60);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 8%);
-  --input: oklch(1 0 0 / 14%);
+  --input: oklch(1 0 0 / 40%); /* Phase 5 contrast: control edge ≈ 3.8:1 on a card (was 1.4:1) */
   --ring: oklch(0.74 0.165 52);
   --chart-1: oklch(0.68 0.19 258);
   --chart-2: oklch(0.74 0.16 253);
@@ -172,7 +175,7 @@
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.208 0.042 265.755);
   --primary: oklch(0.705 0.174 47.5);
-  --primary-foreground: oklch(1 0 0);
+  --primary-foreground: oklch(0.18 0.03 50);
   --secondary: oklch(0.968 0.007 247.896);
   --secondary-foreground: oklch(0.279 0.041 260.031);
   --muted: oklch(0.968 0.007 247.896);
@@ -181,8 +184,8 @@
   --accent-foreground: oklch(0.47 0.15 45);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.929 0.013 255.508);
-  --input: oklch(0.923 0.013 255.508);
-  --ring: oklch(0.705 0.174 47.5);
+  --input: oklch(0.64 0.03 257);
+  --ring: oklch(0.6 0.17 45);
 }
 
 /* ---------------------------------------------------------------------------

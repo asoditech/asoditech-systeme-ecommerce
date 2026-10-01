@@ -59,7 +59,7 @@ function ChannelCard({ channel, locations }: { channel: ChannelRow; locations: L
 
   return (
     <Card>
-      <CardHeader className="flex-row flex-wrap items-center gap-3 space-y-0">
+      <CardHeader className="flex flex-row flex-wrap items-center gap-3 space-y-0">
         <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Icon className="size-4" />
         </div>

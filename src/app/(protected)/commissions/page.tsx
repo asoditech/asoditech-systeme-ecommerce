@@ -55,7 +55,7 @@ export default async function CommissionsPage() {
       {agents.length === 0 ? (
         <EmptyState icon={HandCoins} title="Aucun agent de confirmation configuré." />
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
           <Table>
             <TableHeader>
               <TableRow>

@@ -185,7 +185,7 @@ export default async function FinancePage({
           {productProfit.length === 0 ? (
             <p className="text-sm text-muted-foreground">Aucune vente sur la période.</p>
           ) : (
-            <div className="rounded-lg border">
+            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
               <Table className="text-[13px] [&_td]:px-2.5 [&_td]:py-2 [&_th]:px-2.5">
                 <TableHeader>
                   <TableRow>
@@ -249,7 +249,7 @@ export default async function FinancePage({
           description="Les dépenses sont des catégories configurables — ajoutez-en une pour commencer."
         />
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
           <Table>
             <TableHeader>
               <TableRow>

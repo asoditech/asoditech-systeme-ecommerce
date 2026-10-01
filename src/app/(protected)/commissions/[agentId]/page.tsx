@@ -21,9 +21,9 @@ import { FileText, Clock, Scale, PhoneCall, CheckCircle2, RotateCcw, HandCoins }
 
 export const metadata = { title: "Agent — Commissions — ASODITECH" };
 
-const STATEMENT_STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+const STATEMENT_STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" }> = {
   CLOTURE: { label: "Clôturé", variant: "secondary" },
-  PAYE: { label: "Payé", variant: "default" },
+  PAYE: { label: "Payé", variant: "success" },
 };
 
 const MONTH_NAMES = ["", "janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
@@ -146,7 +146,7 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
           {openMonths.length === 0 ? (
             <p className="text-sm text-muted-foreground">Aucune commission en attente de clôture.</p>
           ) : (
-            <div className="rounded-lg border">
+            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -202,7 +202,7 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
           {statements.length === 0 ? (
             <EmptyState icon={FileText} title="Aucun relevé clôturé." />
           ) : (
-            <div className="rounded-lg border">
+            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -275,7 +275,7 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
           {openEntries.length === 0 ? (
             <p className="text-sm text-muted-foreground">Rien pour l&apos;instant.</p>
           ) : (
-            <div className="rounded-lg border">
+            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
               <Table>
                 <TableHeader>
                   <TableRow>

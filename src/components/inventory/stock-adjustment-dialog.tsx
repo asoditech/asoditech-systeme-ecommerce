@@ -66,33 +66,42 @@ export function StockAdjustmentDialog({
           {productId && <input type="hidden" name="productId" value={productId} />}
           {variationId && <input type="hidden" name="variationId" value={variationId} />}
           <input type="hidden" name="warehouseId" value={warehouseId} />
-          <div className="space-y-1.5">
-            <Label htmlFor="type">Type d&apos;ajustement</Label>
-            <Select name="type" defaultValue="AJUSTEMENT_POSITIF">
-              <SelectTrigger id="type" className="w-full">
-                <SelectValue>{(value: string) => INVENTORY_MOVEMENT_TYPE_LABELS[value] ?? value}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {ADJUSTMENT_TYPES.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {INVENTORY_MOVEMENT_TYPE_LABELS[t]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="grid gap-4 sm:grid-cols-[2fr_1fr]">
+            <div className="space-y-2">
+              <Label htmlFor="type">Type d&apos;ajustement</Label>
+              <Select name="type" defaultValue="AJUSTEMENT_POSITIF">
+                <SelectTrigger id="type" className="w-full">
+                  <SelectValue>{(value: string) => INVENTORY_MOVEMENT_TYPE_LABELS[value] ?? value}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {ADJUSTMENT_TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {INVENTORY_MOVEMENT_TYPE_LABELS[t]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="quantity" required>
+                Quantité
+              </Label>
+              <Input id="quantity" name="quantity" type="number" min="1" required className="tabular-nums" placeholder="0" />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="quantity">Quantité</Label>
-            <Input id="quantity" name="quantity" type="number" min="1" required />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="reason">Motif (obligatoire)</Label>
-            <Textarea id="reason" name="reason" rows={2} required />
+          <div className="space-y-2">
+            <Label htmlFor="reason" required>
+              Motif
+            </Label>
+            <Textarea id="reason" name="reason" rows={2} required placeholder="Ex. casse constatée, recomptage, retour fournisseur…" />
           </div>
           {state && !state.ok && <p className="text-sm text-destructive">{state.error}</p>}
           <DialogFooter>
-            <Button type="submit" disabled={isPending}>
-              {isPending ? "Enregistrement..." : "Confirmer l'ajustement"}
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
+              Annuler
+            </Button>
+            <Button type="submit" loading={isPending}>
+              Confirmer l&apos;ajustement
             </Button>
           </DialogFooter>
         </form>

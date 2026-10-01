@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { PackageCheck, Scale } from "lucide-react";
+import { PackageCheck, Scale, Building2, Phone, Mail, MapPin } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
 import { MetricWithProgress } from "@/components/metric-with-progress";
@@ -8,7 +8,8 @@ import { ProductMetricRow } from "@/components/products/product-metric-row";
 import { StatusBadge } from "@/components/status-badge";
 import { SupplierForm } from "@/components/purchases/supplier-form";
 import { SupplierPaymentForm } from "@/components/purchases/supplier-payment-form";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -44,7 +45,6 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
       <PageHeader
         title={supplier.name}
         breadcrumbs={[{ label: "Fournisseurs", href: "/fournisseurs" }, { label: supplier.name }]}
-        description={[supplier.city, supplier.phone, supplier.email].filter(Boolean).join(" · ") || undefined}
         actions={
           canManage ? (
             <SupplierForm
@@ -62,6 +62,43 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
           ) : undefined
         }
       />
+
+      {/* Identity card (Phase 4 — Complete Product UI/UX Visual Redesign,
+          section 15: "supplier page should communicate identity + financial
+          state..."). PageHeader itself stays the same plain, low-weight
+          header used on every page — this is an additional, entity-specific
+          identity block, not a replacement for it. */}
+      <Card size="sm">
+        <CardContent className="flex flex-wrap items-center gap-4">
+          <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <Building2 className="size-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-semibold">{supplier.name}</p>
+              <Badge variant={supplier.isActive ? "success" : "secondary"}>{supplier.isActive ? "Actif" : "Inactif"}</Badge>
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              {supplier.city && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="size-3" /> {supplier.city}
+                </span>
+              )}
+              {supplier.phone && (
+                <span className="flex items-center gap-1">
+                  <Phone className="size-3" /> {supplier.phone}
+                </span>
+              )}
+              {supplier.email && (
+                <span className="flex items-center gap-1">
+                  <Mail className="size-3" /> {supplier.email}
+                </span>
+              )}
+              {!supplier.city && !supplier.phone && !supplier.email && <span>Aucune coordonnée renseignée.</span>}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="sm:col-span-2">
@@ -87,7 +124,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-[15px]">Réceptions</CardTitle>
+          <CardTitle>Réceptions</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
@@ -139,12 +176,14 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
       {canViewPurchases && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-[15px]">Produits achetés</CardTitle>
+            <CardTitle>Produits achetés</CardTitle>
+            <CardDescription className="text-xs">
+              {purchaseHistory.length > 0
+                ? `Lignes des réceptions validées — les ${purchaseHistory.length} plus récentes.`
+                : "Lignes des réceptions validées de ce fournisseur."}
+            </CardDescription>
           </CardHeader>
-          <CardContent className="p-0">
-            <p className="px-6 pb-3 text-xs text-muted-foreground">
-              Lignes des réceptions validées de ce fournisseur — les {purchaseHistory.length} plus récentes.
-            </p>
+          <CardContent>
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -168,7 +207,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
                       <TableCell>
                         <Link
                           href={`/receptions/${l.receptionId}`}
-                          className="hover:underline"
+                          className="font-medium hover:text-primary hover:underline"
                         >
                           {displayReceptionNumber({ receptionNumber: l.receptionNumber, displayNumber: l.receptionDisplayNumber })}
                         </Link>
@@ -191,7 +230,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-[15px]">Paiements</CardTitle>
+          <CardTitle>Paiements</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>

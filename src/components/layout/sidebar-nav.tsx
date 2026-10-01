@@ -188,17 +188,19 @@ export function SidebarNav({
                 onClick={onNavigate}
                 title={collapsed ? item.label : undefined}
                 className={cn(
-                  "relative flex items-center gap-2.5 rounded-md py-1.5 text-sm font-medium transition-colors",
-                  collapsed ? "justify-center px-2" : "pr-2.5 pl-3.5",
+                  // Phase 4 (Complete Product UI/UX Visual Redesign) — a solid
+                  // brand-orange pill for the active item (not a tint + thin
+                  // bar): the nav should read as confidently as any other
+                  // "selected" state in a premium SaaS shell (Linear/Vercel-
+                  // style), visible at a glance even collapsed to icons only.
+                  "relative flex items-center gap-2.5 rounded-lg py-1.5 text-sm font-medium transition-colors",
+                  collapsed ? "justify-center px-2" : "pr-2.5 pl-3",
                   isActive
-                    ? "bg-sidebar-primary/12 text-sidebar-accent-foreground"
+                    ? "bg-primary text-primary-foreground shadow-sm shadow-primary/25"
                     : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 )}
               >
-                {isActive && (
-                  <span className="absolute inset-y-1 left-0 w-[3px] rounded-full bg-sidebar-primary" />
-                )}
-                <Icon className={cn("size-4 shrink-0", isActive && "text-sidebar-primary")} />
+                <Icon className="size-4 shrink-0" />
                 {!collapsed && <span className="truncate">{item.label}</span>}
               </Link>
             );

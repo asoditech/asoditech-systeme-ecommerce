@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Boxes, Download } from "lucide-react";
+import { Boxes, Download, Warehouse } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { DataTablePagination } from "@/components/data-table-pagination";
@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
+import { ProductThumb } from "@/components/products/product-thumb";
+import { cn } from "@/lib/utils";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -161,16 +163,17 @@ export default async function StockPage({
           }
         />
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Produit</TableHead>
                 <TableHead>Emplacement</TableHead>
-                <TableHead>Stock physique</TableHead>
-                <TableHead>Réservé</TableHead>
-                <TableHead>Disponible</TableHead>
-                <TableHead>Endommagé</TableHead>
+                <TableHead className="text-right">Physique</TableHead>
+                <TableHead className="text-right">Réservé</TableHead>
+                <TableHead className="text-right">Disponible</TableHead>
+                <TableHead className="text-right">Endommagé</TableHead>
+                <TableHead>État</TableHead>
                 {canAdjust && <TableHead />}
               </TableRow>
             </TableHeader>
@@ -185,33 +188,48 @@ export default async function StockPage({
                   : (product?.name ?? "—");
                 return (
                   <TableRow key={i.id}>
-                    <TableCell className="font-medium">
-                      <ProductImagePreview imageUrl={product?.images[0]?.url} name={label}>
-                        {product ? (
-                          <Link href={`/produits/${product.id}`} className="hover:underline">
-                            {label}
-                          </Link>
-                        ) : (
-                          <span>{label}</span>
-                        )}
-                      </ProductImagePreview>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <ProductImagePreview imageUrl={product?.images[0]?.url} name={label}>
+                          <ProductThumb imageUrl={product?.images[0]?.url} className="size-9" />
+                        </ProductImagePreview>
+                        <div className="min-w-0">
+                          {product ? (
+                            <Link href={`/produits/${product.id}`} className="font-semibold hover:text-primary hover:underline">
+                              {product.name}
+                            </Link>
+                          ) : (
+                            <span className="font-semibold">{label}</span>
+                          )}
+                          {i.variation && (
+                            <p className="text-xs text-muted-foreground">
+                              {Object.values(i.variation.attributes as Record<string, string>).join(" · ")}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                        <Warehouse className="size-3.5" />
+                        {i.warehouse.name}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{i.quantityOnHand}</TableCell>
+                    <TableCell className="text-right text-muted-foreground tabular-nums">{i.quantityReserved}</TableCell>
+                    <TableCell className="text-right text-base font-semibold tabular-nums">{availableStock(i)}</TableCell>
+                    <TableCell className={cn("text-right tabular-nums", i.quantityDamaged > 0 ? "font-medium text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
+                      {i.quantityDamaged}
+                    </TableCell>
+                    <TableCell>
                       {isOut ? (
-                        <Badge variant="destructive" className="ml-2">
-                          Rupture
-                        </Badge>
+                        <Badge variant="destructive">Rupture</Badge>
+                      ) : isLow ? (
+                        <Badge variant="warning">Stock faible</Badge>
                       ) : (
-                        isLow && (
-                          <Badge variant="destructive" className="ml-2">
-                            Stock faible
-                          </Badge>
-                        )
+                        <Badge variant="success">En stock</Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{i.warehouse.name}</TableCell>
-                    <TableCell className={isLow ? "font-medium text-destructive" : ""}>{i.quantityOnHand}</TableCell>
-                    <TableCell>{i.quantityReserved}</TableCell>
-                    <TableCell>{availableStock(i)}</TableCell>
-                    <TableCell>{i.quantityDamaged}</TableCell>
                     {canAdjust && (
                       <TableCell>
                         <StockAdjustmentDialog

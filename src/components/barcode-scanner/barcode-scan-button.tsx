@@ -138,7 +138,12 @@ export function BarcodeScanButton({
       <Button
         type="button"
         variant="outline"
-        className="w-full sm:w-auto"
+        // An empty `label` renders a compact icon-only button (e.g. attached
+        // to a barcode input) — still named for assistive tech + tooltip.
+        size={label ? "default" : "icon"}
+        className={label ? "w-full sm:w-auto" : "shrink-0"}
+        aria-label={label ? undefined : "Scanner avec la caméra"}
+        title={label ? undefined : "Scanner avec la caméra"}
         onClick={() => {
           // Reset synchronously, in this real user-event handler — not in
           // the effect — so a re-open never flashes the previous session's

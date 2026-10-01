@@ -7,8 +7,8 @@ import type { AuditAction } from "@/lib/audit";
 
 describe("stocktake status labels (Phase 32c)", () => {
   it("labels every StocktakeStatus value in French with a badge variant", () => {
-    expect(STOCKTAKE_STATUS_LABELS.EN_COURS).toEqual({ label: "En cours", variant: "secondary" });
-    expect(STOCKTAKE_STATUS_LABELS.CLOTURE).toEqual({ label: "Clôturé", variant: "default" });
+    expect(STOCKTAKE_STATUS_LABELS.EN_COURS).toEqual({ label: "En cours", variant: "info" });
+    expect(STOCKTAKE_STATUS_LABELS.CLOTURE).toEqual({ label: "Clôturé", variant: "success" });
     expect(STOCKTAKE_STATUS_LABELS.ANNULE).toEqual({ label: "Annulé", variant: "outline" });
     expect(Object.keys(STOCKTAKE_STATUS_LABELS).sort()).toEqual(["ANNULE", "CLOTURE", "EN_COURS"]);
   });
