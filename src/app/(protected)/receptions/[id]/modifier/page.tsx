@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/page-header";
 import { ReceptionForm } from "@/components/purchases/reception-form";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
+import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { listAccessibleActiveWarehouses } from "@/lib/auth/location-access";
 import { getReceptionDetail } from "@/lib/queries/purchases";
 import { displayReceptionNumber } from "@/lib/format";
@@ -13,8 +14,10 @@ export const metadata = { title: "Modifier la réception — ASODITECH Gestion E
 /** Only a DRAFT can be edited — a validated reception is immutable (docs/adr/0040). */
 export default async function ModifierReceptionPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("purchases.create");
+  // Purchase prices follow `purchases.view` (docs/adr/0052): without them the form never receives a stored price.
+  const showPrices = productCostVisibility(user).purchasePrices;
   const { id } = await params;
-  const r = await getReceptionDetail(id);
+  const r = await getReceptionDetail(id, user);
   if (!r) notFound();
   if (r.status !== "BROUILLON") redirect(`/receptions/${r.id}`);
   const [suppliers, warehouses] = await Promise.all([
@@ -32,6 +35,7 @@ export default async function ModifierReceptionPage({ params }: { params: Promis
           suppliers={suppliers}
           warehouses={warehouses.map((w) => ({ id: w.id, name: w.name, type: w.type }))}
           canCreateSupplier={userHasPermission(user, "suppliers.manage")}
+          showPurchasePrices={showPrices}
           reception={{
             id: r.id,
             supplierId: r.supplierId,
@@ -46,7 +50,7 @@ export default async function ModifierReceptionPage({ params }: { params: Promis
               label: l.nameSnapshot,
               sku: l.skuSnapshot,
               quantity: l.quantity,
-              unitCost: Number(l.unitCost),
+              unitCost: showPrices ? Number(l.unitCost) : null,
             })),
           }}
         />

@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { requireLocationAccessForAction } from "@/lib/auth/location-access";
+import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { recordAuditEvent } from "@/lib/audit";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
@@ -241,9 +242,31 @@ export async function updateReceptionDraftAction(input: UpdateReceptionDraftInpu
   if (existing.status !== "BROUILLON") {
     return actionError("Une réception validée ou annulée ne peut plus être modifiée.");
   }
+  // The draft's CURRENT location too, not only the submitted one — like
+  // validate/cancel: a draft of a location the actor is not assigned to can
+  // never be edited (or moved) by them (docs/adr/0037, 0048).
+  await requireLocationAccessForAction(user, existing.warehouseId);
   const check = await resolveSupplierAndWarehouse(user, parsed.data.supplierId, parsed.data.warehouseId);
   if (!check.ok) return actionError(check.error);
-  const resolved = await resolveReceptionLines(parsed.data.lines);
+  // `unitCost: null` = « inchangé » (docs/adr/0048): the price already stored on
+  // this draft for the same unit. A unit new to the draft needs a price.
+  const stored = await prisma.receptionLine.findMany({
+    where: { receptionId: existing.id },
+    select: { productId: true, variationId: true, unitCost: true },
+  });
+  const storedPrice = (l: { productId?: string | null; variationId?: string | null }) =>
+    stored.find((s) => (l.variationId ? s.variationId === l.variationId : !s.variationId && s.productId === l.productId))?.unitCost;
+  const lines: { productId?: string | null; variationId?: string | null; quantity: number; unitCost: number }[] = [];
+  for (const l of parsed.data.lines) {
+    if (l.unitCost !== null) {
+      lines.push({ ...l, unitCost: l.unitCost });
+      continue;
+    }
+    const kept = storedPrice(l);
+    if (kept === undefined) return actionError("Saisissez le prix d'achat de chaque nouvel article.");
+    lines.push({ ...l, unitCost: Number(kept) });
+  }
+  const resolved = await resolveReceptionLines(lines);
   if (!resolved.ok) return actionError(resolved.error);
 
   const updated = await prisma.$transaction(async (tx) => {
@@ -487,7 +510,9 @@ export async function getLatestPurchasePriceAction(input: {
   productId?: string | null;
   variationId?: string | null;
 }): Promise<PurchasePriceHistoryEntry | null> {
-  await requirePermissionForAction("purchases.create");
+  const user = await requirePermissionForAction("purchases.create");
+  // A purchase price follows `purchases.view` (docs/adr/0052): no hint without it.
+  if (!productCostVisibility(user).purchasePrices) return null;
   return getLatestPurchasePrice(input);
 }
 
@@ -501,6 +526,7 @@ export async function getUnitPurchaseHistoryAction(input: {
   productId?: string | null;
   variationId?: string | null;
 }): Promise<PurchasePriceHistoryEntry[]> {
-  await requirePermissionForAction("purchases.view");
+  const user = await requirePermissionForAction("purchases.view");
+  if (!productCostVisibility(user).purchasePrices) return [];
   return getPurchasePriceHistory(input, 10);
 }

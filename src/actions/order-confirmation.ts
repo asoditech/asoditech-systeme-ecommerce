@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
-import { reserveStockForOrder, InsufficientStockError } from "@/lib/inventory";
+import { InsufficientStockError } from "@/lib/inventory";
+import { confirmOnlineOrderInTx, OrderConfirmationConflictError, OrderNotConfirmableError } from "@/lib/order-confirmation";
 import { resolveNotifications } from "@/lib/notifications";
 import { pushStockAfterLocalChange, pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
 import { reconcileOrderCommission } from "@/lib/commissions";
@@ -18,10 +19,10 @@ import { actionError, actionOk, type ActionResult, type IdResult } from "@/actio
  * The shared confirmation queue (`/confirmation`) lists every NOUVELLE
  * order oldest-first. A confirmateur calls the customer and records the
  * outcome here:
- *   - CONFIRME  → order becomes CONFIRMEE. If the order has no
- *     confirmation agent yet and the caller has a `CommissionAgent`
- *     record, the caller is credited automatically (so the commission
- *     ledger tracks it without a manager assigning by hand).
+ *   - CONFIRME  → the canonical confirmation (`confirmOnlineOrderInTx`,
+ *     docs/adr/0045): order becomes CONFIRMEE, stock is reserved, and if
+ *     the order has no confirmation agent yet and the caller has an ACTIVE
+ *     `CommissionAgent` record, the caller is credited automatically.
  *   - ANNULE    → order becomes ANNULEE, its reserved stock is released.
  *   - the rest  → the attempt is logged, the order stays in the queue,
  *     its attempt counter bumps.
@@ -64,19 +65,18 @@ export async function recordConfirmationAttemptAction(
     quantity: i.quantity,
   }));
 
-  // Auto-credit: only when the order has no agent yet AND this caller is
-  // registered as a commission agent. Resolved before the transaction so a
-  // missing agent record is simply "no credit", never an error.
-  let creditAgentId: string | null = null;
-  if (outcome === "CONFIRME" && !existing.confirmationAgentId) {
-    const myAgent = await prisma.commissionAgent.findUnique({ where: { userId: user.id } });
-    creditAgentId = myAgent?.id ?? null;
-  }
-
   const terminal = outcome === "CONFIRME" ? "CONFIRMEE" : outcome === "ANNULE" ? "ANNULEE" : null;
 
   try {
     await prisma.$transaction(async (tx) => {
+      if (outcome === "CONFIRME") {
+        // The one canonical confirmation (docs/adr/0045): attempt + confirmedAt
+        // + reservation + default attribution (the caller's ACTIVE agent, only
+        // when the order has none) — the same path a direct status change uses.
+        await confirmOnlineOrderInTx(tx, { orderId: id, confirmerUserId: user.id, note });
+        return;
+      }
+
       await tx.orderConfirmationAttempt.create({
         data: { orderId: id, agentUserId: user.id, outcome, note },
       });
@@ -85,39 +85,26 @@ export async function recordConfirmationAttemptAction(
         data: {
           confirmationAttemptCount: { increment: 1 },
           lastConfirmationAttemptAt: new Date(),
-          ...(creditAgentId ? { confirmationAgentId: creditAgentId } : {}),
         },
       });
 
-      if (terminal) {
-        // Conditional update guarding the NOUVELLE → terminal race, same
-        // pattern as updateOrderStatusAction.
+      if (terminal === "ANNULEE") {
+        // Conditional update guarding the NOUVELLE → ANNULEE race, same
+        // pattern as updateOrderStatusAction. Nothing to release — a
+        // NOUVELLE order never held a reservation.
         const moved = await tx.order.updateMany({
           where: { id, status: "NOUVELLE" },
-          data: {
-            status: terminal,
-            ...(terminal === "CONFIRMEE" ? { confirmedAt: new Date() } : { cancelledAt: new Date() }),
-          },
+          data: { status: terminal, cancelledAt: new Date() },
         });
         if (moved.count === 0) throw new OrderRaceError();
-
-        if (terminal === "CONFIRMEE") {
-          // Stock is reserved at confirmation, not at order creation
-          // (docs/adr/0030), for EVERY order regardless of source
-          // (2026-09-13 addendum) — reserving only ever touches
-          // `quantityReserved`, never `quantityOnHand`, so it can never
-          // double-count against a WooCommerce/Shopify order's own
-          // provider-side stock reduction (pulled in separately by
-          // sync/stock.ts). Reserving never fails (backorders allowed).
-          await reserveStockForOrder(tx, id, lines, user.id);
-        }
-        // ANNULE from NOUVELLE: nothing to release — a NOUVELLE order
-        // never held a reservation.
       }
     });
   } catch (error) {
-    if (error instanceof OrderRaceError) {
+    if (error instanceof OrderRaceError || error instanceof OrderConfirmationConflictError) {
       return actionError("Cette commande vient d'être traitée ailleurs. Rechargez la file d'attente.");
+    }
+    if (error instanceof OrderNotConfirmableError) {
+      return actionError(error.message);
     }
     if (error instanceof InsufficientStockError) {
       return actionError(error.message);

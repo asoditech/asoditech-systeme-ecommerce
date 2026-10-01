@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { requireChannelKind } from "@/lib/auth/channel-access";
 import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
 import { getDeliveryPerformanceReport, type DeliveryPerfRow } from "@/lib/queries/reports/delivery";
@@ -58,6 +59,8 @@ export default async function RapportLivraisonPage({
   searchParams: Promise<{ period?: string; from?: string; to?: string }>;
 }) {
   const viewer = await requirePermission("analytics.view");
+  // Carrier costs are finance data (docs/adr/0050); performance and COD are operational.
+  const canSeeFinance = userHasPermission(viewer, "finance.view");
   // Order-derived data: needs an ONLINE channel (docs/adr/0039).
   requireChannelKind(viewer, "ONLINE");
   const params = await searchParams;
@@ -84,12 +87,14 @@ export default async function RapportLivraisonPage({
         <KpiCard label="Taux de livraison" value={pct(o.successRate)} tone="success"
           hint={`${o.delivered} livrées / ${o.failed} échecs / ${o.returned} retours`} />
         <KpiCard label="Délai moyen de livraison" value={days(o.avgDeliveryDays)} tone="info" />
-        <KpiCard
-          label="Coût de livraison total"
-          value={formatCurrency(o.shippingCost)}
-          tone="warning"
-          hint={`Livraisons ${formatCurrency(o.deliveryCost)} · retours ${formatCurrency(o.returnCost)} · échecs ${formatCurrency(o.failureCost)}`}
-        />
+        {canSeeFinance && (
+          <KpiCard
+            label="Coût de livraison total"
+            value={formatCurrency(o.shippingCost)}
+            tone="warning"
+            hint={`Livraisons ${formatCurrency(o.deliveryCost)} · retours ${formatCurrency(o.returnCost)} · échecs ${formatCurrency(o.failureCost)}`}
+          />
+        )}
         <KpiCard label="COD encaissé" value={formatCurrency(o.codCollected)} tone="success" />
         <KpiCard label="COD livré mais en attente" value={formatCurrency(o.codPending)} tone="danger"
           hint="Colis livrés dont le paiement n'est pas encore encaissé" />

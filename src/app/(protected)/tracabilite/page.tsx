@@ -11,6 +11,7 @@ import { findTraceUnits, getUnitTraceability } from "@/lib/queries/traceability"
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { INVENTORY_MOVEMENT_TYPE_LABELS, WAREHOUSE_TYPE_LABELS } from "@/lib/status-labels";
 import { variantLabel } from "@/lib/catalog/lookup";
+import { productCostVisibility } from "@/lib/auth/cost-visibility";
 
 export const metadata = { title: "Traçabilité — ASODITECH Gestion E-commerce" };
 
@@ -25,6 +26,10 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
   // `traceability` capability (docs/adr/0041) — otherwise it is not in the
   // effective set and this redirects.
   const user = await requirePermission("traceability.view");
+  // Movement unit costs: the query sends a reception's purchase price with
+  // `purchases.view`, any other cost with `finance.view` (docs/adr/0052).
+  const { cost, purchasePrices } = productCostVisibility(user);
+  const showCost = cost || purchasePrices;
   const params = await searchParams;
   const q = params.q?.trim() ?? "";
 
@@ -141,7 +146,7 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
                       <TableHead>Emplacement</TableHead>
                       <TableHead className="text-right">Effet</TableHead>
                       <TableHead className="text-right">Solde</TableHead>
-                      <TableHead className="text-right">Coût</TableHead>
+                      {showCost && <TableHead className="text-right">Coût</TableHead>}
                       <TableHead>Document</TableHead>
                       <TableHead>Par</TableHead>
                     </TableRow>
@@ -159,7 +164,7 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
                           {m.onHandDelta === null ? `${m.quantity}` : m.onHandDelta > 0 ? `+${m.onHandDelta}` : `${m.onHandDelta}`}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{m.onHandAfter ?? "—"}</TableCell>
-                        <TableCell className="text-right tabular-nums">{m.unitCost !== null ? formatCurrency(String(m.unitCost)) : "—"}</TableCell>
+                        {showCost && <TableCell className="text-right tabular-nums">{m.unitCost !== null ? formatCurrency(String(m.unitCost)) : "—"}</TableCell>}
                         <TableCell>
                           {m.document ? (
                             <Link href={m.document.href} className="hover:underline">
@@ -175,7 +180,7 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
                     ))}
                     {trace.movements.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center text-muted-foreground">
+                        <TableCell colSpan={showCost ? 8 : 7} className="text-center text-muted-foreground">
                           Aucun mouvement visible.
                         </TableCell>
                       </TableRow>

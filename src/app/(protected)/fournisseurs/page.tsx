@@ -9,6 +9,7 @@ import { SupplierForm } from "@/components/purchases/supplier-form";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
+import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { listSuppliers } from "@/lib/queries/purchases";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -19,14 +20,16 @@ export const metadata = { title: "Fournisseurs — ASODITECH Gestion E-commerce"
 export default async function FournisseursPage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string }> }) {
   const user = await requirePermission("suppliers.view");
   const params = await searchParams;
-  const { suppliers, total, page, pageSize } = await listSuppliers({ q: params.q, page: Number(params.page) || 1 });
+  const { suppliers, total, page, pageSize } = await listSuppliers({ q: params.q, page: Number(params.page) || 1 }, user);
   const canManage = userHasPermission(user, "suppliers.manage");
+  // Amounts received / paid / owed are the supplier ACCOUNT — `finance.view` (docs/adr/0048, 0052).
+  const showAmounts = productCostVisibility(user).supplierAccounts;
 
   return (
     <div>
       <PageHeader
         title="Fournisseurs"
-        description="Vos fournisseurs et le solde restant à leur payer (réceptions validées − paiements)."
+        description={showAmounts ? "Vos fournisseurs et le solde restant à leur payer (réceptions validées − paiements)." : "Vos fournisseurs."}
         actions={canManage ? <SupplierForm /> : undefined}
       />
       <div className="mb-4">
@@ -51,9 +54,9 @@ export default async function FournisseursPage({ searchParams }: { searchParams:
               <TableRow>
                 <TableHead>Fournisseur</TableHead>
                 <TableHead className="text-right">Activité</TableHead>
-                <TableHead className="text-right">Reçu</TableHead>
-                <TableHead className="text-right">Payé</TableHead>
-                <TableHead className="text-right">Solde dû</TableHead>
+                {showAmounts && <TableHead className="text-right">Reçu</TableHead>}
+                {showAmounts && <TableHead className="text-right">Payé</TableHead>}
+                {showAmounts && <TableHead className="text-right">Solde dû</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -92,13 +95,17 @@ export default async function FournisseursPage({ searchParams }: { searchParams:
                         {s.lastReceptionDate ? formatDate(s.lastReceptionDate) : "Aucune réception"}
                       </p>
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">{formatCurrency(s.totalReceived.toString())}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatCurrency(s.totalPaid.toString())}</TableCell>
-                    <TableCell className="text-right">
-                      <Badge variant={owes ? "warning" : "success"} className="font-semibold tabular-nums">
-                        {formatCurrency(s.balance.toString())}
-                      </Badge>
-                    </TableCell>
+                    {showAmounts && (
+                      <>
+                        <TableCell className="text-right tabular-nums">{formatCurrency(s.totalReceived.toString())}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatCurrency(s.totalPaid.toString())}</TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant={owes ? "warning" : "success"} className="font-semibold tabular-nums">
+                            {formatCurrency(s.balance.toString())}
+                          </Badge>
+                        </TableCell>
+                      </>
+                    )}
                   </TableRow>
                 );
               })}

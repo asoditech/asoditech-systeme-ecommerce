@@ -25,7 +25,7 @@ import type { CurrentUser } from "@/lib/auth/session";
  * accounting policy.
  */
 
-type Viewer = Pick<CurrentUser, "channels">;
+type Viewer = Pick<CurrentUser, "channels" | "locations">;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const num = (d: { toString(): string } | null | undefined) => (d == null ? 0 : Number(d.toString()));
 
@@ -71,10 +71,14 @@ export async function getChannelReport(viewer: Viewer, range: PeriodRange, filte
 
   let offline: ChannelReport["offline"] = null;
   if (wantOffline) {
+    // AND, never a spread: an explicit channel / location filter can only
+    // NARROW the viewer's own read scope, never replace it (docs/adr/0050).
     const scope: Prisma.SaleWhereInput = {
-      ...saleChannelWhere(viewer),
-      ...(filters.salesChannelId ? { salesChannelId: filters.salesChannelId } : {}),
-      ...(filters.warehouseId ? { warehouseId: filters.warehouseId } : {}),
+      AND: [
+        saleChannelWhere(viewer),
+        ...(filters.salesChannelId ? [{ salesChannelId: filters.salesChannelId }] : []),
+        ...(filters.warehouseId ? [{ warehouseId: filters.warehouseId }] : []),
+      ],
     };
     const salesWhere: Prisma.SaleWhereInput = { ...scope, soldAt: { gte: range.from, lte: range.to } };
 

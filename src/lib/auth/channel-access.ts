@@ -55,9 +55,18 @@ export function requireChannelKindForAction(user: ScopeUser, kind: ChannelDomain
  * assigned OFFLINE channels; none assigned → matches nothing (default-deny,
  * never "all").
  */
-export function saleChannelWhere(user: ScopeUser): { salesChannelId?: { in: string[] } } {
+export function saleChannelWhere(
+  user: ScopeUser & Pick<CurrentUser, "locations">
+): { salesChannelId?: { in: string[] }; warehouseId?: { in: string[] } } {
   if (user.channels.global) return {};
-  return { salesChannelId: { in: [...user.channels.offlineIds] } };
+  // …AND the sale's location among the viewer's own (docs/adr/0050, G7): an
+  // OFFLINE channel may serve several stores (SalesChannelLocation), so the
+  // channel alone would show a Store-A user Store B's sales. Every sale read
+  // (list, detail, search, reports, dashboard, returns) goes through here.
+  return {
+    salesChannelId: { in: [...user.channels.offlineIds] },
+    ...(user.locations.global ? {} : { warehouseId: { in: [...user.locations.ids] } }),
+  };
 }
 
 /** Same restriction for any model carrying `salesChannelId` (Order → ONLINE ids). */

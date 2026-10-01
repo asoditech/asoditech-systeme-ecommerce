@@ -24,6 +24,26 @@ import { Prisma } from "@prisma/client";
 
 const DELIVERED_STATUS = "LIVREE";
 
+/**
+ * The one check for a NEW commission attribution (docs/adr/0049): the agent
+ * must exist in the acting tenant (tenant-scoped client — a foreign id is
+ * simply not found) and be ACTIVE. An inactive agent keeps every historical
+ * entry and every order already attributed to them, but never receives a new
+ * one. Used by the manual-order preset and the manager assignment; the
+ * canonical confirmation (src/lib/order-confirmation.ts) applies the same rule
+ * to the confirmer's own agent.
+ */
+export async function findAssignableCommissionAgent(
+  agentId: string
+): Promise<{ ok: true; agent: { id: string } } | { ok: false; error: string }> {
+  const agent = await prisma.commissionAgent.findUnique({ where: { id: agentId }, select: { id: true, isActive: true } });
+  if (!agent) return { ok: false, error: "Agent de confirmation introuvable." };
+  if (!agent.isActive) {
+    return { ok: false, error: "Cet agent de confirmation est désactivé — il ne peut plus recevoir de nouvelles commandes." };
+  }
+  return { ok: true, agent: { id: agent.id } };
+}
+
 export type CommissionReconcileOutcome = "earned" | "reversed" | "unchanged" | "skipped" | "error";
 
 export async function reconcileOrderCommission(

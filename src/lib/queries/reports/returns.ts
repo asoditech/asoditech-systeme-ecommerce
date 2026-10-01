@@ -178,7 +178,7 @@ export interface OfflineReturnsReport {
 
 export async function getOfflineReturnsReport(
   range: PeriodRange,
-  viewer: Pick<CurrentUser, "channels">
+  viewer: Pick<CurrentUser, "channels" | "locations">
 ): Promise<OfflineReturnsReport> {
   const returns = await prisma.saleReturn.findMany({
     where: { receivedAt: { gte: range.from, lte: range.to }, sale: saleChannelWhere(viewer) },

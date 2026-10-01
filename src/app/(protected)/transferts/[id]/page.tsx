@@ -28,7 +28,7 @@ function lineLabel(line: TransferDetail["lines"][number]) {
 export default async function TransfertDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("inventory.view");
   const { id } = await params;
-  const transfer = await getStockTransferDetail(id);
+  const transfer = await getStockTransferDetail(id, user);
   if (!transfer) notFound();
 
   const canTransfer = userHasPermission(user, "inventory.transfer");

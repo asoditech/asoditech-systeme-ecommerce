@@ -82,7 +82,7 @@ export default async function ProduitsPage({
     type: typeFilter,
     sort: sortFilter,
     page,
-  });
+  }, user);
 
   const hasActiveFilter = Boolean(
     params.q || statusFilter || typeFilter || categoryFilter || params.sort

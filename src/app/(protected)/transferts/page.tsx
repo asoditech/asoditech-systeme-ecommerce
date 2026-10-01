@@ -23,7 +23,7 @@ export default async function TransfertsPage({
   const canTransfer = userHasPermission(user, "inventory.transfer");
   const params = await searchParams;
   const page = Number(params.page) || 1;
-  const { transfers, total, pageSize } = await listStockTransfers({ status: params.status, page });
+  const { transfers, total, pageSize } = await listStockTransfers({ status: params.status, page }, user);
 
   return (
     <div>

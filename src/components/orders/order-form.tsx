@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldHint, FieldRow } from "@/components/ui/field";
@@ -50,10 +51,13 @@ interface LineItem {
 export function OrderForm({
   warehouses = [],
   commissionAgents = [],
+  canConfirm = false,
   cityGuidance = { tone: "none" },
 }: {
   warehouses?: SelectableWarehouse[];
   commissionAgents?: { id: string; name: string }[];
+  /** `orders.confirm` — offers « Client déjà confirmé » (docs/adr/0046); re-checked server-side. */
+  canConfirm?: boolean;
   /** Which delivery provider (if any) the city field's warning should name — never hard-coded (docs/adr/0018). */
   cityGuidance?: CityGuidance;
 }) {
@@ -80,6 +84,7 @@ export function OrderForm({
   const [items, setItems] = React.useState<LineItem[]>([]);
   const [paymentMethod, setPaymentMethod] = React.useState("PAIEMENT_LIVRAISON");
   const [channel, setChannel] = React.useState("WHATSAPP");
+  const [customerAlreadyConfirmed, setCustomerAlreadyConfirmed] = React.useState(false);
   const [shippingCost, setShippingCost] = React.useState("0");
   const [discountTotal, setDiscountTotal] = React.useState("0");
   const [notes, setNotes] = React.useState("");
@@ -220,6 +225,7 @@ export function OrderForm({
         paymentMethod: paymentMethod as CreateOrderInputMethod,
         channel: channel as CreateOrderInputChannel,
         confirmationAgentId: confirmationAgentId || null,
+        customerAlreadyConfirmed: canConfirm && customerAlreadyConfirmed,
         shippingCost: Number(shippingCost || 0),
         discountTotal: Number(discountTotal || 0),
         currency: "MAD",
@@ -540,6 +546,27 @@ export function OrderForm({
                     </Select>
                   </Field>
                 </FieldRow>
+                {canConfirm && (
+                  <label
+                    htmlFor="ord-already-confirmed"
+                    className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors has-data-checked:border-primary/40 has-data-checked:bg-primary/5"
+                  >
+                    <Switch
+                      id="ord-already-confirmed"
+                      className="mt-0.5"
+                      checked={customerAlreadyConfirmed}
+                      onCheckedChange={setCustomerAlreadyConfirmed}
+                    />
+                    <span className="space-y-0.5">
+                      <span className="block text-sm font-medium">Client déjà confirmé</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {customerAlreadyConfirmed
+                          ? "Le client a déjà confirmé sa commande (WhatsApp, téléphone, Instagram…) : elle est créée « Confirmée », le stock est réservé et elle n'entre pas dans la file de confirmation."
+                          : "Client pas encore confirmé : la commande est créée « Nouvelle » et entre dans la file de confirmation."}
+                      </span>
+                    </span>
+                  </label>
+                )}
                 {(commissionAgents.length > 0 || warehouses.length > 1) && (
                   <FieldRow>
                     {commissionAgents.length > 0 && (

@@ -40,6 +40,24 @@ export async function loadEffectiveAccess(user: {
 }
 
 /**
+ * Location READ scope (docs/adr/0050) — the read-side counterpart of
+ * `requireLocationAccessForAction` (docs/adr/0037). OWNER/ADMIN: global, no
+ * query. Everyone else: exactly their UserLocation rows — inactive warehouses
+ * included, so their own history stays readable; zero rows = zero locations
+ * (default-deny, never "all").
+ */
+export interface LocationScope {
+  global: boolean;
+  ids: readonly string[];
+}
+
+export async function loadLocationScope(user: { id: string; role: UserRole }): Promise<LocationScope> {
+  if (isGlobalRole(user.role)) return { global: true, ids: [] };
+  const rows = await prisma.userLocation.findMany({ where: { userId: user.id }, select: { warehouseId: true } });
+  return { global: false, ids: rows.map((r) => r.warehouseId) };
+}
+
+/**
  * Batch form for fan-out callers (notification recipients): two queries for
  * the whole list instead of two per user.
  */

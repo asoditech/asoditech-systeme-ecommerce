@@ -56,8 +56,28 @@ const receptionBaseSchema = z.object({
 export const createReceptionSchema = receptionBaseSchema;
 export type CreateReceptionInput = z.input<typeof createReceptionSchema>;
 
+/**
+ * A draft-edit line: `unitCost: null` = « inchangé » — the line keeps the price
+ * already stored for that unit (docs/adr/0048: a viewer without purchase-price
+ * visibility never receives stored prices, so it cannot send them back).
+ */
+const receptionDraftLineSchema = z
+  .object({
+    productId: z.string().min(1).nullish(),
+    variationId: z.string().min(1).nullish(),
+    quantity: z.coerce.number().int().positive("La quantité doit être au moins 1."),
+    unitCost: z.union([z.null(), z.coerce.number().min(0, "Le prix d'achat doit être positif ou nul.")]),
+  })
+  .refine((l) => Boolean(l.productId) !== Boolean(l.variationId), {
+    message: "Chaque ligne doit référencer soit un produit, soit une variation.",
+    path: ["productId"],
+  });
+
 /** Draft edit — every field is editable while the reception is still a draft. */
-export const updateReceptionDraftSchema = receptionBaseSchema.extend({ id: z.string().min(1) });
+export const updateReceptionDraftSchema = receptionBaseSchema.extend({
+  id: z.string().min(1),
+  lines: z.array(receptionDraftLineSchema).min(1, "Ajoutez au moins une ligne à la réception."),
+});
 export type UpdateReceptionDraftInput = z.input<typeof updateReceptionDraftSchema>;
 
 export const receptionIdSchema = z.object({ id: z.string().min(1) });

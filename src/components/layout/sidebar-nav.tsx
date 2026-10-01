@@ -114,7 +114,9 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Pilotage",
     items: [
       { href: "/rapports", label: "Rapports", icon: FileBarChart, permission: "analytics.view" },
-      { href: "/analyses", label: "Analyses", icon: LineChart, permission: "analytics.view", domain: "ONLINE" },
+      // Online AND store analytics (docs/adr/0051) — like Rapports, no single
+      // channel domain; each /analyses section re-checks what it may read.
+      { href: "/analyses", label: "Analyses", icon: LineChart, permission: "analytics.view" },
       { href: "/finance", label: "Finance", icon: Wallet, permission: "finance.view", domain: "ONLINE" },
       { href: "/depenses", label: "Dépenses", icon: Receipt, permission: "finance.view" },
       { href: "/commissions", label: "Commissions", icon: HandCoins, permission: "commissions.view" },

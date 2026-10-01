@@ -14,7 +14,6 @@ import {
 } from "@/lib/auth/location-access";
 import { recordAuditEvent } from "@/lib/audit";
 import {
-  reserveStockForOrder,
   releaseStockForOrder,
   fulfillStockForOrder,
   InsufficientStockError,
@@ -28,8 +27,16 @@ import {
   resolveNotifications,
 } from "@/lib/notifications";
 import { pushStockAfterLocalChange, pushOrderPaymentToWooCommerce, pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
-import { reconcileOrderCommission } from "@/lib/commissions";
+import { reconcileOrderCommission, findAssignableCommissionAgent } from "@/lib/commissions";
+import {
+  confirmOnlineOrderInTx,
+  OrderConfirmationConflictError,
+  OrderNotConfirmableError,
+  REOPEN_ORDER_DATA,
+  isReopenable,
+} from "@/lib/order-confirmation";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
+import { ORDER_CHANNEL_LABELS } from "@/lib/status-labels";
 import { requireEntitlement, EntitlementDeniedError } from "@/lib/entitlements/checks";
 import { getTenantUsage } from "@/lib/entitlements/usage";
 import { checkAndNotifyUsageThreshold } from "@/lib/entitlements/alerts";
@@ -219,13 +226,27 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
     return actionError("Client introuvable.");
   }
 
+  // "Client déjà confirmé" (docs/adr/0046) IS a confirmation — the same
+  // permission as the confirmation queue, on top of orders.create.
+  const customerAlreadyConfirmed = parsed.data.customerAlreadyConfirmed;
+  if (customerAlreadyConfirmed && !userHasPermission(user, "orders.confirm")) {
+    return actionError("Vous n'êtes pas autorisé à confirmer une commande.");
+  }
+
   const confirmationAgentId =
     parsed.data.confirmationAgentId && parsed.data.confirmationAgentId.length > 0
       ? parsed.data.confirmationAgentId
       : null;
   if (confirmationAgentId) {
-    const agent = await prisma.commissionAgent.findUnique({ where: { id: confirmationAgentId } });
-    if (!agent) return actionError("Agent de confirmation invalide.");
+    // Presetting the commission agent is the manager workflow — the form only
+    // offers the picker to commissions.manage (like assignOrderConfirmationAgentAction);
+    // a crafted request from anyone else is refused, never silently kept.
+    if (!userHasPermission(user, "commissions.manage")) {
+      return actionError("Vous n'êtes pas autorisé à attribuer un agent de confirmation.");
+    }
+    // A NEW attribution: the agent must exist in this tenant and be active (docs/adr/0049).
+    const assignable = await findAssignableCommissionAgent(confirmationAgentId);
+    if (!assignable.ok) return actionError(assignable.error);
   }
 
   // Fulfilment warehouse (Phase 32b — see docs/adr/0020-stock-transfers.md).
@@ -331,48 +352,76 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
   const itemsDiscountTotal = parsed.data.items.reduce((sum, i) => sum + i.discount, 0);
   const total = subtotal - itemsDiscountTotal - parsed.data.discountTotal + parsed.data.shippingCost;
 
-  const order = await prisma.$transaction(async (tx) => {
-    const created = await tx.order.create({
-      data: {
-        customerId: parsed.data.customerId,
-        paymentMethod: parsed.data.paymentMethod,
-        channel: parsed.data.channel,
-        confirmationAgentId,
-        shippingCost: parsed.data.shippingCost,
-        discountTotal: parsed.data.discountTotal,
-        subtotal,
-        total,
-        currency: parsed.data.currency,
-        notes: normalizeOptional(parsed.data.notes),
-        internalNotes: normalizeOptional(parsed.data.internalNotes),
-        // Recipient snapshot (docs/adr/0030) — the manual order form has no
-        // separate recipient field, so the customer's name at creation.
-        shippingName: customer.fullName,
-        shippingAddressLine1: normalizeOptional(parsed.data.shippingAddressLine1),
-        shippingAddressLine2: normalizeOptional(parsed.data.shippingAddressLine2),
-        shippingCity: normalizeOptional(parsed.data.shippingCity),
-        shippingRegion: normalizeOptional(parsed.data.shippingRegion),
-        // Blank country → Maroc, the app's only market (see DEFAULT_SHIPPING_COUNTRY).
-        shippingCountry: normalizeOptional(parsed.data.shippingCountry) ?? "Maroc",
-        shippingPhone: normalizeOptional(parsed.data.shippingPhone),
-        fulfillmentWarehouseId,
-        // Business channel (docs/adr/0038): a manual delivery order belongs to
-        // the tenant's default ONLINE channel. Additive; the lifecycle and
-        // every stock rule are untouched.
-        salesChannelId: (await ensureDefaultOnlineChannel(tx)).id,
-        createdById: user.id,
-        items: { create: resolvedItems },
-      },
+  let order;
+  try {
+    order = await prisma.$transaction(async (tx) => {
+      const created = await tx.order.create({
+        data: {
+          customerId: parsed.data.customerId,
+          paymentMethod: parsed.data.paymentMethod,
+          channel: parsed.data.channel,
+          confirmationAgentId,
+          shippingCost: parsed.data.shippingCost,
+          discountTotal: parsed.data.discountTotal,
+          subtotal,
+          total,
+          currency: parsed.data.currency,
+          notes: normalizeOptional(parsed.data.notes),
+          internalNotes: normalizeOptional(parsed.data.internalNotes),
+          // Recipient snapshot (docs/adr/0030) — the manual order form has no
+          // separate recipient field, so the customer's name at creation.
+          shippingName: customer.fullName,
+          shippingAddressLine1: normalizeOptional(parsed.data.shippingAddressLine1),
+          shippingAddressLine2: normalizeOptional(parsed.data.shippingAddressLine2),
+          shippingCity: normalizeOptional(parsed.data.shippingCity),
+          shippingRegion: normalizeOptional(parsed.data.shippingRegion),
+          // Blank country → Maroc, the app's only market (see DEFAULT_SHIPPING_COUNTRY).
+          shippingCountry: normalizeOptional(parsed.data.shippingCountry) ?? "Maroc",
+          shippingPhone: normalizeOptional(parsed.data.shippingPhone),
+          fulfillmentWarehouseId,
+          // Business channel (docs/adr/0038): a manual delivery order belongs to
+          // the tenant's default ONLINE channel. Additive; the lifecycle and
+          // every stock rule are untouched.
+          salesChannelId: (await ensureDefaultOnlineChannel(tx)).id,
+          createdById: user.id,
+          items: { create: resolvedItems },
+        },
+      });
+
+      // Stock is NOT reserved here any more (docs/adr/0030): a NOUVELLE order
+      // — which may never be confirmed — must not tie up inventory. The
+      // reservation is taken when the order is CONFIRMED
+      // (updateOrderStatusAction / recordConfirmationAttemptAction), or just
+      // below when the customer already confirmed.
+
+      const displayNumber = await claimTenantDisplayNumber(tx, created.tenantId, "order");
+      const numbered = await tx.order.update({ where: { id: created.id }, data: { displayNumber } });
+      if (!customerAlreadyConfirmed) return numbered;
+
+      // "Client déjà confirmé" (docs/adr/0046): the creator confirmed the
+      // customer outside ASODITECH — the order is confirmed right here, in the
+      // SAME transaction, through the one canonical confirmation (docs/adr/0045):
+      // CONFIRME attempt with the creator as confirmer, confirmedAt, the
+      // reservation, and default attribution to the creator's ACTIVE agent only
+      // (a manager-preset agent above is kept). Any failure rolls the whole
+      // order back.
+      await confirmOnlineOrderInTx(tx, {
+        orderId: created.id,
+        confirmerUserId: user.id,
+        note: `Client déjà confirmé hors ASODITECH — commande manuelle (${ORDER_CHANNEL_LABELS[parsed.data.channel] ?? parsed.data.channel}).`,
+      });
+      return tx.order.findUniqueOrThrow({ where: { id: created.id } });
     });
-
-    // Stock is NOT reserved here any more (docs/adr/0030): a NOUVELLE order
-    // — which may never be confirmed — must not tie up inventory. The
-    // reservation is taken when the order is CONFIRMED
-    // (updateOrderStatusAction / recordConfirmationAttemptAction).
-
-    const displayNumber = await claimTenantDisplayNumber(tx, created.tenantId, "order");
-    return tx.order.update({ where: { id: created.id }, data: { displayNumber } });
-  });
+  } catch (error) {
+    if (
+      error instanceof InsufficientStockError ||
+      error instanceof OrderNotConfirmableError ||
+      error instanceof OrderConfirmationConflictError
+    ) {
+      return actionError(error.message);
+    }
+    throw error;
+  }
 
   await recordAuditEvent({
     actorType: "USER",
@@ -380,22 +429,31 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
     action: "order.created",
     entityType: "Order",
     entityId: order.id,
-    newValue: { total: total.toString(), customerId: customer.id, fulfillmentWarehouseId },
+    newValue: {
+      total: total.toString(),
+      customerId: customer.id,
+      fulfillmentWarehouseId,
+      ...(customerAlreadyConfirmed ? { status: order.status, customerAlreadyConfirmed: true } : {}),
+    },
   });
 
-  // Unlike a status change the creator made themselves, a brand-new order
-  // is worth confirming even to its own creator (e.g. the owner wants a
-  // running log of every order created, not just ones created by someone
-  // else) — so, unlike other notify* calls in this file, no exceptUserId.
-  await notifyNewOrder({
-    id: order.id,
-    orderNumber: order.orderNumber,
-    displayNumber: order.displayNumber,
-    total: total,
-    currency: parsed.data.currency,
-    customerName: customer.fullName,
-    source: "INTERNE",
-  });
+  if (!customerAlreadyConfirmed) {
+    // Unlike a status change the creator made themselves, a brand-new order
+    // is worth confirming even to its own creator (e.g. the owner wants a
+    // running log of every order created, not just ones created by someone
+    // else) — so, unlike other notify* calls in this file, no exceptUserId.
+    // An order created already confirmed never waits for confirmation: no
+    // "nouvelle commande" alert (confirming a NOUVELLE order resolves it anyway).
+    await notifyNewOrder({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      displayNumber: order.displayNumber,
+      total: total,
+      currency: parsed.data.currency,
+      customerName: customer.fullName,
+      source: "INTERNE",
+    });
+  }
 
   // Read-only alert — never blocks order creation and never touches stock.
   await checkAndNotifyInsufficientStockForOrder(
@@ -408,6 +466,17 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
   // de-duplicated notification insert.
   const orderUsage = await getTenantUsage(user.tenantId);
   await checkAndNotifyUsageThreshold(user.tenantId, "ORDERS", orderUsage.orders);
+
+  if (customerAlreadyConfirmed) {
+    // Same post-commit effects as the other confirmation paths: the
+    // reservation changed what's sellable, and the (idempotent) commission
+    // reconciliation — which earns nothing before LIVREE.
+    const refs = { productIds: resolvedItems.map((i) => i.productId ?? null), variationIds: resolvedItems.map((i) => i.variationId ?? null) };
+    await checkAndNotifyLowStock(refs);
+    await pushStockAfterLocalChange(refs);
+    await reconcileOrderCommission(order.id, user.id);
+    revalidatePath("/confirmation");
+  }
 
   revalidatePath("/commandes");
   return actionOk({ id: order.id });
@@ -431,6 +500,12 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
   if (!canTransitionOrderStatus(existing.status, parsed.data.status)) {
     return actionError(`Transition de statut invalide : ${existing.status} → ${parsed.data.status}.`);
   }
+  // ANNULEE → NOUVELLE through the status menu is a reopen: same rule and same
+  // reset as « Rétablir la commande » (docs/adr/0049).
+  const reopening = parsed.data.status === "NOUVELLE";
+  if (reopening && !isReopenable(existing)) {
+    return actionError("Cette commande a été expédiée — elle ne peut pas être rétablie depuis « Annulée ».");
+  }
 
   const lines = existing.items.map((i) => ({ productId: i.productId, variationId: i.variationId, quantity: i.quantity }));
   const wasFulfilled = existing.shippedAt !== null;
@@ -438,8 +513,22 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
   let order;
   try {
     order = await prisma.$transaction(async (tx) => {
+      // NOUVELLE → CONFIRMEE is a CONFIRMATION, not a plain status change: it
+      // goes through the one canonical mechanism (docs/adr/0045) — history
+      // attempt with the logged-in user as confirmer, confirmedAt, the
+      // reservation, and default attribution to that user's ACTIVE agent
+      // only. No agent id is read from this request. (CONFIRMEE is only
+      // reachable from NOUVELLE — see ORDER_STATUS_TRANSITIONS.)
+      if (parsed.data.status === "CONFIRMEE") {
+        await confirmOnlineOrderInTx(tx, {
+          orderId: parsed.data.id,
+          confirmerUserId: user.id,
+          note: parsed.data.note ?? null,
+        });
+        return tx.order.findUniqueOrThrow({ where: { id: parsed.data.id } });
+      }
+
       const timestampField: Record<string, Date> = {};
-      if (parsed.data.status === "CONFIRMEE") timestampField.confirmedAt = new Date();
       if (parsed.data.status === "EXPEDIEE") timestampField.shippedAt = new Date();
       if (parsed.data.status === "LIVREE") timestampField.deliveredAt = new Date();
       if (parsed.data.status === "ANNULEE") timestampField.cancelledAt = new Date();
@@ -455,22 +544,13 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
       // nicety. See docs/adr/0002-domain-model.md's audit addendum.
       const result = await tx.order.updateMany({
         where: { id: parsed.data.id, status: existing.status },
-        data: { status: parsed.data.status, ...timestampField },
+        data: reopening ? REOPEN_ORDER_DATA : { status: parsed.data.status, ...timestampField },
       });
       if (result.count === 0) {
         throw new OrderConflictError();
       }
 
-      if (parsed.data.status === "CONFIRMEE") {
-        // Reservation is taken at confirmation now (docs/adr/0030), for
-        // EVERY order regardless of source (2026-09-13 addendum) —
-        // reserving only ever touches `quantityReserved`, never
-        // `quantityOnHand`, so it can never double-count against a
-        // WooCommerce/Shopify order's own provider-side stock reduction
-        // (pulled in separately by sync/stock.ts). Reserving never fails
-        // (backorders allowed).
-        await reserveStockForOrder(tx, parsed.data.id, lines, user.id);
-      } else if (parsed.data.status === "EXPEDIEE") {
+      if (parsed.data.status === "EXPEDIEE") {
         // EXPEDIEE is the ONE physical-fulfillment event, for every order
         // source alike (docs/adr/0036-inventory-single-source-of-truth.md):
         // ASODITECH's own InventoryItem is the sole authority for local
@@ -509,10 +589,13 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
     if (error instanceof InsufficientStockError) {
       return actionError(error.message);
     }
-    if (error instanceof OrderConflictError) {
+    if (error instanceof OrderConflictError || error instanceof OrderConfirmationConflictError) {
       return actionError(
         "Cette commande a été modifiée entre-temps par une autre action. Rechargez la page et réessayez."
       );
+    }
+    if (error instanceof OrderNotConfirmableError) {
+      return actionError(error.message);
     }
     throw error;
   }
@@ -523,9 +606,11 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
     action: "order.status_changed",
     entityType: "Order",
     entityId: order.id,
-    previousValue: { status: existing.status },
-    newValue: { status: order.status },
-    metadata: parsed.data.note ? { note: parsed.data.note } : undefined,
+    previousValue: reopening
+      ? { status: existing.status, confirmedAt: existing.confirmedAt?.toISOString() ?? null, confirmationAgentId: existing.confirmationAgentId }
+      : { status: existing.status },
+    newValue: reopening ? { status: order.status, confirmedAt: null, confirmationAgentId: null } : { status: order.status },
+    metadata: reopening ? { reason: "reopen", ...(parsed.data.note ? { note: parsed.data.note } : {}) } : parsed.data.note ? { note: parsed.data.note } : undefined,
   });
 
   // The order has been picked up / acted on — the "nouvelle commande"
@@ -583,6 +668,7 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
 
   revalidatePath("/commandes");
   revalidatePath(`/commandes/${order.id}`);
+  if (reopening) revalidatePath("/confirmation");
   return actionOk({ id: order.id });
 }
 
@@ -756,13 +842,19 @@ export async function reopenOrderAction(formData: FormData): Promise<ActionResul
   if (existing.status !== "ANNULEE") {
     return actionError("Seule une commande annulée peut être rétablie.");
   }
-  if (existing.shippedAt !== null) {
+  if (!isReopenable(existing)) {
     return actionError("Cette commande a été expédiée — elle ne peut pas être rétablie depuis « Annulée ».");
   }
 
   const result = await prisma.order.updateMany({
     where: { id, status: "ANNULEE" },
-    data: { status: "NOUVELLE", cancelledAt: null },
+    // Reopened = genuinely waiting for a NEW confirmation (docs/adr/0045):
+    // the current confirmation state is reset — confirmedAt and the current
+    // commission attribution. History is untouched: OrderConfirmationAttempt
+    // rows and audit events stay, and the commission ledger (which carries
+    // its own agentId per entry) is never rewritten. A reopenable order was
+    // never shipped, so it cannot have earned a commission entry.
+    data: REOPEN_ORDER_DATA,
   });
   if (result.count === 0) {
     return actionError("Cette commande a été modifiée entre-temps. Rechargez la page.");
@@ -774,8 +866,12 @@ export async function reopenOrderAction(formData: FormData): Promise<ActionResul
     action: "order.status_changed",
     entityType: "Order",
     entityId: id,
-    previousValue: { status: "ANNULEE" },
-    newValue: { status: "NOUVELLE" },
+    previousValue: {
+      status: "ANNULEE",
+      confirmedAt: existing.confirmedAt?.toISOString() ?? null,
+      confirmationAgentId: existing.confirmationAgentId,
+    },
+    newValue: { status: "NOUVELLE", confirmedAt: null, confirmationAgentId: null },
     metadata: { reason: "reopen" },
   });
 

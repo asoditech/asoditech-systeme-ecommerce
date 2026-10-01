@@ -27,6 +27,7 @@ export default async function NouvelleCommandePage() {
         <OrderForm
           warehouses={warehouses}
           commissionAgents={commissionAgents.map((a) => ({ id: a.id, name: a.name }))}
+          canConfirm={userHasPermission(user, "orders.confirm")}
           cityGuidance={cityGuidanceFromProviders(providers)}
         />
       </div>

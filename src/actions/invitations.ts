@@ -50,6 +50,8 @@ export async function inviteUserAction(formData: FormData): Promise<ActionResult
     // an empty string (nothing selected / picker hidden) means "no explicit
     // choice", same as omitting the field entirely.
     channelScope: typeof rawChannelScope === "string" && rawChannelScope.length > 0 ? rawChannelScope : undefined,
+    offlineChannelIds: formData.getAll("offlineChannelIds").filter((v): v is string => typeof v === "string" && v.length > 0),
+    warehouseIds: formData.getAll("warehouseIds").filter((v): v is string => typeof v === "string" && v.length > 0),
   });
   if (!parsed.success) {
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
@@ -94,6 +96,29 @@ export async function inviteUserAction(formData: FormData): Promise<ActionResult
     channelScope = parsed.data.channelScope;
   }
 
+  // Invite-time precision (docs/adr/0047): the exact store channel(s) and
+  // location(s) the account starts with, instead of "every OFFLINE channel,
+  // no location". Optional and additive — empty lists keep the legacy
+  // behaviour. Dropped for a global role (it needs no row), exactly like
+  // `channelScope`. Every id must be a live row of THIS tenant (tenant-scoped
+  // client): an unknown / foreign / inactive id rejects the invitation rather
+  // than being silently ignored, so the inviter never believes a scope was
+  // applied when it wasn't. Re-validated again at accept time.
+  const offlineChannelIds = [...new Set(parsed.data.offlineChannelIds)];
+  const warehouseIds = [...new Set(parsed.data.warehouseIds)];
+  const precise = !isGlobalRole(parsed.data.role);
+  if (precise && offlineChannelIds.length > 0) {
+    if (channelScope !== "OFFLINE" && channelScope !== "BOTH") {
+      return actionError("Un canal magasin ne peut être choisi qu'avec la portée « Magasin » ou « En ligne + Magasin ».");
+    }
+    const valid = await prisma.salesChannel.count({ where: { id: { in: offlineChannelIds }, kind: "OFFLINE", isActive: true } });
+    if (valid !== offlineChannelIds.length) return actionError("Un canal magasin choisi est introuvable ou inactif.");
+  }
+  if (precise && warehouseIds.length > 0) {
+    const valid = await prisma.warehouse.count({ where: { id: { in: warehouseIds }, isActive: true } });
+    if (valid !== warehouseIds.length) return actionError("Un emplacement choisi est introuvable ou inactif.");
+  }
+
   // Early, informative check — not the authoritative enforcement point
   // (that's the actual seat-limit lock in acceptInvitationAction, which
   // is race-safe under concurrent accepts). This one just avoids sending
@@ -130,6 +155,8 @@ export async function inviteUserAction(formData: FormData): Promise<ActionResult
         name: parsed.data.name,
         role: parsed.data.role,
         channelScope,
+        offlineChannelIds: precise ? offlineChannelIds : [],
+        warehouseIds: precise ? warehouseIds : [],
         tokenHash,
         expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
         invitedById: actor.id,
@@ -150,7 +177,13 @@ export async function inviteUserAction(formData: FormData): Promise<ActionResult
     action: "invitation.created",
     entityType: "Invitation",
     entityId: invitation.id,
-    newValue: { email: invitation.email, role: invitation.role, channelScope: invitation.channelScope },
+    newValue: {
+      email: invitation.email,
+      role: invitation.role,
+      channelScope: invitation.channelScope,
+      offlineChannelIds: invitation.offlineChannelIds,
+      warehouseIds: invitation.warehouseIds,
+    },
   });
 
   const inviteUrl = `/invitations/${rawToken}`;
@@ -158,6 +191,38 @@ export async function inviteUserAction(formData: FormData): Promise<ActionResult
 
   revalidatePath("/utilisateurs");
   return actionOk({ id: invitation.id, inviteUrl });
+}
+
+/**
+ * The choices the invite form offers for invite-time precision
+ * (docs/adr/0047): this tenant's active store channels — with the locations
+ * each one sells from (SalesChannelLocation) — and its active locations.
+ * `users.manage`-gated like the invitation itself; store channels only when
+ * the tenant's mode has them (ADR 0041).
+ */
+export async function listInvitationScopeOptionsAction(): Promise<{
+  offlineChannels: { id: string; name: string; warehouseIds: string[] }[];
+  warehouses: { id: string; name: string; type: "ENTREPOT" | "MAGASIN" }[];
+}> {
+  const actor = await requirePermissionForAction("users.manage");
+  const [channels, warehouses] = await Promise.all([
+    actor.capabilities.has("storeChannels")
+      ? prisma.salesChannel.findMany({
+          where: { kind: "OFFLINE", isActive: true },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, locations: { where: { warehouse: { isActive: true } }, select: { warehouseId: true } } },
+        })
+      : Promise.resolve([]),
+    prisma.warehouse.findMany({
+      where: { isActive: true },
+      orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+      select: { id: true, name: true, type: true },
+    }),
+  ]);
+  return {
+    offlineChannels: channels.map((c) => ({ id: c.id, name: c.name, warehouseIds: c.locations.map((l) => l.warehouseId) })),
+    warehouses,
+  };
 }
 
 export async function revokeInvitationAction(formData: FormData): Promise<ActionResult<undefined>> {
@@ -199,7 +264,8 @@ export async function revokeInvitationAction(formData: FormData): Promise<Action
  */
 async function resolveInvitationChannelIds(
   tx: PrismaTransactionClient,
-  channelScope: InvitationChannelScope | null
+  channelScope: InvitationChannelScope | null,
+  explicitOfflineIds: readonly string[]
 ): Promise<string[]> {
   if (!channelScope) {
     const defaultChannel = await ensureDefaultOnlineChannel(tx);
@@ -211,8 +277,16 @@ async function resolveInvitationChannelIds(
     ids.push(online.id);
   }
   if (channelScope === "OFFLINE" || channelScope === "BOTH") {
+    // Explicit store channel(s) chosen at invite time (docs/adr/0047): exactly
+    // those that are still active OFFLINE channels of this tenant — never the
+    // "every OFFLINE channel" fallback, even if all of them were retired since
+    // (zero rows = zero access).
     const offlineChannels = await tx.salesChannel.findMany({
-      where: { kind: "OFFLINE", isActive: true },
+      where: {
+        kind: "OFFLINE",
+        isActive: true,
+        ...(explicitOfflineIds.length > 0 ? { id: { in: [...explicitOfflineIds] } } : {}),
+      },
       select: { id: true },
     });
     ids.push(...offlineChannels.map((c) => c.id));
@@ -293,12 +367,29 @@ export async function acceptInvitationAction(
         // back to the original pre-Phase-2 behavior unchanged: the
         // tenant's default ONLINE channel only.
         if (!isGlobalRole(created.role)) {
-          const channelIds = await resolveInvitationChannelIds(tx, invitation.channelScope);
+          const channelIds = await resolveInvitationChannelIds(tx, invitation.channelScope, invitation.offlineChannelIds);
           if (channelIds.length > 0) {
             await tx.userChannel.createMany({
               data: channelIds.map((salesChannelId) => ({ userId: created.id, salesChannelId })),
               skipDuplicates: true,
             });
+          }
+
+          // Locations chosen at invite time (docs/adr/0047) — the same
+          // UserLocation rows `setUserLocationsAction` writes, restricted to
+          // warehouses that are still active in this tenant. None chosen →
+          // none assigned, exactly as before (docs/adr/0037 §8).
+          if (invitation.warehouseIds.length > 0) {
+            const warehouses = await tx.warehouse.findMany({
+              where: { id: { in: invitation.warehouseIds }, isActive: true },
+              select: { id: true },
+            });
+            if (warehouses.length > 0) {
+              await tx.userLocation.createMany({
+                data: warehouses.map((w) => ({ userId: created.id, warehouseId: w.id, createdById: invitation.invitedById })),
+                skipDuplicates: true,
+              });
+            }
           }
         }
 

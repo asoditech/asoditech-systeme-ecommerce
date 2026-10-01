@@ -4,6 +4,8 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { lookupSellableUnits, type SellableUnit } from "@/lib/catalog/lookup";
 import { movementScopeWhere } from "@/lib/auth/movement-scope";
+import { productCostVisibility } from "@/lib/auth/cost-visibility";
+import { warehouseReadWhere } from "@/lib/auth/location-access";
 import type { CurrentUser } from "@/lib/auth/session";
 
 /**
@@ -21,7 +23,7 @@ import type { CurrentUser } from "@/lib/auth/session";
  * given an invented origin.
  */
 
-type Viewer = Pick<CurrentUser, "channels">;
+type Viewer = Pick<CurrentUser, "channels" | "permissions" | "locations">;
 
 export interface TraceUnit {
   unit: SellableUnit;
@@ -43,7 +45,13 @@ export type MovementDocument =
   | { kind: "order_return"; label: string; href: string; extra: null };
 
 export async function getUnitTraceability(viewer: Viewer, ref: { productId: string; variationId: string | null }) {
-  const itemWhere: Prisma.InventoryItemWhereInput = ref.variationId ? { variationId: ref.variationId } : { productId: ref.productId, variationId: null };
+  const visibility = productCostVisibility(viewer);
+  // Only the viewer's own locations (docs/adr/0050): stock rows, and through
+  // them every movement and total below, which are all keyed on these items.
+  const itemWhere: Prisma.InventoryItemWhereInput = {
+    ...(ref.variationId ? { variationId: ref.variationId } : { productId: ref.productId, variationId: null }),
+    ...warehouseReadWhere(viewer),
+  };
 
   const [product, variation, items] = await Promise.all([
     prisma.product.findUnique({
@@ -118,7 +126,10 @@ export async function getUnitTraceability(viewer: Viewer, ref: { productId: stri
       /** null = a pre-cut-over movement: no signed delta was recorded. */
       onHandDelta: m.onHandDelta,
       onHandAfter: m.onHandAfter,
-      unitCost: m.unitCost ? Number(m.unitCost) : null,
+      // A RECEPTION movement's unit cost is the purchase price paid —
+      // `purchases.view` (docs/adr/0052); any other movement's cost stays
+      // `finance.view` (docs/adr/0043, 0048). null — never sent — otherwise.
+      unitCost: m.unitCost && (visibility.cost || (m.type === "RECEPTION" && visibility.purchasePrices)) ? Number(m.unitCost) : null,
       location: m.warehouse.name,
       actor: m.performedBy?.name ?? m.performedByName ?? null,
       reason: m.reason,

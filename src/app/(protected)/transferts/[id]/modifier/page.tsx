@@ -11,7 +11,7 @@ export const metadata = { title: "Modifier le transfert — ASODITECH Gestion E-
 export default async function ModifierTransfertPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("inventory.transfer");
   const { id } = await params;
-  const transfer = await getStockTransferDetail(id);
+  const transfer = await getStockTransferDetail(id, user);
   if (!transfer) notFound();
   // Only a BROUILLON draft is editable.
   if (transfer.status !== "BROUILLON") redirect(`/transferts/${id}`);

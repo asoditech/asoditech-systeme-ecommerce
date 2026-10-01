@@ -118,6 +118,8 @@ export default async function RapportProfitabilitePage({
   searchParams: Promise<{ period?: string; from?: string; to?: string; view?: string }>;
 }) {
   const viewer = await requirePermission("analytics.view");
+  // Margins, cost of goods and profit are finance data (docs/adr/0050).
+  await requirePermission("finance.view");
   // Order-derived data: needs an ONLINE channel (docs/adr/0039).
   requireChannelKind(viewer, "ONLINE");
   const params = await searchParams;

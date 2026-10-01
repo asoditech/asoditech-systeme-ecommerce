@@ -75,9 +75,18 @@ export async function getStockValuationReport(
      */
     includeOnlineOrders?: boolean;
     offlineSaleScope?: Prisma.SaleWhereInput | null;
+    /**
+     * Purchase cost is `finance.view` data (docs/adr/0043, 0048). `false` →
+     * every cost-derived figure (unit cost, value at cost, potential margin,
+     * dormant value at cost) is null and never leaves this function; rows
+     * are ordered by retail value so their order reveals nothing either.
+     * Default true = the historical behaviour.
+     */
+    includeCost?: boolean;
   } = {}
 ): Promise<StockValuationReport> {
   const dormantDays = opts.dormantDays ?? 60;
+  const includeCost = opts.includeCost !== false;
   const dormantSince = new Date();
   dormantSince.setDate(dormantSince.getDate() - dormantDays);
 
@@ -153,13 +162,13 @@ export async function getStockValuationReport(
       sku = item.variation.sku;
       vLabel = variantLabel(item.variation.attributes);
       const cost = item.variation.cost ?? item.variation.product.cost;
-      unitCost = cost != null ? Number(cost) : null;
+      unitCost = includeCost && cost != null ? Number(cost) : null;
       unitRetail = Number(item.variation.price ?? item.variation.product.salePrice ?? item.variation.product.price ?? 0);
       unitsSold = soldByVariation.get(item.variation.id) ?? 0;
     } else if (item.product) {
       productName = item.product.name;
       sku = item.product.sku;
-      unitCost = item.product.cost != null ? Number(item.product.cost) : null;
+      unitCost = includeCost && item.product.cost != null ? Number(item.product.cost) : null;
       unitRetail = Number(item.product.salePrice ?? item.product.price ?? 0);
       unitsSold = soldByProduct.get(item.product.id) ?? 0;
     } else {
@@ -216,7 +225,7 @@ export async function getStockValuationReport(
       valueAtCost: anyCost ? round2(valueAtCost) : null,
       valueAtRetail: round2(valueAtRetail),
       potentialMargin: anyCost ? round2(valueAtRetail - valueAtCost) : null,
-      linesMissingCost,
+      linesMissingCost: includeCost ? linesMissingCost : 0,
       dormantSkuCount,
       dormantValueAtCost: anyCost ? round2(dormantValueAtCost) : null,
     },

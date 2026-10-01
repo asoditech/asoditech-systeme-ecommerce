@@ -7,7 +7,7 @@ import { cookies, headers } from "next/headers";
 import { prismaBase as prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { generateRawToken, hashToken } from "@/lib/auth/tokens";
-import { loadEffectiveAccess } from "@/lib/auth/access-loader";
+import { loadEffectiveAccess, loadLocationScope, type LocationScope } from "@/lib/auth/access-loader";
 import type { EffectiveAccess } from "@/lib/auth/effective-access";
 import type { User } from "@prisma/client";
 
@@ -82,7 +82,10 @@ export async function destroyAllSessionsForTenant(tenantId: string): Promise<voi
  * guard and UI visibility check reads these — never `role` directly.
  */
 export type CurrentUser = Pick<User, "id" | "email" | "name" | "role" | "status" | "tenantId" | "isPlatformAdmin"> &
-  EffectiveAccess;
+  EffectiveAccess & {
+    /** Location read scope (docs/adr/0050): global for OWNER/ADMIN, else exactly the user's UserLocation rows. */
+    locations: LocationScope;
+  };
 
 /**
  * Resolves the authenticated user for the current request, re-verifying
@@ -127,8 +130,11 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
   }
 
   const { id, email, name, role, status, tenantId, isPlatformAdmin } = session.user;
-  const access = await loadEffectiveAccess({ id, role, businessMode: session.user.tenant.businessMode });
-  return { id, email, name, role, status, tenantId, isPlatformAdmin, ...access };
+  const [access, locations] = await Promise.all([
+    loadEffectiveAccess({ id, role, businessMode: session.user.tenant.businessMode }),
+    loadLocationScope({ id, role }),
+  ]);
+  return { id, email, name, role, status, tenantId, isPlatformAdmin, ...access, locations };
 });
 
 export { SESSION_COOKIE };

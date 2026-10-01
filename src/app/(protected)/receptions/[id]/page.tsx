@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requirePermission } from "@/lib/auth/guards";
 import { variantLabel } from "@/lib/catalog/lookup";
 import { userHasPermission } from "@/lib/auth/permissions";
+import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { getReceptionDetail } from "@/lib/queries/purchases";
 import { displayReceptionNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { RECEPTION_STATUS_LABELS, CASH_PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
@@ -18,10 +19,14 @@ export const metadata = { title: "Réception — ASODITECH Gestion E-commerce" }
 export default async function ReceptionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("purchases.view");
   const { id } = await params;
-  const r = await getReceptionDetail(id);
+  const r = await getReceptionDetail(id, user);
   if (!r) notFound();
   const isDraft = r.status === "BROUILLON";
   const canWrite = userHasPermission(user, "purchases.create");
+  // Purchase prices and totals follow `purchases.view`; what was paid / is
+  // still owed, and the payments, are the supplier account — `finance.view`
+  // (docs/adr/0048, 0052).
+  const { purchasePrices: showPrices, supplierAccounts: showPayments } = productCostVisibility(user);
   const total = r.lines.reduce((s, l) => s + l.quantity * Number(l.unitCost), 0);
   const paid = r.payments.reduce((s, p) => s + Number(p.amount), 0);
 
@@ -63,8 +68,8 @@ export default async function ReceptionDetailPage({ params }: { params: Promise<
                 <TableHead>Article</TableHead>
                 <TableHead>Réf. / code-barres</TableHead>
                 <TableHead className="text-right">Quantité</TableHead>
-                <TableHead className="text-right">Prix d&apos;achat</TableHead>
-                <TableHead className="text-right">Total</TableHead>
+                {showPrices && <TableHead className="text-right">Prix d&apos;achat</TableHead>}
+                {showPrices && <TableHead className="text-right">Total</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -77,18 +82,20 @@ export default async function ReceptionDetailPage({ params }: { params: Promise<
                   </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">{l.barcodeSnapshot ?? l.skuSnapshot}</TableCell>
                   <TableCell className="text-right tabular-nums">{l.quantity}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatCurrency(l.unitCost.toString())}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatCurrency(String(l.quantity * Number(l.unitCost)))}</TableCell>
+                  {showPrices && <TableCell className="text-right tabular-nums">{formatCurrency(l.unitCost.toString())}</TableCell>}
+                  {showPrices && <TableCell className="text-right tabular-nums">{formatCurrency(String(l.quantity * Number(l.unitCost)))}</TableCell>}
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-          <div className="mt-3 flex justify-end gap-6 text-sm">
-            <span className="text-muted-foreground">Total : <strong className="tabular-nums text-foreground">{formatCurrency(String(total))}</strong></span>
-            {r.status === "VALIDEE" && (
-              <span className="text-muted-foreground">Payé : <strong className="tabular-nums text-foreground">{formatCurrency(String(paid))}</strong> · Reste : <strong className="tabular-nums text-foreground">{formatCurrency(String(total - paid))}</strong></span>
-            )}
-          </div>
+          {showPrices && (
+            <div className="mt-3 flex justify-end gap-6 text-sm">
+              <span className="text-muted-foreground">Total : <strong className="tabular-nums text-foreground">{formatCurrency(String(total))}</strong></span>
+              {showPayments && r.status === "VALIDEE" && (
+                <span className="text-muted-foreground">Payé : <strong className="tabular-nums text-foreground">{formatCurrency(String(paid))}</strong> · Reste : <strong className="tabular-nums text-foreground">{formatCurrency(String(total - paid))}</strong></span>
+              )}
+            </div>
+          )}
           {r.status === "VALIDEE" && (
             <p className="mt-3 text-xs text-muted-foreground">
               Validée par {r.validatedByName ?? "—"} le {r.validatedAt ? formatDateTime(r.validatedAt) : "—"}. Une réception validée est
@@ -98,7 +105,7 @@ export default async function ReceptionDetailPage({ params }: { params: Promise<
         </CardContent>
       </Card>
 
-      {r.payments.length > 0 && (
+      {showPayments && r.payments.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-[15px]">Paiements liés</CardTitle>

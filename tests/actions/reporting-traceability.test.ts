@@ -131,7 +131,7 @@ describe("channel report — Online / Offline / Total from the underlying source
     expect(a.total).toBeNull();
     expect(a.online?.revenue).toBe(1000);
 
-    const offlineOnly = await loginScoped("MANAGER", [w.chA.id]);
+    const offlineOnly = await loginScoped("MANAGER", [w.chA.id], [w.whA.id]); // a store user is assigned their store (docs/adr/0050)
     const b = await getChannelReport(offlineOnly, range());
     expect(b.online).toBeNull();
     expect(b.total).toBeNull();
@@ -144,10 +144,10 @@ describe("channel report — Online / Offline / Total from the underlying source
     await sell(w.chA.id, w.whA.id, w.product.id, 3); // 300
     await sell(w.chB.id, w.whB.id, w.product.id, 5); // 500
 
-    const storeA = await loginScoped("MANAGER", [w.chA.id]);
+    const storeA = await loginScoped("MANAGER", [w.chA.id], [w.whA.id]);
     expect((await getChannelReport(storeA, range())).offline?.grossSales).toBe(300);
 
-    const combined = await loginScoped("MANAGER", [w.online.id, w.chB.id]);
+    const combined = await loginScoped("MANAGER", [w.online.id, w.chB.id], [w.whB.id]);
     const c = await getChannelReport(combined, range());
     expect(c.offline?.grossSales).toBe(500);
     expect(c.total?.revenue).toBe(1500);
@@ -364,13 +364,13 @@ describe("traceability — one ledger, from entry to sale to return", () => {
     const admin = await getUnitTraceability((await getCurrentUser())!, { productId: w.product.id, variationId: null });
     expect(admin!.movements.filter((m) => m.type === "VENTE")).toHaveLength(3);
 
-    const storeA = await loginScoped("MANAGER", [w.chA.id]);
+    const storeA = await loginScoped("MANAGER", [w.chA.id], [w.whA.id]);
     const a = await getUnitTraceability(storeA, { productId: w.product.id, variationId: null });
     const docsA = a!.movements.map((m) => m.document?.kind);
     expect(docsA.filter((k) => k === "sale")).toHaveLength(1); // only Store A's own sale
     expect(docsA).not.toContain("order"); // and no Online movement
 
-    const onlineOnly = await loginScoped("MANAGER", [w.online.id]);
+    const onlineOnly = await loginScoped("MANAGER", [w.online.id], [w.whA.id]); // the warehouse that ships its orders (docs/adr/0050)
     const o = await getUnitTraceability(onlineOnly, { productId: w.product.id, variationId: null });
     expect(o!.movements.map((m) => m.document?.kind)).not.toContain("sale");
     expect(o!.movements.map((m) => m.document?.kind)).toContain("order");

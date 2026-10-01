@@ -15,7 +15,7 @@ import { STOCKTAKE_STATUS_LABELS } from "@/lib/status-labels";
 export default async function InventaireDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("inventory.view");
   const { id } = await params;
-  const session = await getStocktakeSessionDetail(id);
+  const session = await getStocktakeSessionDetail(id, user);
   if (!session) notFound();
 
   const canCount = userHasPermission(user, "inventory.count");

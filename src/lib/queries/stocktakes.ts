@@ -2,18 +2,23 @@ import "server-only";
 
 import { Prisma, type StocktakeStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { canReadWarehouse, warehouseReadWhere } from "@/lib/auth/location-access";
+import type { CurrentUser } from "@/lib/auth/session";
+
+/** Location read scope (docs/adr/0050) — omitted = tenant-wide (non-page callers). */
+type LocationViewer = Pick<CurrentUser, "locations">;
 
 const PAGE_SIZE = 25;
 const STOCKTAKE_STATUSES: StocktakeStatus[] = ["EN_COURS", "CLOTURE", "ANNULE"];
 
 /** Paginated stocktake list for /inventaires, newest first. */
-export async function listStocktakeSessions(params: { status?: string; page?: number }) {
+export async function listStocktakeSessions(params: { status?: string; page?: number }, viewer?: LocationViewer) {
   const page = Math.max(1, params.page ?? 1);
   const skip = (page - 1) * PAGE_SIZE;
-  const where: Prisma.StocktakeSessionWhereInput =
-    params.status && (STOCKTAKE_STATUSES as string[]).includes(params.status)
-      ? { status: params.status as StocktakeStatus }
-      : {};
+  const where: Prisma.StocktakeSessionWhereInput = {
+    ...(params.status && (STOCKTAKE_STATUSES as string[]).includes(params.status) ? { status: params.status as StocktakeStatus } : {}),
+    ...(viewer ? warehouseReadWhere(viewer) : {}),
+  };
 
   const [sessions, total] = await Promise.all([
     prisma.stocktakeSession.findMany({
@@ -108,9 +113,10 @@ function lineView(l: SessionDetailRow["lines"][number]) {
 
 /** Full session for /inventaires/[id]. Returns a narrow DTO — no
  * inventoryItemId / appliedMovementId / countedById leak to the client. */
-export async function getStocktakeSessionDetail(id: string) {
+export async function getStocktakeSessionDetail(id: string, viewer?: LocationViewer) {
   const session = await loadStocktakeSession(id);
   if (!session) return null;
+  if (viewer && !canReadWarehouse(viewer, session.warehouseId)) return null;
 
   const lines = session.lines.map(lineView);
   return {

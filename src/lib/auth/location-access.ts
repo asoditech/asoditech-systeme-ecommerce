@@ -140,3 +140,27 @@ export async function resolveAuthorizedDefaultWarehouseId(
   if (warehouses.length === 0) return null;
   return (warehouses.find((w) => w.isDefault) ?? warehouses[0]).id;
 }
+
+/**
+ * READ-side location scope (docs/adr/0050 — G4). The mutation boundary stays
+ * `requireLocationAccessForAction`; these scope what a non-global user may
+ * READ: exactly their UserLocation rows (`user.locations`, loaded once per
+ * request with the session), OWNER/ADMIN unrestricted. Zero rows = nothing.
+ */
+type LocationViewer = Pick<CurrentUser, "locations">;
+
+/** `null` = unrestricted (OWNER/ADMIN); otherwise the readable warehouse ids. */
+export function readableWarehouseIds(viewer: LocationViewer): string[] | null {
+  return viewer.locations.global ? null : [...viewer.locations.ids];
+}
+
+/** Prisma filter on a `warehouseId` column — `{}` for OWNER/ADMIN. */
+export function warehouseReadWhere(viewer: LocationViewer): { warehouseId?: { in: string[] } } {
+  const ids = readableWarehouseIds(viewer);
+  return ids === null ? {} : { warehouseId: { in: ids } };
+}
+
+/** Whether ONE location's records are readable by this viewer. */
+export function canReadWarehouse(viewer: LocationViewer, warehouseId: string): boolean {
+  return viewer.locations.global || viewer.locations.ids.includes(warehouseId);
+}

@@ -101,6 +101,10 @@ export const createOrderSchema = z.object({
   channel: orderChannelSchema.default("WHATSAPP"),
   // Optional confirmation agent (docs/adr/0022) — validated server-side.
   confirmationAgentId: z.string().min(1).nullish().or(z.literal("")),
+  // "Client déjà confirmé" (docs/adr/0046): the customer already confirmed
+  // outside ASODITECH. The server then confirms the new order through the
+  // canonical confirmation — the client never sends a status. Default: NOUVELLE.
+  customerAlreadyConfirmed: z.boolean().default(false),
   shippingCost: z.coerce.number().min(0).default(0),
   discountTotal: z.coerce.number().min(0).default(0),
   currency: z.string().length(3).default("MAD"),

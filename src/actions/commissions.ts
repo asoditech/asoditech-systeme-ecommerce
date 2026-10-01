@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
-import { reconcileOrderCommission, monthBounds } from "@/lib/commissions";
+import { findAssignableCommissionAgent, reconcileOrderCommission, monthBounds } from "@/lib/commissions";
 import {
   upsertCommissionAgentSchema,
   updateCommissionAgentSchema,
@@ -107,9 +107,12 @@ export async function assignOrderConfirmationAgentAction(formData: FormData): Pr
   if (!order) return actionError("Commande introuvable.");
 
   const nextAgentId = normalizeOptional(parsed.data.agentId);
-  if (nextAgentId) {
-    const agent = await prisma.commissionAgent.findUnique({ where: { id: nextAgentId } });
-    if (!agent) return actionError("Agent introuvable.");
+  // A NEW attribution needs an existing, ACTIVE agent of this tenant
+  // (docs/adr/0049). Re-submitting the order's current agent is a no-op, not
+  // a new attribution — allowed even if that agent was deactivated since.
+  if (nextAgentId && nextAgentId !== order.confirmationAgentId) {
+    const assignable = await findAssignableCommissionAgent(nextAgentId);
+    if (!assignable.ok) return actionError(assignable.error);
   }
 
   // Once a commission has been earned/reversed for an order, its agent is

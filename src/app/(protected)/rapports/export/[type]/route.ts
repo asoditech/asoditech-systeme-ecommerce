@@ -1,6 +1,8 @@
 import { requirePermission } from "@/lib/auth/guards";
 import { saleChannelWhere } from "@/lib/auth/channel-access";
 import { requireChannelKind } from "@/lib/auth/channel-access";
+import { productCostVisibility } from "@/lib/auth/cost-visibility";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { listAccessibleActiveWarehouses, hasGlobalLocationAccess } from "@/lib/auth/location-access";
 import { resolveReportRange } from "@/lib/reports/range";
 import { getChannelReport } from "@/lib/queries/reports/channels";
@@ -32,6 +34,12 @@ const label = (map: Record<string, { label: string }>, key: string) => map[key]?
 export async function GET(request: Request, ctx: { params: Promise<{ type: string }> }): Promise<Response> {
   const user = await requirePermission("analytics.view");
   const { type } = await ctx.params;
+  // Cost of goods, margins, profit and treasury are finance data (docs/adr/0050):
+  // their CSV needs `finance.view`, exactly like their page — never only hidden.
+  const canSeeFinance = userHasPermission(user, "finance.view");
+  if ((type === "rentabilite" || type === "profitabilite" || type === "tresorerie") && !canSeeFinance) {
+    return new Response("Forbidden", { status: 403 });
+  }
   // Every report except the stock valuation aggregates delivery ORDERS: a CSV
   // export must not be a way around the on-screen channel scope (docs/adr/0039).
   // "retours" (Batch 15) covers BOTH domains and gates each section on its
@@ -203,6 +211,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
       const requested = url.searchParams.get("warehouseId") ?? undefined;
       const accessible = await listAccessibleActiveWarehouses(user);
       const warehouseId = requested && accessible.some((w) => w.id === requested) ? requested : undefined;
+      const canSeeCost = productCostVisibility(user).cost;
       const r = await getStockValuationReport({
         warehouseId,
         warehouseIds: !warehouseId && !hasGlobalLocationAccess(user.role) ? accessible.map((w) => w.id) : undefined,
@@ -211,41 +220,63 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
         // sales are restricted to the viewer's own store channels.
         includeOnlineOrders: user.channels.online,
         offlineSaleScope: user.channels.offline ? saleChannelWhere(user) : null,
+        // Purchase cost is `finance.view` data (docs/adr/0043, 0048) — same rule as the page.
+        includeCost: canSeeCost,
       });
       return csvDocumentResponse(
         `rapport-stock-${new Date().toLocaleDateString("en-CA")}`,
         csvDocument({
           title: `${business.companyName} — Valorisation du stock`,
           meta: [`Photo au : ${generatedAt}`, `Fenêtre d'inactivité : ${r.dormantDays} jours`],
-          sections: [
-            {
-              heading: "Total",
-              headers: ["Références", "Unités", "Valeur au coût", "Valeur au PV", "Marge potentielle", "Articles dormants", "Articles sans coût"],
-              rows: [[
-                r.totals.skuCount, r.totals.unitsOnHand, r.totals.valueAtCost ?? "—",
-                r.totals.valueAtRetail, r.totals.potentialMargin ?? "—", r.totals.dormantSkuCount, r.totals.linesMissingCost,
-              ]],
-            },
-            {
-              heading: "Détail par article",
-              headers: ["Entrepôt", "Produit", "Variante", "SKU", "Qté", "Coût unitaire", "PV unitaire", "Valeur au coût", "Valeur au PV", `Unités vendues (${r.dormantDays} j)`, "Dormant"],
-              rows: r.rows.map((row) => [
-                row.warehouseName, row.productName, row.variantLabel ?? "", row.sku, row.quantityOnHand,
-                row.unitCost ?? "—", row.unitRetail, row.valueAtCost ?? "—", row.valueAtRetail, row.unitsSoldInWindow, row.dormant ? "oui" : "non",
-              ]),
-            },
-          ],
+          sections: canSeeCost
+            ? [
+                {
+                  heading: "Total",
+                  headers: ["Références", "Unités", "Valeur au coût", "Valeur au PV", "Marge potentielle", "Articles dormants", "Articles sans coût"],
+                  rows: [[
+                    r.totals.skuCount, r.totals.unitsOnHand, r.totals.valueAtCost ?? "—",
+                    r.totals.valueAtRetail, r.totals.potentialMargin ?? "—", r.totals.dormantSkuCount, r.totals.linesMissingCost,
+                  ]],
+                },
+                {
+                  heading: "Détail par article",
+                  headers: ["Entrepôt", "Produit", "Variante", "SKU", "Qté", "Coût unitaire", "PV unitaire", "Valeur au coût", "Valeur au PV", `Unités vendues (${r.dormantDays} j)`, "Dormant"],
+                  rows: r.rows.map((row) => [
+                    row.warehouseName, row.productName, row.variantLabel ?? "", row.sku, row.quantityOnHand,
+                    row.unitCost ?? "—", row.unitRetail, row.valueAtCost ?? "—", row.valueAtRetail, row.unitsSoldInWindow, row.dormant ? "oui" : "non",
+                  ]),
+                },
+              ]
+            : [
+                {
+                  heading: "Total",
+                  headers: ["Références", "Unités", "Valeur au PV", "Articles dormants"],
+                  rows: [[r.totals.skuCount, r.totals.unitsOnHand, r.totals.valueAtRetail, r.totals.dormantSkuCount]],
+                },
+                {
+                  heading: "Détail par article",
+                  headers: ["Entrepôt", "Produit", "Variante", "SKU", "Qté", "PV unitaire", "Valeur au PV", `Unités vendues (${r.dormantDays} j)`, "Dormant"],
+                  rows: r.rows.map((row) => [
+                    row.warehouseName, row.productName, row.variantLabel ?? "", row.sku, row.quantityOnHand,
+                    row.unitRetail, row.valueAtRetail, row.unitsSoldInWindow, row.dormant ? "oui" : "non",
+                  ]),
+                },
+              ],
         })
       );
     }
 
     case "livraison": {
       const r = await getDeliveryPerformanceReport(resolved.range);
-      const perfHeaders = ["Clé", "Expéditions", "Livrées", "Échecs", "Retours", "En transit", "Taux livraison", "Délai moyen (j)", "Coût total", "Coût livraisons", "Coût retours", "Coût échecs", "COD encaissé", "COD en attente"];
-      const perfRow = (x: (typeof r.byProvider)[number]) => [
-        x.key, x.total, x.delivered, x.failed, x.returned, x.inTransit, fmtPct(x.successRate),
-        x.avgDeliveryDays ?? "—", x.shippingCost, x.deliveryCost, x.returnCost, x.failureCost, x.codCollected, x.codPending,
-      ];
+      // Carrier costs are finance data (docs/adr/0050) — dropped without
+      // `finance.view`; delivery performance and COD stay operational.
+      const perfHeaders = canSeeFinance
+        ? ["Clé", "Expéditions", "Livrées", "Échecs", "Retours", "En transit", "Taux livraison", "Délai moyen (j)", "Coût total", "Coût livraisons", "Coût retours", "Coût échecs", "COD encaissé", "COD en attente"]
+        : ["Clé", "Expéditions", "Livrées", "Échecs", "Retours", "En transit", "Taux livraison", "Délai moyen (j)", "COD encaissé", "COD en attente"];
+      const perfRow = (x: (typeof r.byProvider)[number]) =>
+        canSeeFinance
+          ? [x.key, x.total, x.delivered, x.failed, x.returned, x.inTransit, fmtPct(x.successRate), x.avgDeliveryDays ?? "—", x.shippingCost, x.deliveryCost, x.returnCost, x.failureCost, x.codCollected, x.codPending]
+          : [x.key, x.total, x.delivered, x.failed, x.returned, x.inTransit, fmtPct(x.successRate), x.avgDeliveryDays ?? "—", x.codCollected, x.codPending];
       return csvDocumentResponse(
         `rapport-livraison-${stamp}`,
         doc("Rapport de performance livraison", [

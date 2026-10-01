@@ -1,6 +1,8 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { warehouseReadWhere } from "@/lib/auth/location-access";
+import type { CurrentUser } from "@/lib/auth/session";
 import { Prisma } from "@prisma/client";
 import type { ProductStatus, RecordSource } from "@prisma/client";
 
@@ -41,8 +43,11 @@ export function productSearchWhere(q: string): Prisma.ProductWhereInput[] {
   ];
 }
 
-export async function listProducts(params: ProductListFilters) {
+export async function listProducts(params: ProductListFilters, viewer?: Pick<CurrentUser, "locations">) {
   const page = Math.max(1, params.page ?? 1);
+  // Stock figures cover only the viewer's own locations (docs/adr/0050);
+  // omitted = tenant-wide (non-page callers).
+  const stockScope = viewer ? warehouseReadWhere(viewer) : {};
   const where: Prisma.ProductWhereInput = {
     ...(params.q ? { OR: productSearchWhere(params.q) } : {}),
     ...(params.categoryId ? { categoryId: params.categoryId } : {}),
@@ -77,7 +82,7 @@ export async function listProducts(params: ProductListFilters) {
       take: PAGE_SIZE,
       include: {
         category: true,
-        inventoryItems: { select: { quantityOnHand: true, quantityReserved: true } },
+        inventoryItems: { where: stockScope, select: { quantityOnHand: true, quantityReserved: true } },
         // Just the lead photo, for the hover preview on the product name —
         // never a full gallery here, this is a list, not a detail page.
         images: { take: 1, orderBy: { position: "asc" } },
@@ -93,7 +98,7 @@ export async function listProducts(params: ProductListFilters) {
             // product's cost range in the list — the caller gates this
             // on `finance.view` before rendering it (client feedback #8).
             cost: true,
-            inventoryItems: { select: { quantityOnHand: true } },
+            inventoryItems: { where: stockScope, select: { quantityOnHand: true } },
           },
         },
       },
@@ -104,7 +109,9 @@ export async function listProducts(params: ProductListFilters) {
   return { products, total, page, pageSize: PAGE_SIZE };
 }
 
-export async function getProductDetail(id: string) {
+export async function getProductDetail(id: string, viewer?: Pick<CurrentUser, "locations">) {
+  // Per-location stock only for the viewer's own locations (docs/adr/0050).
+  const stockScope = viewer ? warehouseReadWhere(viewer) : {};
   return prisma.product.findUnique({
     where: { id },
     include: {
@@ -115,12 +122,12 @@ export async function getProductDetail(id: string) {
       salesChannels: { select: { salesChannelId: true } },
       variations: {
         include: {
-          inventoryItems: { include: { warehouse: { select: { name: true } } } },
+          inventoryItems: { where: stockScope, include: { warehouse: { select: { name: true } } } },
           barcodes: { orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] },
         },
         orderBy: { createdAt: "asc" },
       },
-      inventoryItems: { include: { warehouse: true } },
+      inventoryItems: { where: stockScope, include: { warehouse: true } },
       // Batch 13 (Product Publishing) — which external channels this
       // product has already been explicitly published to.
       publications: { select: { provider: true, externalId: true } },

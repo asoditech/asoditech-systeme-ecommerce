@@ -7,6 +7,7 @@ import { ReportDocumentHeader } from "@/components/reports/report-document-heade
 import { WarehousePickerLink } from "@/components/reports/warehouse-picker-link";
 import { requirePermission } from "@/lib/auth/guards";
 import { saleChannelWhere } from "@/lib/auth/channel-access";
+import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { resolveReportRange } from "@/lib/reports/range";
 import { getStockValuationReport } from "@/lib/queries/reports/stock-valuation";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
@@ -31,6 +32,9 @@ export default async function RapportStockPage({
   // falls through to "no filter", which itself is scoped below.
   const warehouses = await listAccessibleActiveWarehouses(user);
   const warehouseId = warehouses.find((w) => w.id === params.warehouseId)?.id;
+  // Purchase cost is `finance.view` data (docs/adr/0043, 0048): without it the
+  // report shows quantities, retail value and rotation — no cost figure.
+  const canSeeCost = productCostVisibility(user).cost;
 
   const [report, business] = await Promise.all([
     getStockValuationReport({
@@ -44,6 +48,7 @@ export default async function RapportStockPage({
       // sales are restricted to the viewer's own store channels.
       includeOnlineOrders: user.channels.online,
       offlineSaleScope: user.channels.offline ? saleChannelWhere(user) : null,
+      includeCost: canSeeCost,
     }),
     getReportBusinessInfo(),
   ]);
@@ -57,7 +62,11 @@ export default async function RapportStockPage({
       <ReportDocumentHeader business={business} title="Valorisation du stock" periodLabel="stock actuel" />
       <PageHeader
         title="Valorisation & rotation du stock"
-        description="Photo du stock actuel — valeur au coût et au prix de vente, et articles qui ne tournent pas."
+        description={
+          canSeeCost
+            ? "Photo du stock actuel — valeur au coût et au prix de vente, et articles qui ne tournent pas."
+            : "Photo du stock actuel — valeur au prix de vente, et articles qui ne tournent pas."
+        }
       />
       <ReportFilterBar
         basePath="/rapports/stock"
@@ -73,10 +82,12 @@ export default async function RapportStockPage({
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Valeur au coût" value={money(totals.valueAtCost)} unavailableReason="Coûts manquants" tone="primary"
-          hint={totals.linesMissingCost > 0 ? `${totals.linesMissingCost} article(s) sans coût` : undefined} />
+        {canSeeCost && (
+          <KpiCard label="Valeur au coût" value={money(totals.valueAtCost)} unavailableReason="Coûts manquants" tone="primary"
+            hint={totals.linesMissingCost > 0 ? `${totals.linesMissingCost} article(s) sans coût` : undefined} />
+        )}
         <KpiCard label="Valeur au prix de vente" value={formatCurrency(totals.valueAtRetail)} tone="info" />
-        <KpiCard label="Marge potentielle" value={money(totals.potentialMargin)} tone="success" />
+        {canSeeCost && <KpiCard label="Marge potentielle" value={money(totals.potentialMargin)} tone="success" />}
         <KpiCard label="Références en stock" value={String(totals.skuCount)} tone="violet"
           hint={`${totals.unitsOnHand} unités`} />
         <KpiCard label={`Articles dormants (${report.dormantDays} j)`} value={String(totals.dormantSkuCount)} tone="warning"
@@ -93,7 +104,7 @@ export default async function RapportStockPage({
                 <TableHead>Produit</TableHead>
                 <TableHead>SKU</TableHead>
                 <TableHead className="text-right">Qté</TableHead>
-                <TableHead className="text-right">Valeur au coût</TableHead>
+                {canSeeCost && <TableHead className="text-right">Valeur au coût</TableHead>}
                 <TableHead className="text-right">Valeur au PV</TableHead>
                 <TableHead className="text-right">Ventes {report.dormantDays} j</TableHead>
               </TableRow>
@@ -108,13 +119,13 @@ export default async function RapportStockPage({
                   </TableCell>
                   <TableCell className="text-muted-foreground">{r.sku}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.quantityOnHand}</TableCell>
-                  <TableCell className="text-right tabular-nums">{money(r.valueAtCost)}</TableCell>
+                  {canSeeCost && <TableCell className="text-right tabular-nums">{money(r.valueAtCost)}</TableCell>}
                   <TableCell className="text-right tabular-nums">{formatCurrency(r.valueAtRetail)}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.unitsSoldInWindow}</TableCell>
                 </TableRow>
               ))}
               {report.rows.length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">Aucun stock enregistré.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={canSeeCost ? 7 : 6} className="text-center text-muted-foreground">Aucun stock enregistré.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>

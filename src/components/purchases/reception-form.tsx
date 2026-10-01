@@ -30,7 +30,9 @@ interface Line {
   label: string;
   sku: string;
   quantity: number;
-  unitCost: number;
+  /** null = not typed yet, or — on a draft edit without purchase-price
+   * visibility — « inchangé »: the server keeps the stored price (docs/adr/0048). */
+  unitCost: number | null;
   /** "Dernier achat" hint (Batch 3, Task 3A) — undefined while loading, null once
    * confirmed there is no purchase history for this unit. */
   lastPurchase?: { unitCost: number; supplierName: string; date: string } | null;
@@ -46,6 +48,7 @@ export function ReceptionForm({
   suppliers,
   warehouses,
   canCreateSupplier = false,
+  showPurchasePrices = true,
   reception,
 }: {
   suppliers: { id: string; name: string }[];
@@ -54,6 +57,11 @@ export function ReceptionForm({
    * next to the supplier select. A reception-only user (`purchases.create`
    * without `suppliers.manage`) never sees it — never a dead-end action. */
   canCreateSupplier?: boolean;
+  /** `productCostVisibility().purchasePrices` — `purchases.view` (docs/adr/0052). false: the
+   * operator types each price from the supplier's document, but no stored
+   * price is ever shown — no last-purchase hint, no totals, and a draft's
+   * existing lines stay « inchangé » unless re-typed. */
+  showPurchasePrices?: boolean;
   reception?: {
     id: string;
     supplierId: string;
@@ -155,7 +163,7 @@ export function ReceptionForm({
     setLines((prev) =>
       prev.some((l) => l.key === key)
         ? prev.map((l) => (l.key === key ? { ...l, quantity: l.quantity + 1 } : l))
-        : [...prev, { key, productId: u.variationId ? null : u.productId, variationId: u.variationId, label: `${u.name}${u.variantLabel ? ` — ${u.variantLabel}` : ""}`, sku: u.sku, quantity: 1, unitCost: u.cost ?? 0 }]
+        : [...prev, { key, productId: u.variationId ? null : u.productId, variationId: u.variationId, label: `${u.name}${u.variantLabel ? ` — ${u.variantLabel}` : ""}`, sku: u.sku, quantity: 1, unitCost: showPurchasePrices ? (u.cost ?? 0) : null }]
     );
     setHits([]);
     setQuery("");
@@ -163,7 +171,7 @@ export function ReceptionForm({
     // "Dernier achat" hint (Task 3A) — fetched once per new line, never
     // blocks adding the line, and never overwrites the price the operator
     // may already be typing.
-    if (isNewLine) {
+    if (isNewLine && showPurchasePrices) {
       getLatestPurchasePriceAction({ productId: u.variationId ? null : u.productId, variationId: u.variationId })
         .then((last) => {
           setLines((prev) =>
@@ -180,22 +188,22 @@ export function ReceptionForm({
     }
   }
 
-  const total = lines.reduce((s, l) => s + l.quantity * l.unitCost, 0);
+  const total = lines.reduce((s, l) => s + l.quantity * (l.unitCost ?? 0), 0);
 
   function submit() {
     if (!supplierId) return toast.error("Choisissez un fournisseur.");
     if (!warehouseId) return toast.error("Choisissez l'emplacement de destination.");
     if (lines.length === 0) return toast.error("Ajoutez au moins une ligne.");
-    const payload = {
-      supplierId,
-      warehouseId,
-      receptionDate: new Date(date),
-      supplierReference,
-      notes,
-      lines: lines.map((l) => ({ productId: l.variationId ? null : l.productId, variationId: l.variationId, quantity: l.quantity, unitCost: l.unitCost })),
-    };
+    const kept = new Set((reception?.lines ?? []).map((l) => l.key));
+    if (lines.some((l) => l.unitCost === null && !kept.has(l.key))) {
+      return toast.error("Saisissez le prix d'achat de chaque nouvel article.");
+    }
+    const base = { supplierId, warehouseId, receptionDate: new Date(date), supplierReference, notes };
+    const lineOf = (l: Line) => ({ productId: l.variationId ? null : l.productId, variationId: l.variationId, quantity: l.quantity });
     startTransition(async () => {
-      const r = reception ? await updateReceptionDraftAction({ id: reception.id, ...payload }) : await createReceptionAction(payload);
+      const r = reception
+        ? await updateReceptionDraftAction({ id: reception.id, ...base, lines: lines.map((l) => ({ ...lineOf(l), unitCost: l.unitCost })) })
+        : await createReceptionAction({ ...base, lines: lines.map((l) => ({ ...lineOf(l), unitCost: l.unitCost ?? 0 })) });
       if (r.ok) {
         toast.success(reception ? "Brouillon mis à jour." : "Brouillon enregistré.");
         router.push(`/receptions/${r.data.id}`);
@@ -390,7 +398,7 @@ export function ReceptionForm({
                   <TableHead>Article</TableHead>
                   <TableHead className="w-28">Quantité</TableHead>
                   <TableHead className="w-44">Prix d&apos;achat</TableHead>
-                  <TableHead className="w-32 text-right">Total</TableHead>
+                  {showPurchasePrices && <TableHead className="w-32 text-right">Total</TableHead>}
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
@@ -404,7 +412,7 @@ export function ReceptionForm({
                       <Input type="number" min={1} className="w-24 tabular-nums" aria-label={`Quantité — ${l.label}`} value={l.quantity} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, quantity: Math.max(1, Number(e.target.value) || 1) } : x)))} />
                     </TableCell>
                     <TableCell>
-                      <Input type="number" min={0} step="0.01" className="w-36 tabular-nums" aria-label={`Prix d'achat — ${l.label}`} value={l.unitCost} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, unitCost: Math.max(0, Number(e.target.value) || 0) } : x)))} />
+                      <Input type="number" min={0} step="0.01" className="w-36 tabular-nums" aria-label={`Prix d'achat — ${l.label}`} value={l.unitCost ?? ""} placeholder={l.unitCost === null ? (reception?.lines.some((x) => x.key === l.key) ? "Inchangé" : "Prix facture") : undefined} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, unitCost: !showPurchasePrices && e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0) } : x)))} />
                       {l.lastPurchase && (
                         <p className="mt-1 w-44 text-[11px] leading-snug whitespace-normal text-muted-foreground">
                           Dernier achat : {formatCurrency(String(l.lastPurchase.unitCost))} chez {l.lastPurchase.supplierName} le{" "}
@@ -412,7 +420,7 @@ export function ReceptionForm({
                         </p>
                       )}
                     </TableCell>
-                    <TableCell className="text-right font-semibold tabular-nums">{formatCurrency(String(l.quantity * l.unitCost))}</TableCell>
+                    {showPurchasePrices && <TableCell className="text-right font-semibold tabular-nums">{formatCurrency(String(l.quantity * (l.unitCost ?? 0)))}</TableCell>}
                     <TableCell>
                       <Button type="button" variant="ghost" size="icon-sm" className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label="Retirer la ligne" title="Retirer la ligne" onClick={() => setLines((p) => p.filter((x) => x.key !== l.key))}>
                         <Trash2 className="size-4" />
@@ -430,8 +438,13 @@ export function ReceptionForm({
         context={
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
             <span>
-              <span className="font-semibold text-foreground tabular-nums">{lines.length}</span> ligne(s) · Total{" "}
-              <span className="text-base font-semibold text-foreground tabular-nums">{formatCurrency(String(total))}</span>
+              <span className="font-semibold text-foreground tabular-nums">{lines.length}</span> ligne(s)
+              {showPurchasePrices && (
+                <>
+                  {" "}· Total{" "}
+                  <span className="text-base font-semibold text-foreground tabular-nums">{formatCurrency(String(total))}</span>
+                </>
+              )}
             </span>
             <span className="text-xs">Le stock n&apos;est ajouté qu&apos;à la validation.</span>
           </div>

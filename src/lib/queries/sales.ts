@@ -13,7 +13,7 @@ import type { CurrentUser } from "@/lib/auth/session";
  * left to the page to remember.
  */
 
-type Viewer = Pick<CurrentUser, "channels">;
+type Viewer = Pick<CurrentUser, "channels" | "locations">;
 const PAGE_SIZE = 20;
 
 export interface SaleListFilters {

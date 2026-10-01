@@ -28,6 +28,9 @@ export const inviteUserSchema = z.object({
   email: z.email("Adresse e-mail invalide."),
   role: userRoleSchema,
   channelScope: invitationChannelScopeSchema.optional(),
+  // Invite-time precision (docs/adr/0047) — optional; empty = legacy behaviour.
+  offlineChannelIds: z.array(z.string().min(1)).max(50).default([]),
+  warehouseIds: z.array(z.string().min(1)).max(500).default([]),
 });
 
 export const userStatusSchema = z.enum(["ACTIVE", "DISABLED"]);

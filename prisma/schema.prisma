@@ -483,6 +483,14 @@ model Invitation {
   // Null for OWNER/ADMIN (meaningless — they bypass UserChannel entirely)
   // and for a legacy/unset invitation. See the enum's own doc comment.
   channelScope InvitationChannelScope?
+  // Invite-time precision (docs/adr/0047). Plain id lists resolved — and
+  // re-validated through the tenant-scoped client — at accept time, exactly
+  // like `channelScope`; never trusted blindly, no FK (a since-retired
+  // channel/warehouse is simply dropped: default-deny). Empty = the legacy
+  // behaviour, unchanged: OFFLINE/BOTH → every active OFFLINE channel, and
+  // no location assigned.
+  offlineChannelIds String[] @default([])
+  warehouseIds      String[] @default([])
   tokenHash  String           @unique
   status     InvitationStatus @default(PENDING)
   expiresAt  DateTime

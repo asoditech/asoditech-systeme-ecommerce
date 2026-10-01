@@ -1,4 +1,6 @@
 import "server-only";
+
+import { REOPEN_ORDER_DATA, isReopenable } from "@/lib/order-confirmation";
 import { getDefaultOnlineChannelId } from "@/lib/channels";
 
 import { prisma } from "@/lib/prisma";
@@ -376,15 +378,23 @@ async function updateExistingOrder(
       // (no "shipped" WooCommerce order status is mapped) — this is a
       // deliberate belt-and-suspenders should that mapping ever change.
       const expedieeAutoAdvanceBlocked = status === "EXPEDIEE" && existing.status !== "EXPEDIEE";
+      // Same rule as « Rétablir la commande »: a shipped order never reopens.
+      const reopenBlocked = status === "NOUVELLE" && existing.status === "ANNULEE" && !isReopenable(existing);
       if (autoConfirmBlocked) {
         statusSkippedReason = `Commande WooCommerce #${wc.id} : reste "Nouvelle" — confirmation manuelle requise avant "Confirmée" (réglage "Toujours importer en Nouvelle").`;
       } else if (expedieeAutoAdvanceBlocked) {
         statusSkippedReason = `Commande WooCommerce #${wc.id} : le statut WooCommerce indique une expédition, mais seule l'action "Expédiée" dans ASODITECH peut faire progresser la commande et consommer le stock.`;
         workflowMismatch = wc.status;
+      } else if (reopenBlocked) {
+        statusSkippedReason = `Commande WooCommerce #${wc.id} : déjà expédiée — elle ne peut pas revenir à "Nouvelle" depuis "Annulée".`;
       } else if (canTransitionOrderStatus(existing.status, status)) {
         const result = await tx.order.updateMany({
           where: { id: orderId, status: existing.status },
-          data: { status },
+          // The store reopening a cancelled order (ANNULEE → NOUVELLE) is a
+          // reopen like any other (docs/adr/0049): the current confirmation
+          // state (confirmedAt, commission attribution) is reset; attempts,
+          // audit and ledger history stay.
+          data: status === "NOUVELLE" ? REOPEN_ORDER_DATA : { status },
         });
         if (result.count > 0) {
           changedFields = true;

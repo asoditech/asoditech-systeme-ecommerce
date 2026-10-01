@@ -240,7 +240,7 @@ describe("STORE_SELLER + Offline scope — server-side enforcement", () => {
     await expect(requirePermission("users.view")).rejects.toThrow(RedirectSignal);
     await expect(requirePermissionForAction("users.manage")).rejects.toThrow(/non autorisé/i);
     await expect(setUserPermissionOverridesAction({ userId: "x", grants: [], denies: [] } as never)).rejects.toThrow(/non autorisé/i);
-    expect(productCostVisibility((await getCurrentUser())!)).toEqual({ cost: false, purchasePrices: false });
+    expect(productCostVisibility((await getCurrentUser())!)).toEqual({ cost: false, purchasePrices: false, supplierAccounts: false });
   });
 });
 
@@ -339,14 +339,14 @@ describe("G1 — sale lookup never exposes purchase cost", () => {
 describe("G3 — product cost visibility", () => {
   const viewer = (...perms: Permission[]) => ({ permissions: new Set<Permission>(perms) });
 
-  it("products.view without finance.view → no purchase cost, no purchase prices", () => {
-    expect(productCostVisibility(viewer("products.view"))).toEqual({ cost: false, purchasePrices: false });
-    expect(productCostVisibility(viewer("products.view", "purchases.view"))).toEqual({ cost: false, purchasePrices: false });
+  it("products.view alone → nothing; purchases.view → purchase prices only (docs/adr/0052)", () => {
+    expect(productCostVisibility(viewer("products.view"))).toEqual({ cost: false, purchasePrices: false, supplierAccounts: false });
+    expect(productCostVisibility(viewer("products.view", "purchases.view"))).toEqual({ cost: false, purchasePrices: true, supplierAccounts: false });
   });
 
-  it("products.view + finance.view → purchase cost allowed; purchase prices also need purchases.view", () => {
-    expect(productCostVisibility(viewer("products.view", "finance.view"))).toEqual({ cost: true, purchasePrices: false });
-    expect(productCostVisibility(viewer("products.view", "finance.view", "purchases.view"))).toEqual({ cost: true, purchasePrices: true });
+  it("finance.view → product cost; supplier accounts need finance.view AND purchases.view", () => {
+    expect(productCostVisibility(viewer("products.view", "finance.view"))).toEqual({ cost: true, purchasePrices: false, supplierAccounts: false });
+    expect(productCostVisibility(viewer("products.view", "finance.view", "purchases.view"))).toEqual({ cost: true, purchasePrices: true, supplierAccounts: true });
   });
 
   it("resolved sessions: WAREHOUSE (no finance.view) sees no cost; MANAGER and ADMIN do", async () => {
@@ -354,10 +354,10 @@ describe("G3 — product cost visibility", () => {
     expect(productCostVisibility((await getCurrentUser())!).cost).toBe(false);
     mockCookieStore.clear();
     await loginAsTestUser({ role: "MANAGER" });
-    expect(productCostVisibility((await getCurrentUser())!)).toEqual({ cost: true, purchasePrices: true });
+    expect(productCostVisibility((await getCurrentUser())!)).toEqual({ cost: true, purchasePrices: true, supplierAccounts: true });
     mockCookieStore.clear();
     await loginAsTestUser({ role: "ADMIN" });
-    expect(productCostVisibility((await getCurrentUser())!)).toEqual({ cost: true, purchasePrices: true });
+    expect(productCostVisibility((await getCurrentUser())!)).toEqual({ cost: true, purchasePrices: true, supplierAccounts: true });
   });
 });
 

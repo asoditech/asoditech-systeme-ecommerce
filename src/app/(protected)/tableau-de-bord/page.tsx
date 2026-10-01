@@ -34,7 +34,9 @@ import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
+import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth/guards";
+import { landingPathFor } from "@/lib/auth/landing";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { auditScopeWhere } from "@/lib/auth/audit-scope";
 import { getChannelReport, combinedChannelRevenue } from "@/lib/queries/reports/channels";
@@ -153,6 +155,10 @@ export default async function TableauDeBordPage({
   searchParams: Promise<{ periode?: string; graphique?: string; canal?: string }>;
 }) {
   const user = await requireUser();
+  // A real page guard (docs/adr/0050 — G8), not just a hidden nav link. The
+  // dashboard is also the post-login landing, so a user without it is
+  // forwarded to the first page they may open instead of a dead end.
+  if (!userHasPermission(user, "dashboard.view")) redirect(landingPathFor(user));
   const params = await searchParams;
   const periodKey: DashboardPeriod = isDashboardPeriod(params.periode) ? params.periode : "mois";
   const chartRange: RevenueTrendRange =

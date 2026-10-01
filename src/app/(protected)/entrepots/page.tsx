@@ -7,6 +7,7 @@ import { WarehouseForm } from "@/components/inventory/warehouse-form";
 import { WarehouseRowActions } from "@/components/inventory/warehouse-row-actions";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
+import { canReadWarehouse } from "@/lib/auth/location-access";
 import { listWarehousesWithStats } from "@/lib/queries/inventory";
 import { WAREHOUSE_TYPE_LABELS, RECORD_SOURCE_LABELS } from "@/lib/status-labels";
 
@@ -15,7 +16,9 @@ export const metadata = { title: "Emplacements — ASODITECH Gestion E-commerce"
 export default async function EntrepotsPage() {
   const user = await requirePermission("inventory.view");
   const canManage = userHasPermission(user, "warehouses.manage");
-  const warehouses = await listWarehousesWithStats();
+  // Locations are org structure: whoever administers them (warehouses.manage)
+  // sees them all; anyone else only their own (docs/adr/0050).
+  const warehouses = (await listWarehousesWithStats()).filter((w) => canManage || canReadWarehouse(user, w.id));
 
   return (
     <div>

@@ -23,7 +23,7 @@ export default async function InventairesPage({
   const canCount = userHasPermission(user, "inventory.count");
   const params = await searchParams;
   const page = Number(params.page) || 1;
-  const { sessions, total, pageSize } = await listStocktakeSessions({ status: params.status, page });
+  const { sessions, total, pageSize } = await listStocktakeSessions({ status: params.status, page }, user);
 
   return (
     <div>

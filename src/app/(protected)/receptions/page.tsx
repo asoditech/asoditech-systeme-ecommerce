@@ -11,6 +11,7 @@ import { ClickableTableRow } from "@/components/clickable-table-row";
 import { EntityAvatar } from "@/components/entity-avatar";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
+import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { listReceptions } from "@/lib/queries/purchases";
 import { displayReceptionNumber, formatCurrency, formatDate } from "@/lib/format";
 import { RECEPTION_STATUS_LABELS } from "@/lib/status-labels";
@@ -21,9 +22,11 @@ export const metadata = { title: "Réceptions — ASODITECH Gestion E-commerce" 
 /** Purchase receptions: physical stock entering the business (docs/adr/0040). */
 export default async function ReceptionsPage({ searchParams }: { searchParams: Promise<{ status?: string; page?: string }> }) {
   const user = await requirePermission("purchases.view");
+  // Reception totals are purchase prices — `purchases.view` (docs/adr/0052).
+  const showPrices = productCostVisibility(user).purchasePrices;
   const params = await searchParams;
   const status = params.status && params.status in RECEPTION_STATUS_LABELS ? (params.status as ReceptionStatus) : undefined;
-  const { receptions, total, page, pageSize } = await listReceptions({ status, page: Number(params.page) || 1 });
+  const { receptions, total, page, pageSize } = await listReceptions({ status, page: Number(params.page) || 1 }, user);
 
   return (
     <div>
@@ -67,7 +70,7 @@ export default async function ReceptionsPage({ searchParams }: { searchParams: P
                 <TableHead>Destination</TableHead>
                 <TableHead className="text-right">Articles</TableHead>
                 <TableHead>Statut</TableHead>
-                <TableHead className="text-right">Total</TableHead>
+                {showPrices && <TableHead className="text-right">Total</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -97,9 +100,11 @@ export default async function ReceptionsPage({ searchParams }: { searchParams: P
                   <TableCell>
                     <StatusBadge status={r.status} labels={RECEPTION_STATUS_LABELS} />
                   </TableCell>
-                  <TableCell className="text-right font-semibold tabular-nums">
-                    {r.status === "VALIDEE" ? formatCurrency(r.totalCost.toString()) : <span className="font-normal text-muted-foreground">—</span>}
-                  </TableCell>
+                  {showPrices && (
+                    <TableCell className="text-right font-semibold tabular-nums">
+                      {r.status === "VALIDEE" ? formatCurrency(r.totalCost.toString()) : <span className="font-normal text-muted-foreground">—</span>}
+                    </TableCell>
+                  )}
                 </ClickableTableRow>
               ))}
             </TableBody>

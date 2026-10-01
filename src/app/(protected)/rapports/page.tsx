@@ -2,6 +2,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { requirePermission } from "@/lib/auth/guards";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { TrendingUp, PackageMinus, Boxes, Truck, Users, Wallet, FileText, LineChart, Undo2, Sigma } from "lucide-react";
 
 export const metadata = { title: "Rapports — ASODITECH Gestion E-commerce" };
@@ -73,6 +74,9 @@ const REPORTS = [
 // is only offered (and only openable — each page re-checks server-side) to a
 // user with an ONLINE channel (docs/adr/0039). The channel report (Online /
 // Offline / Total — docs/adr/0040) is added at the end of REPORTS_ALL below.
+/** Finance reports (margins, cost of goods, profit, treasury) — `finance.view` (docs/adr/0050). */
+const FINANCE_HREFS = new Set(["/rapports/rentabilite", "/rapports/profitabilite", "/rapports/tresorerie"]);
+
 const ONLINE_ONLY_HREFS = new Set([
   "/rapports/ventes",
   "/rapports/rentabilite",
@@ -89,7 +93,10 @@ export default async function RapportsPage() {
   // The Online/Offline/Total report belongs to the `storeChannels` capability
   // (docs/adr/0041): an ONLINE_ONLY tenant does not see it.
   const REPORTS_VISIBLE = REPORTS.filter(
-    (r) => (r.href !== "/rapports/canaux" || user.capabilities.has("storeChannels")) && (!ONLINE_ONLY_HREFS.has(r.href) || user.channels.online)
+    (r) =>
+      (r.href !== "/rapports/canaux" || user.capabilities.has("storeChannels")) &&
+      (!ONLINE_ONLY_HREFS.has(r.href) || user.channels.online) &&
+      (!FINANCE_HREFS.has(r.href) || userHasPermission(user, "finance.view"))
   );
 
   return (

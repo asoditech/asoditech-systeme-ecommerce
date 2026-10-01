@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
+import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { getSupplierDetail, getSupplierPurchaseHistory } from "@/lib/queries/purchases";
 import { displayReceptionNumber, formatCurrency, formatDate } from "@/lib/format";
 import { RECEPTION_STATUS_LABELS, RECEPTION_PAYMENT_STATUS_LABELS, CASH_PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
@@ -32,13 +33,17 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
   const { id } = await params;
   const canViewPurchases = userHasPermission(user, "purchases.view");
   const [detail, purchaseHistory] = await Promise.all([
-    getSupplierDetail(id),
-    canViewPurchases ? getSupplierPurchaseHistory(id, 30) : Promise.resolve([]),
+    getSupplierDetail(id, user),
+    canViewPurchases ? getSupplierPurchaseHistory(id, 30, user) : Promise.resolve([]),
   ]);
   if (!detail) notFound();
   const { supplier, balance, payments, receptions } = detail;
   const canManage = userHasPermission(user, "suppliers.manage");
   const canPay = userHasPermission(user, "purchases.pay");
+  // Purchase prices (reception totals, unit prices) follow `purchases.view`;
+  // the supplier ACCOUNT (balance, paid, payments) stays `finance.view`
+  // (docs/adr/0048, 0052).
+  const { purchasePrices: showPrices, supplierAccounts: showAmounts } = productCostVisibility(user);
 
   return (
     <div className="space-y-6">
@@ -100,25 +105,27 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="sm:col-span-2">
-          <MetricWithProgress
-            label="Solde dû au fournisseur"
-            value={formatCurrency(balance.balance.toString())}
-            hint={
-              receptions.length > 0
-                ? `${receptions.length} réception(s) · dernière le ${formatDate(receptions[0].receptionDate)}`
-                : "Aucune réception"
-            }
-            icon={Scale}
-            segments={[
-              { label: "Payé", value: Math.max(0, Number(balance.totalPaid)), className: "bg-emerald-500" },
-              { label: "Restant", value: Math.max(0, Number(balance.balance)), className: "bg-amber-500" },
-            ]}
-          />
+      {showAmounts && (
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="sm:col-span-2">
+            <MetricWithProgress
+              label="Solde dû au fournisseur"
+              value={formatCurrency(balance.balance.toString())}
+              hint={
+                receptions.length > 0
+                  ? `${receptions.length} réception(s) · dernière le ${formatDate(receptions[0].receptionDate)}`
+                  : "Aucune réception"
+              }
+              icon={Scale}
+              segments={[
+                { label: "Payé", value: Math.max(0, Number(balance.totalPaid)), className: "bg-emerald-500" },
+                { label: "Restant", value: Math.max(0, Number(balance.balance)), className: "bg-amber-500" },
+              ]}
+            />
+          </div>
+          <KpiCard label="Total reçu (validé)" value={formatCurrency(balance.totalReceived.toString())} icon={PackageCheck} tone="info" />
         </div>
-        <KpiCard label="Total reçu (validé)" value={formatCurrency(balance.totalReceived.toString())} icon={PackageCheck} tone="info" />
-      </div>
+      )}
 
       {canPay && <SupplierPaymentForm supplierId={supplier.id} />}
 
@@ -135,8 +142,8 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
                 <TableHead>Emplacement</TableHead>
                 <TableHead>Statut</TableHead>
                 <TableHead>Paiement</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-                <TableHead className="text-right">Payé</TableHead>
+                {showPrices && <TableHead className="text-right">Total</TableHead>}
+                {showAmounts && <TableHead className="text-right">Payé</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -157,13 +164,13 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
                       <StatusBadge status={receptionPaymentStatus(r.totalCost, r.paid)} labels={RECEPTION_PAYMENT_STATUS_LABELS} />
                     )}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">{formatCurrency(r.totalCost.toString())}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatCurrency(r.paid.toString())}</TableCell>
+                  {showPrices && <TableCell className="text-right tabular-nums">{formatCurrency(r.totalCost.toString())}</TableCell>}
+                  {showAmounts && <TableCell className="text-right tabular-nums">{formatCurrency(r.paid.toString())}</TableCell>}
                 </TableRow>
               ))}
               {receptions.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                  <TableCell colSpan={5 + (showPrices ? 1 : 0) + (showAmounts ? 1 : 0)} className="text-center text-muted-foreground">
                     Aucune réception.
                   </TableCell>
                 </TableRow>
@@ -191,7 +198,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
                     <TableHead>Date</TableHead>
                     <TableHead>Article</TableHead>
                     <TableHead className="text-right">Quantité</TableHead>
-                    <TableHead className="text-right">Prix unitaire</TableHead>
+                    {showPrices && <TableHead className="text-right">Prix unitaire</TableHead>}
                     <TableHead>Réception</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -203,7 +210,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
                         <ProductMetricRow name={l.productName} sku={l.sku} variantLabel={l.variantLabel} />
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{l.quantity}</TableCell>
-                      <TableCell className="text-right tabular-nums">{formatCurrency(String(l.unitCost))}</TableCell>
+                      {showPrices && <TableCell className="text-right tabular-nums">{formatCurrency(String(l.unitCost))}</TableCell>}
                       <TableCell>
                         <Link
                           href={`/receptions/${l.receptionId}`}
@@ -216,7 +223,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
                   ))}
                   {purchaseHistory.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      <TableCell colSpan={showPrices ? 5 : 4} className="text-center text-muted-foreground">
                         Aucun achat validé pour le moment.
                       </TableCell>
                     </TableRow>
@@ -228,52 +235,54 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Paiements</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Réception</TableHead>
-                <TableHead>Mode</TableHead>
-                <TableHead>Référence</TableHead>
-                <TableHead>Par</TableHead>
-                <TableHead className="text-right">Montant</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {payments.map((p) => (
-                <TableRow key={p.id}>
-                  <TableCell className="text-muted-foreground">{formatDate(p.paidAt)}</TableCell>
-                  <TableCell>
-                    {p.reception ? (
-                      <Link href={`/receptions/${p.receptionId}`} className="hover:underline">
-                        {displayReceptionNumber(p.reception)}
-                      </Link>
-                    ) : (
-                      <span className="text-muted-foreground">Compte fournisseur</span>
-                    )}
-                  </TableCell>
-                  <TableCell>{CASH_PAYMENT_METHOD_LABELS[p.method]}</TableCell>
-                  <TableCell className="text-muted-foreground">{p.reference ?? "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">{p.createdByName ?? "—"}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatCurrency(p.amount.toString())}</TableCell>
-                </TableRow>
-              ))}
-              {payments.length === 0 && (
+      {showAmounts && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Paiements</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    Aucun paiement.
-                  </TableCell>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Réception</TableHead>
+                  <TableHead>Mode</TableHead>
+                  <TableHead>Référence</TableHead>
+                  <TableHead>Par</TableHead>
+                  <TableHead className="text-right">Montant</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              </TableHeader>
+              <TableBody>
+                {payments.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell className="text-muted-foreground">{formatDate(p.paidAt)}</TableCell>
+                    <TableCell>
+                      {p.reception ? (
+                        <Link href={`/receptions/${p.receptionId}`} className="hover:underline">
+                          {displayReceptionNumber(p.reception)}
+                        </Link>
+                      ) : (
+                        <span className="text-muted-foreground">Compte fournisseur</span>
+                      )}
+                    </TableCell>
+                    <TableCell>{CASH_PAYMENT_METHOD_LABELS[p.method]}</TableCell>
+                    <TableCell className="text-muted-foreground">{p.reference ?? "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">{p.createdByName ?? "—"}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatCurrency(p.amount.toString())}</TableCell>
+                  </TableRow>
+                ))}
+                {payments.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground">
+                      Aucun paiement.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

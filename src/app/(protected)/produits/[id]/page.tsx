@@ -217,7 +217,7 @@ export default async function ProduitDetailPage({
   // barcodes, channel availability) exists only in an ONLINE_AND_OFFLINE tenant.
   const identityEnabled = user.capabilities.has("catalogIdentity");
   const [product, categories, channels] = await Promise.all([
-    getProductDetail(id),
+    getProductDetail(id, user),
     listCategories(),
     identityEnabled ? listActiveChannels() : Promise.resolve([]),
   ]);
@@ -507,8 +507,8 @@ export default async function ProduitDetailPage({
               </CardHeader>
               <CardContent className="p-0">
                 <p className="px-6 pb-3 text-xs text-muted-foreground">
-                  Prix constatés sur les réceptions validées — information historique, ne remplace pas le « Coût
-                  d&apos;achat » ci-dessus (utilisé pour la marge).
+                  Prix constatés sur les réceptions validées — information historique
+                  {costVisibility.cost ? <>, ne remplace pas le « Coût d&apos;achat » ci-dessus (utilisé pour la marge).</> : "."}
                 </p>
                 <div className="overflow-x-auto">
                   <Table>

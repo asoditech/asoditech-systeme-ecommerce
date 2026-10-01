@@ -4,13 +4,24 @@ import { Prisma, type ReceptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSupplierBalance } from "@/lib/receptions";
 import { variantLabel } from "@/lib/catalog/lookup";
+import { warehouseReadWhere } from "@/lib/auth/location-access";
+import type { CurrentUser } from "@/lib/auth/session";
 
 /** Suppliers & receptions reads — docs/adr/0040. Permission-gated by the pages (`suppliers.view` / `purchases.view`). */
 
 const PAGE_SIZE = 20;
 const zero = () => new Prisma.Decimal(0);
 
-export async function listSuppliers(params: { q?: string; page?: number } = {}) {
+/**
+ * Location read scope (docs/adr/0050): every page passes its viewer, so a
+ * scoped user only ever reads receptions of their own locations. Omitted =
+ * tenant-wide (non-page callers). Supplier balances / payments stay
+ * supplier-level (company-wide debt, `finance.view`-gated on the pages).
+ */
+type LocationViewer = Pick<CurrentUser, "locations">;
+const scopeOf = (viewer?: LocationViewer) => (viewer ? warehouseReadWhere(viewer) : {});
+
+export async function listSuppliers(params: { q?: string; page?: number } = {}, viewer?: LocationViewer) {
   const page = Math.max(1, params.page ?? 1);
   const where: Prisma.SupplierWhereInput = params.q
     ? { OR: [{ name: { contains: params.q, mode: "insensitive" } }, { phone: { contains: params.q } }] }
@@ -29,7 +40,7 @@ export async function listSuppliers(params: { q?: string; page?: number } = {}) 
     // really happen), one grouped query, no N+1.
     prisma.reception.groupBy({
       by: ["supplierId"],
-      where: { supplierId: { in: ids }, status: { not: "ANNULEE" } },
+      where: { supplierId: { in: ids }, status: { not: "ANNULEE" }, ...scopeOf(viewer) },
       _count: { _all: true },
       _max: { receptionDate: true },
     }),
@@ -50,12 +61,12 @@ export async function listSuppliers(params: { q?: string; page?: number } = {}) 
   return { suppliers: rows, total, page, pageSize: PAGE_SIZE };
 }
 
-export async function getSupplierDetail(id: string) {
+export async function getSupplierDetail(id: string, viewer?: LocationViewer) {
   const supplier = await prisma.supplier.findUnique({ where: { id } });
   if (!supplier) return null;
   const [receptions, payments, balance] = await Promise.all([
     prisma.reception.findMany({
-      where: { supplierId: id },
+      where: { supplierId: id, ...scopeOf(viewer) },
       orderBy: { receptionDate: "desc" },
       take: 50,
       include: { payments: { select: { amount: true } }, warehouse: { select: { name: true } } },
@@ -79,9 +90,13 @@ export async function getSupplierDetail(id: string) {
   };
 }
 
-export async function listReceptions(params: { status?: ReceptionStatus; supplierId?: string; page?: number } = {}) {
+export async function listReceptions(
+  params: { status?: ReceptionStatus; supplierId?: string; page?: number } = {},
+  viewer?: LocationViewer
+) {
   const page = Math.max(1, params.page ?? 1);
   const where: Prisma.ReceptionWhereInput = {
+    ...scopeOf(viewer),
     ...(params.status ? { status: params.status } : {}),
     ...(params.supplierId ? { supplierId: params.supplierId } : {}),
   };
@@ -98,9 +113,9 @@ export async function listReceptions(params: { status?: ReceptionStatus; supplie
   return { receptions, total, page, pageSize: PAGE_SIZE };
 }
 
-export async function getReceptionDetail(id: string) {
-  return prisma.reception.findUnique({
-    where: { id },
+export async function getReceptionDetail(id: string, viewer?: LocationViewer) {
+  return prisma.reception.findFirst({
+    where: { id, ...scopeOf(viewer) },
     include: {
       supplier: true,
       warehouse: { select: { id: true, name: true } },
@@ -139,9 +154,9 @@ export interface SupplierPurchaseLine {
  * received, even if the product was since renamed). Only VALIDEE receptions
  * count as an actual purchase, same posture as `getPurchasePriceHistory`.
  */
-export async function getSupplierPurchaseHistory(supplierId: string, limit = 30): Promise<SupplierPurchaseLine[]> {
+export async function getSupplierPurchaseHistory(supplierId: string, limit = 30, viewer?: LocationViewer): Promise<SupplierPurchaseLine[]> {
   const lines = await prisma.receptionLine.findMany({
-    where: { reception: { supplierId, status: "VALIDEE" } },
+    where: { reception: { supplierId, status: "VALIDEE", ...scopeOf(viewer) } },
     orderBy: { reception: { receptionDate: "desc" } },
     take: limit,
     include: {
