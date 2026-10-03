@@ -125,6 +125,7 @@ const AUDIT_ACTION_META: Record<string, AuditActionMeta> = {
   "stocktake.created": { label: "Inventaire créé", category: "produits_stock" },
   "user.created": { label: "Utilisateur créé", category: "utilisateurs" },
   "user.login.failure": { label: "Échec de connexion", category: "utilisateurs" },
+  "product.exported": { label: "Produits exportés (CSV)", category: "produits_stock" },
   "platform.unlock.success": { label: "Accès plateforme déverrouillé", category: "utilisateurs" },
   "platform.unlock.failure": { label: "Clé d'accès plateforme refusée", category: "utilisateurs" },
   "user.password_reset_forced": { label: "Réinitialisation du mot de passe imposée", category: "utilisateurs" },

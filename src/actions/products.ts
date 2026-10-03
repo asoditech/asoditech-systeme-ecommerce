@@ -1098,6 +1098,42 @@ export async function updateVariationOperationalSettingsAction(formData: FormDat
 }
 
 /**
+ * Product lifecycle (docs/adr/0054): ACTIF ⇄ ARCHIVE (« désactivé »), the
+ * normal way to retire a product — never a deletion. An archived product
+ * keeps all its history, stays searchable and visible to authorized users,
+ * and can no longer be sold (orders and POS sales already refuse a non-ACTIF
+ * product server-side). A store-imported product's status belongs to the
+ * store sync (field ownership), so it is changed in WooCommerce / Shopify.
+ */
+export async function setProductActiveAction(formData: FormData): Promise<ActionResult<{ id: string; status: "ACTIF" | "ARCHIVE" }>> {
+  const user = await requirePermissionForAction("products.edit");
+  const productId = String(formData.get("productId") ?? "");
+  const active = formData.get("active") === "1";
+  if (!productId) return actionError("Produit invalide.");
+  const product = await prisma.product.findUnique({ where: { id: productId }, select: { id: true, name: true, status: true, source: true } });
+  if (!product) return actionError("Produit introuvable.");
+  if (product.source !== "INTERNE") {
+    return actionError("Le statut de ce produit est géré par la boutique connectée : modifiez-le dans WooCommerce / Shopify.");
+  }
+  const status = active ? "ACTIF" : "ARCHIVE";
+  if (product.status !== status) {
+    await prisma.product.update({ where: { id: productId }, data: { status } });
+    await recordAuditEvent({
+      actorType: "USER",
+      actorUserId: user.id,
+      action: active ? "product.updated" : "product.archived",
+      entityType: "Product",
+      entityId: productId,
+      previousValue: { status: product.status },
+      newValue: { status },
+    });
+  }
+  revalidatePath("/produits");
+  revalidatePath(`/produits/${productId}`);
+  return actionOk({ id: productId, status });
+}
+
+/**
  * Removes a product that no longer belongs in the catalogue — typically
  * one deleted from the connected store (the `product.deleted` webhook does
  * this automatically, but a missed webhook or a manual clean-up needs a
@@ -1114,11 +1150,21 @@ export async function removeProductAction(formData: FormData): Promise<ActionRes
 
   const product = await prisma.product.findUnique({
     where: { id: productId },
-    select: { id: true, name: true, source: true, status: true, _count: { select: { orderItems: true } } },
+    select: { id: true, name: true, source: true, status: true, _count: { select: { publications: true } } },
   });
   if (!product) return actionError("Produit introuvable.");
 
-  const soldCount = product._count.orderItems;
+  // Any commerce reference — on the product OR on one of its variations —
+  // means "archive", never "delete" (docs/adr/0054): order lines, in-store
+  // sale lines, reception lines (a draft reception has no stock movement
+  // yet) and store publications would otherwise lose their link.
+  const unit = { OR: [{ productId }, { variation: { productId } }] };
+  const [soldCount, saleLineCount, receptionLineCount] = await Promise.all([
+    prisma.orderItem.count({ where: unit }),
+    prisma.saleLine.count({ where: unit }),
+    prisma.receptionLine.count({ where: unit }),
+  ]);
+  const publicationCount = product._count.publications;
   // Ledger protection (docs/adr/0038): InventoryItem and InventoryMovement
   // cascade from Product/ProductVariation, so hard-deleting a product that
   // ever had a stock movement (a reception, a transfer, a count, an
@@ -1128,7 +1174,7 @@ export async function removeProductAction(formData: FormData): Promise<ActionRes
   const movementCount = await prisma.inventoryMovement.count({
     where: { inventoryItem: { OR: [{ productId }, { variation: { productId } }] } },
   });
-  if (soldCount === 0 && movementCount === 0) {
+  if (soldCount === 0 && movementCount === 0 && saleLineCount === 0 && receptionLineCount === 0 && publicationCount === 0) {
     await prisma.product.delete({ where: { id: productId } });
     await recordAuditEvent({
       actorType: "USER",
@@ -1157,6 +1203,9 @@ export async function removeProductAction(formData: FormData): Promise<ActionRes
       removed: "archived",
       soldCount,
       movementCount,
+      saleLineCount,
+      receptionLineCount,
+      publicationCount,
       reason: "manual_cleanup",
     },
   });

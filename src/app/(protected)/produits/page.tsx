@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Package, Plus } from "lucide-react";
+import { Download, Package, Plus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
@@ -103,6 +103,12 @@ export default async function ProduitsPage({
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <SyncRefreshButton resource="products" canSync={canSync} />
+            {userHasPermission(user, "products.edit") && (
+              <Button variant="outline" render={<Link href="/produits/exporter" />}>
+                <Download className="size-4" />
+                Exporter CSV
+              </Button>
+            )}
             {userHasPermission(user, "products.create") && (
               <Button render={<Link href="/produits/nouveau" />}>
                 <Plus className="size-4" />

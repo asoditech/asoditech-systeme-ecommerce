@@ -27,6 +27,7 @@ import { KpiCard } from "@/components/kpi-card";
 import { ProductForm } from "@/components/products/product-form";
 import { BackfillCostButton } from "@/components/products/backfill-cost-button";
 import { RemoveProductButton } from "@/components/products/remove-product-button";
+import { ProductActiveToggle } from "@/components/products/product-active-toggle";
 import { VariationCostCell } from "@/components/products/variation-cost-cell";
 import { VariantCombinationGenerator } from "@/components/products/variant-combination-generator";
 import { VariantEditDialog } from "@/components/products/variant-edit-dialog";
@@ -353,6 +354,9 @@ export default async function ProduitDetailPage({
                 Modifier sur {externalLabel}
                 <ExternalLink className="size-4" />
               </Button>
+            )}
+            {canEdit && !isExternal && (
+              <ProductActiveToggle productId={product.id} productName={product.name} active={product.status === "ACTIF"} />
             )}
             {canEdit && (
               <RemoveProductButton

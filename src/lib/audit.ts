@@ -23,6 +23,7 @@ export type AuditAction =
   | "tenant.activated"
   | "tenant.suspended"
   | "tenant.deleted"
+  | "product.exported"
   | "platform.unlock.success"
   | "platform.unlock.failure"
   | "user.password_reset_forced"
