@@ -22,9 +22,14 @@
 --
 --     psql "<owner connection string>" \
 --       -v app_role=asoditech_app \
---       -v app_password="'REPLACE_WITH_A_STRONG_RANDOM_PASSWORD'" \
+--       -v app_password="REPLACE_WITH_A_STRONG_RANDOM_PASSWORD" \
 --       -v migration_role=postgres \
 --       -f scripts/provision-production-role.sql
+--
+--   No quotes inside the -v value: :'app_password' below already quotes it,
+--   so "'secret'" would make the quotes part of the password. A hex
+--   password (`openssl rand -hex 32`) also needs no URL-encoding later.
+--   scripts/r3-provision-and-verify.zsh does all of this in one step.
 --
 --   Adjust -v migration_role to whatever role actually ran (or will run)
 --   `prisma migrate deploy` in this environment — check with
