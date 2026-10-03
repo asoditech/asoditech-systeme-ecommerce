@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PhoneActions } from "@/components/phone-actions";
 import { notFound } from "next/navigation";
 import {
   Package,
@@ -470,7 +471,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                 <p className="text-xs text-muted-foreground">Compte client : {order.customer.fullName}</p>
               )}
               {(order.shippingPhone || order.customer.phone) && (
-                <p className="text-muted-foreground">{order.shippingPhone ?? order.customer.phone}</p>
+                <PhoneActions phone={order.shippingPhone ?? order.customer.phone} whatsapp className="text-muted-foreground" />
               )}
               {order.customer.email && <p className="text-muted-foreground">{order.customer.email}</p>}
               <p className="border-t pt-2 text-muted-foreground">
@@ -685,7 +686,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                     <span className="text-muted-foreground">Pays : </span>
                     <span>{orderShippingCountry(order)}</span>
                   </p>
-                  {order.shippingPhone && <p className="text-muted-foreground">{order.shippingPhone}</p>}
+                  {order.shippingPhone && <PhoneActions phone={order.shippingPhone} whatsapp className="text-muted-foreground" />}
                 </>
               ) : (
                 <p className="text-destructive">Aucune adresse renseignée — à compléter avant l&apos;expédition.</p>

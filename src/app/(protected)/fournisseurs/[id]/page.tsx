@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { PhoneActions } from "@/components/phone-actions";
 import { notFound } from "next/navigation";
-import { PackageCheck, Scale, Building2, Phone, Mail, MapPin } from "lucide-react";
+import { PackageCheck, Scale, Building2, Mail, MapPin } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
 import { MetricWithProgress } from "@/components/metric-with-progress";
@@ -89,11 +90,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
                   <MapPin className="size-3" /> {supplier.city}
                 </span>
               )}
-              {supplier.phone && (
-                <span className="flex items-center gap-1">
-                  <Phone className="size-3" /> {supplier.phone}
-                </span>
-              )}
+              {supplier.phone && <PhoneActions phone={supplier.phone} whatsapp />}
               {supplier.email && (
                 <span className="flex items-center gap-1">
                   <Mail className="size-3" /> {supplier.email}

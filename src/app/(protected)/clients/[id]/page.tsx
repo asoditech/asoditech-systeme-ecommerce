@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PhoneActions } from "@/components/phone-actions";
 import { MapPin, Plus, Wallet, ShoppingCart, Receipt, CalendarClock, ShieldAlert } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
@@ -166,7 +167,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
                         {a.city}
                         {a.region ? `, ${a.region}` : ""}, {a.country}
                       </p>
-                      {a.phone && <p className="text-muted-foreground">{a.phone}</p>}
+                      {a.phone && <PhoneActions phone={a.phone} whatsapp className="text-muted-foreground" />}
                     </div>
                     {canEdit && (
                       <ConfirmActionButton

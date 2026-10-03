@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { PhoneActions } from "@/components/phone-actions";
 import { notFound } from "next/navigation";
-import { AlertTriangle, ExternalLink, MapPin, Package, Phone, User } from "lucide-react";
+import { AlertTriangle, ExternalLink, MapPin, Package, User } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -113,11 +114,7 @@ export default async function SuiviDetailPage({
             {d.courierName || d.courierPhone ? (
               <>
                 {d.courierName && <p>{d.courierName}</p>}
-                {d.courierPhone && (
-                  <p className="flex items-center gap-1.5 text-muted-foreground">
-                    <Phone className="size-3.5" /> {d.courierPhone}
-                  </p>
-                )}
+                {d.courierPhone && <PhoneActions phone={d.courierPhone} className="text-muted-foreground" />}
               </>
             ) : (
               <p className="text-muted-foreground">
@@ -138,11 +135,7 @@ export default async function SuiviDetailPage({
           </CardHeader>
           <CardContent className="space-y-1 text-sm">
             <p>{d.customerName}</p>
-            {d.customerPhone && (
-              <p className="flex items-center gap-1.5 text-muted-foreground">
-                <Phone className="size-3.5" /> {d.customerPhone}
-              </p>
-            )}
+            {d.customerPhone && <PhoneActions phone={d.customerPhone} whatsapp className="text-muted-foreground" />}
             <p className="text-muted-foreground">
               {addressParts.length > 0 ? addressParts.join(", ") : "Adresse non renseignée"}
             </p>
