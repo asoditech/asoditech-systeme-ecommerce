@@ -8,6 +8,12 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ["recharts"],
   },
+  // /platform/sante compares the database's applied migrations with the
+  // ones shipped in THIS deployment (src/lib/queries/platform-health.ts):
+  // ship the migration folder names with that one route. Text files only.
+  outputFileTracingIncludes: {
+    "/platform/sante": ["./prisma/migrations/**/migration.sql"],
+  },
   // Self-hosted barcode decoder (src/lib/barcode-scanner/decoder.ts): the
   // folder name carries the version, so its files never change in place —
   // cache them for a year instead of revalidating ~1.1 MB on every scan.

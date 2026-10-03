@@ -35,13 +35,22 @@ export default async function PlatformUsagePage({ searchParams }: { searchParams
     <div className="space-y-6">
       <PageHeader
         title="Utilisation par client"
-        description={`Données calculées le ${formatDateTime(usage.computedAt)} (cache 5 min).`}
+        description={`Volume de données par client et taille de la base, calculés le ${formatDateTime(usage.computedAt)} (cache 5 min ; « Actualiser » recalcule, en lecture seule).`}
         actions={
           <Button size="sm" variant="outline" render={<Link href="/platform/utilisation?actualiser=1" />}>
             Actualiser
           </Button>
         }
       />
+
+      <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+        Cette page mesure l&apos;utilisation (nombre d&apos;enregistrements, croissance, taille de la base). Elle ne vérifie
+        ni la disponibilité de l&apos;application, ni la connexion à la base, ni les déploiements : voir{" "}
+        <Link href="/platform/sante" className="font-medium text-foreground underline-offset-4 hover:underline">
+          Santé
+        </Link>
+        .
+      </p>
 
       <Card>
         <CardHeader>
