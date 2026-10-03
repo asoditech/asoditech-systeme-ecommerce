@@ -18,6 +18,7 @@ import { PERMISSION_CHANNEL_DOMAIN, type Permission } from "@/lib/auth/permissio
 // reimplementation of the RBAC formula (Phase 2 requirement).
 import { computeEffectiveAccess } from "@/lib/auth/effective-access";
 import type { BusinessMode } from "@/lib/tenant/business-mode";
+import { presetsForRole, responsibilityGrants, responsibilityRevocations, responsibilityStatus } from "@/lib/auth/responsibilities";
 
 /**
  * Individual access (docs/adr/0039): the role gives a BASELINE; this dialog
@@ -247,6 +248,79 @@ export function UserAccessDialog({
             </div>
           </div>
           )}
+
+          {/* Additional responsibilities (docs/adr/0039): add or remove a named bundle of
+              existing permissions, independently, in this draft — the detailed list below
+              stays the source of truth and nothing is saved before « Enregistrer ». */}
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Responsabilités supplémentaires</p>
+            <p className="text-xs text-muted-foreground">
+              Un même compte peut cumuler plusieurs responsabilités et en perdre une à tout moment (par ex. un agent de
+              confirmation qui gère aussi la livraison, puis consulte les analyses). « Ajouter » / « Retirer » modifient
+              les permissions ci-dessous ; rien n&apos;est appliqué avant « Enregistrer ». Le rôle ne change pas.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {presetsForRole(role).map((r) => {
+                const toGrant = responsibilityGrants(r.id, base, permissions);
+                const status = responsibilityStatus(r.id, base, permissions, states);
+                const toRevoke = responsibilityRevocations(r.id, base, permissions, states);
+                return (
+                  <div key={r.id} className="flex flex-col gap-1.5 rounded-md border p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">{r.label}</p>
+                      {status === "granted" && <Badge variant="default" className="text-[10px]">Attribuée</Badge>}
+                      {status === "partial" && <Badge variant="outline" className="text-[10px]">Partielle</Badge>}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{r.description}</p>
+                    {status === "covered-by-role" ? (
+                      <p className="text-xs text-muted-foreground">Déjà couverte par le rôle actuel.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {status !== "granted" && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              setStates((prev) => {
+                                const next = { ...prev };
+                                for (const p of toGrant) next[p] = "grant";
+                                return next;
+                              })
+                            }
+                          >
+                            Ajouter ({toGrant.length} permission{toGrant.length > 1 ? "s" : ""})
+                          </Button>
+                        )}
+                        {toRevoke.length > 0 && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              setStates((prev) => {
+                                const next = { ...prev };
+                                for (const p of toRevoke) delete next[p];
+                                return next;
+                              })
+                            }
+                          >
+                            Retirer
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {channelsEnabled && (
+              <p className="text-xs text-muted-foreground">
+                La confirmation et la livraison concernent les commandes en ligne : elles restent sans effet tant que le
+                canal « En ligne » n&apos;est pas coché ci-dessus.
+              </p>
+            )}
+          </div>
 
           <div className="space-y-2">
             <p className="text-sm font-medium">Permissions</p>
