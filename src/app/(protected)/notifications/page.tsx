@@ -1,4 +1,6 @@
-import { Bell } from "lucide-react";
+import Link from "next/link";
+import { Bell, Settings2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
@@ -27,9 +29,13 @@ export default async function NotificationsPage() {
         title="Notifications"
         description="Alertes de stock, commandes, livraisons et intégrations vous concernant."
         actions={
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
             <SoundToggle />
             {unreadCount > 0 && <MarkAllReadButton />}
+            <Button size="sm" variant="outline" render={<Link href="/parametres/notifications" />}>
+              <Settings2 className="size-3.5" />
+              Préférences
+            </Button>
           </div>
         }
       />

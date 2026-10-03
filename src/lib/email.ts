@@ -4,11 +4,13 @@ import { Resend } from "resend";
 import { env } from "@/lib/env";
 import { USER_ROLE_LABELS } from "@/lib/status-labels";
 import type { UserRole } from "@prisma/client";
+import { renderNotificationEmail, type NotificationEmail } from "@/lib/notification-email";
 
 /**
  * Transactional email — invitations, password resets (see
- * docs/adr/0027-tenant-provisioning.md) and forwarded support-widget
- * problem reports. Deliberately minimal: one
+ * docs/adr/0027-tenant-provisioning.md), forwarded support-widget
+ * problem reports, and the four critical business alerts (docs/adr/0057).
+ * Deliberately minimal: one
  * provider (Resend — a plain HTTPS API, no SMTP config, already the
  * simplest option compatible with a Vercel deployment), plain template
  * strings, no queue, no retry. A failed send is logged and swallowed,
@@ -42,6 +44,12 @@ function getClient(): Resend | null {
   if (!env.RESEND_API_KEY || !env.EMAIL_FROM) return null;
   client ??= new Resend(env.RESEND_API_KEY);
   return client;
+}
+
+/** Whether outgoing email is actually delivered on this server (read-only
+ * status for Paramètres → Notifications; never exposes the key). */
+export function isEmailConfigured(): boolean {
+  return getClient() !== null;
 }
 
 async function sendEmail(input: { to: string; subject: string; html: string; text: string }): Promise<void> {
@@ -145,4 +153,35 @@ export async function sendPasswordResetEmail(input: { to: string; resetUrl: stri
     text: `Une réinitialisation de mot de passe a été demandée pour ce compte.\n\nChoisissez un nouveau mot de passe : ${url}\n\nCe lien expire dans 1 heure et ne peut être utilisé qu'une seule fois. Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.`,
     html: `<p>Une réinitialisation de mot de passe a été demandée pour ce compte.</p><p><a href="${url}">Choisissez un nouveau mot de passe</a></p><p>Ce lien expire dans 1 heure et ne peut être utilisé qu'une seule fois. Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.</p>`,
   });
+}
+
+/**
+ * Critical business-notification emails (docs/adr/0057) — one rendered
+ * message per recipient (each addressed alone: no recipient sees another's
+ * address), sent through Resend's batch endpoint so a fan-out to several
+ * users is one API call, not a burst against the rate limit. Same
+ * best-effort contract as every send here: never throws; a failure is
+ * logged (no address, no body) and the in-app notification already exists.
+ */
+export async function sendNotificationEmails(
+  messages: { to: string; email: NotificationEmail }[]
+): Promise<void> {
+  if (messages.length === 0) return;
+  const rendered = messages.map((m) => ({ to: m.to, ...renderNotificationEmail(m.email, env.APP_URL) }));
+  const resend = getClient();
+  if (!resend) {
+    for (const m of rendered) await sendEmail(m); // the log-only path, unchanged
+    return;
+  }
+  for (let i = 0; i < rendered.length; i += 100) {
+    const chunk = rendered.slice(i, i + 100);
+    try {
+      const { error } = await resend.batch.send(
+        chunk.map((m) => ({ from: env.EMAIL_FROM!, to: m.to, subject: m.subject, html: m.html, text: m.text }))
+      );
+      if (error) console.error(`[email] Resend batch send failed (${chunk.length} notification email(s), subject: ${chunk[0].subject}):`, error);
+    } catch (error) {
+      console.error(`[email] Resend batch send threw (${chunk.length} notification email(s), subject: ${chunk[0].subject}):`, error);
+    }
+  }
 }

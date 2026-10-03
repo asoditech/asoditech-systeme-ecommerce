@@ -1,7 +1,8 @@
 "use client";
 
 import { useTransition } from "react";
-import { ChevronDown, LogOut, User as UserIcon } from "lucide-react";
+import Link from "next/link";
+import { BellRing, ChevronDown, LogOut, User as UserIcon } from "lucide-react";
 import { logoutAction } from "@/actions/auth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,7 @@ function initials(name: string): string {
     .join("");
 }
 
-/** Header user menu — avatar, name, role, and the sign-out action (moved here from the sidebar). */
+/** Header user menu — avatar, name, role, « Mes notifications » (Paramètres → Notifications, open to every role), and the sign-out action (moved here from the sidebar). */
 export function UserMenu({ name, role }: { name: string; role: string }) {
   const [isPending, startTransition] = useTransition();
 
@@ -46,6 +47,10 @@ export function UserMenu({ name, role }: { name: string; role: string }) {
           </DropdownMenuLabel>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
+        <DropdownMenuItem render={<Link href="/parametres/notifications" />}>
+          <BellRing className="size-4" />
+          Mes notifications
+        </DropdownMenuItem>
         <DropdownMenuItem
           variant="destructive"
           disabled={isPending}

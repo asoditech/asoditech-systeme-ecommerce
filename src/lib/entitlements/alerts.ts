@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant/context";
 import { notify } from "@/lib/notifications";
+import { planLimitEmail } from "@/lib/notification-email";
 import { recordAuditEvent } from "@/lib/audit";
 import { ALERT_THRESHOLDS } from "./catalogue";
 import { currentPeriod, type MetricUsage } from "./usage";
@@ -101,6 +102,10 @@ async function checkAndNotifyInTenant(tenantId: string, metric: UsageMetric, usa
       entityId: tenantId,
       dedupeKey: `usage_limit:${metric}:${period}:${crossed}`,
       recipientPermission: "settings.manage",
+      // 100% only is critical enough to email (docs/adr/0057); 80/90% stay in-app.
+      ...(crossed >= 100 && usage.limit !== null
+        ? { email: planLimitEmail({ metricLabel: label, used: usage.used, limit: usage.limit }) }
+        : {}),
     });
 
     await recordAuditEvent({

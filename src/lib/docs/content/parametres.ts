@@ -39,6 +39,8 @@ export const parametresArticles: DocArticle[] = [
         headers: ["Réglage", "Se trouve dans"],
         rows: [
           ["Informations de l'entreprise", "Paramètres → Général"],
+          ["Mes alertes : email, WhatsApp (numéro, vérification, activation), son", "Paramètres → Notifications (menu du compte → « Mes notifications »)"],
+          ["Activer le canal WhatsApp pour l'entreprise", "menu Intégrations → WhatsApp Business"],
           ["Sauvegarde et Google Drive", "Paramètres → Sauvegarde & Portabilité"],
           ["Utilisateurs, rôles, invitations", "menu Utilisateurs"],
           ["WooCommerce, Shopify, webhooks", "menu Intégrations"],

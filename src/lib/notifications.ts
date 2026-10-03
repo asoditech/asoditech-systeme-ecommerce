@@ -3,9 +3,20 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Permission } from "@/lib/auth/permissions";
 import { loadEffectiveAccessMany } from "@/lib/auth/access-loader";
+import { isGlobalRole } from "@/lib/auth/effective-access";
+import { canReadWarehouse } from "@/lib/auth/location-access";
 import { formatCurrency, formatOrderNumber, displayOrderNumber } from "@/lib/format";
 import { availableStockTotal } from "@/lib/inventory";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
+import { sendNotificationEmails } from "@/lib/email";
+import { deliveryFailureEmail, integrationErrorEmail, outOfStockEmail, type NotificationEmail } from "@/lib/notification-email";
+import { sendWhatsAppToUsers } from "@/lib/whatsapp/dispatch";
+import {
+  deliveryFailureSummaryTemplate,
+  integrationDownTemplate,
+  stockOutTemplate,
+  type WhatsAppTemplateMessage,
+} from "@/lib/whatsapp/templates";
 import type { NotificationType, RecordSource } from "@prisma/client";
 
 /**
@@ -19,7 +30,7 @@ import type { NotificationType, RecordSource } from "@prisma/client";
  *    triggered it — call these AFTER the business transaction commits,
  *    next to `recordAuditEvent`.
  *  - **Concurrency-safe.** Fan-out is a single
- *    `createMany({ skipDuplicates: true })`; the
+ *    `createManyAndReturn({ skipDuplicates: true })`; the
  *    `@@unique([userId, dedupeKey])` constraint makes a duplicate
  *    (from a retry, a concurrent request, or a webhook + manual sync
  *    racing) a silent no-op, no app-level lock.
@@ -57,25 +68,59 @@ interface NotifyInput {
    * did it, they don't need to be told). `null`/omitted for
    * system/integration-driven events. */
   exceptUserId?: string | null;
+  /** Set ONLY for an event about one specific location (docs/adr/0056):
+   * recipients must additionally be able to READ that location — the same
+   * rule as every location-scoped page (`canReadWarehouse`: OWNER/ADMIN
+   * always, everyone else only with a UserLocation row for it). Omitted =
+   * not location-bound, unchanged behaviour. */
+  warehouseId?: string;
+  /** Set ONLY for the four critical events (docs/adr/0057): also email the
+   * same recipients, at their account address. Sent only to users whose
+   * notification row was newly inserted by THIS call, so it inherits the
+   * dedupeKey idempotency — a reprocessed event emails nobody twice.
+   * Requires `dedupeKey`. */
+  email?: NotificationEmail;
+  /** Set ONLY for the WhatsApp V1 critical events (docs/adr/0058): out of
+   * stock and integration down. Same newly-inserted-row rule as `email`;
+   * further narrowed to tenants with WhatsApp enabled and users with a
+   * verified, opted-in number. Requires `dedupeKey`. */
+  whatsapp?: WhatsAppTemplateMessage;
 }
 
-export async function notify(input: NotifyInput): Promise<void> {
+/** Returns the users newly notified by THIS call (a duplicate is not one). */
+export async function notify(input: NotifyInput): Promise<string[]> {
   try {
     const users = await prisma.user.findMany({
       where: { status: "ACTIVE" },
-      select: { id: true, role: true, tenantId: true },
+      select: { id: true, role: true, tenantId: true, email: true },
     });
     // EFFECTIVE permissions (role + per-user overrides, filtered by channel
     // scope — docs/adr/0039), not the bare role: an Offline-only manager must
     // not receive an Online order notification, and a user granted an extra
     // permission should. Two batched queries for the whole tenant.
     const access = await loadEffectiveAccessMany(users);
-    const recipientIds = users
-      .filter((u) => u.id !== input.exceptUserId && access.get(u.id)?.permissions.has(input.recipientPermission))
-      .map((u) => u.id);
-    if (recipientIds.length === 0) return;
+    let recipients = users.filter((u) => u.id !== input.exceptUserId && access.get(u.id)?.permissions.has(input.recipientPermission));
+    if (input.warehouseId && recipients.length > 0) {
+      // Location-bound event: one batched query for the candidates' assignment to THIS location.
+      const assigned = new Set(
+        (
+          await prisma.userLocation.findMany({
+            where: { warehouseId: input.warehouseId, userId: { in: recipients.filter((u) => !isGlobalRole(u.role)).map((u) => u.id) } },
+            select: { userId: true },
+          })
+        ).map((r) => r.userId)
+      );
+      recipients = recipients.filter((u) =>
+        canReadWarehouse(
+          { locations: { global: isGlobalRole(u.role), ids: assigned.has(u.id) ? [input.warehouseId!] : [] } },
+          input.warehouseId!
+        )
+      );
+    }
+    const recipientIds = recipients.map((u) => u.id);
+    if (recipientIds.length === 0) return [];
 
-    await prisma.notification.createMany({
+    const created = await prisma.notification.createManyAndReturn({
       data: recipientIds.map((userId) => ({
         userId,
         type: input.type,
@@ -86,9 +131,25 @@ export async function notify(input: NotifyInput): Promise<void> {
         dedupeKey: input.dedupeKey ?? null,
       })),
       skipDuplicates: true,
+      select: { userId: true },
     });
+
+    // Exactly the users this call newly notified (a duplicate row was
+    // skipped, so its user is not in `created`).
+    const newlyNotified = new Set(created.map((r) => r.userId));
+    if (input.email && input.dedupeKey) {
+      // Their own account email.
+      await sendNotificationEmails(
+        recipients.filter((u) => newlyNotified.has(u.id) && u.email).map((u) => ({ to: u.email, email: input.email! }))
+      );
+    }
+    if (input.whatsapp && input.dedupeKey) {
+      await sendWhatsAppToUsers([...newlyNotified].map((userId) => ({ userId, message: input.whatsapp! })));
+    }
+    return [...newlyNotified];
   } catch (error) {
     console.error("notify() failed (non-fatal):", error);
+    return [];
   }
 }
 
@@ -185,32 +246,56 @@ export async function notifyOrderReturned(
   });
 }
 
+interface ShipmentFailure {
+  id: string;
+  orderId: string;
+  orderNumber: number;
+  orderDisplayNumber?: number | null;
+  providerName: string;
+  reason?: string | null;
+}
+
 /** A shipment failed delivery (status ECHEC). */
-export async function notifyShipmentFailed(
-  shipment: {
-    id: string;
-    orderId: string;
-    orderNumber: number;
-    orderDisplayNumber?: number | null;
-    providerName: string;
-    reason?: string | null;
-  },
-  exceptUserId?: string | null
-): Promise<void> {
+export async function notifyShipmentFailed(shipment: ShipmentFailure, exceptUserId?: string | null): Promise<void> {
+  await notifyShipmentsFailed([shipment], exceptUserId);
+}
+
+/**
+ * Several shipments failed in one run (« Rafraîchir les statuts »). In-app
+ * and email stay one per shipment, unchanged. WhatsApp is BUNDLED
+ * (docs/adr/0058): one summary per recipient for the shipments newly
+ * notified to them in this call, and at most one per recipient per UTC
+ * day (atomic claim on the user row — the per-shipment dedupe key alone
+ * cannot express "per recipient per day").
+ */
+export async function notifyShipmentsFailed(shipments: ShipmentFailure[], exceptUserId?: string | null): Promise<void> {
+  const perUser = new Map<string, string[]>(); // userId → carrier per newly-notified failure
+  if (shipments.length === 0) return;
   const business = await getReportBusinessInfo();
-  const num = formatOrderNumber(shipment.orderDisplayNumber ?? shipment.orderNumber, business.orderNumberPrefix);
-  await notify({
-    type: "ECHEC_LIVRAISON",
-    title: `Échec de livraison — commande ${num}`,
-    message:
-      `L'expédition de la commande ${num} (${shipment.providerName}) a échoué.` +
-      (shipment.reason ? ` Motif : ${shipment.reason}` : ""),
-    entityType: "Shipment",
-    entityId: shipment.id,
-    dedupeKey: `echec_livraison:${shipment.id}`,
-    recipientPermission: "delivery.view",
-    exceptUserId,
-  });
+  for (const shipment of shipments) {
+    const num = formatOrderNumber(shipment.orderDisplayNumber ?? shipment.orderNumber, business.orderNumberPrefix);
+    const newlyNotified = await notify({
+      type: "ECHEC_LIVRAISON",
+      title: `Échec de livraison — commande ${num}`,
+      message:
+        `L'expédition de la commande ${num} (${shipment.providerName}) a échoué.` +
+        (shipment.reason ? ` Motif : ${shipment.reason}` : ""),
+      entityType: "Shipment",
+      entityId: shipment.id,
+      dedupeKey: `echec_livraison:${shipment.id}`,
+      recipientPermission: "delivery.view",
+      exceptUserId,
+      email: deliveryFailureEmail({ orderNumber: num, providerName: shipment.providerName }),
+    });
+    for (const userId of newlyNotified) perUser.set(userId, [...(perUser.get(userId) ?? []), shipment.providerName]);
+  }
+  await sendWhatsAppToUsers(
+    [...perUser].map(([userId, providerNames]) => ({
+      userId,
+      message: deliveryFailureSummaryTemplate({ count: providerNames.length, providerNames }),
+    })),
+    { oncePerDay: "delivery_failure" }
+  );
 }
 
 /** A sync run ended ECHEC or PARTIEL. */
@@ -270,6 +355,8 @@ export async function notifyConnectionError(
     dedupeKey: `erreur_connexion:${params.entityId}:${dayBucket()}`,
     recipientPermission: params.recipientPermission,
     exceptUserId,
+    email: integrationErrorEmail({ label: params.label, kind: params.entityType }),
+    whatsapp: integrationDownTemplate({ label: params.label }),
   });
 }
 
@@ -369,6 +456,8 @@ export async function checkAndNotifyLowStock(
       where: { OR: orClauses },
       select: {
         id: true,
+        warehouseId: true,
+        warehouse: { select: { name: true } },
         quantityOnHand: true,
         product: { select: { name: true, sku: true, lowStockThreshold: true, trackInventory: true } },
         variation: {
@@ -407,6 +496,15 @@ export async function checkAndNotifyLowStock(
         entityId: item.id,
         dedupeKey: `${isRupture ? "rupture_stock" : "stock_faible"}:${item.id}:${today}`,
         recipientPermission: "inventory.view",
+        // One stock item = one location: only users who may read that location (docs/adr/0056).
+        warehouseId: item.warehouseId,
+        // Out of stock is critical (email docs/adr/0057, WhatsApp 0058); low stock stays in-app only.
+        ...(isRupture
+          ? {
+              email: outOfStockEmail({ productName: name, sku, locationName: item.warehouse.name }),
+              whatsapp: stockOutTemplate({ productName: name, locationName: item.warehouse.name }),
+            }
+          : {}),
       });
     }
   } catch (error) {
@@ -469,6 +567,8 @@ export async function checkAndNotifyInsufficientStockForOrder(
       const available = availableStockTotal(items) ?? 0;
       if (line.quantity <= available) continue;
 
+      // NOT location-bound (docs/adr/0056): an Online order is compared with the
+      // stock AVAILABLE across every location, so no single location is affected.
       const missing = line.quantity - available;
       const name = items[0].product?.name ?? items[0].variation?.product.name ?? "Produit";
       const key = line.variationId ?? line.productId!;

@@ -55,6 +55,15 @@ const envSchema = z.object({
   // OAuth client.
   GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
+  // WhatsApp critical notifications V1 (docs/adr/0058) — ONE central
+  // ASODITECH WhatsApp Business sender for every tenant, never per-tenant
+  // credentials. Optional: when the token or phone-number id is unset,
+  // src/lib/whatsapp/client.ts sends nothing (logs only) and the
+  // integration card shows "non configuré" — no existing environment needs
+  // a value. Server-only: never read from a client component.
+  WHATSAPP_ACCESS_TOKEN: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d+$/, "WHATSAPP_PHONE_NUMBER_ID must be numeric").optional(),
+  WHATSAPP_GRAPH_API_VERSION: z.string().regex(/^v\d+\.\d+$/, "WHATSAPP_GRAPH_API_VERSION must look like v23.0").default("v23.0"),
 });
 
 function loadEnv() {

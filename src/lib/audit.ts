@@ -148,6 +148,8 @@ export type AuditAction =
   | "sales_channel.locations_updated"
   | "user.permissions_updated"
   | "user.channels_updated"
+  // WhatsApp V1 (docs/adr/0058): the user's OWN number / verification / opt-in. Metadata never holds the number.
+  | "user.whatsapp_updated"
   | "supplier.created"
   | "supplier.updated"
   | "reception.created"

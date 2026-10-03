@@ -158,6 +158,7 @@ describe("adjustInventoryAction", () => {
     const actor = await loginAsTestUser({ role: "WAREHOUSE" });
     await grantLocationAccess(actor.id, warehouse.id);
     const teammate = await createTestUser({ role: "MANAGER" }); // also holds inventory.view
+    await grantLocationAccess(teammate.id, warehouse.id); // and works at this location (docs/adr/0056)
 
     const result = await adjustInventoryAction(
       formData({ productId: product.id, warehouseId: warehouse.id, type: "AJUSTEMENT_NEGATIF", quantity: "7", reason: "Inventaire physique" })

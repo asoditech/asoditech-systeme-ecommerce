@@ -131,6 +131,7 @@ const AUDIT_ACTION_META: Record<string, AuditActionMeta> = {
   "user.password_reset_forced": { label: "Réinitialisation du mot de passe imposée", category: "utilisateurs" },
   "user.login.success": { label: "Connexion réussie", category: "utilisateurs" },
   "user.locations_updated": { label: "Emplacements assignés modifiés", category: "utilisateurs" },
+  "user.whatsapp_updated": { label: "Notifications WhatsApp modifiées", category: "utilisateurs" },
   "user.logout": { label: "Déconnexion", category: "utilisateurs" },
   "user.role_changed": { label: "Rôle utilisateur modifié", category: "utilisateurs" },
   "user.status_changed": { label: "Statut utilisateur modifié", category: "utilisateurs" },

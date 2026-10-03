@@ -3,6 +3,8 @@ import { PageHeader } from "@/components/page-header";
 import { BrandLogo, type BrandKey } from "@/components/brand-logo";
 import { WooCommerceCard } from "@/components/integrations/woocommerce-card";
 import { ShopifyCard } from "@/components/integrations/shopify-card";
+import { WhatsAppCard } from "@/components/integrations/whatsapp-card";
+import { EmailCard } from "@/components/integrations/email-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requirePermission } from "@/lib/auth/guards";
@@ -29,8 +31,6 @@ const PLANNED_PROVIDER_BRANDS: Partial<Record<string, BrandKey>> = {
   META_ADS: "meta",
   GOOGLE_ADS: "google",
   TIKTOK_ADS: "tiktok",
-  WHATSAPP: "whatsapp",
-  EMAIL: "email",
   GOOGLE_SHEETS: "google-sheets",
   AI_PROVIDER: "ai",
 };
@@ -44,7 +44,8 @@ export default async function IntegrationsPage() {
   // restore its card.
   const shopifyEnabled = isShopifyIntegrationEnabled();
 
-  const alwaysRoadmap = ["WOOCOMMERCE", ...(shopifyEnabled ? ["SHOPIFY"] : [])];
+  // WhatsApp and Email have their own cards (notification channels, docs/adr/0058) — not roadmap items.
+  const alwaysRoadmap = ["WOOCOMMERCE", "WHATSAPP", "EMAIL", ...(shopifyEnabled ? ["SHOPIFY"] : [])];
   const plannedRows = Object.entries(INTEGRATION_PROVIDER_LABELS).filter(
     ([provider]) => !alwaysRoadmap.includes(provider)
   ) as [IntegrationProvider, string][];
@@ -63,6 +64,8 @@ export default async function IntegrationsPage() {
       <div className="grid gap-4 xl:grid-cols-2">
         <WooCommerceCard canManage={canManage} />
         {shopifyEnabled && <ShopifyCard canManage={canManage} />}
+        <WhatsAppCard canManage={canManage} />
+        <EmailCard />
       </div>
 
       <div className="mt-8">

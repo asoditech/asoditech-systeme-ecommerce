@@ -41,7 +41,7 @@ import {
   reserveShipmentSlot,
   type SyncShipmentStatusOutcome,
 } from "@/lib/integrations/delivery/service";
-import { notifyShipmentFailed, notifyConnectionError } from "@/lib/notifications";
+import { notifyShipmentFailed, notifyShipmentsFailed, notifyConnectionError } from "@/lib/notifications";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
 
 /** Loads the order number + provider name a shipment-failed notification needs. */
@@ -919,6 +919,7 @@ export async function refreshShipmentStatusesAction(): Promise<
 
   let updated = 0;
   let failed = 0;
+  const failedShipments: NonNullable<Awaited<ReturnType<typeof shipmentNotificationContext>>>[] = [];
   for (const shipment of batch) {
     const result = await syncShipmentStatus({ shipment, order: shipment.order, updatedById: user.id });
     if (result.outcome === "updated") {
@@ -934,8 +935,9 @@ export async function refreshShipmentStatusesAction(): Promise<
         metadata: { source: "provider_sync_bulk" },
       });
       if (result.newStatus === "ECHEC" && shipment.status !== "ECHEC") {
+        // Notified after the loop, as one bundle (WhatsApp: one summary — docs/adr/0058).
         const ctx = await shipmentNotificationContext(shipment.id);
-        if (ctx) await notifyShipmentFailed(ctx, user.id);
+        if (ctx) failedShipments.push(ctx);
       }
       if (result.newStatus === "LIVRE") {
         await pushOrderStatusToWooCommerce(shipment.orderId);
@@ -948,6 +950,8 @@ export async function refreshShipmentStatusesAction(): Promise<
       await prisma.shipment.update({ where: { id: shipment.id }, data: { lastSyncedAt: new Date() } });
     }
   }
+
+  await notifyShipmentsFailed(failedShipments, user.id);
 
   // Every shipment we synced now has lastSyncedAt >= startedAt, so anything
   // still un-synced or last synced before this run began is work left.

@@ -28,7 +28,7 @@ export default async function CanauxPage() {
     <div>
       <PageHeader title="Paramètres" description="Canaux de vente : où l'activité se déroule, et depuis quels emplacements." />
       <div className="max-w-3xl">
-        <SettingsNav canManage={userHasPermission(user, "settings.manage")} canManageChannels />
+        <SettingsNav canView={userHasPermission(user, "settings.view")} canManage={userHasPermission(user, "settings.manage")} canManageChannels />
         <ChannelsPanel
           channels={channels.map((c) => ({
             id: c.id,

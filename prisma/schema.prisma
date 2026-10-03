@@ -56,13 +56,13 @@ enum TenantBusinessMode {
 }
 
 model Tenant {
-  id        String       @id @default("default")
-  name      String
-  slug      String       @unique
-  status    TenantStatus @default(ACTIVE)
+  id           String             @id @default("default")
+  name         String
+  slug         String             @unique
+  status       TenantStatus       @default(ACTIVE)
   businessMode TenantBusinessMode @default(ONLINE_ONLY)
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
 
   // Per-tenant DISPLAY numbering (Phase 3 — docs/adr/0025-multi-tenant-isolation.md).
   // The next value to hand out for Order.displayNumber / StockTransfer.displayNumber /
@@ -76,9 +76,9 @@ model Tenant {
   // MAX(existing global number for this tenant's rows) + 1, so the
   // bootstrap tenant's next display number continues seamlessly from
   // exactly where the old global sequence left off.
-  nextOrderNumber     Int @default(1)
-  nextTransferNumber  Int @default(1)
-  nextStocktakeNumber Int @default(1)
+  nextOrderNumber      Int @default(1)
+  nextTransferNumber   Int @default(1)
+  nextStocktakeNumber  Int @default(1)
   // Online/Offline unification (docs/adr/0040): same per-tenant DISPLAY
   // numbering as orders/transfers/stocktakes, for the new document types.
   nextReceptionNumber  Int @default(1)
@@ -359,6 +359,24 @@ model User {
   updatedAt       DateTime   @updatedAt
   lastLoginAt     DateTime?
 
+  // WhatsApp critical notifications V1 (docs/adr/0058). All nullable: every
+  // existing user stays opted out. Only the user themself sets these (their
+  // own « Mon compte » page) — never an admin.
+  // E.164 digits, no "+" (Cloud API `to` format).
+  whatsappPhone                     String?
+  // Set when the user proved they own `whatsappPhone` (code sent to it).
+  // Cleared whenever the number changes.
+  whatsappVerifiedAt                DateTime?
+  // Explicit opt-in; null = never message this user. Requires verification.
+  whatsappOptInAt                   DateTime?
+  // Pending verification only: { phone, codeHash, expiresAt, attempts,
+  // sends: ISO[] }. Never contains the code itself; null once verified.
+  whatsappVerification              Json?
+  // Atomic once-per-UTC-day claim for the bundled delivery-failure
+  // WhatsApp message — the per-shipment in-app dedupe key cannot express
+  // "one per recipient per day" (docs/adr/0058).
+  whatsappDeliveryFailureNotifiedAt DateTime?
+
   tenant                     Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   sessions                   Session[]
   // Location Access Management v1 (docs/adr/0037): the warehouses this user
@@ -475,27 +493,27 @@ enum InvitationChannelScope {
 // (tenant, email) — `inviteUserAction` revokes any prior pending one for
 // the same address rather than allowing two live tokens for one invite.
 model Invitation {
-  id         String           @id @default(cuid())
-  tenantId   String           @default("default")
-  email      String
-  name       String
-  role       UserRole
+  id                String                  @id @default(cuid())
+  tenantId          String                  @default("default")
+  email             String
+  name              String
+  role              UserRole
   // Null for OWNER/ADMIN (meaningless — they bypass UserChannel entirely)
   // and for a legacy/unset invitation. See the enum's own doc comment.
-  channelScope InvitationChannelScope?
+  channelScope      InvitationChannelScope?
   // Invite-time precision (docs/adr/0047). Plain id lists resolved — and
   // re-validated through the tenant-scoped client — at accept time, exactly
   // like `channelScope`; never trusted blindly, no FK (a since-retired
   // channel/warehouse is simply dropped: default-deny). Empty = the legacy
   // behaviour, unchanged: OFFLINE/BOTH → every active OFFLINE channel, and
   // no location assigned.
-  offlineChannelIds String[] @default([])
-  warehouseIds      String[] @default([])
-  tokenHash  String           @unique
-  status     InvitationStatus @default(PENDING)
-  expiresAt  DateTime
-  acceptedAt DateTime?
-  createdAt  DateTime         @default(now())
+  offlineChannelIds String[]                @default([])
+  warehouseIds      String[]                @default([])
+  tokenHash         String                  @unique
+  status            InvitationStatus        @default(PENDING)
+  expiresAt         DateTime
+  acceptedAt        DateTime?
+  createdAt         DateTime                @default(now())
 
   invitedById  String?
   acceptedById String? @unique
@@ -712,9 +730,9 @@ model Product {
   updatedAt         DateTime      @updatedAt
 
   createdById    String?
-  tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  createdBy      User?               @relation("ProductCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  category       Category?           @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  tenant         Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  createdBy      User?                 @relation("ProductCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  category       Category?             @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   images         ProductImage[]
   variations     ProductVariation[]
   inventoryItems InventoryItem[]
@@ -850,13 +868,13 @@ model Warehouse {
   createdAt   DateTime      @default(now())
   createdById String?
 
-  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  createdBy         User?               @relation("WarehouseCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  tenant            Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  createdBy         User?                  @relation("WarehouseCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   inventoryItems    InventoryItem[]
   movements         InventoryMovement[]
-  fulfilledOrders   Order[]             @relation("OrderFulfillmentWarehouse")
-  transfersOut      StockTransfer[]     @relation("StockTransferSource")
-  transfersIn       StockTransfer[]     @relation("StockTransferDestination")
+  fulfilledOrders   Order[]                @relation("OrderFulfillmentWarehouse")
+  transfersOut      StockTransfer[]        @relation("StockTransferSource")
+  transfersIn       StockTransfer[]        @relation("StockTransferDestination")
   stocktakeSessions StocktakeSession[]
   orderReturnLines  OrderReturnLine[]
   userAssignments   UserLocation[]
@@ -893,18 +911,18 @@ model UserLocation {
   createdAt   DateTime @default(now())
   createdById String?
 
-  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   // Cascade: an assignment row is meaningless once the user it authorizes
   // is gone — same convention as Session/PasswordResetToken (both
   // onDelete: Cascade on userId), not a business record worth preserving
   // (contrast with an order/product's "created by", which is SetNull).
-  user        User      @relation("UserLocationUser", fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation("UserLocationUser", fields: [userId], references: [id], onDelete: Cascade)
   // Restrict, matching every other Warehouse relation (InventoryItem,
   // StockTransfer, StocktakeSession, ...) — a location is deactivated, never
   // deleted (docs/adr/0019), so this never actually blocks anything in
   // practice; it's here for the same defense-in-depth reason as the rest.
-  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  createdBy   User?     @relation("UserLocationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  createdBy User?     @relation("UserLocationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@unique([userId, warehouseId])
   @@index([tenantId])
@@ -930,20 +948,20 @@ enum SalesChannelKind {
 }
 
 model SalesChannel {
-  id       String           @id @default(cuid())
-  tenantId String           @default("default")
-  name     String
-  kind     SalesChannelKind
-  isActive Boolean          @default(true)
+  id        String           @id @default(cuid())
+  tenantId  String           @default("default")
+  name      String
+  kind      SalesChannelKind
+  isActive  Boolean          @default(true)
   // The tenant's default ONLINE channel — what every delivery Order created
   // without an explicit choice (manual form, WooCommerce/Shopify import) is
   // attributed to. At most one per tenant (partial unique index in the
   // migration). Never an OFFLINE channel.
-  isDefault Boolean         @default(false)
+  isDefault Boolean          @default(false)
   // Free-form, non-secret display/config data. Nothing reads it yet.
   metadata  Json?
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
 
   tenant    Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   locations SalesChannelLocation[]
@@ -1017,17 +1035,17 @@ model ProductSalesChannel {
 // only ever answers "is this local Product published to this provider, and
 // under which external id?".
 model ProductPublication {
-  id         String              @id @default(cuid())
-  tenantId   String              @default("default")
-  productId  String
-  provider   IntegrationProvider
+  id              String              @id @default(cuid())
+  tenantId        String              @default("default")
+  productId       String
+  provider        IntegrationProvider
   // The provider's own product id — WooCommerce: numeric id as a string
   // (matches sync/products.ts's own `String(wc.id)` convention); Shopify:
   // the full GraphQL gid ("gid://shopify/Product/123"), matching
   // sync/products.ts's own `externalId: product.id`. Never re-derived or
   // guessed — always exactly what the provider returned at publish time.
-  externalId String
-  publishedAt DateTime @default(now())
+  externalId      String
+  publishedAt     DateTime            @default(now())
   // Actor id + name snapshot (no FK-breaking on user deletion) — same
   // convention as Sale.soldByName / OrderReturn.receivedByName (ADR 0038/0040).
   publishedById   String?
@@ -2592,20 +2610,20 @@ enum CostingMethod {
 // `id` — is the lookup key everywhere (src/actions/settings.ts,
 // src/app/(protected)/parametres/page.tsx).
 model BusinessSettings {
-  id                       String  @id @default(cuid())
-  tenantId                 String  @unique @default("default")
-  companyName              String  @default("")
-  currency                 String  @default("MAD") @db.Char(3)
+  id                       String        @id @default(cuid())
+  tenantId                 String        @unique @default("default")
+  companyName              String        @default("")
+  currency                 String        @default("MAD") @db.Char(3)
   address                  String?
   city                     String?
-  country                  String  @default("Maroc")
+  country                  String        @default("Maroc")
   phone                    String?
   email                    String?
   logoUrl                  String?
-  timezone                 String  @default("Africa/Casablanca")
-  locale                   String  @default("fr")
-  lowStockDefaultThreshold Int     @default(5)
-  orderNumberPrefix        String  @default("CMD")
+  timezone                 String        @default("Africa/Casablanca")
+  locale                   String        @default("fr")
+  lowStockDefaultThreshold Int           @default(5)
+  orderNumberPrefix        String        @default("CMD")
   // Product costing (see the CostingMethod enum's own doc comment). Default
   // MANUAL — every existing tenant keeps its current, unchanged behavior
   // (cost is only ever hand-edited) unless a manager explicitly opts in.
@@ -2903,30 +2921,30 @@ model Supplier {
 }
 
 model Reception {
-  id              String          @id @default(cuid())
-  tenantId        String          @default("default")
+  id                String          @id @default(cuid())
+  tenantId          String          @default("default")
   // Global internal identity (never renumbered, never shown) + per-tenant
   // DISPLAY number "REC-000123" — same pattern as transfers (docs/adr/0025).
-  receptionNumber Int             @unique @default(autoincrement())
-  displayNumber   Int?
-  supplierId      String
+  receptionNumber   Int             @unique @default(autoincrement())
+  displayNumber     Int?
+  supplierId        String
   // Destination location — where the stock physically lands.
-  warehouseId     String
-  status          ReceptionStatus @default(BROUILLON)
-  receptionDate   DateTime        @default(now())
+  warehouseId       String
+  status            ReceptionStatus @default(BROUILLON)
+  receptionDate     DateTime        @default(now())
   // The supplier's own delivery-note / invoice number.
   supplierReference String?
-  notes           String?
+  notes             String?
   // Σ(line.quantity × line.unitCost), frozen at validation. 0 while a draft.
-  totalCost       Decimal         @default(0) @db.Decimal(14, 2)
-  createdById     String?
-  createdByName   String?
-  validatedById   String?
-  validatedByName String?
-  validatedAt     DateTime?
-  cancelledAt     DateTime?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  totalCost         Decimal         @default(0) @db.Decimal(14, 2)
+  createdById       String?
+  createdByName     String?
+  validatedById     String?
+  validatedByName   String?
+  validatedAt       DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
   tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   supplier  Supplier          @relation(fields: [supplierId], references: [id], onDelete: Restrict)
@@ -2975,15 +2993,15 @@ model ReceptionLine {
 // A payment TO a supplier. `receptionId` optional: a payment may settle one
 // reception or sit on the supplier's account. DB-enforced: amount > 0.
 model SupplierPayment {
-  id            String            @id @default(cuid())
-  tenantId      String            @default("default")
-  supplierId    String
-  receptionId   String?
-  amount        Decimal           @db.Decimal(12, 2)
-  method        CashPaymentMethod @default(ESPECES)
-  paidAt        DateTime          @default(now())
-  reference     String?
-  notes         String?
+  id             String            @id @default(cuid())
+  tenantId       String            @default("default")
+  supplierId     String
+  receptionId    String?
+  amount         Decimal           @db.Decimal(12, 2)
+  method         CashPaymentMethod @default(ESPECES)
+  paidAt         DateTime          @default(now())
+  reference      String?
+  notes          String?
   // Groups the N rows produced by ONE user-entered payment that the system
   // auto-allocated across several outstanding receptions (oldest-first —
   // docs/adr/0042). Null for a manually reception-targeted or legacy
@@ -2991,9 +3009,9 @@ model SupplierPayment {
   // grouping key — every balance/remaining calculation stays a plain sum
   // over individual rows and never needs to know this field exists.
   paymentGroupId String?
-  createdById   String?
-  createdByName String?
-  createdAt     DateTime          @default(now())
+  createdById    String?
+  createdByName  String?
+  createdAt      DateTime          @default(now())
 
   tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   supplier  Supplier   @relation(fields: [supplierId], references: [id], onDelete: Restrict)
@@ -3092,10 +3110,10 @@ model SaleLine {
   costSnapshot    Decimal? @db.Decimal(12, 2)
   createdAt       DateTime @default(now())
 
-  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  sale        Sale               @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  product     Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
-  variation   ProductVariation?  @relation(fields: [variationId], references: [id], onDelete: SetNull)
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  sale        Sale              @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product     Product?          @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variation   ProductVariation? @relation(fields: [variationId], references: [id], onDelete: SetNull)
   returnLines SaleReturnLine[]
 
   @@index([saleId])
@@ -3131,20 +3149,20 @@ model SalePayment {
 // quantity per line is hard-capped by what was sold (enforced under a row
 // lock). Idempotent by `(saleId, idempotencyKey)`.
 model SaleReturn {
-  id               String             @id @default(cuid())
-  tenantId         String             @default("default")
-  returnNumber     Int                @unique @default(autoincrement())
-  displayNumber    Int?
-  saleId           String
-  idempotencyKey   String
-  refundAmount     Decimal            @default(0) @db.Decimal(12, 2)
-  refundMethod     CashPaymentMethod?
-  note             String?
-  receivedById     String?
-  receivedByName   String?
-  receivedAt       DateTime           @default(now())
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  id             String             @id @default(cuid())
+  tenantId       String             @default("default")
+  returnNumber   Int                @unique @default(autoincrement())
+  displayNumber  Int?
+  saleId         String
+  idempotencyKey String
+  refundAmount   Decimal            @default(0) @db.Decimal(12, 2)
+  refundMethod   CashPaymentMethod?
+  note           String?
+  receivedById   String?
+  receivedByName String?
+  receivedAt     DateTime           @default(now())
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 
   tenant    Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   // Restrict (never Cascade): a return documents a real, already-happened

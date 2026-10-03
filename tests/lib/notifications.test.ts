@@ -12,7 +12,7 @@ import {
   checkAndNotifyInsufficientStockForOrder,
 } from "@/lib/notifications";
 import { resetDb } from "../helpers/db";
-import { createTestUser } from "../helpers/auth";
+import { createTestUser, grantLocationAccess } from "../helpers/auth";
 
 describe("notify()", () => {
   beforeEach(async () => {
@@ -242,6 +242,8 @@ describe("checkAndNotifyLowStock", () => {
 
   async function seedProduct(quantityOnHand: number, lowStockThreshold = 5, trackInventory = true) {
     const warehouse = await prisma.warehouse.create({ data: { name: "Entrepôt", isDefault: true } });
+    // A low-stock alert is location-bound (docs/adr/0056): the test users work at this location.
+    for (const u of await prisma.user.findMany({ select: { id: true } })) await grantLocationAccess(u.id, warehouse.id);
     const product = await prisma.product.create({
       data: { name: "T-shirt", sku: `SKU-${Math.random()}`, price: 100, status: "ACTIF", lowStockThreshold, trackInventory },
     });
