@@ -6,7 +6,6 @@ import { verifyPassword } from "@/lib/auth/password";
 import { createSession, destroyCurrentSession, getCurrentUser } from "@/lib/auth/session";
 import { recordAuditEvent } from "@/lib/audit";
 import { runUnscoped, runWithTenant } from "@/lib/tenant/context";
-import { BOOTSTRAP_TENANT_ID } from "@/lib/tenant/resolve";
 import { loginSchema } from "@/lib/validation/auth";
 import { actionError, type ActionResult } from "@/actions/types";
 
@@ -31,8 +30,7 @@ export async function loginAction(
   // at this address. Every candidate across every tenant is fetched
   // (unscoped), then disambiguated by password: an ACTIVE candidate whose
   // password actually matches identifies both the user AND their tenant.
-  // Failure audit events, written with no tenant known, fall to the
-  // bootstrap tenant.
+  // A failure is audited in each candidate's OWN tenant (see below).
   const candidates = await runUnscoped("auth:login", () =>
     prisma.user.findMany({
       where: { email: parsed.data.email },
@@ -53,23 +51,24 @@ export async function loginAction(
   }
 
   if (!user) {
-    // No directive and (by definition, at this point) no session — outside
-    // NODE_ENV=test this would otherwise throw TenantContextRequiredError
-    // (ADR 0025's create-context guard) instead of recording the audit
-    // event, exactly like an unattributable webhook rejection (see
-    // src/app/api/webhooks/woocommerce/route.ts).
-    await runWithTenant(BOOTSTRAP_TENANT_ID, "auth:login:failure", () =>
-      recordAuditEvent({
-        actorType: "SYSTEM",
-        action: "user.login.failure",
-        entityType: "User",
-        // Only attributable to a specific account when the email resolved to
-        // exactly one candidate — with several (across tenants), which one
-        // the attempt was "for" is ambiguous by design.
-        entityId: candidates.length === 1 ? candidates[0].id : "unknown",
-        metadata: { email: parsed.data.email },
-      })
-    );
+    // R1 (docs/adr/0053): a failure is recorded ONLY in the tenant(s) that
+    // actually own an account with this email — each sees only its own user,
+    // never another customer's attempt. An email that matches no account
+    // belongs to no tenant: it is never written to any customer's journal
+    // (it used to land in the bootstrap tenant's), only to the server log,
+    // without the email itself.
+    for (const candidate of candidates) {
+      await runWithTenant(candidate.tenantId, "auth:login:failure", () =>
+        recordAuditEvent({
+          actorType: "SYSTEM",
+          action: "user.login.failure",
+          entityType: "User",
+          entityId: candidate.id,
+          metadata: { email: candidate.email },
+        })
+      );
+    }
+    if (candidates.length === 0) console.warn("[auth] login failure for an unknown account (not attributable to any tenant)");
     return actionError(INVALID_CREDENTIALS_MESSAGE);
   }
 

@@ -3,7 +3,6 @@ import { revalidatePath } from "next/cache";
 import type { Integration } from "@prisma/client";
 import { prisma, prismaBase } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant/context";
-import { BOOTSTRAP_TENANT_ID } from "@/lib/tenant/resolve";
 import { decryptSecret } from "@/lib/crypto";
 import { recordAuditEvent } from "@/lib/audit";
 import { verifyShopifyWebhookSignature } from "@/lib/integrations/shopify/webhook-signature";
@@ -154,15 +153,10 @@ export async function POST(request: Request): Promise<Response> {
     // No candidate's secret matched — genuinely unknown which tenant (if
     // any) this was meant for. Logged against the bootstrap tenant, same
     // as an unattributable login failure (docs/adr/0024).
-    await runWithTenant(BOOTSTRAP_TENANT_ID, "webhook:shopify:rejected", () =>
-      recordAuditEvent({
-        actorType: "INTEGRATION",
-        action: "integration.webhook_rejected",
-        entityType: "Integration",
-        entityId: "unknown",
-        metadata: { provider: "SHOPIFY", reason: "invalid_signature", topic },
-      })
-    );
+    // No integration's secret matched: the request belongs to NO tenant, so
+    // it is never written to a customer's audit journal (docs/adr/0053, R1)
+    // — it used to land in the bootstrap tenant's. Server log only.
+    console.warn(`[webhook] SHOPIFY request rejected: invalid signature (topic: ${topic ?? "unknown"})`);
     return new Response(null, { status: 401 });
   }
   return runWithTenant(resolved.integration.tenantId, "webhook:shopify", () =>

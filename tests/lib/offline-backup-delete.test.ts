@@ -7,7 +7,7 @@ import { inspectBackup, restoreTenantBackup } from "@/lib/backup/import";
 import { deleteTenantData } from "@/lib/tenant/delete";
 import { createSupplierAction, createReceptionAction, validateReceptionAction, recordSupplierPaymentAction } from "@/actions/purchases";
 import { createSaleAction, createSaleReturnAction } from "@/actions/sales";
-import { DEFAULT_TENANT_ID, resetDb, setTestBusinessMode } from "../helpers/db";
+import { DEFAULT_TENANT_ID, resetDb, setTestBusinessMode, markTenantTrial } from "../helpers/db";
 import { createTestUser, loginAsTestUser, grantChannelAccess, grantLocationAccess } from "../helpers/auth";
 import { createSession } from "@/lib/auth/session";
 import { mockCookieStore } from "../mocks/cookie-store";
@@ -165,6 +165,7 @@ describe("tenant deletion with Offline data", () => {
     await seedOfflineGraph(DEFAULT_TENANT_ID);
     const aBefore = await offlineCounts(DEFAULT_TENANT_ID);
 
+    await markTenantTrial(B); // purge = trial tenants only (docs/adr/0053)
     await deleteTenantData(B);
 
     expect(await prismaBase.tenant.findUnique({ where: { id: B } })).toBeNull();

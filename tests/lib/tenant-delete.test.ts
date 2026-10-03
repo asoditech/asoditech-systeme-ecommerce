@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prismaBase } from "@/lib/prisma";
 import { deleteTenantData, BootstrapTenantDeletionError, TenantNotFoundError } from "@/lib/tenant/delete";
-import { DEFAULT_TENANT_ID, resetDb } from "../helpers/db";
+import { DEFAULT_TENANT_ID, resetDb, markTenantTrial } from "../helpers/db";
 import { createTestUser } from "../helpers/auth";
 import { createSession } from "@/lib/auth/session";
 
@@ -122,6 +122,7 @@ describe("deleteTenantData", () => {
       data: { tenantId: DEFAULT_TENANT_ID, name: "ProdA", sku: "sku-a", price: 10, categoryId: categoryA.id },
     });
 
+    await markTenantTrial(TENANT_B); // purge = trial tenants only (docs/adr/0053)
     const result = await deleteTenantData(TENANT_B);
     expect(result.tenantId).toBe(TENANT_B);
     expect(result.totalDeleted).toBeGreaterThan(0);

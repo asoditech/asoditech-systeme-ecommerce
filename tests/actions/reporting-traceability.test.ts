@@ -18,7 +18,7 @@ import { inspectBackup, restoreTenantBackup } from "@/lib/backup/import";
 import { deleteTenantData } from "@/lib/tenant/delete";
 import { ensureDefaultOnlineChannel } from "@/lib/channels";
 import { GET as exportReport } from "@/app/(protected)/rapports/export/[type]/route";
-import { resetDb, setTestBusinessMode } from "../helpers/db";
+import { resetDb, setTestBusinessMode, markTenantTrial } from "../helpers/db";
 import { loginAsTestUser, createTestUser, grantChannelAccess, grantLocationAccess } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 
@@ -492,6 +492,7 @@ describe("backup / restore and tenant deletion cover the new tables", () => {
     });
     await prismaBase.saleReturn.create({ data: { saleId: sale.id, idempotencyKey: "del-ret-0001", tenantId: t } });
 
+    await markTenantTrial(t); // purge = trial tenants only (docs/adr/0053)
     await expect(deleteTenantData(t)).resolves.toMatchObject({ tenantId: t });
     expect(await prismaBase.sale.count({ where: { tenantId: t } })).toBe(0);
     expect(await prismaBase.tenant.findUnique({ where: { id: t } })).toBeNull();

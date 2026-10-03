@@ -252,8 +252,8 @@ describe("Phase 3 — missing tenant context rejects a create outside tests", ()
     ).rejects.toThrow(TenantContextRequiredError);
   });
 
-  it("a read with no context still falls back to the bootstrap tenant (unaffected by this change)", async () => {
+  it("a read with no context is refused too — fail-closed, never the bootstrap tenant (docs/adr/0053, R2)", async () => {
     vi.stubEnv("NODE_ENV", "production");
-    await expect(prisma.customer.findMany()).resolves.toEqual([]);
+    await expect(prisma.customer.findMany()).rejects.toThrow(TenantContextRequiredError);
   });
 });

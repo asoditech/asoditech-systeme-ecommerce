@@ -47,7 +47,14 @@ function getClient(): Resend | null {
 async function sendEmail(input: { to: string; subject: string; html: string; text: string }): Promise<void> {
   const resend = getClient();
   if (!resend) {
-    console.log(`[email] not configured (RESEND_API_KEY/EMAIL_FROM unset) — logging instead:\nTo: ${input.to}\nSubject: ${input.subject}\n${input.text}`);
+    // In production the body (invitation / reset links = live bearer tokens)
+    // never goes to the server log (docs/adr/0053) — only that a message
+    // was NOT sent. Locally the full text is still printed for development.
+    if (process.env.NODE_ENV === "production") {
+      console.warn(`[email] NOT SENT — RESEND_API_KEY/EMAIL_FROM unset (subject: ${input.subject})`);
+    } else {
+      console.log(`[email] not configured (RESEND_API_KEY/EMAIL_FROM unset) — logging instead:\nTo: ${input.to}\nSubject: ${input.subject}\n${input.text}`);
+    }
     return;
   }
 

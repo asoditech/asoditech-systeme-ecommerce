@@ -301,8 +301,8 @@ describe("POST /api/webhooks/woocommerce", () => {
     const order = await prisma.order.findFirst({ where: { source: "WOOCOMMERCE", externalId: "7001" } });
     expect(order).toBeNull();
 
-    const rejected = await prisma.auditEvent.findFirstOrThrow({ where: { action: "integration.webhook_rejected" } });
-    expect(rejected).toBeTruthy();
+    // Belongs to no tenant: never written to any customer's audit journal (docs/adr/0053, R1).
+    expect(await prismaBase.auditEvent.count({ where: { action: "integration.webhook_rejected" } })).toBe(0);
   });
 
   // Phase 3 (docs/adr/0025): provider is no longer globally unique, so the
@@ -348,10 +348,8 @@ describe("POST /api/webhooks/woocommerce", () => {
     const order = await prismaBase.order.findFirst({ where: { source: "WOOCOMMERCE", externalId: "8003" } });
     expect(order).toBeNull();
 
-    const rejected = await prismaBase.auditEvent.findFirstOrThrow({
-      where: { action: "integration.webhook_rejected", entityId: "unknown" },
-    });
-    expect(rejected).toBeTruthy();
+    // Belongs to no tenant: never written to any customer's audit journal (docs/adr/0053, R1).
+    expect(await prismaBase.auditEvent.count({ where: { action: "integration.webhook_rejected" } })).toBe(0);
   });
 
   it("rejects a missing signature header with 401", async () => {

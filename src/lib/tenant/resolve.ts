@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cookies } from "next/headers";
 import { getTenantDirective } from "@/lib/tenant/context";
 import { SESSION_COOKIE } from "@/lib/auth/session";
 
@@ -19,7 +20,9 @@ const tenantByToken = new Map<string, string>();
 
 async function readSessionToken(): Promise<string | null> {
   try {
-    const { cookies } = await import("next/headers");
+    // Static import (not `await import(...)`): under vitest, concurrent
+    // dynamic imports of a mocked module could resolve to the real one,
+    // silently dropping the session's tenant inside a Promise.all.
     return (await cookies()).get(SESSION_COOKIE)?.value ?? null;
   } catch {
     // cookies() throws outside a request scope (background work, seed, most
@@ -71,8 +74,14 @@ export interface ResolvedTenant {
 
 /**
  * Resolves the tenant the Prisma extension should enforce for one
- * operation, in strict precedence: explicit directive → ambient session →
- * bootstrap fallback (logged once per model).
+ * operation, in strict precedence: explicit directive → ambient session.
+ *
+ * FAIL-CLOSED (production trial hardening, docs/adr/0053): with neither, the
+ * operation is REFUSED — reads included. It used to fall back to the
+ * bootstrap tenant, which on a multi-customer database meant a path that
+ * lost its context would silently read ONE customer's data. The bootstrap
+ * fallback survives only under NODE_ENV=test, where the existing suite's
+ * bare fixtures rely on it (same carve-out as `resolveActiveTenantForCreate`).
  */
 export async function resolveActiveTenant(
   model: string,
@@ -85,6 +94,9 @@ export async function resolveActiveTenant(
   const sessionTenantId = await resolveAmbientTenantId();
   if (sessionTenantId) return { tenantId: sessionTenantId, source: "session" };
 
+  if (process.env.NODE_ENV !== "test") {
+    throw new TenantContextRequiredError(model, operation);
+  }
   warnBootstrapFallbackOnce(model, operation);
   return { tenantId: BOOTSTRAP_TENANT_ID, source: "fallback" };
 }
@@ -109,7 +121,7 @@ export async function resolveActiveTenantIdForRawSql(label: string): Promise<str
 export class TenantContextRequiredError extends Error {
   constructor(model: string, operation: string) {
     super(
-      `[tenant] ${model}.${operation}: refusing to create a record with no tenant context ` +
+      `[tenant] ${model}.${operation}: refused — no tenant context ` +
         `(no directive, no session). Wrap the caller in runWithTenant()/runUnscoped(), or make sure ` +
         `the request has a logged-in session.`
     );

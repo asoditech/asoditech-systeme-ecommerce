@@ -3,6 +3,7 @@ import "server-only";
 import { redirect } from "next/navigation";
 import { getCurrentUser, type CurrentUser } from "@/lib/auth/session";
 import { userHasPermission, type Permission } from "@/lib/auth/permissions";
+import { hasPlatformUnlock } from "@/lib/auth/platform-access";
 
 /**
  * Use at the top of protected Server Components / layouts. Redirects to the
@@ -66,6 +67,11 @@ export async function requirePlatformAdmin(): Promise<CurrentUser> {
   if (!user.isPlatformAdmin) {
     redirect("/acces-refuse");
   }
+  // Step-up: the session must also be unlocked with the Platform Access Key
+  // (docs/adr/0053) — a customer-grade login alone never opens /platform.
+  if (!(await hasPlatformUnlock(user.id))) {
+    redirect("/acces-plateforme");
+  }
   return user;
 }
 
@@ -74,6 +80,9 @@ export async function requirePlatformAdminForAction(): Promise<CurrentUser> {
   const user = await requireUserForAction();
   if (!user.isPlatformAdmin) {
     throw new Error("Non autorisé : réservé aux administrateurs de la plateforme.");
+  }
+  if (!(await hasPlatformUnlock(user.id))) {
+    throw new Error("Non autorisé : accès plateforme verrouillé (clé d'accès requise).");
   }
   return user;
 }

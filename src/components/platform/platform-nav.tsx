@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const ITEMS = [
   { href: "/platform", label: "Tenants" },
   { href: "/platform/plans", label: "Forfaits" },
+  { href: "/platform/utilisation", label: "Utilisation" },
 ];
 
 export function PlatformNav() {

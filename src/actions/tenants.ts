@@ -13,7 +13,7 @@ import { planBusinessModeChange } from "@/lib/tenant/business-mode-change";
 import { ensureDefaultOnlineChannel } from "@/lib/channels";
 import { BUSINESS_MODE_LABELS } from "@/lib/tenant/business-mode";
 import { provisionTenantBaseline } from "@/lib/tenant/provision";
-import { deleteTenantData, BootstrapTenantDeletionError, TenantNotFoundError } from "@/lib/tenant/delete";
+import { deleteTenantData, previewTenantPurge, BootstrapTenantDeletionError, TenantNotFoundError, TenantNotPurgeableError, TenantPurgeVerificationError, type TenantPurgePreview } from "@/lib/tenant/delete";
 import { BOOTSTRAP_TENANT_ID } from "@/lib/tenant/resolve";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
 import { isUniqueConstraintError, isForeignKeyConstraintError } from "@/lib/prisma-errors";
@@ -30,6 +30,7 @@ const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days, same as inviteUser
 /** Every tenant, newest first, with a cheap user count — for the
  * `/platform` list. Deliberately unscoped: this IS the cross-tenant view. */
 export async function listTenantsForPlatform() {
+  await requirePlatformAdminForAction();
   return runUnscoped("platform:list-tenants", () =>
     prismaBase.tenant.findMany({
       orderBy: { createdAt: "desc" },
@@ -208,6 +209,16 @@ export async function suspendTenantAction(formData: FormData): Promise<ActionRes
 }
 
 /**
+ * Dry-run of the trial purge (docs/adr/0053): what would be removed, and
+ * whether the tenant may be purged at all. Writes nothing.
+ */
+export async function previewTenantPurgeAction(tenantId: string): Promise<ActionResult<TenantPurgePreview>> {
+  await requirePlatformAdminForAction();
+  if (typeof tenantId !== "string" || !tenantId) return actionError("Tenant invalide.");
+  return actionOk(await previewTenantPurge(tenantId));
+}
+
+/**
  * Irreversibly deletes a tenant and every row it owns
  * (src/lib/tenant/delete.ts). Requires the caller to type the tenant's own
  * slug as a confirmation — deliberately not just a checkbox, since there is
@@ -231,11 +242,23 @@ export async function deleteTenantAction(formData: FormData): Promise<ActionResu
     });
   }
 
+  // Evidence for the platform audit trail: the target's own subscription
+  // history disappears with it, so record what made it purgeable (and when
+  // its status last changed — a TRIALING switch minutes before a purge shows).
+  const subscription = await runUnscoped("platform:delete-tenant", () =>
+    prismaBase.tenantSubscription.findUnique({ where: { tenantId: id }, select: { status: true, updatedAt: true, trialEndsAt: true } })
+  );
+
   let result;
   try {
     result = await deleteTenantData(id);
   } catch (error) {
-    if (error instanceof BootstrapTenantDeletionError || error instanceof TenantNotFoundError) {
+    if (
+      error instanceof BootstrapTenantDeletionError ||
+      error instanceof TenantNotFoundError ||
+      error instanceof TenantNotPurgeableError ||
+      error instanceof TenantPurgeVerificationError
+    ) {
       return actionError(error.message);
     }
     if (isForeignKeyConstraintError(error)) {
@@ -253,7 +276,13 @@ export async function deleteTenantAction(formData: FormData): Promise<ActionResu
     entityType: "Tenant",
     entityId: id,
     previousValue: { name: existing.name, slug: existing.slug },
-    metadata: { deletedCounts: result.deletedCounts, totalDeleted: result.totalDeleted },
+    metadata: {
+      deletedCounts: result.deletedCounts,
+      totalDeleted: result.totalDeleted,
+      subscription: subscription
+        ? { status: subscription.status, statusChangedAt: subscription.updatedAt.toISOString(), trialEndsAt: subscription.trialEndsAt?.toISOString() ?? null }
+        : null,
+    },
   });
 
   revalidatePath("/platform");

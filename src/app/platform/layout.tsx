@@ -2,6 +2,8 @@ import { requirePlatformAdmin } from "@/lib/auth/guards";
 import { BrandMark } from "@/components/brand-mark";
 import { LogoutButton } from "@/components/layout/logout-button";
 import { PlatformNav } from "@/components/platform/platform-nav";
+import { Button } from "@/components/ui/button";
+import { lockPlatformAction } from "@/actions/platform-access";
 
 /**
  * The `/platform` area (Phase 5 — docs/adr/0027-tenant-provisioning.md) is
@@ -22,7 +24,14 @@ export default async function PlatformLayout({ children }: { children: React.Rea
             Plateforme
           </span>
         </div>
-        <LogoutButton />
+        <div className="flex items-center gap-2">
+          <form action={lockPlatformAction}>
+            <Button type="submit" size="sm" variant="outline">
+              Verrouiller
+            </Button>
+          </form>
+          <LogoutButton />
+        </div>
       </header>
       <div className="mx-auto max-w-5xl px-6 pt-4">
         <PlatformNav />

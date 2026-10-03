@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { prisma, prismaBase } from "@/lib/prisma";
-import { requirePermissionForAction } from "@/lib/auth/guards";
+import { requirePermissionForAction, requirePlatformAdminForAction } from "@/lib/auth/guards";
 import { runUnscoped, runWithTenant } from "@/lib/tenant/context";
 import { generateRawToken, hashToken } from "@/lib/auth/tokens";
 import { findUsablePasswordResetToken } from "@/lib/auth/token-lookup";
@@ -164,4 +164,39 @@ export async function adminResetPasswordAction(formData: FormData): Promise<Acti
   });
 
   return actionOk({ resetUrl: `/reinitialiser-mot-de-passe/${rawToken}` });
+}
+
+/**
+ * Platform owner: force a customer user to choose a new password
+ * (docs/adr/0053). Never reveals or sets a known password: the current hash
+ * is replaced by the hash of a random secret nobody holds, every session is
+ * ended, and the user receives the standard single-use, 1-hour reset link.
+ * Platform admin accounts are refused (they manage their own credentials).
+ */
+export async function forcePasswordResetAction(formData: FormData): Promise<ActionResult<undefined>> {
+  await requirePlatformAdminForAction();
+  const userId = formData.get("userId");
+  if (typeof userId !== "string" || !userId) return actionError("Utilisateur invalide.");
+
+  const target = await runUnscoped("platform:force-password-reset", () =>
+    prismaBase.user.findUnique({ where: { id: userId }, select: { id: true, tenantId: true, email: true, status: true, isPlatformAdmin: true } })
+  );
+  if (!target) return actionError("Utilisateur introuvable.");
+  if (target.isPlatformAdmin) return actionError("Impossible pour un compte administrateur de la plateforme.");
+  if (target.status !== "ACTIVE") return actionError("Ce compte est désactivé.");
+
+  await runWithTenant(target.tenantId, "platform:force-password-reset", async () => {
+    await prisma.user.update({ where: { id: target.id }, data: { passwordHash: await hashPassword(generateRawToken()) } });
+    await destroyAllSessionsForUser(target.id);
+    const rawToken = await issueResetToken(prisma, target.id);
+    await sendPasswordResetEmail({ to: target.email, resetUrl: `/reinitialiser-mot-de-passe/${rawToken}` });
+    await recordAuditEvent({
+      actorType: "SYSTEM",
+      action: "user.password_reset_forced",
+      entityType: "User",
+      entityId: target.id,
+      metadata: { by: "platform" },
+    });
+  });
+  return actionOk(undefined);
 }

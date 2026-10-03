@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { runWithTenant } from "@/lib/tenant/context";
 import { notify } from "@/lib/notifications";
 import { recordAuditEvent } from "@/lib/audit";
 import { ALERT_THRESHOLDS } from "./catalogue";
@@ -59,6 +60,13 @@ function highestCrossedThreshold(usage: MetricUsage): number | null {
  * (one indexed upsert-check, no notification fan-out).
  */
 export async function checkAndNotifyUsageThreshold(tenantId: string, metric: UsageMetric, usage: MetricUsage): Promise<void> {
+  // Pinned to the tenant it is about: some callers (invitation acceptance,
+  // webhooks) run before/without a session, and reads no longer fall back
+  // to a default tenant (docs/adr/0053).
+  return runWithTenant(tenantId, "entitlements:usage-alert", () => checkAndNotifyInTenant(tenantId, metric, usage));
+}
+
+async function checkAndNotifyInTenant(tenantId: string, metric: UsageMetric, usage: MetricUsage): Promise<void> {
   try {
     const crossed = highestCrossedThreshold(usage);
     if (crossed === null) return;

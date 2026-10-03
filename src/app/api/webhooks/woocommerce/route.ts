@@ -2,7 +2,6 @@ import { revalidatePath } from "next/cache";
 import type { Integration } from "@prisma/client";
 import { prisma, prismaBase } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant/context";
-import { BOOTSTRAP_TENANT_ID } from "@/lib/tenant/resolve";
 import { decryptSecret } from "@/lib/crypto";
 import { recordAuditEvent } from "@/lib/audit";
 import { verifyWebhookSignature } from "@/lib/integrations/woocommerce/webhook-signature";
@@ -115,15 +114,10 @@ export async function POST(request: Request): Promise<Response> {
     // No candidate's secret matched — genuinely unknown which tenant (if
     // any) this was meant for. Logged against the bootstrap tenant, same
     // as an unattributable login failure (docs/adr/0024).
-    await runWithTenant(BOOTSTRAP_TENANT_ID, "webhook:woocommerce:rejected", () =>
-      recordAuditEvent({
-        actorType: "INTEGRATION",
-        action: "integration.webhook_rejected",
-        entityType: "Integration",
-        entityId: "unknown",
-        metadata: { provider: "WOOCOMMERCE", reason: "invalid_signature", topic },
-      })
-    );
+    // No integration's secret matched: the request belongs to NO tenant, so
+    // it is never written to a customer's audit journal (docs/adr/0053, R1)
+    // — it used to land in the bootstrap tenant's. Server log only.
+    console.warn(`[webhook] WOOCOMMERCE request rejected: invalid signature (topic: ${topic ?? "unknown"})`);
     return new Response(null, { status: 401 });
   }
   return runWithTenant(resolved.tenantId, "webhook:woocommerce", () =>

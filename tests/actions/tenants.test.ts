@@ -9,7 +9,7 @@ import {
 } from "@/actions/tenants";
 import { acceptInvitationAction } from "@/actions/invitations";
 import { createSession, getCurrentUser } from "@/lib/auth/session";
-import { DEFAULT_TENANT_ID, resetDb } from "../helpers/db";
+import { DEFAULT_TENANT_ID, resetDb, markTenantTrial } from "../helpers/db";
 import { loginAsTestUser, createTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
 import { RedirectSignal } from "../setup";
@@ -157,6 +157,7 @@ describe("createTenantAction / activateTenantAction / suspendTenantAction", () =
     const TENANT_B = "tenant-b-list";
     await prismaBase.tenant.create({ data: { id: TENANT_B, name: "Tenant B", slug: TENANT_B } });
 
+    await loginAsTestUser({ role: "OWNER", isPlatformAdmin: true }); // platform-only since docs/adr/0053
     const tenants = await listTenantsForPlatform();
     const ids = tenants.map((t) => t.id);
     expect(ids).toContain(DEFAULT_TENANT_ID);
@@ -197,6 +198,7 @@ describe("deleteTenantAction", () => {
     const TENANT_B = "tenant-b-delete-ok";
     await prismaBase.tenant.create({ data: { id: TENANT_B, name: "Tenant B", slug: TENANT_B } });
     const memberOfB = await createTestUser({ tenantId: TENANT_B, role: "ADMIN" });
+    await markTenantTrial(TENANT_B); // purge = trial tenants only (docs/adr/0053)
     const admin = await loginAsTestUser({ role: "OWNER", isPlatformAdmin: true });
 
     const result = await deleteTenantAction(formData({ id: TENANT_B, slugConfirmation: TENANT_B }));

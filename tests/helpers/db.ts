@@ -160,3 +160,16 @@ export async function resetDb() {
 export async function setTestBusinessMode(mode: "ONLINE_ONLY" | "ONLINE_AND_OFFLINE", tenantId: string = DEFAULT_TENANT_ID) {
   await prisma.tenant.update({ where: { id: tenantId }, data: { businessMode: mode } });
 }
+
+/**
+ * Puts a tenant on the TRIAL lifecycle (subscription TRIALING) — the only
+ * tenants the platform purge accepts (docs/adr/0053).
+ */
+export async function markTenantTrial(tenantId: string) {
+  const businessPlan = await prisma.plan.findUniqueOrThrow({ where: { code: "BUSINESS" } });
+  await prisma.tenantSubscription.upsert({
+    where: { tenantId },
+    update: { status: "TRIALING" },
+    create: { tenantId, planId: businessPlan.id, status: "TRIALING" },
+  });
+}

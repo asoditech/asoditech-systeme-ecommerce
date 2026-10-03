@@ -207,8 +207,8 @@ describe("POST /api/webhooks/shopify", () => {
     const order = await prisma.order.findFirst({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/7001" } });
     expect(order).toBeNull();
 
-    const rejected = await prisma.auditEvent.findFirstOrThrow({ where: { action: "integration.webhook_rejected" } });
-    expect(rejected).toBeTruthy();
+    // Belongs to no tenant: never written to any customer's audit journal (docs/adr/0053, R1).
+    expect(await prismaBase.auditEvent.count({ where: { action: "integration.webhook_rejected" } })).toBe(0);
   });
 
   it("rejects a missing signature header with 401", async () => {
@@ -264,10 +264,8 @@ describe("POST /api/webhooks/shopify", () => {
     );
     expect(response.status).toBe(401);
 
-    const rejected = await prismaBase.auditEvent.findFirstOrThrow({
-      where: { action: "integration.webhook_rejected", entityId: "unknown" },
-    });
-    expect(rejected).toBeTruthy();
+    // Belongs to no tenant: never written to any customer's audit journal (docs/adr/0053, R1).
+    expect(await prismaBase.auditEvent.count({ where: { action: "integration.webhook_rejected" } })).toBe(0);
   });
 
   it("rejects a request with no delivery id header", async () => {
