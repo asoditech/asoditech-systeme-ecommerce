@@ -7,6 +7,8 @@ import { mapSimpleProductFields, mapVariantFields, isSimpleProduct, mapProductSt
 import { availableFrom } from "../types";
 import type { ShopifyProduct, ShopifyVariant } from "../types";
 import { emptySyncSummary, recordNote, reconcileStockFromProvider, syncProductLeadImage, type SyncSummary, type SyncActor } from "@/lib/integrations/shared";
+import { resolveStoreProduct, resolveStoreVariation } from "@/lib/integrations/shared/identity";
+import { variantLabel } from "@/lib/catalog/lookup";
 
 /** Shopify `createdAt` is an ISO 8601 string. Guard against a
  * blank/garbage value so a bad date never crashes a whole sync run. */
@@ -152,7 +154,16 @@ async function syncOneProduct(
     status: mapProductStatus(product.status),
     price: variantPrices.length > 0 ? Math.min(...variantPrices) : 0,
   };
-  const existing = await prisma.product.findFirst({ where: { source: "SHOPIFY", externalId: product.id } });
+  // Identity (docs/adr/0055): linked → publication → the variants' SKUs all
+  // belong to ONE unlinked ASODITECH product (a Shopify variable product has
+  // no parent SKU) → else new.
+  const resolved = await resolveStoreProduct("SHOPIFY", product.id, {
+    sku: null,
+    isVariable: true,
+    variantSkus: product.variants.nodes.map((v) => v.sku ?? "").filter(Boolean),
+  });
+  noteAdoption(summary, resolved, product.title);
+  const existing = resolved?.product ?? null;
 
   let productId: string;
   if (existing) {
@@ -213,6 +224,15 @@ async function syncOneProduct(
   }
 }
 
+function noteAdoption(summary: SyncSummary, resolved: Awaited<ReturnType<typeof resolveStoreProduct>>, title: string): void {
+  if (resolved && resolved.via !== "linked") {
+    recordNote(
+      summary,
+      `Produit Shopify « ${title} » rattaché au produit ASODITECH existant « ${resolved.product.name} » (${resolved.via === "sku" ? "même SKU" : "publication"}) — aucun doublon créé.`
+    );
+  }
+}
+
 async function syncSimpleProduct(
   product: ShopifyProduct,
   locationIdMap: Map<string, string>,
@@ -221,7 +241,9 @@ async function syncSimpleProduct(
 ): Promise<void> {
   const fields = mapSimpleProductFields(product);
   const platformCreatedAt = parseShopifyDate(product.createdAt);
-  const existing = await prisma.product.findFirst({ where: { source: "SHOPIFY", externalId: product.id } });
+  const resolved = await resolveStoreProduct("SHOPIFY", product.id, { sku: product.variants.nodes[0]?.sku ?? null, isVariable: false });
+  noteAdoption(summary, resolved, product.title);
+  const existing = resolved?.product ?? null;
 
   let productId: string;
   if (existing) {
@@ -281,13 +303,18 @@ async function syncOneVariant(
   actor: SyncActor
 ): Promise<"imported" | "updated" | "unchanged"> {
   const fields = mapVariantFields(variant);
-  const existing = await prisma.productVariation.findFirst({ where: { source: "SHOPIFY", externalId: variant.id } });
+  // Within this parent only (docs/adr/0055).
+  const existing = await resolveStoreVariation("SHOPIFY", variant.id, productId, variant.sku ?? null);
 
   let variationId: string;
   let outcome: "imported" | "updated" | "unchanged";
   if (existing) {
     const priceChanged = Number(existing.price ?? 0) !== fields.price;
-    const attrsChanged = JSON.stringify(existing.attributes) !== JSON.stringify({ Variante: variant.title });
+    // Structured attributes that already spell this variant's title (« S / Noir ») are kept
+    // — an adopted ASODITECH variation must not be flattened to { Variante: title }.
+    const attrsChanged =
+      JSON.stringify(existing.attributes) !== JSON.stringify({ Variante: variant.title }) &&
+      variantLabel(existing.attributes) !== variant.title;
     if (priceChanged || attrsChanged) {
       await prisma.productVariation.update({
         where: { id: existing.id },

@@ -9,6 +9,7 @@ import { emptySyncSummary, recordNote, type SyncSummary } from "./types";
 import { reconcileStockFromWooCommerce } from "./stock";
 import type { SyncActor } from "./actor";
 import { syncProductLeadImage } from "@/lib/integrations/shared";
+import { resolveStoreProduct, resolveStoreVariation } from "@/lib/integrations/shared/identity";
 
 /**
  * WooCommerce → System, one direction (see docs/adr/0010-woocommerce-integration.md).
@@ -172,14 +173,25 @@ async function syncOneProduct(
   // The bulk sync passes a pre-built map (one query for the whole
   // catalog); a single-item webhook import has no map worth building for
   // one product, so it resolves the one category it needs directly.
-  const categoryId = wc.categories[0]
+  let categoryId = wc.categories[0]
     ? categoryIdMap
       ? (categoryIdMap.get(wc.categories[0].id) ?? null)
       : ((await prisma.category.findFirst({ where: { source: "WOOCOMMERCE", externalId: String(wc.categories[0].id) } }))?.id ?? null)
     : null;
   const externalId = String(wc.id);
 
-  const existing = await prisma.product.findFirst({ where: { source: "WOOCOMMERCE", externalId } });
+  // Identity (docs/adr/0055): already linked → publication → same SKU (an
+  // ASODITECH product exported/published to this store) → else new.
+  const resolved = await resolveStoreProduct("WOOCOMMERCE", externalId, { sku: wc.sku, isVariable: wc.type === "variable" });
+  const existing = resolved?.product ?? null;
+  if (resolved && resolved.via !== "linked") {
+    recordNote(
+      summary,
+      `Produit WooCommerce #${wc.id} rattaché au produit ASODITECH existant « ${resolved.product.name} » (${resolved.via === "sku" ? "même SKU" : "publication"}) — aucun doublon créé.`
+    );
+    // Keep the ASODITECH category while the store's own category is unknown locally.
+    if (categoryId === null) categoryId = resolved.product.categoryId;
+  }
 
   let productId: string;
   if (existing) {
@@ -359,7 +371,8 @@ async function syncOneVariation(
   const price = wc.regular_price || wc.price || null;
   const attributes = Object.fromEntries(wc.attributes.map((a) => [a.name, a.option]));
 
-  const existing = await prisma.productVariation.findFirst({ where: { source: "WOOCOMMERCE", externalId } });
+  // Within this parent only: linked, else the parent's own unlinked variation with the same SKU (docs/adr/0055).
+  const existing = await resolveStoreVariation("WOOCOMMERCE", externalId, productId, wc.sku);
 
   let variationId: string;
   let outcome: "imported" | "updated" | "unchanged" = "imported";
