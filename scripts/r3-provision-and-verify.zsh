@@ -16,7 +16,7 @@ read -s "CU?Production DATABASE_URL (current, template): "; echo
 DU="${DU%%\?*}"
 APP_ROLE=asoditech_app
 
-fail() { echo "STOPPED: $1"; unset DU CU APP_PW NEW_URL; exit 1; }
+fail() { echo "STOPPED: $1"; unset DU CU APP_PW NEW_URL PSQL_URL; exit 1; }
 
 # 0. The DIRECT_URL connection must be the role that owns the migrations
 #    (it runs `prisma migrate deploy` and owns the tables to grant on).
@@ -33,22 +33,37 @@ psql "$DU" -X -v ON_ERROR_STOP=1 -v app_role="$APP_ROLE" -v app_password="$APP_P
   -f scripts/provision-production-role.sql > ~/prod-r3-provision.out 2>&1 || fail "provisioning failed, see ~/prod-r3-provision.out"
 echo "1. provisioned $APP_ROLE (grants + default privileges for $MIG_OWNER)"
 
-# 2. New DATABASE_URL: same host/port/db/query as the current one, user/password swapped.
-#    Supabase pooler user format "<role>.<project_ref>" is preserved.
-NEW_URL=$(CU="$CU" APP_ROLE="$APP_ROLE" APP_PW="$APP_PW" python3 - <<'PY'
-import os
-from urllib.parse import urlsplit, urlunsplit
-u = urlsplit(os.environ["CU"]); user = u.username or ""
-ref = "." + user.split(".", 1)[1] if "." in user else ""
-netloc = f'{os.environ["APP_ROLE"]}{ref}:{os.environ["APP_PW"]}@{u.hostname}' + (f":{u.port}" if u.port else "")
-print(urlunsplit((u.scheme, netloc, u.path, u.query, u.fragment)))
+# 2. New DATABASE_URL: same scheme/host/port/db/query as the current one, user and
+#    password swapped and percent-encoded; Supabase "<role>.<project_ref>" kept.
+#    scripts/build-role-url.py validates the template and refuses to print a URL
+#    that does not round-trip (tests/scripts/build-role-url.test.ts).
+NEW_URL=$(TEMPLATE_URL="$CU" APP_ROLE="$APP_ROLE" APP_PW="$APP_PW" python3 scripts/build-role-url.py) \
+  || fail "could not build the new URL from the DATABASE_URL template (see the message above)."
+# psql rejects Prisma-only query parameters (?pgbouncer=true): same URL without query.
+PSQL_URL=$(TEMPLATE_URL="$CU" APP_ROLE="$APP_ROLE" APP_PW="$APP_PW" python3 scripts/build-role-url.py --no-query) \
+  || fail "could not build the psql URL."
+
+# Remove any trace of the password (raw or percent-encoded) from an output file.
+scrub() {
+  APP_PW="$APP_PW" python3 - "$1" <<'PY'
+import os, sys
+from urllib.parse import quote
+path, pw = sys.argv[1], os.environ["APP_PW"]
+text = open(path, encoding="utf-8", errors="replace").read()
+for secret in {pw, quote(pw, safe="")}:
+    text = text.replace(secret, "***")
+open(path, "w", encoding="utf-8").write(text)
 PY
-) || fail "could not build the new URL."
+}
 
 # 3. Verify as the NEW role (both run in rolled-back transactions).
-APP_ROLE_URL="${NEW_URL%%\?*}" bash scripts/verify-rls.sh > ~/prod-r3-verify-rls.out 2>&1 || fail "verify-rls failed, see ~/prod-r3-verify-rls.out"
+APP_ROLE_URL="$PSQL_URL" bash scripts/verify-rls.sh > ~/prod-r3-verify-rls.out 2>&1
+RC=$?; scrub ~/prod-r3-verify-rls.out
+(( RC == 0 )) || fail "verify-rls failed, see ~/prod-r3-verify-rls.out"
 echo "2. verify-rls passed"
-psql "${NEW_URL%%\?*}" -X -f scripts/prod-check-runtime-role.sql > ~/prod-r3-runtime-role.out 2>&1 || fail "runtime-role check failed, see ~/prod-r3-runtime-role.out"
+psql "$PSQL_URL" -X -f scripts/prod-check-runtime-role.sql > ~/prod-r3-runtime-role.out 2>&1
+RC=$?; scrub ~/prod-r3-runtime-role.out
+(( RC == 0 )) || fail "runtime-role check failed, see ~/prod-r3-runtime-role.out"
 grep -q " $APP_ROLE " ~/prod-r3-runtime-role.out || fail "runtime-role check did not run as $APP_ROLE"
 echo "3. runtime-role check ran as $APP_ROLE -> ~/prod-r3-runtime-role.out"
 
@@ -58,4 +73,4 @@ echo "Environment Variables → DATABASE_URL (Production, keep it Sensitive):"
 echo
 echo "$NEW_URL"
 echo
-unset DU CU APP_PW NEW_URL
+unset DU CU APP_PW NEW_URL PSQL_URL
