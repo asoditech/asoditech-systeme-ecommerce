@@ -17,9 +17,8 @@ function shortAmount(n: number): string {
 /**
  * Gross-revenue chart for the dashboard — Phase 3 (Premium Visual SaaS
  * Transformation, section 8): replaces the earlier hand-rolled div/CSS bar
- * chart with the same recharts gradient-area treatment already established
- * in src/components/analytics/revenue-trend-chart.tsx, so the app has ONE
- * chart language, not two. Same data, same numbers — only the rendering
+ * chart with a recharts gradient-area treatment (the app's one chart
+ * language). Same data, same numbers — only the rendering
  * changed. The "chart + insight" pairing (total for the range, peak month)
  * is computed here from the exact array the page already fetched — never a
  * second query, never an invented figure.
