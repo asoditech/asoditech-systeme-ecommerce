@@ -6,6 +6,8 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeScript } from "@/components/theme-script";
 import { LoginTransitionProvider } from "@/components/preloader/login-transition-provider";
 import { TopProgressBar } from "@/components/top-progress-bar";
+import { env } from "@/lib/env";
+import { buildRootMetadata } from "@/lib/site-metadata";
 import "./globals.css";
 
 // UI/UX refinement phase (2026-09): Montserrat replaces Inter as the
@@ -20,10 +22,10 @@ const montserrat = Montserrat({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: "ASODITECH — Gestion E-commerce",
-  description: "Système de gestion e-commerce ASODITECH.",
-};
+// Branding for the browser tab, home-screen shortcuts and shared-link
+// previews — see src/lib/site-metadata.ts. Route pages keep overriding
+// `title` as before; the Open Graph/Twitter block below is inherited.
+export const metadata: Metadata = buildRootMetadata(env.APP_URL);
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
