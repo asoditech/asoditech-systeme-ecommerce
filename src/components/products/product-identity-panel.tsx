@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
+import { gs1CheckDigitWarning } from "@/lib/catalog/gs1";
 
 /**
  * Catalog identity — reference, barcodes and channel availability
@@ -206,6 +207,12 @@ export function ProductIdentityPanel({
                     <BarcodeScanButton onDetect={(code) => setDrafts((d) => ({ ...d, [unitKey(u)]: code }))} label="Caméra" />
                   </div>
                 </div>
+              )}
+              {/* Non-blocking: « Ajouter » stays enabled; the code is never altered. */}
+              {canEdit && gs1CheckDigitWarning(drafts[unitKey(u)]) && (
+                <p role="status" className="max-w-md text-xs text-amber-600 dark:text-amber-400">
+                  {gs1CheckDigitWarning(drafts[unitKey(u)])}
+                </p>
               )}
             </div>
           ))}

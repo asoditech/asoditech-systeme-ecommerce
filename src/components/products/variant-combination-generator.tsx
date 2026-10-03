@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus, Trash2, Wand2 } from "lucide-react";
-import { generateProductVariationsAction } from "@/actions/products";
+import { generateProductVariationsAction, previewProductVariationsAction, type PlannedVariation } from "@/actions/products";
 import { generateAttributeCombinations, attributesKey } from "@/lib/catalog/variations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,6 +58,34 @@ export function VariantCombinationGenerator({
   const combinations = useMemo(() => generateAttributeCombinations(parsedOptions), [parsedOptions]);
   const newCombinations = combinations.filter((c) => !existingKeys.has(attributesKey(c)));
   const alreadyExistingCount = combinations.length - newCombinations.length;
+
+  // SKU preview: the server runs the creation's OWN planner
+  // (`planNewVariations`: suggestVariationSku + resolveUniqueSku) read-only,
+  // so what is shown is what will be created. Debounced while typing.
+  const [skuPreview, setSkuPreview] = useState<{ key: string; byAttributes: Map<string, PlannedVariation> } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const previewKey = JSON.stringify(parsedOptions);
+  useEffect(() => {
+    if (newCombinations.length === 0) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const result = await previewProductVariationsAction({ productId, options: parsedOptions });
+      if (cancelled) return;
+      if (result.ok) {
+        setPreviewError(null);
+        setSkuPreview({ key: previewKey, byAttributes: new Map(result.data.rows.map((r) => [attributesKey(r.attributes), r])) });
+      } else {
+        setPreviewError(result.error);
+      }
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // previewKey captures parsedOptions; newCombinations.length only gates the call.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productId, previewKey, newCombinations.length]);
+  const planned = skuPreview?.key === previewKey ? skuPreview.byAttributes : null;
 
   function updateOption(i: number, patch: Partial<OptionDraft>) {
     setOptions((prev) => prev.map((o, j) => (j === i ? { ...o, ...patch } : o)));
@@ -146,17 +174,41 @@ export function VariantCombinationGenerator({
               {newCombinations.length > 1 ? "s" : ""}
               {alreadyExistingCount > 0 ? `, ${alreadyExistingCount} déjà existante${alreadyExistingCount > 1 ? "s" : ""}` : ""}
             </p>
-            <div className="flex flex-wrap gap-1.5">
+            <ul className="divide-y text-sm">
               {combinations.map((c, i) => {
                 const exists = existingKeys.has(attributesKey(c));
+                const plan = planned?.get(attributesKey(c));
                 return (
-                  <Badge key={i} variant={exists ? "secondary" : "outline"}>
-                    {Object.values(c).join(" / ")}
-                    {exists && " (existe déjà)"}
-                  </Badge>
+                  <li key={i} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-1.5">
+                    <Badge variant={exists ? "secondary" : "outline"}>
+                      {Object.values(c).join(" / ")}
+                      {exists && " (existe déjà)"}
+                    </Badge>
+                    {!exists && (
+                      <span className="font-mono text-xs">
+                        {plan ? (
+                          <>
+                            SKU : {plan.sku}
+                            {plan.sku !== plan.suggestedSku && (
+                              <span className="ml-1.5 font-sans text-muted-foreground" title={`${plan.suggestedSku} est déjà utilisé`}>
+                                (ajusté : {plan.suggestedSku} déjà utilisé)
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="font-sans text-muted-foreground">SKU : calcul…</span>
+                        )}
+                      </span>
+                    )}
+                  </li>
                 );
               })}
-            </div>
+            </ul>
+            {previewError && <p className="text-xs text-destructive">{previewError}</p>}
+            <p className="text-xs text-muted-foreground">
+              SKU générés automatiquement et modifiables après création (variation → Modifier). Les variations
+              existantes gardent leur SKU.
+            </p>
           </div>
         )}
 

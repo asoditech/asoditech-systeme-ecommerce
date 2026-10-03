@@ -5,6 +5,7 @@ import JsBarcode from "jsbarcode";
 import QRCode from "qrcode";
 import { Printer, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { INTERNAL_CODE_CAPTION, labelBarcode } from "@/lib/catalog/label-barcode";
 
 /**
  * The actual printable sticker — docs/adr/0042. Barcode (operational,
@@ -14,6 +15,10 @@ import { Button } from "@/components/ui/button";
  * any print DPI, no server round-trip, no PDF dependency (browser print CSS
  * only, `[data-print-sheet]` reuses the same print-flattening rule the
  * report pages already define in globals.css).
+ *
+ * Linear barcode = the unit's official (supplier/customer-entered) Barcode,
+ * or — when it has none — its SKU as a Code 128 INTERNAL code, captioned as
+ * not being an EAN/GTIN and never stored (src/lib/catalog/label-barcode.ts).
  */
 export function PrintableLabel({
   productName,
@@ -30,16 +35,18 @@ export function PrintableLabel({
 }) {
   const barcodeRef = useRef<SVGSVGElement>(null);
   const [qrSvg, setQrSvg] = useState<string | null>(null);
+  const linear = labelBarcode({ barcode, sku });
+  const encoded = linear.kind === "none" ? null : linear.value;
 
   useEffect(() => {
-    if (!barcode || !barcodeRef.current) return;
+    if (!encoded || !barcodeRef.current) return;
     try {
-      JsBarcode(barcodeRef.current, barcode, { format: "CODE128", displayValue: true, fontSize: 12, height: 40, margin: 4 });
+      JsBarcode(barcodeRef.current, encoded, { format: "CODE128", displayValue: true, fontSize: 12, height: 40, margin: 4 });
     } catch {
       // A value outside Code128's alphabet is essentially unreachable (it
       // covers full ASCII) — fail soft rather than crash the print page.
     }
-  }, [barcode]);
+  }, [encoded]);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,8 +74,13 @@ export function PrintableLabel({
           )}
         </div>
         <div className="mt-3 flex min-h-12 items-center justify-center">
-          {barcode ? (
-            <svg ref={barcodeRef} role="img" aria-label={`Code-barres ${barcode}`} />
+          {linear.kind === "official" ? (
+            <svg ref={barcodeRef} role="img" aria-label={`Code-barres ${linear.value}`} />
+          ) : linear.kind === "internal" ? (
+            <div className="flex flex-col items-center">
+              <svg ref={barcodeRef} role="img" aria-label={`Code interne ${linear.value} (pas un EAN/GTIN)`} />
+              <p className="text-[10px] font-semibold tracking-wide">{INTERNAL_CODE_CAPTION}</p>
+            </div>
           ) : (
             <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
               <TriangleAlert className="size-3.5 shrink-0" />
@@ -83,7 +95,14 @@ export function PrintableLabel({
           <Printer className="size-4" />
           Imprimer
         </Button>
-        {!barcode && (
+        {linear.kind === "internal" && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Sans code-barres fournisseur, l&apos;étiquette imprime le SKU en code interne (lisible par le scanner de
+            l&apos;application, pas un EAN/GTIN). Si l&apos;article a un vrai code-barres, ajoutez-le dans l&apos;onglet
+            Identité : il remplacera le code interne.
+          </p>
+        )}
+        {linear.kind === "none" && (
           <p className="mt-2 text-xs text-muted-foreground">
             Le QR fonctionne déjà — ajoutez un code-barres principal dans l&apos;onglet Identité pour une étiquette
             complète.

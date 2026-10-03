@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { createProductAction, updateProductAction, createCategoryAction } from "@/actions/products";
 import { productCreateRedirectPath } from "@/lib/catalog/variations";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
+import { gs1CheckDigitWarning } from "@/lib/catalog/gs1";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -210,6 +211,10 @@ export function ProductForm({
                       <BarcodeScanButton onDetect={setBarcode} label="" />
                     </div>
                     <FieldError>{state && !state.ok ? state.fieldErrors?.barcode?.[0] : undefined}</FieldError>
+                    {/* Non-blocking: a numeric code of a GTIN length is not necessarily a GTIN. */}
+                    {gs1CheckDigitWarning(barcode) && (
+                      <p role="status" className="text-xs text-amber-600 dark:text-amber-400">{gs1CheckDigitWarning(barcode)}</p>
+                    )}
                   </Field>
                 </div>
               )}

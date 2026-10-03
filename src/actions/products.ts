@@ -542,6 +542,64 @@ async function resolveUniqueSku(candidate: string, reservedInBatch: Set<string>)
  * created in ONE transaction, each with its own default-warehouse
  * `InventoryItem` — identical initialization to `createProductVariationAction`.
  */
+/** One planned variation: its attributes, the SKU `suggestVariationSku` proposed, and the SKU it will actually get. */
+export interface PlannedVariation {
+  attributes: Record<string, string>;
+  suggestedSku: string;
+  sku: string;
+}
+
+/**
+ * The single source of truth for the SKUs a combination run assigns — used
+ * by BOTH the read-only preview (`previewProductVariationsAction`) and the
+ * creation (`generateProductVariationsAction`), so the preview shows exactly
+ * the algorithm that will run: drop combinations that already exist, then
+ * `suggestVariationSku` + `resolveUniqueSku` (same uniqueness check, same
+ * "-2", "-3" suffixes). Read-only; existing variations are never touched.
+ */
+async function planNewVariations(
+  product: { id: string; name: string; reference: string | null },
+  desired: Record<string, string>[]
+): Promise<{ rows: PlannedVariation[]; existingCount: number }> {
+  const existing = await prisma.productVariation.findMany({
+    where: { productId: product.id },
+    select: { attributes: true },
+  });
+  const existingKeys = new Set(existing.map((v) => attributesKey(v.attributes as Record<string, unknown>)));
+  const toCreate = desired.filter((combo) => !existingKeys.has(attributesKey(combo)));
+
+  const reservedSkus = new Set<string>();
+  const rows: PlannedVariation[] = [];
+  for (const combo of toCreate) {
+    const suggestedSku = suggestVariationSku(product.reference ?? product.name, combo);
+    const sku = await resolveUniqueSku(suggestedSku, reservedSkus);
+    rows.push({ attributes: combo, suggestedSku, sku });
+  }
+  return { rows, existingCount: desired.length - toCreate.length };
+}
+
+/**
+ * Read-only preview of a combination run: the SKU each NEW combination would
+ * get right now (`planNewVariations`, the creation's own algorithm). Nothing
+ * is written. The final SKU is resolved again at creation, the same way, so a
+ * SKU taken in between still gets a unique suffix.
+ */
+export async function previewProductVariationsAction(input: {
+  productId: string;
+  options: { name: string; values: string[] }[];
+}): Promise<ActionResult<{ rows: PlannedVariation[]; existingCount: number }>> {
+  await requirePermissionForAction("products.edit");
+  const parsed = generateVariationCombinationsSchema.safeParse(input);
+  if (!parsed.success) return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  const product = await prisma.product.findUnique({ where: { id: parsed.data.productId } });
+  if (!product) return actionError("Produit introuvable.");
+  const sourceError = externalSourceError(product);
+  if (sourceError) return actionError(sourceError);
+  const desired = generateAttributeCombinations(parsed.data.options);
+  if (desired.length === 0) return actionOk({ rows: [], existingCount: 0 });
+  return actionOk(await planNewVariations(product, desired));
+}
+
 export async function generateProductVariationsAction(input: {
   productId: string;
   options: { name: string; values: string[] }[];
@@ -558,23 +616,9 @@ export async function generateProductVariationsAction(input: {
   const desired = generateAttributeCombinations(parsed.data.options);
   if (desired.length === 0) return actionError("Aucune combinaison à générer.");
 
-  const existing = await prisma.productVariation.findMany({
-    where: { productId: product.id },
-    select: { attributes: true },
-  });
-  const existingKeys = new Set(existing.map((v) => attributesKey(v.attributes as Record<string, unknown>)));
-  const toCreate = desired.filter((combo) => !existingKeys.has(attributesKey(combo)));
-
-  if (toCreate.length === 0) {
+  const { rows, existingCount } = await planNewVariations(product, desired);
+  if (rows.length === 0) {
     return actionOk({ created: 0, skippedExisting: desired.length });
-  }
-
-  const reservedSkus = new Set<string>();
-  const rows: { attributes: Record<string, string>; sku: string }[] = [];
-  for (const combo of toCreate) {
-    const suggestion = suggestVariationSku(product.reference ?? product.name, combo);
-    const sku = await resolveUniqueSku(suggestion, reservedSkus);
-    rows.push({ attributes: combo, sku });
   }
 
   let createdCount = 0;
@@ -610,7 +654,7 @@ export async function generateProductVariationsAction(input: {
   });
 
   revalidatePath(`/produits/${product.id}`);
-  return actionOk({ created: createdCount, skippedExisting: desired.length - toCreate.length });
+  return actionOk({ created: createdCount, skippedExisting: existingCount });
 }
 
 /**
