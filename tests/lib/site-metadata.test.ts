@@ -70,7 +70,7 @@ describe("proxy: cookie-less fetches of branding assets", () => {
   const redirected = (r: Response) => r.status >= 300 && r.status < 400;
 
   it("lets crawlers and browsers fetch the manifest, icons and share images without a session", () => {
-    for (const p of ["/manifest.webmanifest", "/icon.png", "/apple-icon.png", "/opengraph-image.png", "/twitter-image.png", "/icons/icon-192.png"]) {
+    for (const p of ["/manifest.webmanifest", "/icon.png", "/apple-icon.png", "/opengraph-image.png", "/twitter-image.png", "/icons/icon-192.png", "/vendor/zxing-wasm-3.1.3/zxing_reader.wasm"]) {
       expect(redirected(get(p)), p).toBe(false);
     }
   });

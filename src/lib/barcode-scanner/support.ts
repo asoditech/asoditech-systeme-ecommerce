@@ -11,18 +11,31 @@
  * never blocks that.
  */
 
-export type ScannerSupportStatus = "supported" | "unsupported-detector" | "unsupported-camera";
+export type ScannerSupportStatus = "supported" | "insecure-context" | "unsupported-detector" | "unsupported-camera";
 
 /** What the calling component actually detected in the browser — gathered
  * there (impure), decided here (pure). */
 export interface ScannerEnvironment {
+  /** Native `window.BarcodeDetector` (Chrome/Edge on Android and macOS). */
   hasBarcodeDetector: boolean;
+  /** WebAssembly available: the bundled ZXing decoder (src/lib/barcode-scanner/decoder.ts)
+   * replaces a missing native detector — this is what makes iPhone/iPad and Firefox work.
+   * Optional so callers that predate it keep their behaviour. */
+  hasWebAssembly?: boolean;
   hasMediaDevices: boolean;
+  /** `window.isSecureContext`. Browsers only expose the camera on https
+   * (or localhost): opened over plain http — e.g. http://192.168.x.x:3000
+   * from a phone on the LAN — `navigator.mediaDevices` is simply absent.
+   * Optional so callers that predate it keep their behaviour. */
+  isSecureContext?: boolean;
 }
 
 export function evaluateScannerSupport(env: ScannerEnvironment): ScannerSupportStatus {
+  // Checked first: it is the actual reason mediaDevices is missing, and the
+  // only one the operator can fix (open the https address).
+  if (env.isSecureContext === false) return "insecure-context";
   if (!env.hasMediaDevices) return "unsupported-camera";
-  if (!env.hasBarcodeDetector) return "unsupported-detector";
+  if (!env.hasBarcodeDetector && !env.hasWebAssembly) return "unsupported-detector";
   return "supported";
 }
 
@@ -37,7 +50,8 @@ export function evaluateScannerSupport(env: ScannerEnvironment): ScannerSupportS
  */
 export const RELEVANT_BARCODE_FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "itf", "codabar"] as const;
 
-export type ScannerErrorKind = "permission-denied" | "no-camera" | "camera-busy" | "unknown";
+/** `decoder-unavailable`: the barcode decoder could not be loaded (e.g. the WebAssembly file failed to download). */
+export type ScannerErrorKind = "permission-denied" | "no-camera" | "camera-busy" | "decoder-unavailable" | "unknown";
 
 /**
  * Maps a `getUserMedia`/detection-loop failure to one of the handled error
@@ -66,15 +80,22 @@ export function classifyScannerError(error: unknown): ScannerErrorKind {
  * inline in the component. */
 export function scannerStatusMessage(status: ScannerSupportStatus | ScannerErrorKind): string {
   switch (status) {
+    case "insecure-context":
+      return "Le scan par caméra exige une connexion sécurisée (adresse en https). Ouvrez l'application via son adresse https, ou utilisez la saisie manuelle ou un scanner externe.";
     case "unsupported-detector":
+      // Neither a native BarcodeDetector nor WebAssembly (for the bundled
+      // ZXing decoder): only very old browsers.
+      return "Ce navigateur est trop ancien pour lire les codes-barres avec la caméra. Mettez-le à jour, ou utilisez la saisie manuelle ou un scanner externe.";
     case "unsupported-camera":
-      return "Le scan par caméra n'est pas disponible sur cet appareil. Utilisez la saisie manuelle ou un scanner externe.";
+      return "Ce navigateur ne donne pas accès à la caméra. Utilisez la saisie manuelle ou un scanner externe.";
     case "permission-denied":
       return "Accès à la caméra refusé. Autorisez la caméra dans les réglages du navigateur, ou utilisez la saisie manuelle.";
     case "no-camera":
       return "Aucune caméra détectée sur cet appareil. Utilisez la saisie manuelle ou un scanner externe.";
     case "camera-busy":
       return "La caméra est déjà utilisée par une autre application. Fermez-la puis réessayez, ou utilisez la saisie manuelle.";
+    case "decoder-unavailable":
+      return "Le lecteur de codes-barres n'a pas pu être chargé (connexion interrompue ?). Fermez puis rouvrez le scanner, ou utilisez la saisie manuelle ou un scanner externe.";
     case "unknown":
       return "Impossible d'ouvrir la caméra. Utilisez la saisie manuelle ou un scanner externe.";
     case "supported":

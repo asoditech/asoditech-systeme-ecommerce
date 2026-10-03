@@ -18,7 +18,9 @@ const PUBLIC_PATHS = new Set(["/connexion", "/mot-de-passe-oublie", "/manifest.w
 // opened by anyone scanning a physical package with no ASODITECH account
 // at all — deliberately public, the same way a printed barcode is public.
 const PUBLIC_PATH_PREFIXES = ["/invitations/", "/reinitialiser-mot-de-passe/", "/scan/"];
-const STATIC_ASSET_PATTERN = /\.(?:png|svg|jpg|jpeg|webp|gif|ico)$/i;
+// .wasm: the self-hosted, open-source barcode decoder (public/vendor/zxing-wasm-*,
+// src/lib/barcode-scanner/decoder.ts) — public library code, never user data.
+const STATIC_ASSET_PATTERN = /\.(?:png|svg|jpg|jpeg|webp|gif|ico|wasm)$/i;
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

@@ -202,7 +202,8 @@ export function ProductIdentityPanel({
                       <Plus className="size-4" />
                       Ajouter
                     </Button>
-                    <BarcodeScanButton onDetect={(code) => { setDrafts((d) => ({ ...d, [unitKey(u)]: code })); submitBarcode(u, code); }} label="Caméra" />
+                    {/* A scan only fills the field; « Ajouter » saves it — never a write from a scan alone. */}
+                    <BarcodeScanButton onDetect={(code) => setDrafts((d) => ({ ...d, [unitKey(u)]: code }))} label="Caméra" />
                   </div>
                 </div>
               )}

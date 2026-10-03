@@ -8,6 +8,17 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ["recharts"],
   },
+  // Self-hosted barcode decoder (src/lib/barcode-scanner/decoder.ts): the
+  // folder name carries the version, so its files never change in place —
+  // cache them for a year instead of revalidating ~1.1 MB on every scan.
+  async headers() {
+    return [
+      {
+        source: "/vendor/zxing-wasm-:version/:file*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

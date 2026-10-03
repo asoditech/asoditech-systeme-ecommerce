@@ -21,6 +21,22 @@ describe("evaluateScannerSupport", () => {
     expect(evaluateScannerSupport({ hasBarcodeDetector: true, hasMediaDevices: false })).toBe("unsupported-camera");
     expect(evaluateScannerSupport({ hasBarcodeDetector: false, hasMediaDevices: false })).toBe("unsupported-camera");
   });
+
+  it("no native BarcodeDetector but WebAssembly (iPhone/iPad, Firefox): supported via the bundled decoder", () => {
+    expect(evaluateScannerSupport({ isSecureContext: true, hasBarcodeDetector: false, hasMediaDevices: true, hasWebAssembly: true })).toBe("supported");
+    expect(evaluateScannerSupport({ isSecureContext: true, hasBarcodeDetector: false, hasMediaDevices: true, hasWebAssembly: false })).toBe("unsupported-detector");
+  });
+
+  it("decoder-unavailable has its own message with the manual fallback", () => {
+    expect(scannerStatusMessage("decoder-unavailable")).toMatch(/n'a pas pu être chargé/);
+    expect(scannerStatusMessage("decoder-unavailable")).toMatch(/saisie manuelle/);
+  });
+
+  it("insecure-context (plain http, e.g. a LAN address from a phone) is reported before anything else", () => {
+    expect(evaluateScannerSupport({ isSecureContext: false, hasBarcodeDetector: false, hasMediaDevices: false })).toBe("insecure-context");
+    expect(evaluateScannerSupport({ isSecureContext: false, hasBarcodeDetector: true, hasMediaDevices: true })).toBe("insecure-context");
+    expect(evaluateScannerSupport({ isSecureContext: true, hasBarcodeDetector: true, hasMediaDevices: true })).toBe("supported");
+  });
 });
 
 describe("classifyScannerError", () => {
@@ -47,10 +63,14 @@ describe("classifyScannerError", () => {
 });
 
 describe("scannerStatusMessage", () => {
-  it("both unsupported states show the exact copy the spec requires", () => {
-    const expected = "Le scan par caméra n'est pas disponible sur cet appareil. Utilisez la saisie manuelle ou un scanner externe.";
-    expect(scannerStatusMessage("unsupported-detector")).toBe(expected);
-    expect(scannerStatusMessage("unsupported-camera")).toBe(expected);
+  it("each unsupported cause has its own actionable message, always offering the manual fallback", () => {
+    const insecure = scannerStatusMessage("insecure-context");
+    const detector = scannerStatusMessage("unsupported-detector");
+    const camera = scannerStatusMessage("unsupported-camera");
+    expect(new Set([insecure, detector, camera]).size).toBe(3);
+    expect(insecure).toMatch(/https/);
+    expect(detector).toMatch(/trop ancien/);
+    for (const m of [insecure, detector, camera]) expect(m).toMatch(/saisie manuelle/);
   });
 
   it("every error kind has a non-empty, distinct message", () => {

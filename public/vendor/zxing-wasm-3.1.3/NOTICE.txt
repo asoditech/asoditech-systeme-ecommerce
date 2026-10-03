@@ -1,0 +1,11 @@
+zxing_reader.wasm — copied unmodified from the npm package zxing-wasm@3.1.3
+(dist/reader/zxing_reader.wasm), used through barcode-detector@3.2.2.
+
+- zxing-wasm: MIT License, Copyright (c) 2023 Ze-Zheng Wu (LICENSE-zxing-wasm.txt)
+- The WebAssembly binary is compiled from ZXing-C++ (https://github.com/zxing-cpp/zxing-cpp),
+  Apache License 2.0.
+
+Self-hosted so camera scanning never requests a third-party CDN. When upgrading
+barcode-detector / zxing-wasm, replace this folder with the new version's reader WASM
+(new versioned folder name) and update ZXING_WASM_VERSION_PINNED in
+src/lib/barcode-scanner/decoder.ts — tests/lib/barcode-decoder.test.ts fails until they match.
