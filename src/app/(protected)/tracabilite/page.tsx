@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { FilterSearchInput } from "@/components/filter-search-input";
+import { TraceScanButton } from "@/components/traceability/trace-scan-button";
+import { inactiveUnitLabel } from "@/lib/traceability-scan";
 import { requirePermission } from "@/lib/auth/guards";
 import { findTraceUnits, getUnitTraceability } from "@/lib/queries/traceability";
 import { formatCurrency, formatDateTime } from "@/lib/format";
@@ -45,7 +47,11 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
   return (
     <div className="space-y-6">
       <PageHeader title="Traçabilité" description="Suivez un article de son entrée en stock à sa sortie : emplacement, mouvements, réceptions, ventes, retours." />
-      <FilterSearchInput placeholder="Code-barres, référence, SKU ou nom…" defaultValue={params.q} className="w-96" />
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <FilterSearchInput placeholder="Code-barres, référence, SKU ou nom…" defaultValue={params.q} className="w-full sm:w-96" />
+        {/* Camera scan = the same `?q=` search, read-only; manual entry and USB/Bluetooth scanners keep working. */}
+        <TraceScanButton />
+      </div>
 
       {!q && <EmptyState icon={ScanBarcode} title="Scannez ou saisissez un code-barres, une référence ou un nom." />}
       {q && candidates.length === 0 && <EmptyState icon={ScanBarcode} title="Aucun article trouvé." />}
@@ -63,6 +69,11 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
                   <span>
                     {u.name}
                     {u.variantLabel && <span className="text-muted-foreground"> — {u.variantLabel}</span>}
+                    {inactiveUnitLabel(u.status) && (
+                      <Badge variant="outline" className="ml-2">
+                        {inactiveUnitLabel(u.status)}
+                      </Badge>
+                    )}
                   </span>
                   <span className="font-mono text-xs text-muted-foreground">{u.primaryBarcode ?? u.sku}</span>
                 </Link>
@@ -80,6 +91,11 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
               {trace.identity.variantAttributes && <Badge variant="secondary">{variantLabel(trace.identity.variantAttributes)}</Badge>}
               {trace.identity.reference && <Badge variant="outline">Réf. modèle {trace.identity.reference}</Badge>}
               {trace.identity.category && <Badge variant="outline">{trace.identity.category}</Badge>}
+              {chosen && inactiveUnitLabel(chosen.status) && (
+                <Badge variant="outline" title="Article non vendable : son historique reste consultable.">
+                  {inactiveUnitLabel(chosen.status)}
+                </Badge>
+              )}
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <div>SKU <span className="font-mono">{trace.identity.sku}</span></div>
