@@ -56,7 +56,16 @@ SELECT 'CREATE ROLE ' || quote_ident(:'app_role') || ' WITH LOGIN'
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_role')
 \gexec
 
-ALTER ROLE :app_role WITH LOGIN PASSWORD :'app_password' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+-- SUPERUSER / REPLICATION can only be changed by a superuser. On managed
+-- Postgres (Supabase: `postgres` is NOT a superuser) naming them at all is
+-- refused, so they are only re-asserted when the operator IS a superuser;
+-- otherwise the role keeps the defaults a non-superuser creates it with
+-- (NOSUPERUSER, NOREPLICATION). The sanity check at the bottom proves it.
+SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L NOBYPASSRLS NOCREATEDB NOCREATEROLE%s',
+              :'app_role', :'app_password',
+              CASE WHEN (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
+                   THEN ' NOSUPERUSER NOREPLICATION' ELSE '' END)
+\gexec
 
 GRANT USAGE ON SCHEMA public TO :app_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :app_role;
@@ -76,4 +85,11 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :migration_role IN SCHEMA public
 -- rolsuper=f and rolbypassrls=f, or RLS is inert for it regardless of the
 -- policies themselves.
 SELECT rolname, rolsuper AS is_superuser, rolbypassrls AS bypasses_rls
+FROM pg_roles WHERE rolname = :'app_role';
+-- Hard stop if the role could still bypass RLS (ON_ERROR_STOP aborts the run).
+-- (A row-dependent failing cast, not a constant like 1/0: the planner would
+-- fold a constant and raise even when this branch is never taken.)
+SELECT CASE WHEN rolsuper OR rolbypassrls
+            THEN ('UNSAFE ROLE ' || rolname || ' CAN BYPASS RLS')::int::text
+            ELSE 'OK: ' || rolname || ' cannot bypass RLS' END AS rls_role_check
 FROM pg_roles WHERE rolname = :'app_role';
