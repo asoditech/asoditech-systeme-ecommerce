@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { resolveSupportContext } from "@/lib/support/context";
 import { SupportQuickActions } from "@/components/support/support-quick-actions";
 import { SupportContactSection } from "@/components/support/support-contact-section";
+import { OPEN_SUPPORT_EVENT } from "@/lib/support/open-support";
 
 export interface SupportWidgetConfig {
   name: string | null;
@@ -50,6 +51,14 @@ export function SupportWidget({
     setLastPath(pathname);
     if (open) setOpen(false);
   }
+
+  // Opened from elsewhere in the shell (announcement bar « Contacter le
+  // support », src/lib/support/open-support.ts) — same panel, same flow.
+  useEffect(() => {
+    const onOpen = () => setOpen(true);
+    window.addEventListener(OPEN_SUPPORT_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_SUPPORT_EVENT, onOpen);
+  }, []);
 
   // Close on Escape.
   useEffect(() => {

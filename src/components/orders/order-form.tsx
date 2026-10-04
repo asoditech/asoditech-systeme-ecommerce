@@ -125,7 +125,23 @@ export function OrderForm({
     }, 120);
     return () => clearTimeout(t);
   }, [productQuery]);
-  const visibleProductResults = productQuery.trim().length >= 2 ? productResults : [];
+  // Initial list shown when the picker is opened with an empty query: the
+  // first active products by name, fetched once on first open (never on page
+  // load). Typing 2+ characters switches to the normal search below.
+  const [initialProducts, setInitialProducts] = React.useState<ProductWithVariations[] | null>(null);
+  const [initialProductsLoading, setInitialProductsLoading] = React.useState(false);
+  function openProductPicker(open: boolean) {
+    setProductOpen(open);
+    if (!open || initialProducts !== null || initialProductsLoading) return;
+    setInitialProductsLoading(true);
+    searchProductsForOrderAction("")
+      .then(setInitialProducts)
+      .catch(() => setInitialProducts([]))
+      .finally(() => setInitialProductsLoading(false));
+  }
+  const productQueryEmpty = productQuery.trim().length === 0;
+  const visibleProductResults =
+    productQuery.trim().length >= 2 ? productResults : productQueryEmpty ? (initialProducts ?? []) : [];
 
   function addProductLine(product: ProductWithVariations, variation?: ProductVariation) {
     setItems((prev) => [
@@ -367,7 +383,7 @@ export function OrderForm({
           <CardTitle>Articles</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Popover open={productOpen} onOpenChange={setProductOpen}>
+          <Popover open={productOpen} onOpenChange={openProductPicker}>
             <PopoverTrigger render={<Button type="button" variant="outline" />}>
               <Plus className="size-4" />
               Ajouter un produit
@@ -411,8 +427,11 @@ export function OrderForm({
                     </button>
                   )
                 )}
-                {productSearching && (
+                {(productSearching || (productQueryEmpty && initialProductsLoading)) && (
                   <p className="px-2 py-1.5 text-sm text-muted-foreground">Recherche...</p>
+                )}
+                {productQueryEmpty && initialProducts !== null && initialProducts.length === 0 && (
+                  <p className="px-2 py-1.5 text-sm text-muted-foreground">Aucun produit actif.</p>
                 )}
                 {!productSearching && productQuery.trim().length >= 2 && visibleProductResults.length === 0 && (
                   <p className="px-2 py-1.5 text-sm text-muted-foreground">Aucun produit actif trouvé.</p>

@@ -114,7 +114,9 @@ export async function getOrderDetail(id: string) {
           // Lead photo only — ProductImage has no per-variation image, so
           // a variation line's preview also uses its parent product's.
           product: { include: { images: { take: 1, orderBy: { position: "asc" } } } },
-          variation: true,
+          // Parent gallery too: a variation line falls back to it when the
+          // variation has no image of its own (src/lib/catalog/unit-image.ts).
+          variation: { include: { product: { select: { images: { take: 1, orderBy: { position: "asc" } } } } } },
         },
       },
       refunds: { orderBy: { createdAt: "desc" } },

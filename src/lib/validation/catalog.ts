@@ -34,6 +34,7 @@ export const setProductChannelsSchema = z.object({
 });
 
 export const lookupQuerySchema = z.object({
-  query: z.string().trim().min(1).max(100),
+  // Empty = the reception picker's initial list (first active units by name).
+  query: z.string().trim().max(100),
   channelId: z.string().min(1).nullish(),
 });

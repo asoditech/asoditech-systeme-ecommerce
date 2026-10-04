@@ -35,6 +35,7 @@ export default async function ModifierReceptionPage({ params }: { params: Promis
           suppliers={suppliers}
           warehouses={warehouses.map((w) => ({ id: w.id, name: w.name, type: w.type }))}
           canCreateSupplier={userHasPermission(user, "suppliers.manage")}
+          canCreateProduct={userHasPermission(user, "products.create")}
           showPurchasePrices={showPrices}
           reception={{
             id: r.id,

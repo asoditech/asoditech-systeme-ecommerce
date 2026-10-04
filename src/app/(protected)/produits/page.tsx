@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Download, Package, Plus } from "lucide-react";
+import { Download, Package, PackagePlus, Plus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
@@ -107,6 +107,13 @@ export default async function ProduitsPage({
               <Button variant="outline" render={<Link href="/produits/exporter" />}>
                 <Download className="size-4" />
                 Exporter CSV
+              </Button>
+            )}
+            {/* Plain link to the ordinary new-reception page (that page enforces purchases.create). */}
+            {userHasPermission(user, "purchases.create") && (
+              <Button variant="outline" render={<Link href="/receptions/nouveau" />}>
+                <PackagePlus className="size-4" />
+                Nouvelle réception
               </Button>
             )}
             {userHasPermission(user, "products.create") && (

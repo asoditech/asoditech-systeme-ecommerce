@@ -1,10 +1,17 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { createProductAction, updateProductAction, createCategoryAction } from "@/actions/products";
+import {
+  createProductAction,
+  updateProductAction,
+  createCategoryAction,
+  suggestProductSkuAction,
+  suggestProductReferenceAction,
+} from "@/actions/products";
 import { productCreateRedirectPath } from "@/lib/catalog/variations";
+import { generatedValueAction } from "@/lib/catalog/sku-suggestion";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
 import { gs1CheckDigitWarning } from "@/lib/catalog/gs1";
 import { Button } from "@/components/ui/button";
@@ -17,7 +24,17 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Field, FieldError, FieldHint } from "@/components/ui/field";
 import { FormActions, FormSection, FormSectionGroup } from "@/components/form-section";
 import { ProductThumb } from "@/components/products/product-thumb";
-import { Globe, Plus, Store } from "lucide-react";
+import { Globe, Plus, Sparkles, Store } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { PRODUCT_STATUS_LABELS } from "@/lib/status-labels";
 import type { Product, Category } from "@prisma/client";
@@ -94,6 +111,47 @@ export function ProductForm({
   // the identity panel's barcode fields — a hardware scanner or manual typing
   // keeps working unchanged either way.
   const [barcode, setBarcode] = useState("");
+  // SKU / model reference are controlled so « Générer » (creation only) can
+  // fill them; the user can always edit the suggestion. A non-empty value is
+  // never replaced without an explicit confirmation.
+  const [sku, setSku] = useState(product?.sku ?? "");
+  const [reference, setReference] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
+  const [generating, setGenerating] = useState<"sku" | "reference" | null>(null);
+  const [replaceAsk, setReplaceAsk] = useState<{ field: "sku" | "reference"; current: string; value: string } | null>(null);
+
+  function applyGenerated(field: "sku" | "reference", value: string) {
+    if (field === "sku") setSku(value);
+    else setReference(value);
+  }
+
+  async function generate(field: "sku" | "reference") {
+    const nameInput = formRef.current?.elements.namedItem("name");
+    const name = nameInput instanceof HTMLInputElement ? nameInput.value : "";
+    setGenerating(field);
+    const result = field === "sku" ? await suggestProductSkuAction({ name }) : await suggestProductReferenceAction({ name });
+    setGenerating(null);
+    if (!result.ok) return toast.error(result.error);
+    const current = field === "sku" ? sku : reference;
+    const next = generatedValueAction(current, result.data.value);
+    if (next === "confirm") setReplaceAsk({ field, current: current.trim(), value: result.data.value });
+    else if (next === "fill") applyGenerated(field, result.data.value);
+  }
+
+  const generateButton = (field: "sku" | "reference") =>
+    !product && (
+      <Button
+        type="button"
+        variant="outline"
+        loading={generating === field}
+        disabled={generating !== null}
+        onClick={() => void generate(field)}
+        title={field === "sku" ? "Proposer un SKU libre à partir du nom" : "Proposer une référence à partir du nom"}
+      >
+        {generating !== field && <Sparkles className="size-4" />}
+        Générer
+      </Button>
+    );
   const [checkedChannels, setCheckedChannels] = useState<Set<string>>(
     new Set(channels.filter((c) => c.isDefault).map((c) => c.id))
   );
@@ -140,20 +198,46 @@ export function ProductForm({
       <Label htmlFor="sku" required>
         SKU
       </Label>
-      <Input
-        id="sku"
-        name="sku"
-        required
-        defaultValue={product?.sku}
-        className="font-mono"
-        aria-invalid={Boolean(state && !state.ok && state.fieldErrors?.sku) || undefined}
-      />
+      <div className="flex gap-2">
+        <Input
+          id="sku"
+          name="sku"
+          required
+          value={sku}
+          onChange={(e) => setSku(e.target.value)}
+          className="flex-1 font-mono"
+          aria-invalid={Boolean(state && !state.ok && state.fieldErrors?.sku) || undefined}
+        />
+        {generateButton("sku")}
+      </div>
       <FieldError>{state && !state.ok ? state.fieldErrors?.sku?.[0] : undefined}</FieldError>
     </Field>
   );
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form ref={formRef} action={formAction} className="space-y-4">
+      <AlertDialog open={replaceAsk !== null} onOpenChange={(open) => !open && setReplaceAsk(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remplacer la valeur actuelle ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {replaceAsk?.field === "sku" ? "SKU" : "Référence"} : « {replaceAsk?.current} » sera remplacé par « {replaceAsk?.value} ».
+              Vous pourrez encore le modifier avant d&apos;enregistrer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (replaceAsk) applyGenerated(replaceAsk.field, replaceAsk.value);
+                setReplaceAsk(null);
+              }}
+            >
+              Remplacer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {product && <input type="hidden" name="id" value={product.id} />}
       <Card>
         <CardContent>
@@ -193,7 +277,17 @@ export function ProductForm({
                   {skuField}
                   <Field>
                     <Label htmlFor="reference">Référence du modèle</Label>
-                    <Input id="reference" name="reference" placeholder="Ex. SKOUBA" />
+                    <div className="flex gap-2">
+                      <Input
+                        id="reference"
+                        name="reference"
+                        placeholder="Ex. SKOUBA"
+                        value={reference}
+                        onChange={(e) => setReference(e.target.value)}
+                        className="flex-1"
+                      />
+                      {generateButton("reference")}
+                    </div>
                   </Field>
                   <Field>
                     <Label htmlFor="barcode">Code-barres</Label>

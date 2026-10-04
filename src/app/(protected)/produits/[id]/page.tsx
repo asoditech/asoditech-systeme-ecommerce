@@ -18,6 +18,7 @@ import {
   PiggyBank,
   Package,
   Info,
+  PackagePlus,
   type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -235,6 +236,10 @@ export default async function ProduitDetailPage({
   ]);
   const economics = canViewFinance ? unitEconomics(product.price, product.cost) : null;
   const canEdit = userHasPermission(user, "products.edit");
+  // « Recevoir du stock »: a plain link to the ordinary new-reception page —
+  // nothing is pre-selected or written; that page enforces purchases.create and
+  // stock only moves when the operator submits and validates a reception.
+  const canReceive = userHasPermission(user, "purchases.create");
   const totalStock = product.inventoryItems.reduce((sum, i) => sum + i.quantityOnHand, 0);
 
   // Batch 13 (Product Publishing) — connected external channels this
@@ -353,6 +358,12 @@ export default async function ProduitDetailPage({
               >
                 Modifier sur {externalLabel}
                 <ExternalLink className="size-4" />
+              </Button>
+            )}
+            {canReceive && (
+              <Button variant="outline" render={<Link href="/receptions/nouveau" />}>
+                <PackagePlus className="size-4" />
+                Recevoir du stock
               </Button>
             )}
             {canEdit && !isExternal && (

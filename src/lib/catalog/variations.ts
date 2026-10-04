@@ -73,7 +73,7 @@ export function attributesKey(attributes: Record<string, unknown>): string {
 
 /** "Chaussures Homme" → "CHAUSSURES-HOMME"-style fold, reused by the SKU
  * suggestion below — accent-stripped, uppercased, non-alphanumerics → "-". */
-function skuFold(value: string): string {
+export function skuFold(value: string): string {
   return value
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")

@@ -237,3 +237,23 @@ export async function lookupSellableUnits(db: Db, rawQuery: string, opts: Lookup
   for (const p of partial) out.push(...unitsOf(p, "partial", { onlyActive: opts.onlyActive }));
   return out.slice(0, limit);
 }
+
+/**
+ * The first sellable units with NO search text — the picker's initial list
+ * when it is opened empty. Same product filter (active / channel), same
+ * expansion and serialization as `lookupSellableUnits`; fixed order (name,
+ * then id) and a hard cap, never the whole catalogue. Tagged "partial" so an
+ * exact-match shortcut (scanner auto-add) can never fire on this list.
+ */
+export async function listSellableUnits(db: Db, opts: LookupOptions = {}): Promise<SellableUnit[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 20, 1), 50);
+  const products = await db.product.findMany({
+    where: baseProductWhere(opts),
+    include: productInclude,
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+    take: limit,
+  });
+  const out: SellableUnit[] = [];
+  for (const p of products) out.push(...unitsOf(p, "partial", { onlyActive: opts.onlyActive }));
+  return out.slice(0, limit);
+}

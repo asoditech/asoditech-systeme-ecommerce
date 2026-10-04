@@ -7,6 +7,7 @@ import { userHasPermission } from "@/lib/auth/permissions";
 import { displayOrderNumber, displaySaleNumber } from "@/lib/format";
 import { saleChannelWhere } from "@/lib/auth/channel-access";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
+import { productQuickActions, type QuickSearchAction } from "@/lib/catalog/quick-actions";
 
 export interface QuickSearchResult {
   id: string;
@@ -14,6 +15,8 @@ export interface QuickSearchResult {
   title: string;
   subtitle: string;
   href: string;
+  /** Product results only: the actions this user may run — computed here, on the server. */
+  actions?: QuickSearchAction[];
 }
 
 /** Global command-palette search, scoped to what the current user is allowed to see. */
@@ -49,6 +52,7 @@ export async function quickSearchAction(query: string): Promise<QuickSearchResul
   if (userHasPermission(user, "products.view")) {
     const products = await prisma.product.findMany({
       where: { OR: productSearchWhere(trimmed) },
+      include: { _count: { select: { variations: true } } },
       take: 5,
     });
     results.push(
@@ -58,6 +62,7 @@ export async function quickSearchAction(query: string): Promise<QuickSearchResul
         title: p.name,
         subtitle: p.sku,
         href: `/produits/${p.id}`,
+        actions: productQuickActions(user, { id: p.id, sku: p.sku, variationCount: p._count.variations }),
       }))
     );
   }

@@ -11,6 +11,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
+import { useDismissOnOutside } from "@/lib/use-dismiss-on-outside";
 import { formatCurrency } from "@/lib/format";
 import { CASH_PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
 
@@ -73,6 +74,23 @@ export function SaleForm({
   const [customerLabel, setCustomerLabel] = useState("");
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SaleLookupResult[]>([]);
+  // true while `hits` holds the empty-query initial list (see `browse`).
+  const [browsing, setBrowsing] = useState(false);
+  // Bumped on every dismissal, so a late initial-list response is dropped.
+  const browseSeq = useRef(0);
+  function closeBrowse() {
+    browseSeq.current += 1;
+    if (!browsing) return;
+    setBrowsing(false);
+    setHits([]);
+  }
+  // A press outside the field + list (or Escape) hides the list — initial list or search results.
+  const pickerRef = useRef<HTMLDivElement>(null);
+  useDismissOnOutside(pickerRef, hits.length > 0 || browsing, () => {
+    browseSeq.current += 1;
+    setBrowsing(false);
+    setHits([]);
+  });
   const [lines, setLines] = useState<Line[]>([]);
   const [payments, setPayments] = useState<Pay[]>([]);
 
@@ -97,6 +115,7 @@ export function SaleForm({
       return [...prev, { key, productId: u.productId, variationId: u.variationId, label: `${u.name}${u.variantLabel ? ` — ${u.variantLabel}` : ""}`, sku: u.sku, quantity: 1, defaultPrice: u.price, unitPrice: u.price, discount: 0, available: h.available }];
     });
     setHits([]);
+    setBrowsing(false);
     setQuery("");
   }
 
@@ -112,6 +131,24 @@ export function SaleForm({
     // A scanner types the code then presses Enter → exact hit goes straight into the cart.
     if (found.length === 1 && found[0].unit.matchedBy !== "partial") addUnit(found[0]);
     else setHits(found);
+  }
+
+  // Initial list: clicking the EMPTY field (or ArrowDown) shows the first
+  // sellable units of the selected channel/location — never on autofocus, so
+  // a scanner-first counter still opens on a quiet, focused field. Typing,
+  // adding an item or changing channel/location dismisses it; Enter /
+  // « Chercher » keep the unchanged search above.
+  async function browse() {
+    if (query.trim() || !channelId || !warehouseId || hits.length > 0) return;
+    const seq = ++browseSeq.current;
+    setBrowsing(true);
+    const found = await lookupForSaleAction({ query: "", salesChannelId: channelId, warehouseId });
+    if (seq !== browseSeq.current) return; // dismissed (typing / context change) while loading
+    if (found.length === 0) {
+      setBrowsing(false);
+      return toast.info("Aucun article disponible sur ce canal.");
+    }
+    setHits(found);
   }
 
   function onCameraDetect(code: string) {
@@ -164,6 +201,7 @@ export function SaleForm({
                   setChannelId(e.target.value);
                   setWarehouseId(locationsByChannel[e.target.value]?.[0]?.id ?? "");
                   setLines([]);
+                  closeBrowse();
                 }}
               >
                 {channels.map((c) => (
@@ -175,7 +213,7 @@ export function SaleForm({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="sale-wh">Emplacement</Label>
-              <NativeSelect id="sale-wh" value={warehouseId} onChange={(e) => { setWarehouseId(e.target.value); setLines([]); }}>
+              <NativeSelect id="sale-wh" value={warehouseId} onChange={(e) => { setWarehouseId(e.target.value); setLines([]); closeBrowse(); }}>
                 {locations.map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
@@ -195,17 +233,25 @@ export function SaleForm({
             <CardTitle>Articles</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            <div ref={pickerRef} className="space-y-3">
             <div className="flex flex-col gap-2 sm:flex-row">
               <Input
                 autoFocus
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  closeBrowse();
+                }}
+                onClick={() => void browse()}
                 placeholder={narrow ? "Code-barres, réf., nom…" : "Scanner un code-barres ou saisir référence / nom…"}
                 aria-label="Rechercher un article"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
+                    closeBrowse();
                     void search();
+                  } else if (e.key === "ArrowDown") {
+                    void browse();
                   }
                 }}
               />
@@ -233,6 +279,7 @@ export function SaleForm({
                 ))}
               </ul>
             )}
+            </div>
 
             {lines.length === 0 ? (
               <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed bg-muted/30 py-8 text-center text-sm text-muted-foreground">

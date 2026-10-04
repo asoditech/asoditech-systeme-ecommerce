@@ -10,7 +10,7 @@ import { requireChannelAccessForAction, saleChannelWhere } from "@/lib/auth/chan
 import { recordAuditEvent } from "@/lib/audit";
 import { applyStockMovement, applySaleReturnLine, InsufficientStockError } from "@/lib/inventory";
 import { isProductAvailableOnChannel } from "@/lib/channels";
-import { lookupSellableUnits, toSellerSafeUnit, variantLabel, type SellerSafeUnit } from "@/lib/catalog/lookup";
+import { listSellableUnits, lookupSellableUnits, toSellerSafeUnit, variantLabel, type SellerSafeUnit } from "@/lib/catalog/lookup";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
@@ -106,7 +106,11 @@ export async function lookupForSaleAction(input: {
   const ctx = await resolveSaleContext(user, parsed.data.salesChannelId, parsed.data.warehouseId);
   if (!ctx.ok) return [];
 
-  const units = await lookupSellableUnits(prisma, parsed.data.query, { channelId: ctx.channelId, onlyActive: true, limit: 12 });
+  // Empty query = the picker's initial list (first 20 units on this channel,
+  // by name); otherwise the unchanged search (barcode → SKU → partial).
+  const units = parsed.data.query
+    ? await lookupSellableUnits(prisma, parsed.data.query, { channelId: ctx.channelId, onlyActive: true, limit: 12 })
+    : await listSellableUnits(prisma, { channelId: ctx.channelId, onlyActive: true, limit: 20 });
   if (units.length === 0) return [];
   const items = await prisma.inventoryItem.findMany({
     where: {

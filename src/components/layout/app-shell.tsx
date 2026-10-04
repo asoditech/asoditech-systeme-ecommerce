@@ -10,8 +10,11 @@ import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { UserMenu } from "@/components/layout/user-menu";
 import { BrandMark } from "@/components/brand-mark";
 import { SupportWidget } from "@/components/support/support-widget";
+import { AnnouncementBar } from "@/components/layout/announcement-bar";
 import { getRecentNotifications } from "@/lib/queries/notifications";
 import { getSupportConfig } from "@/lib/queries/support";
+import { getActiveAnnouncement } from "@/lib/queries/announcements";
+import { ANNOUNCEMENT_DISMISS_COOKIE, parseDismissedCookie } from "@/lib/announcements";
 import { aiQuestionsForUser } from "@/lib/ai/tools";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { USER_ROLE_LABELS } from "@/lib/status-labels";
@@ -22,14 +25,18 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
   // scope — docs/adr/0039), so the sidebar shows exactly what the server
   // will actually allow.
   const permissions = new Set(user.permissions);
-  const [{ items, unreadCount }, supportConfig] = await Promise.all([
+  const cookieStore = await cookies();
+  const [{ items, unreadCount }, supportConfig, announcement] = await Promise.all([
     getRecentNotifications(user.id),
     getSupportConfig(),
+    // Platform announcement (docs/adr/0059): the one live announcement this
+    // browser hasn't dismissed — null renders nothing at all.
+    getActiveAnnouncement(parseDismissedCookie(cookieStore.get(ANNOUNCEMENT_DISMISS_COOKIE)?.value)),
   ]);
   const canUseAi = userHasPermission(user, "ai.use");
   // Server-read so the very first paint already reflects the viewer's
   // saved sidebar-collapse preference — no client-only effect, no flash.
-  const sidebarCollapsed = (await cookies()).get("sidebar-collapsed")?.value === "1";
+  const sidebarCollapsed = cookieStore.get("sidebar-collapsed")?.value === "1";
 
   return (
     <SidebarShell permissions={permissions} defaultCollapsed={sidebarCollapsed}>
@@ -49,6 +56,8 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
           <UserMenu name={user.name} role={USER_ROLE_LABELS[user.role]} />
         </div>
       </header>
+      {/* Keyed by id + last edit: a different (or edited) announcement remounts the bar, so a previous dismissal's local state never hides it. */}
+      {announcement && <AnnouncementBar key={announcement.key} announcement={announcement} />}
       {/* pb clears the fixed IntegrationsFooter (h-9) so nothing hides behind it */}
       <main className="flex-1 overflow-y-auto p-4 pb-14 [scrollbar-gutter:stable] md:p-6 md:pb-16">
         <div className="mx-auto w-full max-w-[1600px]">{children}</div>

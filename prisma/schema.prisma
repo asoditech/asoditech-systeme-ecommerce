@@ -220,6 +220,41 @@ model Plan {
   @@map("plans")
 }
 
+enum AnnouncementType {
+  INFO
+  MAINTENANCE
+  NEW_FEATURE
+}
+
+// Platform announcement bar (docs/adr/0059) — a PLATFORM-level message
+// broadcast to every tenant's app shell, like `Plan` a global row with NO
+// `tenantId` (so neither the tenant extension nor RLS scopes it). Only a
+// platform admin writes it (src/actions/announcements.ts,
+// requirePlatformAdminForAction); tenant users only read the currently live
+// one. Dismissal is per browser (a cookie), never stored here.
+model PlatformAnnouncement {
+  id          String           @id @default(cuid())
+  message     String
+  type        AnnouncementType @default(INFO)
+  // Shown only when published AND inside the optional [startsAt, endsAt) window.
+  isPublished Boolean          @default(false)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  // Optional call-to-action: an in-app path ("/...") or an https:// URL,
+  // validated on write (src/lib/announcements.ts) and again on render.
+  actionLabel String?
+  actionUrl   String?
+  // Plain ids (no FK): the author may be deleted later; the audit log keeps the history.
+  createdById String?
+  updatedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isPublished])
+  @@map("platform_announcements")
+}
+
 // Deliberately separate from `Tenant.status` (ACTIVE/SUSPENDED,
 // docs/adr/0027) — that flag is the hard login/access gate; this is a
 // commercial/billing state that does NOT by itself block anything. A

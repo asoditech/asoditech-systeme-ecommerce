@@ -69,7 +69,8 @@ export const createSaleReturnSchema = z
 export type CreateSaleReturnInput = z.input<typeof createSaleReturnSchema>;
 
 export const lookupForSaleSchema = z.object({
-  query: z.string().trim().min(1).max(100),
+  // Empty = the picker's initial list (first sellable units on the channel).
+  query: z.string().trim().max(100),
   salesChannelId: z.string().min(1),
   warehouseId: z.string().min(1),
 });

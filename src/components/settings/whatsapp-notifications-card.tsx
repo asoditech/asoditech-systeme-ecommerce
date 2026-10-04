@@ -193,18 +193,31 @@ export function WhatsAppNotificationsCard({
           <div className="space-y-3 rounded-lg border border-dashed border-border px-3 py-3">
             <div>
               <p className="text-sm font-medium">Vérification</p>
-              <p className="text-xs text-muted-foreground">
-                Un code à 6 chiffres est envoyé sur ce numéro WhatsApp pour confirmer qu&apos;il vous appartient.
-              </p>
+              {channelAvailable ? (
+                <p className="text-xs text-muted-foreground">
+                  Un code à 6 chiffres vous est envoyé <strong>dans WhatsApp</strong>, par le numéro WhatsApp
+                  d&apos;ASODITECH, sur <span className="font-mono">{maskedPhone}</span>. Saisissez-le ci-dessous dans
+                  « Code reçu » pour confirmer que ce numéro vous appartient.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  La vérification ne peut pas être lancée pour le moment : le canal WhatsApp n&apos;est pas configuré
+                  ou pas activé (voir ci-dessus). Aucun code ne peut être envoyé tant qu&apos;il n&apos;est pas
+                  disponible.
+                </p>
+              )}
             </div>
-            <Button
-              type="button"
-              size="sm"
-              disabled={isPending || !channelAvailable}
-              onClick={() => run(requestMyWhatsAppVerificationAction, "Code envoyé sur WhatsApp.")}
-            >
-              {codePending ? "Renvoyer le code" : "Vérifier le numéro"}
-            </Button>
+            {/* Only offered when a code can actually be sent — never a dead-end button. */}
+            {channelAvailable && (
+              <Button
+                type="button"
+                size="sm"
+                disabled={isPending}
+                onClick={() => run(requestMyWhatsAppVerificationAction, `Code envoyé dans WhatsApp sur ${maskedPhone}.`)}
+              >
+                {codePending ? "Renvoyer le code" : "Vérifier le numéro"}
+              </Button>
+            )}
             {codePending && (
               <form className="flex flex-wrap items-end gap-2" action={(fd) => run(() => verifyMyWhatsAppCodeAction(fd), "Numéro vérifié.")}>
                 <div className="w-40 space-y-1.5">
@@ -222,6 +235,11 @@ export function WhatsAppNotificationsCard({
                 <Button type="submit" size="sm" disabled={isPending}>
                   Confirmer
                 </Button>
+                <p className="w-full text-xs text-muted-foreground">
+                  Le code arrive dans la conversation WhatsApp d&apos;ASODITECH sur {maskedPhone} et reste valable
+                  quelques minutes.
+                  {channelAvailable && " Rien reçu ? Vérifiez le numéro (« Modifier »), puis « Renvoyer le code »."}
+                </p>
               </form>
             )}
           </div>

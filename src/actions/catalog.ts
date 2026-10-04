@@ -7,7 +7,7 @@ import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { requireCapabilityForAction } from "@/lib/auth/capabilities";
 import { recordAuditEvent } from "@/lib/audit";
 import { addBarcode, removeBarcode, setPrimaryBarcode, BarcodeError } from "@/lib/catalog/barcodes";
-import { lookupSellableUnits, toSellerSafeUnit, type SellableUnit } from "@/lib/catalog/lookup";
+import { listSellableUnits, lookupSellableUnits, toSellerSafeUnit, type SellableUnit } from "@/lib/catalog/lookup";
 import {
   addBarcodeSchema,
   barcodeIdSchema,
@@ -198,7 +198,12 @@ export async function lookupSellableUnitsAction(input: {
   requireCapabilityForAction(user, "catalogIdentity");
   const parsed = lookupQuerySchema.safeParse(input);
   if (!parsed.success) return [];
-  const units = await lookupSellableUnits(prisma, parsed.data.query, { channelId: parsed.data.channelId ?? null, onlyActive: false });
+  // Empty query = the picker's initial list: the first 20 ACTIVE units by
+  // name (archived products stay reachable by typing, as before). Otherwise
+  // the unchanged search, archived included (onlyActive: false).
+  const units = parsed.data.query
+    ? await lookupSellableUnits(prisma, parsed.data.query, { channelId: parsed.data.channelId ?? null, onlyActive: false })
+    : await listSellableUnits(prisma, { channelId: parsed.data.channelId ?? null, onlyActive: true, limit: 20 });
   // Phase 4B (docs/adr/0043): the purchase cost reaches the browser only for
   // a `finance.view` holder. Same response shape for everyone — `cost: null`
   // otherwise — so the reception form simply starts its price field at 0.

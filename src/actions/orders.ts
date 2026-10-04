@@ -162,17 +162,20 @@ export async function searchProductsForOrderAction(query: string) {
   // it reaches the browser only for a `finance.view` holder. Same response
   // shape for everyone (`cost: null` otherwise).
   const canSeeCost = productCostVisibility(user).cost;
-  if (query.trim().length < 2) return [];
+  const q = query.trim();
+  // Empty = the picker's initial list (first 20 active products by name);
+  // 1 character = still nothing, as before; 2+ = the unchanged search.
+  if (q.length === 1) return [];
   const products = await prisma.product.findMany({
     where: {
       status: "ACTIF",
       // Same predicate as the product list (docs/adr/0038): name, SKU, model
       // reference, variation SKU and barcodes — a scanned code or a variant
       // SKU finds its parent product.
-      OR: productSearchWhere(query.trim()),
+      ...(q ? { OR: productSearchWhere(q) } : {}),
     },
     include: { variations: true },
-    take: 8,
+    ...(q ? { take: 8 } : { orderBy: [{ name: "asc" as const }, { id: "asc" as const }], take: 20 }),
   });
 
   // Decimal fields aren't serializable across the Server Action boundary —

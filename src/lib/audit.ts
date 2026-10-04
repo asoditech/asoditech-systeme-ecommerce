@@ -133,6 +133,12 @@ export type AuditAction =
   | "support.ticket_created"
   | "plan.assigned"
   | "plan.changed"
+  // Platform announcement bar (docs/adr/0059) — platform-admin only.
+  | "announcement.created"
+  | "announcement.updated"
+  | "announcement.published"
+  | "announcement.unpublished"
+  | "announcement.deleted"
   | "subscription.activated"
   | "subscription.suspended"
   | "subscription.canceled"

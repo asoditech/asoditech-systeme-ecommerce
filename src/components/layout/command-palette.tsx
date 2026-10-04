@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Search, Users, Package, ShoppingCart, LayoutDashboard, Store, Truck } from "lucide-react";
+import { Search, Users, Package, ShoppingCart, LayoutDashboard, Store, Truck, ScanSearch, Printer, PackagePlus } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -27,6 +27,7 @@ const QUICK_LINKS: { label: string; href: string; permission: Permission | Permi
 ];
 
 const TYPE_ICON = { customer: Users, product: Package, order: ShoppingCart, sale: Store, supplier: Truck } as const;
+const ACTION_ICON = { open: Package, trace: ScanSearch, label: Printer, receive: PackagePlus } as const;
 
 export function CommandPalette({ permissions }: { permissions: Set<Permission> }) {
   const [open, setOpen] = React.useState(false);
@@ -57,6 +58,12 @@ export function CommandPalette({ permissions }: { permissions: Set<Permission> }
   }, [query]);
   // Query too short for a server round-trip — don't show stale results from a longer query.
   const visibleResults = query.trim().length >= 2 ? results : [];
+  // A product with server-computed actions gets its own group (one row per
+  // action, reachable with the arrow keys like any other entry); every other
+  // result stays a single row. The actions are already permission-filtered by
+  // quickSearchAction, and each target page re-checks on the server.
+  const rowResults = visibleResults.filter((r) => !r.actions?.length);
+  const productGroups = visibleResults.filter((r) => r.actions?.length);
 
   function go(href: string) {
     setOpen(false);
@@ -103,9 +110,24 @@ export function CommandPalette({ permissions }: { permissions: Set<Permission> }
           {query.trim().length >= 2 && !isPending && visibleResults.length === 0 && (
             <CommandEmpty>Aucun résultat.</CommandEmpty>
           )}
-          {visibleResults.length > 0 && (
+          {productGroups.map((r) => (
+            <CommandGroup key={`${r.type}-${r.id}`} heading={`${r.title} · ${r.subtitle}`}>
+              {r.actions!.map((a) => {
+                const Icon = ACTION_ICON[a.kind];
+                return (
+                  // Same leading text for every action of the product, so the
+                  // palette's own filter keeps (and keeps ordering) the group as one.
+                  <CommandItem key={a.kind} value={`${r.title} ${r.subtitle} — ${a.label}`} onSelect={() => go(a.href)}>
+                    <Icon className="size-4" />
+                    <span>{a.label}</span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          ))}
+          {rowResults.length > 0 && (
             <CommandGroup heading="Résultats">
-              {visibleResults.map((r) => {
+              {rowResults.map((r) => {
                 const Icon = TYPE_ICON[r.type];
                 return (
                   <CommandItem key={`${r.type}-${r.id}`} onSelect={() => go(r.href)}>

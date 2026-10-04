@@ -7,6 +7,7 @@ import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import type { Permission } from "@/lib/auth/permissions";
 import { addBarcodeInTx, assertSkuFreeOfBarcodeAndSiblings, BarcodeError } from "@/lib/catalog/barcodes";
 import { generateAttributeCombinations, attributesKey, suggestVariationSku } from "@/lib/catalog/variations";
+import { nextSequencedCode, productReferenceBase, productSkuBase } from "@/lib/catalog/sku-suggestion";
 import { ensureDefaultOnlineChannel } from "@/lib/channels";
 import { recordAuditEvent } from "@/lib/audit";
 import { getDefaultWarehouseId } from "@/lib/inventory";
@@ -79,6 +80,52 @@ function slugifyCategoryName(name: string): string {
 
 function normalizeOptional(value: string | null | undefined): string | null {
   return value && value.trim().length > 0 ? value.trim() : null;
+}
+
+/**
+ * « Générer » next to the SKU field (product creation): the next free
+ * `SKU-NAMECODE-NNNN` in THIS tenant (src/lib/catalog/sku-suggestion.ts).
+ * Read-only — a suggestion the user can edit; `createProductAction`'s own
+ * uniqueness check stays authoritative (a SKU taken in between is refused there).
+ * Codes already used by products, variations or barcodes count as taken.
+ */
+export async function suggestProductSkuAction(input: { name: string }): Promise<ActionResult<{ value: string }>> {
+  await requirePermissionForAction("products.create");
+  const base = productSkuBase(String(input?.name ?? "").slice(0, 200));
+  if (!base) return actionError("Saisissez d'abord le nom du produit.");
+  const prefix = { startsWith: `${base}-`, mode: "insensitive" as const };
+  const [products, variations, barcodes] = await Promise.all([
+    prisma.product.findMany({ where: { sku: prefix }, select: { sku: true } }),
+    prisma.productVariation.findMany({ where: { sku: prefix }, select: { sku: true } }),
+    prisma.barcode.findMany({ where: { code: prefix }, select: { code: true } }),
+  ]);
+  const taken = new Set([...products.map((p) => p.sku), ...variations.map((v) => v.sku), ...barcodes.map((b) => b.code)]);
+  // Belt and braces: confirm with the exact check creation will run.
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const candidate = nextSequencedCode(base, taken);
+    if (!candidate) break;
+    if ((await assertSkuFreeOfBarcodeAndSiblings(candidate)) === null) return actionOk({ value: candidate });
+    taken.add(candidate);
+  }
+  return actionError("Impossible de proposer un SKU libre. Saisissez-le manuellement.");
+}
+
+/**
+ * « Générer » next to the model reference (product creation): the next
+ * `REF-NAMECODE-NNNN` not yet used as a reference in THIS tenant. References are
+ * NOT unique (several products may share one model reference) — this only
+ * avoids proposing one already in use; nothing enforces it.
+ */
+export async function suggestProductReferenceAction(input: { name: string }): Promise<ActionResult<{ value: string }>> {
+  await requirePermissionForAction("products.create");
+  const base = productReferenceBase(String(input?.name ?? "").slice(0, 200));
+  if (!base) return actionError("Saisissez d'abord le nom du produit.");
+  const used = await prisma.product.findMany({
+    where: { reference: { startsWith: `${base}-`, mode: "insensitive" } },
+    select: { reference: true },
+  });
+  const value = nextSequencedCode(base, used.map((p) => p.reference ?? ""));
+  return value ? actionOk({ value }) : actionError("Impossible de proposer une référence. Saisissez-la manuellement.");
 }
 
 export async function createProductAction(formData: FormData): Promise<ActionResult<IdResult>> {

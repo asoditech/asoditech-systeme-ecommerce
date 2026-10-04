@@ -8,6 +8,7 @@ const ITEMS = [
   { href: "/platform", label: "Tenants" },
   { href: "/platform/plans", label: "Forfaits" },
   { href: "/platform/utilisation", label: "Utilisation" },
+  { href: "/platform/annonces", label: "Annonces" },
   { href: "/platform/sante", label: "Santé" },
 ];
 

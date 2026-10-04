@@ -172,7 +172,11 @@ export async function requestMyWhatsAppVerificationAction(): Promise<ActionResul
   const sent = await sendTemplateMessage(phone, verificationCodeTemplate(code));
   await auditOwn(user.id, sent.ok ? "verification_sent" : "verification_send_failed");
   revalidatePath("/parametres/notifications");
-  if (!sent.ok) return actionError("L'envoi du code WhatsApp a échoué. Réessayez plus tard.");
+  if (!sent.ok) {
+    return actionError(
+      "L'envoi du code WhatsApp a échoué. Vérifiez que ce numéro utilise WhatsApp, puis réessayez. Si le problème persiste, contactez votre administrateur."
+    );
+  }
   return actionOk(undefined);
 }
 

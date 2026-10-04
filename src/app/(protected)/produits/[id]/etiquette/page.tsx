@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { ensureProductQrToken, ensureVariationQrToken, scanUrl } from "@/lib/catalog/labels";
 import { variantLabel } from "@/lib/catalog/lookup";
 import { PrintableLabel } from "@/components/products/printable-label";
+import { LABEL_PRINT_CSS } from "@/lib/catalog/label-layout";
 import { Button } from "@/components/ui/button";
 
 export const metadata = { title: "Étiquette produit — ASODITECH Gestion E-commerce" };
@@ -56,6 +57,9 @@ export default async function ProductLabelPage({
 
   return (
     <div className="mx-auto max-w-md space-y-4 p-4">
+      {/* 80×50 mm print rules, scoped to this page: present only while it is mounted,
+          so A4 reports keep the global print stylesheet (src/lib/catalog/label-layout.ts). */}
+      <style>{LABEL_PRINT_CSS}</style>
       <div className="print:hidden">
         <Button variant="ghost" size="sm" render={<Link href={`/produits/${product.id}?tab=identite`} />}>
           <ArrowLeft className="size-4" />

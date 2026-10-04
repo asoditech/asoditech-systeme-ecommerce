@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/empty-state";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { StockAdjustmentDialog } from "@/components/inventory/stock-adjustment-dialog";
 import { ProductImagePreview } from "@/components/products/product-image-preview";
+import { unitImageUrl } from "@/lib/catalog/unit-image";
 import { SyncRefreshButton } from "@/components/sync-refresh-button";
 import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
 import { Button } from "@/components/ui/button";
@@ -190,8 +191,8 @@ export default async function StockPage({
                   <TableRow key={i.id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
-                        <ProductImagePreview imageUrl={product?.images[0]?.url} name={label}>
-                          <ProductThumb imageUrl={product?.images[0]?.url} className="size-9" />
+                        <ProductImagePreview imageUrl={unitImageUrl(i.variation, product?.images[0]?.url)} name={label}>
+                          <ProductThumb imageUrl={unitImageUrl(i.variation, product?.images[0]?.url)} className="size-9" />
                         </ProductImagePreview>
                         <div className="min-w-0">
                           {product ? (

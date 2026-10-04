@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PhoneActions } from "@/components/phone-actions";
+import { unitImageUrl } from "@/lib/catalog/unit-image";
 import { notFound } from "next/navigation";
 import {
   Package,
@@ -239,7 +240,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                     return (
                     <TableRow key={item.id}>
                       <TableCell>
-                        <ProductImagePreview imageUrl={item.product?.images[0]?.url} name={item.nameSnapshot}>
+                        <ProductImagePreview imageUrl={unitImageUrl(item.variation, item.product?.images[0]?.url, item.variation?.product.images[0]?.url)} name={item.nameSnapshot}>
                           {productId ? (
                             <Link
                               href={`/produits/${productId}`}

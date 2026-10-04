@@ -25,6 +25,7 @@ export default async function NouvelleReceptionPage() {
           suppliers={suppliers}
           warehouses={warehouses.map((w) => ({ id: w.id, name: w.name, type: w.type }))}
           canCreateSupplier={userHasPermission(user, "suppliers.manage")}
+          canCreateProduct={userHasPermission(user, "products.create")}
           showPurchasePrices={showPrices}
         />
       </div>

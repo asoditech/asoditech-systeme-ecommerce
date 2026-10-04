@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Search, Trash2, Plus, PackagePlus } from "lucide-react";
@@ -15,7 +15,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldHint, FieldRow } from "@/components/ui/field";
 import { FormActions, FormSection, FormSectionGroup } from "@/components/form-section";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useDismissOnOutside } from "@/lib/use-dismiss-on-outside";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
@@ -48,6 +49,7 @@ export function ReceptionForm({
   suppliers,
   warehouses,
   canCreateSupplier = false,
+  canCreateProduct = false,
   showPurchasePrices = true,
   reception,
 }: {
@@ -57,6 +59,8 @@ export function ReceptionForm({
    * next to the supplier select. A reception-only user (`purchases.create`
    * without `suppliers.manage`) never sees it — never a dead-end action. */
   canCreateSupplier?: boolean;
+  /** `products.create` — shows « Nouveau produit » (opens the product form in a NEW TAB, so this reception's unsaved input is kept). */
+  canCreateProduct?: boolean;
   /** `productCostVisibility().purchasePrices` — `purchases.view` (docs/adr/0052). false: the
    * operator types each price from the supplier's document, but no stored
    * price is ever shown — no last-purchase hint, no totals, and a draft's
@@ -116,6 +120,23 @@ export function ReceptionForm({
   const [lines, setLines] = useState<Line[]>(reception?.lines ?? []);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SellableUnit[]>([]);
+  // true while `hits` holds the empty-query initial list (see `browse`).
+  const [browsing, setBrowsing] = useState(false);
+  // Bumped on every dismissal, so a late initial-list response is dropped.
+  const browseSeq = useRef(0);
+  function closeBrowse() {
+    browseSeq.current += 1;
+    if (!browsing) return;
+    setBrowsing(false);
+    setHits([]);
+  }
+  // A press outside the field + list (or Escape) hides the list — initial list or search results.
+  const pickerRef = useRef<HTMLDivElement>(null);
+  useDismissOnOutside(pickerRef, hits.length > 0 || browsing, () => {
+    browseSeq.current += 1;
+    setBrowsing(false);
+    setHits([]);
+  });
   const [searching, setSearching] = useState(false);
 
   // Refreshes the suggestion once the supplier becomes known — but only
@@ -152,7 +173,25 @@ export function ReceptionForm({
     } else if (found.length === 0) toast.error("Aucun article trouvé.");
   }
 
+  // Initial list: clicking the EMPTY field (or ArrowDown) shows the first
+  // active units by name, to pick directly or narrow by typing. Typing or
+  // adding an item dismisses it; Enter / « Chercher » / the camera keep the
+  // unchanged search above (exact barcode/SKU still adds straight away).
+  async function browse() {
+    if (query.trim() || hits.length > 0) return;
+    const seq = ++browseSeq.current;
+    setBrowsing(true);
+    const found = await lookupSellableUnitsAction({ query: "" });
+    if (seq !== browseSeq.current) return; // dismissed while loading
+    if (found.length === 0) {
+      setBrowsing(false);
+      return toast.info("Aucun article actif dans le catalogue.");
+    }
+    setHits(found);
+  }
+
   function onCameraDetect(code: string) {
+    closeBrowse();
     setQuery(code);
     void search(code);
   }
@@ -166,6 +205,7 @@ export function ReceptionForm({
         : [...prev, { key, productId: u.variationId ? null : u.productId, variationId: u.variationId, label: `${u.name}${u.variantLabel ? ` — ${u.variantLabel}` : ""}`, sku: u.sku, quantity: 1, unitCost: showPurchasePrices ? (u.cost ?? 0) : null }]
     );
     setHits([]);
+    setBrowsing(false);
     setQuery("");
 
     // "Dernier achat" hint (Task 3A) — fetched once per new line, never
@@ -347,23 +387,44 @@ export function ReceptionForm({
         <CardHeader className="border-b">
           <CardTitle>Articles reçus</CardTitle>
           <CardDescription className="text-xs">Scannez un code-barres ou recherchez par référence / nom.</CardDescription>
+          {canCreateProduct && (
+            <CardAction>
+              <Button
+                variant="outline"
+                size="sm"
+                render={<a href="/produits/nouveau" target="_blank" rel="noopener noreferrer" />}
+                title="S'ouvre dans un nouvel onglet : cette réception reste telle quelle"
+              >
+                <Plus className="size-4" />
+                Nouveau produit
+              </Button>
+            </CardAction>
+          )}
         </CardHeader>
         <CardContent className="space-y-3">
+          <div ref={pickerRef} className="space-y-3">
           <div className="flex flex-col gap-2 sm:flex-row">
             <Input
               className="sm:flex-1"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                closeBrowse();
+              }}
+              onClick={() => void browse()}
               placeholder="Scanner un code-barres, ou saisir référence / nom…"
               aria-label="Rechercher un article"
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
+                  closeBrowse();
                   void search();
+                } else if (e.key === "ArrowDown") {
+                  void browse();
                 }
               }}
             />
-            <Button type="button" variant="outline" onClick={() => void search()} loading={searching}>
+            <Button type="button" variant="outline" onClick={() => { closeBrowse(); void search(); }} loading={searching}>
               {!searching && <Search className="size-4" />}
               Chercher
             </Button>
@@ -384,6 +445,7 @@ export function ReceptionForm({
               ))}
             </ul>
           )}
+          </div>
 
           {lines.length === 0 && (
             <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed bg-muted/30 px-4 py-8 text-sm text-muted-foreground">
