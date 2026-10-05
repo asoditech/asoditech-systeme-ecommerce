@@ -26,6 +26,7 @@ export function UserRowControls({
   email,
   role,
   businessMode,
+  sellerPriceOverride = false,
   status,
   warehouses,
   assignedWarehouseIds,
@@ -38,6 +39,8 @@ export function UserRowControls({
   role: UserRole;
   /** The tenant's business mode (docs/adr/0041) — fed to UserAccessDialog's "Accès effectif" summary. */
   businessMode: BusinessMode;
+  /** BusinessSettings.allowSellerPriceOverride — same reason. */
+  sellerPriceOverride?: boolean;
   status: UserStatus;
   warehouses: { id: string; name: string; type: WarehouseType }[];
   assignedWarehouseIds: string[];
@@ -180,7 +183,7 @@ export function UserRowControls({
           assignedWarehouseIds={assignedWarehouseIds}
         />
       )}
-      {access && <UserAccessDialog userId={userId} name={name} role={role} businessMode={businessMode} {...access} />}
+      {access && <UserAccessDialog userId={userId} name={name} role={role} businessMode={businessMode} sellerPriceOverride={sellerPriceOverride} {...access} />}
       <Button
         type="button"
         variant="ghost"

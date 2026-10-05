@@ -25,6 +25,8 @@ import {
   deliveryCityMappingIdSchema,
 } from "@/lib/validation/delivery";
 import { localCityKey } from "@/lib/integrations/delivery/city-resolution";
+import { getCitySuggestions } from "@/lib/queries/delivery-cities";
+import type { CitySuggestions } from "@/lib/delivery-cities";
 import { pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
 import { isForeignKeyConstraintError, isUniqueConstraintError } from "@/lib/prisma-errors";
 import { encryptSecret } from "@/lib/crypto";
@@ -1195,4 +1197,17 @@ export async function deleteDeliveryCityMappingAction(formData: FormData): Promi
 
   revalidatePath("/livraison");
   return actionOk({ id: existing.id });
+}
+
+/**
+ * City suggestions for the online order / customer forms (src/lib/delivery-cities.ts):
+ * the active delivery company's city list (or the « Transporteur par défaut »
+ * one when several are active), else free text. Read-only; never blocks the
+ * form — every failure comes back as free text.
+ */
+export async function getDeliveryCitySuggestionsAction(): Promise<CitySuggestions> {
+  const user = await requireUserForAction();
+  const allowed = (["orders.create", "orders.edit", "customers.create", "customers.edit"] as const).some((p) => userHasPermission(user, p));
+  if (!allowed) throw new Error("Non autorisé : saisie d'adresse de livraison non permise.");
+  return getCitySuggestions();
 }

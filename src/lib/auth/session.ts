@@ -112,7 +112,20 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
   const tokenHash = hashToken(rawToken);
   const session = await prisma.session.findUnique({
     where: { tokenHash },
-    include: { user: { include: { tenant: { select: { status: true, businessMode: true } } } } },
+    include: {
+      user: {
+        include: {
+          tenant: {
+            select: {
+              status: true,
+              businessMode: true,
+              // Company price-override toggle — read here, in the same query, for effective access.
+              businessSettings: { select: { allowSellerPriceOverride: true }, take: 1 },
+            },
+          },
+        },
+      },
+    },
   });
 
   if (!session || session.expiresAt < new Date()) {
@@ -131,7 +144,12 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
 
   const { id, email, name, role, status, tenantId, isPlatformAdmin } = session.user;
   const [access, locations] = await Promise.all([
-    loadEffectiveAccess({ id, role, businessMode: session.user.tenant.businessMode }),
+    loadEffectiveAccess({
+      id,
+      role,
+      businessMode: session.user.tenant.businessMode,
+      sellerPriceOverride: session.user.tenant.businessSettings[0]?.allowSellerPriceOverride ?? false,
+    }),
     loadLocationScope({ id, role }),
   ]);
   return { id, email, name, role, status, tenantId, isPlatformAdmin, ...access, locations };

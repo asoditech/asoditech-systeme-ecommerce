@@ -15,10 +15,12 @@ import {
 import { openSupportWidget } from "@/lib/support/open-support";
 import type { ActiveAnnouncement } from "@/lib/queries/announcements";
 
+// Solid, high-contrast top-bar colours per type (readable in light AND dark
+// mode — the same solid colours on both): a system announcement, not page text.
 const TYPE_STYLE = {
-  INFO: { icon: Info, className: "border-sky-200 bg-sky-50 text-sky-950 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-100", iconClass: "text-sky-600 dark:text-sky-300" },
-  MAINTENANCE: { icon: Wrench, className: "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100", iconClass: "text-amber-600 dark:text-amber-300" },
-  NEW_FEATURE: { icon: Sparkles, className: "border-primary/20 bg-primary/5 text-foreground dark:bg-primary/10", iconClass: "text-primary" },
+  INFO: { icon: Info, className: "bg-sky-600 text-white dark:bg-sky-700", iconClass: "text-white" },
+  MAINTENANCE: { icon: Wrench, className: "bg-amber-400 text-amber-950", iconClass: "text-amber-950" },
+  NEW_FEATURE: { icon: Sparkles, className: "bg-primary text-primary-foreground", iconClass: "text-primary-foreground" },
 } as const;
 
 function readCookie(name: string): string | null {
@@ -32,7 +34,7 @@ function readCookie(name: string): string | null {
 
 /**
  * Platform announcement bar (docs/adr/0059), rendered by the protected app
- * shell directly below the sticky header — in the normal document flow, so it
+ * shell at the very top of the content column, above the sticky header — in the normal document flow, so it
  * never overlaps the header, the page, or the global top progress bar (which
  * is a separate fixed element in the root layout). The shell renders it only
  * when an announcement is live and not dismissed in this browser: no empty
@@ -60,20 +62,23 @@ export function AnnouncementBar({ announcement }: { announcement: ActiveAnnounce
     setDismissed(true);
   }
 
+  // Actions read as small pill buttons on the coloured bar (inherit its text colour).
   const actionClass =
-    "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none";
+    "inline-flex items-center gap-1 rounded-md bg-black/10 px-2.5 py-1 text-xs font-semibold hover:bg-black/20 focus-visible:ring-2 focus-visible:ring-current focus-visible:outline-none";
 
   return (
     <section
       aria-label={`Annonce : ${ANNOUNCEMENT_TYPE_LABELS[announcement.type]}`}
       data-announcement-bar
-      className={cn("shrink-0 border-b px-3 py-2 md:px-6 print:hidden", style.className)}
+      className={cn("shrink-0 px-3 py-2 shadow-sm md:px-6 print:hidden", style.className)}
     >
       <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-x-3 gap-y-1">
         <div className="flex min-w-0 flex-1 basis-64 items-start gap-2">
           <Icon className={cn("mt-0.5 size-4 shrink-0", style.iconClass)} aria-hidden="true" />
-          <p className="min-w-0 text-sm leading-snug break-words">
-            <span className="font-semibold">{ANNOUNCEMENT_TYPE_LABELS[announcement.type]} · </span>
+          <p className="min-w-0 text-sm leading-snug font-medium break-words">
+            <span className="mr-1.5 inline-block rounded bg-black/15 px-1.5 py-px text-[11px] font-bold tracking-wide uppercase">
+              {ANNOUNCEMENT_TYPE_LABELS[announcement.type]}
+            </span>
             {announcement.message}
           </p>
         </div>
@@ -99,7 +104,7 @@ export function AnnouncementBar({ announcement }: { announcement: ActiveAnnounce
             onClick={dismiss}
             aria-label="Masquer cette annonce"
             title="Masquer cette annonce"
-            className="rounded-md p-1 opacity-70 hover:bg-black/5 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none dark:hover:bg-white/10"
+            className="rounded-md p-1 opacity-80 hover:bg-black/15 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-current focus-visible:outline-none"
           >
             <X className="size-4" aria-hidden="true" />
           </button>

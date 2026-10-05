@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
+import { variationIdsMatchingOptionValue } from "@/lib/catalog/variation-search";
 
 /**
  * Sellable-unit lookup — docs/adr/0038-online-offline-unification.md.
@@ -154,10 +155,15 @@ function unitFromVariation(p: ProductRow, v: VariationRow, matchedBy: MatchedBy)
  * (which has no variation-level active flag), so a product with SOME
  * inactive variations still returns its remaining active ones.
  */
-function unitsOf(p: ProductRow, matchedBy: MatchedBy, opts: { onlyVariationId?: string; onlyActive?: boolean } = {}): SellableUnit[] {
+function unitsOf(
+  p: ProductRow,
+  matchedBy: MatchedBy,
+  opts: { onlyVariationId?: string; onlyVariationIds?: ReadonlySet<string>; onlyActive?: boolean } = {}
+): SellableUnit[] {
   if (p.variations.length === 0) return [unitFromProduct(p, matchedBy)];
   return p.variations
     .filter((v) => (opts.onlyVariationId ? v.id === opts.onlyVariationId : true))
+    .filter((v) => (opts.onlyVariationIds ? opts.onlyVariationIds.has(v.id) : true))
     .filter((v) => (opts.onlyActive === false ? true : v.isActive))
     .map((v) => unitFromVariation(p, v, matchedBy));
 }
@@ -218,7 +224,9 @@ export async function lookupSellableUnits(db: Db, rawQuery: string, opts: Lookup
     return out.slice(0, limit);
   }
 
-  // 3. Partial — name, model reference, SKU, variation SKU.
+  // 3. Partial — name, model reference, SKU, variation SKU, and variation
+  //    OPTION VALUES ("Rouge", "XL" — src/lib/catalog/variation-search.ts).
+  const optionIds = await variationIdsMatchingOptionValue(query);
   const partial = await db.product.findMany({
     where: {
       ...base,
@@ -227,14 +235,23 @@ export async function lookupSellableUnits(db: Db, rawQuery: string, opts: Lookup
         { reference: { contains: query, mode: "insensitive" } },
         { sku: { contains: query, mode: "insensitive" } },
         { variations: { some: { sku: { contains: query, mode: "insensitive" } } } },
+        ...(optionIds.length > 0 ? [{ variations: { some: { id: { in: optionIds } } } }] : []),
       ],
     },
     include: productInclude,
     orderBy: { name: "asc" },
     take: limit,
   });
+  const optionSet = new Set(optionIds);
   const out: SellableUnit[] = [];
-  for (const p of partial) out.push(...unitsOf(p, "partial", { onlyActive: opts.onlyActive }));
+  for (const p of partial) {
+    // Matched by the PRODUCT itself (name / reference / product SKU): every
+    // unit, exactly as before. Matched through its variations (a variation SKU
+    // or an option value): just those variations ("T-shirt — Rouge / M",
+    // "Rouge / L") — so the result shows why it matched.
+    const onlyVariationIds = productLevelMatches(p, query) ? undefined : matchingVariationIds(p.variations, query, optionSet);
+    out.push(...unitsOf(p, "partial", { onlyActive: opts.onlyActive, onlyVariationIds }));
+  }
   return out.slice(0, limit);
 }
 
@@ -256,4 +273,26 @@ export async function listSellableUnits(db: Db, opts: LookupOptions = {}): Promi
   const out: SellableUnit[] = [];
   for (const p of products) out.push(...unitsOf(p, "partial", { onlyActive: opts.onlyActive }));
   return out.slice(0, limit);
+}
+
+/**
+ * Whether the PRODUCT itself matches `query` by its own text — name, model
+ * reference or product SKU (case-insensitive). When it does, the search shows
+ * all its units; otherwise only the variations that match
+ * (`matchingVariationIds`).
+ */
+export function productLevelMatches(p: { name: string; reference?: string | null; sku: string }, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return [p.name, p.reference ?? "", p.sku].some((s) => s.toLowerCase().includes(q));
+}
+
+/** Ids of the variations that match `query` by their SKU (partial) or an option value. */
+export function matchingVariationIds(
+  variations: readonly { id: string; sku: string }[],
+  query: string,
+  optionVariationIds: ReadonlySet<string>
+): Set<string> {
+  const q = query.trim().toLowerCase();
+  return new Set(variations.filter((v) => optionVariationIds.has(v.id) || (q !== "" && v.sku.toLowerCase().includes(q))).map((v) => v.id));
 }

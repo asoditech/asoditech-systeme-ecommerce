@@ -1,6 +1,7 @@
 "use server";
 
-import { productSearchWhere } from "@/lib/queries/products";
+import { productSearchWhereWithOptions } from "@/lib/queries/products";
+import { productLevelMatches, variantLabel } from "@/lib/catalog/lookup";
 import { prisma } from "@/lib/prisma";
 import { requireUserForAction } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -50,9 +51,20 @@ export async function quickSearchAction(query: string): Promise<QuickSearchResul
   }
 
   if (userHasPermission(user, "products.view")) {
+    const search = await productSearchWhereWithOptions(trimmed);
+    const optionIds = [...search.optionVariationIds];
     const products = await prisma.product.findMany({
-      where: { OR: productSearchWhere(trimmed) },
-      include: { _count: { select: { variations: true } } },
+      where: { OR: search.or },
+      include: {
+        _count: { select: { variations: true } },
+        // For a variation-level match ("Rouge", "XL", part of a variation SKU),
+        // the matching variations explain the result.
+        variations: {
+          where: { OR: [{ id: { in: optionIds } }, { sku: { contains: trimmed, mode: "insensitive" } }] },
+          select: { sku: true, attributes: true },
+          take: 3,
+        },
+      },
       take: 5,
     });
     results.push(
@@ -60,7 +72,9 @@ export async function quickSearchAction(query: string): Promise<QuickSearchResul
         id: p.id,
         type: "product" as const,
         title: p.name,
-        subtitle: p.sku,
+        subtitle: productLevelMatches(p, trimmed)
+          ? p.sku
+          : [p.sku, ...p.variations.map((v) => variantLabel(v.attributes)).filter(Boolean)].join(" · "),
         href: `/produits/${p.id}`,
         actions: productQuickActions(user, { id: p.id, sku: p.sku, variationCount: p._count.variations }),
       }))

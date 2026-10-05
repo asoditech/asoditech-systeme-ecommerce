@@ -25,6 +25,9 @@ export default async function UtilisateursPage() {
   // Business mode (docs/adr/0041): channels exist only with `storeChannels`, and
   // a permission whose capability is off is not offered (it would be inert).
   const storeChannelsOn = user.capabilities.has("storeChannels");
+  // Company price-override toggle — mirrored in each user's « Accès effectif » preview.
+  const sellerPriceOverride =
+    (await prisma.businessSettings.findFirst({ select: { allowSellerPriceOverride: true } }))?.allowSellerPriceOverride ?? false;
   const [users, invitations, warehouses, assignments, channelList, channelAssignments, overrides] = await Promise.all([
     prisma.user.findMany({ orderBy: { createdAt: "asc" } }),
     canManage ? listPendingInvitations() : Promise.resolve([]),
@@ -119,6 +122,7 @@ export default async function UtilisateursPage() {
                       email={u.email}
                       role={u.role}
                       businessMode={user.businessMode}
+                      sellerPriceOverride={sellerPriceOverride}
                       status={u.status}
                       warehouses={warehouses}
                       assignedWarehouseIds={assignedByUser.get(u.id) ?? []}

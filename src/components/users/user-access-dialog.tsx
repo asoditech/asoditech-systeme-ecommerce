@@ -62,6 +62,7 @@ export function UserAccessDialog({
   name,
   role,
   businessMode,
+  sellerPriceOverride = false,
   permissions,
   baseline,
   grants,
@@ -76,6 +77,8 @@ export function UserAccessDialog({
   role: UserRole;
   /** The tenant's business mode (docs/adr/0041) — same reason. */
   businessMode: BusinessMode;
+  /** BusinessSettings.allowSellerPriceOverride — same reason (company-wide `sales.override_price` for store sellers). */
+  sellerPriceOverride?: boolean;
   /** Every permission a per-user override may target (users.manage excluded server-side too). */
   permissions: Permission[];
   /** What the user's ROLE already grants. */
@@ -131,8 +134,9 @@ export function UserAccessDialog({
           .filter((c) => selectedChannels.has(c.id))
           .map((c) => ({ id: c.id, kind: c.kind, isActive: true })),
         businessMode,
+        sellerPriceOverride,
       }),
-    [role, newGrants, newDenies, channels, selectedChannels, businessMode]
+    [role, newGrants, newDenies, channels, selectedChannels, businessMode, sellerPriceOverride]
   );
   const activeCount = permissions.filter((p) => effectiveAccess.permissions.has(p)).length;
   const scopeLabel = !channelsEnabled

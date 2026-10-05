@@ -20,6 +20,8 @@ export async function loadEffectiveAccess(user: {
   role: UserRole;
   /** The tenant's business mode — the caller (session resolution) already has it. */
   businessMode: BusinessMode;
+  /** BusinessSettings.allowSellerPriceOverride — the caller (session resolution) already has it. */
+  sellerPriceOverride?: boolean;
 }): Promise<EffectiveAccess> {
   if (isGlobalRole(user.role)) {
     return computeEffectiveAccess({ role: user.role, overrides: [], assignedChannels: [], businessMode: user.businessMode });
@@ -36,6 +38,7 @@ export async function loadEffectiveAccess(user: {
     overrides,
     assignedChannels: assignments.map((a) => a.salesChannel),
     businessMode: user.businessMode,
+    sellerPriceOverride: user.sellerPriceOverride ?? false,
   });
 }
 
@@ -68,8 +71,13 @@ export async function loadEffectiveAccessMany(
   // One query for every distinct tenant's mode (in practice: one tenant).
   const tenantIds = [...new Set(users.map((u) => u.tenantId))];
   const tenants = tenantIds.length
-    ? await prisma.tenant.findMany({ where: { id: { in: tenantIds } }, select: { id: true, businessMode: true } })
+    ? await prisma.tenant.findMany({
+        where: { id: { in: tenantIds } },
+        select: { id: true, businessMode: true, businessSettings: { select: { allowSellerPriceOverride: true }, take: 1 } },
+      })
     : [];
+  const sellerPriceOverrideOf = (tenantId: string): boolean =>
+    tenants.find((t) => t.id === tenantId)?.businessSettings[0]?.allowSellerPriceOverride ?? false;
   const modeOf = (tenantId: string): BusinessMode => {
     const m = tenants.find((t) => t.id === tenantId)?.businessMode;
     return isBusinessMode(m) ? m : DEFAULT_BUSINESS_MODE;
@@ -102,6 +110,7 @@ export async function loadEffectiveAccessMany(
         overrides: overrides.filter((o) => o.userId === u.id),
         assignedChannels: assignments.filter((a) => a.userId === u.id).map((a) => a.salesChannel),
         businessMode: modeOf(u.tenantId),
+        sellerPriceOverride: sellerPriceOverrideOf(u.tenantId),
       })
     );
   }

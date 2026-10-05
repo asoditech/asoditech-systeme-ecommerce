@@ -8,6 +8,7 @@ import { updateOrderShippingAddressAction } from "@/actions/orders";
 import { cityGuidanceMessage, type CityGuidance } from "@/lib/integrations/delivery/city-guidance";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CityInput } from "@/components/delivery/city-input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -79,7 +80,7 @@ export function EditShippingAddressDialog({
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="esa-city">Ville</Label>
-              <Input id="esa-city" name="shippingCity" defaultValue={address.shippingCity ?? ""} />
+              <CityInput id="esa-city" name="shippingCity" defaultValue={address.shippingCity ?? ""} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="esa-region">Région</Label>

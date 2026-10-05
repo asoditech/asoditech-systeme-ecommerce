@@ -37,9 +37,12 @@ One additive migration: `20261004120000_platform_announcements` (new enum
   - rejected: anything else, including `javascript:`, `data:`, `http:`,
     relative paths and whitespace or control characters.
 - **Display:**
-  - The protected `AppShell` renders `AnnouncementBar` directly below the
-    sticky header, in normal document flow. It never touches the global
-    orange `TopProgressBar` (fixed, root layout).
+  - The protected `AppShell` renders `AnnouncementBar` as the first element
+    of the content column, **above** the sticky header (2026-10-05: moved up
+    and given solid per-type colours so it reads as a system top bar), in
+    normal document flow — it scrolls away while the header stays sticky, and
+    the fixed sidebar is untouched. It never touches the global orange
+    `TopProgressBar` (fixed, root layout).
   - Live means published and inside `[startsAt, endsAt)`.
   - Exactly one announcement is shown. The order is: type priority
     (MAINTENANCE > NEW_FEATURE > INFO), then the most recent

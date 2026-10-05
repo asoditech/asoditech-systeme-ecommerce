@@ -4,7 +4,13 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
-import { updateBusinessSettingsSchema, updateCostingMethodSchema } from "@/lib/validation/settings";
+import {
+  updateBusinessSettingsSchema,
+  updateCostingMethodSchema,
+  updateDefaultShippingProviderSchema,
+  updateSellerPriceOverrideSchema,
+} from "@/lib/validation/settings";
+import { requireCapabilityForAction } from "@/lib/auth/capabilities";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import type { BusinessSettings } from "@prisma/client";
 
@@ -122,6 +128,76 @@ export async function updateCostingMethodAction(formData: FormData): Promise<Act
     newValue: { costingMethod: settings.costingMethod },
   });
 
+  revalidatePath("/parametres");
+  return actionOk(settings);
+}
+
+/**
+ * « Autoriser les vendeurs magasin à modifier le prix » — company-wide. When
+ * on, every user who may sell in store also gets `sales.override_price` in
+ * their effective access (src/lib/auth/effective-access.ts); a per-user DENY
+ * still wins, and `createSaleAction` keeps enforcing the permission on the
+ * server. Only meaningful (and only accepted) in an Online + Offline company.
+ */
+export async function updateSellerPriceOverrideAction(formData: FormData): Promise<ActionResult<BusinessSettings>> {
+  const user = await requirePermissionForAction("settings.manage");
+  requireCapabilityForAction(user, "offlineSales");
+  const parsed = updateSellerPriceOverrideSchema.safeParse({ allowSellerPriceOverride: formData.get("allowSellerPriceOverride") });
+  if (!parsed.success) return actionError("Valeur invalide.", parsed.error.flatten().fieldErrors);
+
+  const previous = await prisma.businessSettings.findUnique({ where: { tenantId: user.tenantId }, select: { allowSellerPriceOverride: true } });
+  const settings = await prisma.businessSettings.upsert({
+    where: { tenantId: user.tenantId },
+    update: { allowSellerPriceOverride: parsed.data.allowSellerPriceOverride },
+    create: { allowSellerPriceOverride: parsed.data.allowSellerPriceOverride },
+  });
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "settings.updated",
+    entityType: "BusinessSettings",
+    entityId: settings.id,
+    previousValue: { allowSellerPriceOverride: previous?.allowSellerPriceOverride ?? false },
+    newValue: { allowSellerPriceOverride: settings.allowSellerPriceOverride },
+  });
+  revalidatePath("/parametres");
+  revalidatePath("/ventes/nouvelle");
+  return actionOk(settings);
+}
+
+/**
+ * « Transporteur par défaut » — ONLY decides whose city list is suggested on
+ * the online order/customer forms when several delivery companies are active
+ * (src/lib/queries/delivery-cities.ts). The shipment's provider is still
+ * chosen at shipment creation. Must be an ACTIVE provider of this company;
+ * "" clears it.
+ */
+export async function updateDefaultShippingProviderAction(formData: FormData): Promise<ActionResult<BusinessSettings>> {
+  const user = await requirePermissionForAction("settings.manage");
+  const parsed = updateDefaultShippingProviderSchema.safeParse({ defaultShippingProviderId: formData.get("defaultShippingProviderId") });
+  if (!parsed.success) return actionError("Transporteur invalide.", parsed.error.flatten().fieldErrors);
+  const providerId = parsed.data.defaultShippingProviderId;
+  if (providerId) {
+    // Tenant-scoped read: another company's provider id is simply not found.
+    const provider = await prisma.shippingProvider.findFirst({ where: { id: providerId, isActive: true }, select: { id: true } });
+    if (!provider) return actionError("Transporteur introuvable ou inactif.");
+  }
+
+  const previous = await prisma.businessSettings.findUnique({ where: { tenantId: user.tenantId }, select: { defaultShippingProviderId: true } });
+  const settings = await prisma.businessSettings.upsert({
+    where: { tenantId: user.tenantId },
+    update: { defaultShippingProviderId: providerId },
+    create: { defaultShippingProviderId: providerId },
+  });
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "settings.updated",
+    entityType: "BusinessSettings",
+    entityId: settings.id,
+    previousValue: { defaultShippingProviderId: previous?.defaultShippingProviderId ?? null },
+    newValue: { defaultShippingProviderId: settings.defaultShippingProviderId },
+  });
   revalidatePath("/parametres");
   return actionOk(settings);
 }

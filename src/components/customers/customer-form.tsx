@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { createCustomerAction, updateCustomerAction } from "@/actions/customers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CityInput } from "@/components/delivery/city-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -60,7 +61,7 @@ export function CustomerForm({ customer }: { customer?: Customer }) {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="city">Ville</Label>
-              <Input id="city" name="city" defaultValue={customer?.city ?? ""} />
+              <CityInput id="city" name="city" defaultValue={customer?.city ?? ""} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="region">Région</Label>

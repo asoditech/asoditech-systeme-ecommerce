@@ -62,3 +62,14 @@ export const updateCostingMethodSchema = z.object({
   costingMethod: costingMethodSchema,
 });
 export type UpdateCostingMethodInput = z.infer<typeof updateCostingMethodSchema>;
+
+// « Autoriser les vendeurs magasin à modifier le prix » — a checkbox/switch posts
+// "on"/"true" when checked and nothing when not.
+export const updateSellerPriceOverrideSchema = z.object({
+  allowSellerPriceOverride: z.union([z.literal("on"), z.literal("true"), z.literal("false"), z.null(), z.undefined()]).transform((v) => v === "on" || v === "true"),
+});
+
+// « Transporteur par défaut » — "" clears it.
+export const updateDefaultShippingProviderSchema = z.object({
+  defaultShippingProviderId: z.union([z.literal(""), z.null(), z.undefined(), z.string().trim().min(1).max(64)]).transform((v) => (v ? v : null)),
+});

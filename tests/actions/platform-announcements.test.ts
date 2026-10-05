@@ -410,7 +410,7 @@ describe("app shell integration", () => {
     expect(els.some((e) => e.type === AnnouncementBar)).toBe(false);
   });
 
-  it("a live announcement renders ONE bar directly below the header, before the page content", async () => {
+  it("a live announcement renders ONE bar at the very top of the content column, ABOVE the header, before the page content", async () => {
     await loginAsTestUser({ role: "MANAGER" });
     await seedAnnouncement({ message: "Bonjour" });
     const els = await renderShell();
@@ -419,9 +419,18 @@ describe("app shell integration", () => {
     const header = types.indexOf("header");
     const bar = types.indexOf("BAR");
     const main = types.indexOf("main");
-    expect(header).toBeGreaterThanOrEqual(0);
-    expect(bar).toBeGreaterThan(header);
-    expect(main).toBeGreaterThan(bar);
+    expect(bar).toBeGreaterThanOrEqual(0);
+    expect(header).toBeGreaterThan(bar); // bar first, then the sticky header
+    expect(main).toBeGreaterThan(header);
+  });
+
+  it("looks like a system top bar: solid, high-contrast colours per type (light and dark)", () => {
+    const render = (type: "INFO" | "MAINTENANCE" | "NEW_FEATURE") =>
+      renderToStaticMarkup(createElement(AnnouncementBar, { announcement: { id: "a", key: "a.1", message: "m", type, actionLabel: null, actionUrl: null } }));
+    expect(render("INFO")).toContain("bg-sky-600 text-white");
+    expect(render("MAINTENANCE")).toContain("bg-amber-400 text-amber-950");
+    expect(render("NEW_FEATURE")).toContain("bg-primary text-primary-foreground");
+    for (const t of ["INFO", "MAINTENANCE", "NEW_FEATURE"] as const) expect(render(t)).not.toMatch(/bg-(sky|amber)-50\b|bg-primary\/5/);
   });
 
   it("a dismissed announcement (cookie) is not rendered server-side for that browser", async () => {

@@ -1,7 +1,8 @@
 "use server";
 
 import { ensureDefaultOnlineChannel } from "@/lib/channels";
-import { productSearchWhere } from "@/lib/queries/products";
+import { productSearchWhereWithOptions } from "@/lib/queries/products";
+import { matchingVariationIds, productLevelMatches } from "@/lib/catalog/lookup";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction, requireUserForAction } from "@/lib/auth/guards";
@@ -166,13 +167,14 @@ export async function searchProductsForOrderAction(query: string) {
   // Empty = the picker's initial list (first 20 active products by name);
   // 1 character = still nothing, as before; 2+ = the unchanged search.
   if (q.length === 1) return [];
+  const search = q ? await productSearchWhereWithOptions(q) : null;
   const products = await prisma.product.findMany({
     where: {
       status: "ACTIF",
       // Same predicate as the product list (docs/adr/0038): name, SKU, model
       // reference, variation SKU and barcodes — a scanned code or a variant
       // SKU finds its parent product.
-      ...(q ? { OR: productSearchWhere(q) } : {}),
+      ...(search ? { OR: search.or } : {}),
     },
     include: { variations: true },
     ...(q ? { take: 8 } : { orderBy: [{ name: "asc" as const }, { id: "asc" as const }], take: 20 }),
@@ -183,20 +185,28 @@ export async function searchProductsForOrderAction(query: string) {
   // Batch 4, Task 11: an inactive variation is dropped here — never offered
   // to a NEW order, exactly like lookupSellableUnits' onlyActive already
   // does for Sale/POS/Reception/Traceability.
-  return products.map((p) => ({
+  return products.map((p) => {
+    // Matched through its variations (a variation SKU or an option value such
+    // as "Rouge" / "XL"): offer just those variations. A product-level match
+    // (name, reference, product SKU) — or a barcode-only match — keeps all.
+    const matched = search && !productLevelMatches(p, q) ? matchingVariationIds(p.variations, q, search.optionVariationIds) : null;
+    const variationOnly = matched !== null && p.variations.some((v) => v.isActive && matched.has(v.id));
+    return {
     ...p,
     price: p.price.toString(),
     salePrice: p.salePrice?.toString() ?? null,
     cost: canSeeCost ? (p.cost?.toString() ?? null) : null,
     variations: p.variations
       .filter((v) => v.isActive)
+      .filter((v) => !variationOnly || matched.has(v.id))
       .map((v) => ({
         ...v,
         price: v.price?.toString() ?? null,
         cost: canSeeCost ? (v.cost?.toString() ?? null) : null,
         salePrice: v.salePrice?.toString() ?? null,
       })),
-  }));
+    };
+  });
 }
 
 export async function createOrderAction(input: CreateOrderInput): Promise<ActionResult<IdResult>> {

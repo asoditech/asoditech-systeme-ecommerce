@@ -10,6 +10,7 @@ import { requireChannelAccessForAction, saleChannelWhere } from "@/lib/auth/chan
 import { recordAuditEvent } from "@/lib/audit";
 import { applyStockMovement, applySaleReturnLine, InsufficientStockError } from "@/lib/inventory";
 import { isProductAvailableOnChannel } from "@/lib/channels";
+import { classifySaleLookupError, SALE_LOOKUP_MESSAGES } from "@/lib/sales/lookup-errors";
 import { listSellableUnits, lookupSellableUnits, toSellerSafeUnit, variantLabel, type SellerSafeUnit } from "@/lib/catalog/lookup";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
@@ -132,6 +133,28 @@ export async function lookupForSaleAction(input: {
       tracked: Boolean(item),
     };
   });
+}
+
+/**
+ * The store-sale form's search entry point: the SAME `lookupForSaleAction`
+ * (every permission / channel / location check unchanged), with its failure
+ * returned as a readable result instead of a thrown error — so the form can
+ * say « cet emplacement ne vous est pas attribué » rather than showing the
+ * page's error screen. Authorization failures are reported, never hidden.
+ */
+export async function searchForSaleAction(input: {
+  query: string;
+  salesChannelId: string;
+  warehouseId: string;
+}): Promise<ActionResult<SaleLookupResult[]>> {
+  try {
+    return actionOk(await lookupForSaleAction(input));
+  } catch (error) {
+    const kind = classifySaleLookupError(error);
+    if (kind) return actionError(SALE_LOOKUP_MESSAGES[kind]);
+    console.error(`[sales] product lookup failed: ${error instanceof Error ? error.name : "unknown"}`);
+    return actionError(SALE_LOOKUP_MESSAGES.unexpected);
+  }
 }
 
 export async function createSaleAction(input: CreateSaleInput): Promise<ActionResult<{ id: string; duplicate: boolean }>> {

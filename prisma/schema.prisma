@@ -2067,11 +2067,12 @@ model ShippingProvider {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  shipments     Shipment[]
-  webhookEvents ShipmentWebhookEvent[]
-  manifests     DeliveryManifest[]
-  cityMappings  DeliveryCityMapping[]
+  tenant             Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  shipments          Shipment[]
+  webhookEvents      ShipmentWebhookEvent[]
+  manifests          DeliveryManifest[]
+  cityMappings       DeliveryCityMapping[]
+  defaultForSettings BusinessSettings[]     @relation("DefaultShippingProvider")
 
   @@index([tenantId])
   @@map("shipping_providers")
@@ -2673,6 +2674,17 @@ model BusinessSettings {
   supportPhone    String?
   supportEmail    String?
   supportHours    String?
+
+  // Company-wide « Autoriser les vendeurs magasin à modifier le prix »: when
+  // true, every user who may sell in store (`sales.create`) also gets
+  // `sales.override_price` in their EFFECTIVE access (computeEffectiveAccess),
+  // unless an explicit per-user DENY says otherwise. Default false = unchanged.
+  allowSellerPriceOverride  Boolean           @default(false)
+  // « Transporteur par défaut »: ONLY decides whose city list is suggested on
+  // the online order/customer forms when several delivery companies are active.
+  // The shipment's real provider is still chosen at shipment creation.
+  defaultShippingProviderId String?
+  defaultShippingProvider   ShippingProvider? @relation("DefaultShippingProvider", fields: [defaultShippingProviderId], references: [id], onDelete: SetNull)
 
   updatedAt DateTime @updatedAt
 

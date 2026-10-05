@@ -40,6 +40,9 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
 
   return (
     <SidebarShell permissions={permissions} defaultCollapsed={sidebarCollapsed}>
+      {/* Top announcement bar — first in the content column, above the sticky header, in normal flow (scrolls away; the header stays sticky; the fixed sidebar is untouched).
+          Keyed by id + last edit: a different (or edited) announcement remounts the bar, so a previous dismissal's local state never hides it. */}
+      {announcement && <AnnouncementBar key={announcement.key} announcement={announcement} />}
       <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:px-6">
         <MobileNav permissions={permissions} />
         <div className="md:hidden">
@@ -56,8 +59,6 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
           <UserMenu name={user.name} role={USER_ROLE_LABELS[user.role]} />
         </div>
       </header>
-      {/* Keyed by id + last edit: a different (or edited) announcement remounts the bar, so a previous dismissal's local state never hides it. */}
-      {announcement && <AnnouncementBar key={announcement.key} announcement={announcement} />}
       {/* pb clears the fixed IntegrationsFooter (h-9) so nothing hides behind it */}
       <main className="flex-1 overflow-y-auto p-4 pb-14 [scrollbar-gutter:stable] md:p-6 md:pb-16">
         <div className="mx-auto w-full max-w-[1600px]">{children}</div>

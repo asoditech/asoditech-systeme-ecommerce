@@ -76,6 +76,13 @@ export function computeEffectiveAccess(input: {
   overrides: readonly OverrideInput[];
   assignedChannels: readonly AssignedChannelInput[];
   businessMode: BusinessMode;
+  /**
+   * Company setting « Autoriser les vendeurs magasin à modifier le prix »
+   * (`BusinessSettings.allowSellerPriceOverride`). When true, a user who may
+   * sell in store (`sales.create`) also gets `sales.override_price` — unless
+   * a per-user DENY removes it. Default false: nothing changes.
+   */
+  sellerPriceOverride?: boolean;
 }): EffectiveAccess {
   const capabilities = capabilitiesForMode(input.businessMode);
   const dual = input.businessMode === "ONLINE_AND_OFFLINE";
@@ -103,6 +110,17 @@ export function computeEffectiveAccess(input: {
   }
   for (const o of input.overrides) {
     if (o.effect === "DENY" && isPermission(o.permission)) set.delete(o.permission);
+  }
+  // 2b. Company-wide seller price override (BusinessSettings): applied AFTER
+  //     the DENYs so it only reaches users who still hold `sales.create`, and
+  //     never one with an explicit per-user DENY on `sales.override_price`.
+  //     Channel scope and mode below still apply.
+  if (
+    input.sellerPriceOverride &&
+    set.has("sales.create") &&
+    !input.overrides.some((o) => o.effect === "DENY" && o.permission === "sales.override_price")
+  ) {
+    set.add("sales.override_price");
   }
 
   // ONLINE_ONLY: no channel scope at all (see the header). The user simply holds

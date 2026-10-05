@@ -12,6 +12,7 @@ import {
 } from "@/actions/orders";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CityInput } from "@/components/delivery/city-input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -299,7 +300,7 @@ export function OrderForm({
                   <Input placeholder="Nom complet" value={newCustName} onChange={(e) => setNewCustName(e.target.value)} autoFocus />
                   <Input placeholder="Téléphone (optionnel)" value={newCustPhone} onChange={(e) => setNewCustPhone(e.target.value)} />
                   <Input placeholder="Adresse (optionnel)" value={newCustAddress} onChange={(e) => setNewCustAddress(e.target.value)} />
-                  <Input placeholder="Ville (optionnel)" value={newCustCity} onChange={(e) => setNewCustCity(e.target.value)} />
+                  <CityInput placeholder="Ville (optionnel)" value={newCustCity} onChange={(e) => setNewCustCity(e.target.value)} />
                   {newCustAddress.trim() && !newCustCity.trim() && (
                     <p className="px-1 text-xs text-muted-foreground">
                       La ville est nécessaire pour enregistrer cette adresse.
@@ -517,7 +518,7 @@ export function OrderForm({
                 <FieldRow>
                   <Field>
                     <Label htmlFor="ord-city">Ville</Label>
-                    <Input id="ord-city" value={shippingCity} onChange={(e) => setShippingCity(e.target.value)} />
+                    <CityInput id="ord-city" value={shippingCity} onChange={(e) => setShippingCity(e.target.value)} />
                   </Field>
                   <Field>
                     <Label htmlFor="ord-phone">Téléphone</Label>

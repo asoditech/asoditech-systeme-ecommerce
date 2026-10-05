@@ -4,7 +4,8 @@ import { useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ScanBarcode, Trash2, AlertTriangle, ShoppingBasket, Banknote, Plus, CheckCircle2 } from "lucide-react";
-import { createSaleAction, lookupForSaleAction, type SaleLookupResult } from "@/actions/sales";
+import { createSaleAction, searchForSaleAction, type SaleLookupResult } from "@/actions/sales";
+import { SALE_LOOKUP_MESSAGES } from "@/lib/sales/lookup-errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -123,10 +124,31 @@ export function SaleForm({
   // without waiting on `setQuery`'s next render — the EXACT same lookup
   // (`lookupForSaleAction`) a hardware scanner's Enter key or the
   // "Chercher" button already use, never a second implementation.
+  // One guarded entry point for both the typed/scanned search and the initial
+  // list: an access problem is SHOWN (never hidden), a stale page asks for a
+  // reload — the page itself never crashes on a failed lookup.
+  async function runLookup(q: string): Promise<SaleLookupResult[] | null> {
+    try {
+      const result = await searchForSaleAction({ query: q, salesChannelId: channelId, warehouseId });
+      if (!result.ok) {
+        toast.error(result.error, { duration: 10_000 });
+        return null;
+      }
+      return result.data;
+    } catch {
+      toast.error(SALE_LOOKUP_MESSAGES.stale, {
+        duration: 15_000,
+        action: { label: "Recharger", onClick: () => window.location.reload() },
+      });
+      return null;
+    }
+  }
+
   async function search(code?: string) {
     const q = code ?? query;
     if (!q.trim() || !channelId || !warehouseId) return;
-    const found = await lookupForSaleAction({ query: q, salesChannelId: channelId, warehouseId });
+    const found = await runLookup(q);
+    if (!found) return;
     if (found.length === 0) return toast.error("Aucun article trouvé sur ce canal.");
     // A scanner types the code then presses Enter → exact hit goes straight into the cart.
     if (found.length === 1 && found[0].unit.matchedBy !== "partial") addUnit(found[0]);
@@ -142,8 +164,12 @@ export function SaleForm({
     if (query.trim() || !channelId || !warehouseId || hits.length > 0) return;
     const seq = ++browseSeq.current;
     setBrowsing(true);
-    const found = await lookupForSaleAction({ query: "", salesChannelId: channelId, warehouseId });
+    const found = await runLookup("");
     if (seq !== browseSeq.current) return; // dismissed (typing / context change) while loading
+    if (!found) {
+      setBrowsing(false);
+      return;
+    }
     if (found.length === 0) {
       setBrowsing(false);
       return toast.info("Aucun article disponible sur ce canal.");

@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { warehouseReadWhere } from "@/lib/auth/location-access";
+import { variationIdsMatchingOptionValue } from "@/lib/catalog/variation-search";
 import type { CurrentUser } from "@/lib/auth/session";
 import { Prisma } from "@prisma/client";
 import type { ProductStatus, RecordSource } from "@prisma/client";
@@ -43,13 +44,28 @@ export function productSearchWhere(q: string): Prisma.ProductWhereInput[] {
   ];
 }
 
+/**
+ * `productSearchWhere` + variation OPTION VALUES ("Rouge", "XL" —
+ * src/lib/catalog/variation-search.ts). Returns the matching variation ids too,
+ * so a caller can show only those variations for an option-only match.
+ */
+export async function productSearchWhereWithOptions(
+  q: string
+): Promise<{ or: Prisma.ProductWhereInput[]; optionVariationIds: ReadonlySet<string> }> {
+  const ids = await variationIdsMatchingOptionValue(q);
+  return {
+    or: ids.length > 0 ? [...productSearchWhere(q), { variations: { some: { id: { in: ids } } } }] : productSearchWhere(q),
+    optionVariationIds: new Set(ids),
+  };
+}
+
 export async function listProducts(params: ProductListFilters, viewer?: Pick<CurrentUser, "locations">) {
   const page = Math.max(1, params.page ?? 1);
   // Stock figures cover only the viewer's own locations (docs/adr/0050);
   // omitted = tenant-wide (non-page callers).
   const stockScope = viewer ? warehouseReadWhere(viewer) : {};
   const where: Prisma.ProductWhereInput = {
-    ...(params.q ? { OR: productSearchWhere(params.q) } : {}),
+    ...(params.q ? { OR: (await productSearchWhereWithOptions(params.q)).or } : {}),
     ...(params.categoryId ? { categoryId: params.categoryId } : {}),
     ...(params.status ? { status: params.status } : {}),
     ...(params.source ? { source: params.source } : {}),
