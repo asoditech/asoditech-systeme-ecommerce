@@ -5,6 +5,7 @@ import {
   isPlaceholderCustomerName,
   isSameCustomerIdentity,
   maskCustomerPhone,
+  customerPhoneSearchKeys,
 } from "@/lib/customers/identity";
 
 describe("customerPhoneKey", () => {
@@ -73,5 +74,21 @@ describe("maskCustomerPhone", () => {
   it("only the last 2 digits are shown", () => {
     expect(maskCustomerPhone("212612345678")).toBe("••••••78");
     expect(maskCustomerPhone(null)).toBe("—");
+  });
+});
+
+describe("customerPhoneSearchKeys — search only, never identity", () => {
+  const key = "212612345678";
+  const finds = (q: string) => customerPhoneSearchKeys(q).some((k) => key.includes(k));
+  it("partial digits (4–5) and the full number in any format find the stored phoneKey", () => {
+    for (const q of ["1234", "34567", "0612", "06 12 34", "612 34", "0612345678", "+212 6 12 34 56 78", "00212612345678"]) {
+      expect(finds(q), q).toBe(true);
+    }
+    expect(finds("9999")).toBe(false);
+  });
+  it("names, letters and fewer than 3 digits give no phone keys", () => {
+    expect(customerPhoneSearchKeys("Sara")).toEqual([]);
+    expect(customerPhoneSearchKeys("06")).toEqual([]);
+    expect(customerPhoneSearchKeys("06ab")).toEqual([]);
   });
 });

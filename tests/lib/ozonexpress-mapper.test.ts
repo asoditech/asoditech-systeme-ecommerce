@@ -314,6 +314,20 @@ describe("ozonexpress mapper — parseTrackingDetail (« Suivi » module, docs/a
     expect(detail.lastUpdateAt).toBe(detail.events[1].timestamp);
   });
 
+  it("courier: read only from what OzonExpress names — a courier field or a « livreur » comment; never guessed", () => {
+    const base = (extra: Record<string, unknown>, history: Record<string, unknown>[] = []) =>
+      parseTrackingDetail({ TRACKING: { HISTORY: [{ STATUT: "Mise en distribution" }, ...history], LAST_TRACKING: { STATUT: "Mise en distribution" }, ...extra } }).courier;
+    expect(base({ LIVREUR: "Hassan hajjaj 0693993731" })).toEqual({ name: "Hassan hajjaj", phone: "0693993731" });
+    expect(base({ "DELIVERY-MAN": { NAME: "Hassan hajjaj", PHONE: "06 93 99 37 31" } })).toEqual({ name: "Hassan hajjaj", phone: "0693993731" });
+    expect(base({}, [{ STATUT: "Mise en distribution", COMMENT: "Livreur : Hassan hajjaj - Tél +212 693-993-731" }])).toEqual({
+      name: "Hassan hajjaj",
+      phone: "+212693993731",
+    });
+    // A customer's number in an ordinary comment is NOT a courier.
+    expect(base({}, [{ STATUT: "Pas de réponse + SMS", COMMENT: "Client injoignable 0612345678" }])).toBeNull();
+    expect(base({})).toBeNull();
+  });
+
   it("accepts a PHP-style object HISTORY and skips entries with no status", () => {
     const detail = parseTrackingDetail({
       TRACKING: { HISTORY: { "1": { STATUT: "Reçu" }, "2": { STATUT: "" }, "3": { STATUT: "Livré" } } },

@@ -44,3 +44,32 @@ export function normalizeCityNames(names: readonly string[]): string[] {
   }
   return [...seen.values()].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
 }
+
+/** Accent/case-insensitive key for matching city names ("Fès" ~ "fes"). */
+export function cityMatchKey(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Filters the carrier's city list for the dropdown: names STARTING with the
+ * typed text first, then names containing it, each in list order; an empty
+ * query returns the list as is. Capped (`limit`) so a long catalogue never
+ * renders thousands of rows. UI only — the value entered stays free text.
+ */
+export function filterCities(cities: readonly string[], query: string, limit = 50): string[] {
+  const q = cityMatchKey(query);
+  if (!q) return cities.slice(0, limit);
+  const starts: string[] = [];
+  const contains: string[] = [];
+  for (const city of cities) {
+    const key = cityMatchKey(city);
+    if (key.startsWith(q)) starts.push(city);
+    else if (key.includes(q)) contains.push(city);
+    if (starts.length >= limit) break;
+  }
+  return [...starts, ...contains].slice(0, limit);
+}

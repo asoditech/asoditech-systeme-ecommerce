@@ -428,9 +428,28 @@ describe("app shell integration", () => {
     const render = (type: "INFO" | "MAINTENANCE" | "NEW_FEATURE") =>
       renderToStaticMarkup(createElement(AnnouncementBar, { announcement: { id: "a", key: "a.1", message: "m", type, actionLabel: null, actionUrl: null } }));
     expect(render("INFO")).toContain("bg-sky-600 text-white");
-    expect(render("MAINTENANCE")).toContain("bg-amber-400 text-amber-950");
-    expect(render("NEW_FEATURE")).toContain("bg-primary text-primary-foreground");
+    expect(render("MAINTENANCE")).toContain("bg-amber-700 text-white");
+    expect(render("NEW_FEATURE")).toContain("bg-primary text-white");
     for (const t of ["INFO", "MAINTENANCE", "NEW_FEATURE"] as const) expect(render(t)).not.toMatch(/bg-(sky|amber)-50\b|bg-primary\/5/);
+  });
+
+  it("is a looping ticker: bold white text, a 2nd copy hidden from assistive tech, LTR/RTL + reduced-motion handled in CSS", () => {
+    const html = renderToStaticMarkup(
+      createElement(AnnouncementBar, { announcement: { id: "a", key: "a.1", message: "Maintenance ce soir", type: "INFO", actionLabel: null, actionUrl: null } })
+    );
+    expect(html).toContain("announcement-ticker-track");
+    expect(html.match(/announcement-ticker-copy/g)).toHaveLength(2);
+    expect(html.match(/Maintenance ce soir/g)).toHaveLength(2);
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toMatch(/announcement-ticker-copy[^"]*font-bold[^"]*text-white/);
+    expect(html).toContain("--ticker-duration:15s");
+    const css = fs.readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8");
+    expect(css).toMatch(/@keyframes announcement-ticker \{[^}]*translateX\(0\)[^}]*\}[^}]*translateX\(-50%\)/);
+    expect(css).toMatch(/\[dir="rtl"\] \.announcement-ticker-track \{\s*animation-name: announcement-ticker-rtl;/);
+    expect(css).toMatch(/@keyframes announcement-ticker-rtl[\s\S]*?translateX\(50%\)/);
+    const reduced = css.slice(css.indexOf(".announcement-ticker-copy {"));
+    expect(reduced).toMatch(/prefers-reduced-motion: reduce\) \{\s*\.announcement-ticker-track \{ animation: none;/);
+    expect(reduced).toContain('.announcement-ticker-copy[aria-hidden="true"] { display: none; }');
   });
 
   it("a dismissed announcement (cookie) is not rendered server-side for that browser", async () => {
@@ -518,8 +537,9 @@ describe("« Contacter le support » opens the EXISTING SupportWidget", () => {
     expect(external).toContain('rel="noopener noreferrer"');
   });
 
-  it("long messages wrap instead of overflowing", () => {
+  it("long messages never overflow: they scroll inside a clipped ticker, and wrap when motion is reduced", () => {
     const html = renderToStaticMarkup(createElement(AnnouncementBar, { announcement: { ...announcement, message: "x".repeat(280) } }));
+    expect(html).toContain("announcement-ticker min-w-0 flex-1 overflow-hidden");
     expect(html).toContain("break-words");
     expect(html).toContain("flex-wrap");
   });

@@ -94,7 +94,8 @@ export async function listOrders(filters: OrderListFilters) {
         // instead of the detail page's per-line matching (this view never
         // needs which specific line a unit was returned from).
         salesChannel: { select: { name: true, kind: true } },
-        items: { select: { quantity: true } },
+        // « Produits » column: the line snapshot name + variation options.
+        items: { select: { quantity: true, nameSnapshot: true, variation: { select: { attributes: true } } } },
         returns: { select: { lines: { select: { quantitySellable: true, quantityDamaged: true } } } },
       },
     }),

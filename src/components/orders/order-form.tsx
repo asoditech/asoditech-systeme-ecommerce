@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Trash2, Search, ShieldAlert, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Search, ShieldAlert, AlertTriangle, Check } from "lucide-react";
 import {
   createOrderAction,
   createCustomerForOrderAction,
@@ -26,6 +26,8 @@ import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/format";
 import { PAYMENT_METHOD_LABELS, WAREHOUSE_TYPE_LABELS, ORDER_CHANNEL_LABELS } from "@/lib/status-labels";
 import { cityGuidanceMessage, type CityGuidance } from "@/lib/integrations/delivery/city-guidance";
+import { applyShippingPrefill, customerShippingDefaults, type ShippingFields } from "@/lib/orders/shipping-prefill";
+import { SelectedLineChips } from "@/components/orders/selected-line-chips";
 import type { Customer } from "@prisma/client";
 
 interface SelectableWarehouse {
@@ -36,6 +38,7 @@ interface SelectableWarehouse {
 }
 
 type ProductWithVariations = Awaited<ReturnType<typeof searchProductsForOrderAction>>[number];
+type CustomerSearchResult = Awaited<ReturnType<typeof searchCustomersForOrderAction>>[number];
 type ProductVariation = ProductWithVariations["variations"][number];
 
 interface LineItem {
@@ -68,7 +71,7 @@ export function OrderForm({
   const [fulfillmentWarehouseId, setFulfillmentWarehouseId] = React.useState(defaultWarehouseId);
   const [customer, setCustomer] = React.useState<Customer | null>(null);
   const [customerQuery, setCustomerQuery] = React.useState("");
-  const [customerResults, setCustomerResults] = React.useState<Customer[]>([]);
+  const [customerResults, setCustomerResults] = React.useState<CustomerSearchResult[]>([]);
   const [customerOpen, setCustomerOpen] = React.useState(false);
   // Inline "create a new client" panel inside the customer popover.
   const [newCustomerMode, setNewCustomerMode] = React.useState(false);
@@ -162,8 +165,27 @@ export function OrderForm({
         discount: 0,
       },
     ]);
-    setProductOpen(false);
-    setProductQuery("");
+    // The picker stays open with its results: select product 1, 2, 3… in a
+    // row; each one is added as its own line, exactly as before.
+  }
+
+  const isUnitInOrder = (productId: string, variationId?: string) =>
+    items.some((i) => (variationId ? i.variationId === variationId : i.productId === productId && !i.variationId));
+
+  // Selected customer → THIS order's delivery fields (editable, never written
+  // back to the customer; a value typed by hand is kept — see shipping-prefill).
+  const lastShippingPrefill = React.useRef<ShippingFields>({ address: "", city: "", phone: "" });
+  function prefillShipping(source: Parameters<typeof customerShippingDefaults>[0]) {
+    const defaults = customerShippingDefaults(source);
+    const next = applyShippingPrefill(
+      { address: shippingAddress, city: shippingCity, phone: shippingPhone },
+      lastShippingPrefill.current,
+      defaults
+    );
+    lastShippingPrefill.current = defaults;
+    setShippingAddress(next.address);
+    setShippingCity(next.city);
+    setShippingPhone(next.phone);
   }
 
   function openNewCustomer() {
@@ -198,14 +220,7 @@ export function OrderForm({
       // here, address and all, still showed up as "no address" once a
       // shipment was attempted: that gap was the order's own
       // shippingAddressLine1 never being set, only city/phone were.
-      if (result.data.defaultAddress) {
-        setShippingAddress(result.data.defaultAddress.addressLine1);
-        setShippingCity(result.data.defaultAddress.city);
-        if (result.data.defaultAddress.phone) setShippingPhone(result.data.defaultAddress.phone);
-      } else {
-        if (result.data.city) setShippingCity(result.data.city);
-        if (result.data.phone) setShippingPhone(result.data.phone);
-      }
+      prefillShipping(result.data);
       setNewCustomerMode(false);
       setCustomerOpen(false);
       setCustomerQuery("");
@@ -300,7 +315,7 @@ export function OrderForm({
                   <Input placeholder="Nom complet" value={newCustName} onChange={(e) => setNewCustName(e.target.value)} autoFocus />
                   <Input placeholder="Téléphone (optionnel)" value={newCustPhone} onChange={(e) => setNewCustPhone(e.target.value)} />
                   <Input placeholder="Adresse (optionnel)" value={newCustAddress} onChange={(e) => setNewCustAddress(e.target.value)} />
-                  <CityInput placeholder="Ville (optionnel)" value={newCustCity} onChange={(e) => setNewCustCity(e.target.value)} />
+                  <CityInput placeholder="Ville (optionnel)" value={newCustCity} onValueChange={setNewCustCity} />
                   {newCustAddress.trim() && !newCustCity.trim() && (
                     <p className="px-1 text-xs text-muted-foreground">
                       La ville est nécessaire pour enregistrer cette adresse.
@@ -330,6 +345,7 @@ export function OrderForm({
                         type="button"
                         onClick={() => {
                           setCustomer(c);
+                          prefillShipping(c);
                           setCustomerOpen(false);
                         }}
                         className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
@@ -396,6 +412,16 @@ export function OrderForm({
                 onChange={(e) => setProductQuery(e.target.value)}
                 autoFocus
               />
+              {items.length > 0 && (
+                <div className="mt-2 flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <SelectedLineChips lines={items} onRemove={removeItem} />
+                  </div>
+                  <Button type="button" size="sm" onClick={() => openProductPicker(false)}>
+                    Terminé
+                  </Button>
+                </div>
+              )}
               <div className="mt-2 max-h-64 overflow-y-auto">
                 {visibleProductResults.map((p) =>
                   p.variations.length > 0 ? (
@@ -406,8 +432,9 @@ export function OrderForm({
                         onClick={() => addProductLine(p, v)}
                         className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
                       >
-                        <span className="font-medium">
+                        <span className="flex items-center gap-1.5 font-medium">
                           {p.name} — {Object.values(v.attributes as Record<string, string>).join(", ")}
+                          {isUnitInOrder(p.id, v.id) && <Check className="size-3.5 text-primary" aria-label="déjà ajouté" />}
                         </span>
                         <span className="text-xs text-muted-foreground">
                           {v.sku} · {formatCurrency((v.salePrice ?? v.price ?? p.price).toString())}
@@ -421,7 +448,10 @@ export function OrderForm({
                       onClick={() => addProductLine(p)}
                       className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
                     >
-                      <span className="font-medium">{p.name}</span>
+                      <span className="flex items-center gap-1.5 font-medium">
+                        {p.name}
+                        {isUnitInOrder(p.id) && <Check className="size-3.5 text-primary" aria-label="déjà ajouté" />}
+                      </span>
                       <span className="text-xs text-muted-foreground">
                         {p.sku} · {formatCurrency(p.price.toString())}
                       </span>
@@ -518,7 +548,7 @@ export function OrderForm({
                 <FieldRow>
                   <Field>
                     <Label htmlFor="ord-city">Ville</Label>
-                    <CityInput id="ord-city" value={shippingCity} onChange={(e) => setShippingCity(e.target.value)} />
+                    <CityInput id="ord-city" value={shippingCity} onValueChange={setShippingCity} />
                   </Field>
                   <Field>
                     <Label htmlFor="ord-phone">Téléphone</Label>

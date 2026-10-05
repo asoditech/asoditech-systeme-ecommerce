@@ -16,6 +16,7 @@ import { DisconnectedSourceBanner } from "@/components/integrations/disconnected
 import { SyncRefreshButton } from "@/components/sync-refresh-button";
 import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ProductChips } from "@/components/orders/product-chips";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { listOrders } from "@/lib/queries/orders";
@@ -242,6 +243,7 @@ export default async function CommandesPage({
                 <TableHead>Paiement</TableHead>
                 <TableHead>Canal</TableHead>
                 <TableHead>Confirmé par</TableHead>
+                <TableHead>Produits</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -293,6 +295,9 @@ export default async function CommandesPage({
                     ) : (
                       "—"
                     )}
+                  </TableCell>
+                  <TableCell>
+                    <ProductChips lines={o.items.map((i) => ({ name: i.nameSnapshot, quantity: i.quantity, attributes: i.variation?.attributes }))} />
                   </TableCell>
                 </ClickableTableRow>
                 );

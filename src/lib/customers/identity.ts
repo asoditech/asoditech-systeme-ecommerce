@@ -68,6 +68,26 @@ export function isSameCustomerIdentity(
   return pa !== null && na !== null && pa === customerPhoneKey(b.phone) && na === customerNameKey(b.fullName);
 }
 
+/**
+ * SEARCH ONLY (never identity): digit fragments to look for inside phoneKey
+ * when someone types (part of) a phone number — so "34 56", "0612" or
+ * "+212 612…" find "212612345678" whatever the stored formatting. A leading
+ * national "0" / international "00" / "+" is dropped (phoneKey starts with
+ * the country code). Fewer than 3 digits, or any letter → nothing.
+ */
+export function customerPhoneSearchKeys(query: string): string[] {
+  const value = query.trim();
+  if (!/^[+\d\s().\-/]+$/.test(value)) return [];
+  const digits = value.replace(/\D+/g, "");
+  if (digits.length < 3) return [];
+  const keys = new Set([digits]);
+  const full = customerPhoneKey(value);
+  if (full) keys.add(full);
+  if (digits.startsWith("00")) keys.add(digits.slice(2));
+  else if (digits.startsWith("0") && digits.length > 3) keys.add(digits.slice(1));
+  return [...keys];
+}
+
 /** "••••••78" — enough for a seller to recognise a number without exposing it. */
 export function maskCustomerPhone(phoneKeyOrRaw: string | null | undefined): string {
   const digits = (phoneKeyOrRaw ?? "").replace(/\D+/g, "");

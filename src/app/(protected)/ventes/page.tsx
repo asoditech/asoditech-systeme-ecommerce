@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ProductChips } from "@/components/orders/product-chips";
 import { requirePermission } from "@/lib/auth/guards";
 import { requireChannelKind } from "@/lib/auth/channel-access";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -53,6 +54,7 @@ export default async function VentesPage({ searchParams }: { searchParams: Promi
                 <TableHead>Vendeur</TableHead>
                 <TableHead>Paiement</TableHead>
                 <TableHead className="text-right">Total</TableHead>
+                <TableHead>Produits</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -88,6 +90,9 @@ export default async function VentesPage({ searchParams }: { searchParams: Promi
                     {[...new Set(s.payments.map((p) => CASH_PAYMENT_METHOD_LABELS[p.method]))].join(", ") || "—"}
                   </TableCell>
                   <TableCell className="text-right font-semibold tabular-nums">{formatCurrency(s.total.toString(), s.currency)}</TableCell>
+                  <TableCell>
+                    <ProductChips lines={s.lines.map((l) => ({ name: l.nameSnapshot, quantity: l.quantity, attributes: l.variation?.attributes }))} />
+                  </TableCell>
                 </ClickableTableRow>
                 );
               })}

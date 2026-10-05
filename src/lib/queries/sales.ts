@@ -55,7 +55,8 @@ export async function listSales(viewer: Viewer, filters: SaleListFilters = {}) {
         // `returnStateLabel` (the sale detail page's own function) fed with
         // cheap aggregate sums — this view never needs which specific line a
         // unit was returned from.
-        lines: { select: { quantity: true } },
+        // « Produits » column: the line snapshot name + variation options.
+        lines: { select: { quantity: true, nameSnapshot: true, variation: { select: { attributes: true } } } },
         returns: { select: { lines: { select: { quantitySellable: true, quantityDamaged: true } } } },
       },
     }),

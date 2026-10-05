@@ -421,11 +421,76 @@ function ozTimestampToIso(entry: { TIME?: string | number; TIME_STR?: string }):
   return null;
 }
 
+// A field that names the courier: « LIVREUR », « DELIVERY-MAN », « COURIER »…
+const COURIER_KEY = /livreur|courier|delivery[-_ ]?(man|boy|guy|agent)|driver/i;
+// A Moroccan mobile/landline as written by a carrier: 06…, +212 6…, 212-6….
+const COURIER_PHONE = /(?:\+?212[\s.-]?|\b0)[5-7](?:[\s.-]?\d){8}\b/;
+
+/** "Hassan Hajjaj 0693993731" / "Livreur : Hassan Hajjaj - Tél 06 93 99 37 31" → name + phone. */
+export function courierFromText(text: string): { name: string | null; phone: string | null } | null {
+  const match = text.match(COURIER_PHONE);
+  const phone = match ? match[0].replace(/[\s.-]/g, "") : null;
+  const rest = (match ? text.replace(match[0], " ") : text)
+    .replace(/\b(livreur|t[ée]l[ée]?(phone)?|phone|gsm)\b/gi, " ")
+    .replace(/[:|,;()\-–]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const name = /\p{L}{2,}/u.test(rest) && rest.length <= 80 ? rest : null;
+  return name || phone ? { name, phone } : null;
+}
+
+function courierFromValue(value: unknown): { name: string | null; phone: string | null } | null {
+  if (typeof value === "string") return value.trim() ? courierFromText(value) : null;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    const pick = (re: RegExp) => {
+      const hit = entries.find(([k, v]) => re.test(k) && (typeof v === "string" || typeof v === "number"));
+      return hit ? String(hit[1]).trim() || null : null;
+    };
+    const name = pick(/name|nom/i);
+    const phone = pick(/phone|tel|gsm|mobile/i);
+    return name || phone ? { name, phone: phone ? phone.replace(/[\s.-]/g, "") : null } : null;
+  }
+  return null;
+}
+
+/**
+ * The courier, only when OzonExpress's own response names one: a courier-named
+ * field on TRACKING / LAST_TRACKING / a history entry (latest first), else the
+ * latest history COMMENT that explicitly says « livreur ». A comment without
+ * that word (e.g. the customer's number in « Pas de réponse ») is never read
+ * as a courier. Nothing found → null.
+ */
+function courierFromTracking(
+  t: Record<string, unknown> | undefined,
+  history: Record<string, unknown>[]
+): { name: string | null; phone: string | null } | null {
+  if (!t) return null;
+  const latestFirst = [...history].reverse();
+  for (const source of [t, (t.LAST_TRACKING ?? {}) as Record<string, unknown>, ...latestFirst]) {
+    for (const [key, value] of Object.entries(source)) {
+      if (!COURIER_KEY.test(key)) continue;
+      const courier = courierFromValue(value);
+      if (courier) return courier;
+    }
+  }
+  for (const entry of latestFirst) {
+    const comment = typeof entry.COMMENT === "string" ? entry.COMMENT : "";
+    if (/livreur/i.test(comment)) {
+      const courier = courierFromText(comment);
+      if (courier) return courier;
+    }
+  }
+  return null;
+}
+
 /**
  * Builds the full normalized tracking detail from the OzonExpress
  * `tracking` response. OzonExpress's `TRACKING.HISTORY` is
- * `[{STATUT, TIME, TIME_STR, COMMENT}, …]` (oldest-first). It carries NO
- * courier or structured location — those come back `null`, never guessed.
+ * `[{STATUT, TIME, TIME_STR, COMMENT}, …]` (oldest-first). The documented
+ * response carries no structured location (always `null`); the courier
+ * (« livreur ») is read only when the response itself names one — see
+ * `courierFromTracking` — and is otherwise `null`, never guessed.
  * Throws the same malformed-response error as `parseTrackingResponse` when
  * the envelope is unusable.
  */
@@ -472,7 +537,7 @@ export function parseTrackingDetail(raw: unknown): {
   return {
     rawStatus: base.rawStatus,
     events,
-    courier: null, // OzonExpress's tracking response documents no courier field
+    courier: courierFromTracking(t, historyEntries),
     location: null,
     lastUpdateAt,
   };

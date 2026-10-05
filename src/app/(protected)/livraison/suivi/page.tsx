@@ -1,14 +1,11 @@
 import Link from "next/link";
-import { Radar, Truck, PackageCheck, PackageX, HelpCircle } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
+import { Radar, Truck, PackageCheck, PackageX, HelpCircle, ChevronRight } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
-import { KpiCard } from "@/components/kpi-card";
 import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { TrackingStatusBadge } from "@/components/tracking/tracking-status-badge";
+import { TrackingTable } from "@/components/tracking/tracking-table";
 import { RefreshTrackingButton } from "@/components/tracking/refresh-tracking-button";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -24,7 +21,6 @@ import {
   type NormalizedTrackingStatus,
 } from "@/lib/tracking/status";
 import { SHIPMENT_COST_SOURCE_LABELS } from "@/lib/status-labels";
-import { formatCurrency, formatDateTime } from "@/lib/format";
 import {
   resolveDateRangePreset,
   DATE_RANGE_PRESET_LABELS,
@@ -98,37 +94,51 @@ export default async function SuiviPage({
     stats.byNormalized.OUT_FOR_DELIVERY;
   const pending = stats.byNormalized.CREATED + stats.byNormalized.PICKUP_PENDING;
 
+  // Compact statistics strip — same counts and links as before, one short row.
+  const statItems = [
+    { label: "Suivies", value: stats.total, icon: Truck, href: null, tone: "text-primary" },
+    { label: "En transit", value: inTransit, icon: Radar, href: "/livraison/suivi?status=IN_TRANSIT", tone: "text-sky-600 dark:text-sky-400" },
+    { label: "En attente de ramassage", value: pending, icon: PackageCheck, href: "/livraison/suivi?status=CREATED", tone: "text-amber-600 dark:text-amber-400" },
+    { label: "Livrées", value: stats.byNormalized.DELIVERED, icon: PackageCheck, href: "/livraison/suivi?status=DELIVERED", tone: "text-emerald-600 dark:text-emerald-400" },
+    { label: "Retours / échecs", value: stats.byNormalized.RETURNED + stats.byNormalized.FAILED, icon: PackageX, href: "/livraison/suivi?status=RETURNED", tone: "text-destructive" },
+  ];
+
   return (
     <div>
-      <PageHeader
-        title="Suivi des expéditions"
-        description="Vue centralisée du parcours de chaque colis chez le transporteur. N'altère jamais le module Livraison."
-        breadcrumbs={[{ label: "Livraison", href: "/livraison" }, { label: "Suivi" }]}
-        actions={canManage ? <RefreshTrackingButton mode="batch" /> : undefined}
-      />
-
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <KpiCard label="Expéditions suivies" value={String(stats.total)} icon={Truck} tone="primary" />
-        <Link href="/livraison/suivi?status=IN_TRANSIT" className="block">
-          <KpiCard label="En transit" value={String(inTransit)} icon={Radar} tone="info" />
-        </Link>
-        <Link href="/livraison/suivi?status=CREATED" className="block">
-          <KpiCard label="En attente de ramassage" value={String(pending)} icon={PackageCheck} tone="warning" />
-        </Link>
-        <Link href="/livraison/suivi?status=DELIVERED" className="block">
-          <KpiCard label="Livrées" value={String(stats.byNormalized.DELIVERED)} icon={PackageCheck} tone="success" />
-        </Link>
-        <Link href="/livraison/suivi?status=RETURNED" className="block">
-          <KpiCard
-            label="Retours / échecs"
-            value={String(stats.byNormalized.RETURNED + stats.byNormalized.FAILED)}
-            icon={PackageX}
-            tone="danger"
-          />
-        </Link>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h1 className="flex items-center gap-1.5 text-xl font-semibold tracking-tight">
+          <Link href="/livraison" className="text-muted-foreground transition-colors hover:text-foreground">
+            Livraison
+          </Link>
+          <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
+          Suivi
+        </h1>
+        {canManage && <RefreshTrackingButton mode="batch" />}
       </div>
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="mb-3 flex flex-wrap gap-2">
+        {statItems.map(({ label, value, icon: Icon, href, tone }) => {
+          const body = (
+            <>
+              <Icon className={`size-4 ${tone}`} aria-hidden="true" />
+              <span className="text-muted-foreground">{label}</span>
+              <span className="font-semibold tabular-nums">{value}</span>
+            </>
+          );
+          const className = "inline-flex items-center gap-2 rounded-lg border bg-card px-3 py-1.5 text-sm shadow-xs";
+          return href ? (
+            <Link key={label} href={href} className={`${className} transition-colors hover:bg-muted`}>
+              {body}
+            </Link>
+          ) : (
+            <div key={label} className={className}>
+              {body}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         <FilterSearchInput
           paramKey="q"
           placeholder="N° commande, client, téléphone, n° de suivi, ville…"
@@ -198,103 +208,10 @@ export default async function SuiviPage({
           }
         />
       ) : (
-        <div className="rounded-lg border">
-          <div className="overflow-x-auto">
-            <Table className="text-[13px] [&_td]:px-2.5 [&_td]:py-2 [&_th]:px-2.5">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Commande</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Ville</TableHead>
-                  <TableHead className="text-right">Montant commande</TableHead>
-                  <TableHead>Transporteur</TableHead>
-                  <TableHead>N° de suivi</TableHead>
-                  <TableHead>Statut suivi</TableHead>
-                  <TableHead>Dernier évènement</TableHead>
-                  {includeCosts && <TableHead className="text-right">Frais transporteur</TableHead>}
-                  <TableHead>Dernière synchro</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((r) => {
-                  // The parcel's own recorded charge, by outcome — a
-                  // delivered parcel carries a delivery fee, a RETOUR /
-                  // ECHEC one its return / failure charge (docs/adr/0032).
-                  // Kept as one column so the order amount beside it is
-                  // never mistaken for a delivery cost (client feedback #7).
-                  const feeSource =
-                    r.costSource === "RETURN_RULE"
-                      ? { amount: r.returnCost, label: "Frais de retour" }
-                      : r.costSource === "FAILURE_RULE"
-                        ? { amount: r.failureCost, label: "Frais d'échec" }
-                        : { amount: r.deliveryCost, label: null as string | null };
-                  return (
-                    <TableRow key={r.shipmentId}>
-                      <TableCell className="font-medium">
-                        <Link href={`/livraison/suivi/${r.shipmentId}`} className="hover:underline">
-                          {r.orderLabel}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <span className="block max-w-[9rem] truncate">{r.customerName}</span>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{r.city ?? "—"}</TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatCurrency(r.orderTotal, r.currency)}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{r.providerName}</TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">
-                        {r.trackingUrl ? (
-                          <a href={r.trackingUrl} target="_blank" rel="noreferrer" className="hover:underline">
-                            {r.trackingNumber ?? "Suivre"}
-                          </a>
-                        ) : (
-                          (r.trackingNumber ?? "—")
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <TrackingStatusBadge status={r.normalizedStatus} raw={r.providerStatusRaw} showRaw />
-                      </TableCell>
-                      <TableCell className="max-w-[13rem] text-xs text-muted-foreground">
-                        {r.trackingSyncError ? (
-                          <span className="text-amber-600 dark:text-amber-400">
-                            Dernière synchro en échec — dernier statut connu conservé
-                          </span>
-                        ) : r.latestEvent ? (
-                          <>
-                            <span className="block truncate text-foreground">{r.latestEvent.label}</span>
-                            <span className="block text-[11px] text-muted-foreground/70">
-                              {r.latestEvent.timestamp ? formatDateTime(r.latestEvent.timestamp) : "—"}
-                              {r.latestEvent.location ? ` · ${r.latestEvent.location}` : ""}
-                            </span>
-                          </>
-                        ) : (
-                          "Aucun historique détaillé"
-                        )}
-                      </TableCell>
-                      {includeCosts && (
-                        <TableCell className="text-right tabular-nums text-muted-foreground">
-                          {feeSource.amount !== null ? formatCurrency(feeSource.amount, r.currency) : "—"}
-                          {feeSource.label && (
-                            <span className="block text-[11px] text-muted-foreground/70">{feeSource.label}</span>
-                          )}
-                        </TableCell>
-                      )}
-                      <TableCell className="text-xs text-muted-foreground/70">
-                        {r.lastTrackingSyncAt ? formatDateTime(r.lastTrackingSyncAt) : "Jamais"}
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm" render={<Link href={`/livraison/suivi/${r.shipmentId}`} />}>
-                          Détails
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
+        // The table is the workspace: it takes the remaining viewport height
+        // and scrolls inside (sticky header) — more rows visible at once.
+        <div className="rounded-lg border bg-card sm:[&>[data-slot=table-container]]:max-h-[max(18rem,calc(100dvh-19rem))] sm:[&>[data-slot=table-container]]:overflow-y-auto">
+          <TrackingTable rows={rows} includeCosts={includeCosts} />
           <DataTablePagination
             page={page}
             pageSize={pageSize}
@@ -312,7 +229,7 @@ export default async function SuiviPage({
         </div>
       )}
 
-      <p className="mt-4 flex items-start gap-1.5 text-xs text-muted-foreground">
+      <p className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
         <HelpCircle className="mt-0.5 size-3.5 shrink-0" />
         <span>
           Le statut « suivi » est normalisé à partir du statut interne et du libellé brut du transporteur. En cas

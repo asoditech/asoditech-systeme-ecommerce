@@ -201,6 +201,43 @@ describe("customer visibility", () => {
   });
 });
 
+describe("order form customer search — name OR (partial) phone", () => {
+  it("finds by name, by 4–5 digits and by the full number in any format; returns the default address for the prefill", async () => {
+    const admin = await loginAsTestUser({ role: "ADMIN" });
+    const sara = await prisma.customer.create({
+      data: { fullName: "Sara Amrani", phone: "06 12 34 56 78", phoneKey: "212612345678", createdById: admin.id, city: "Fès" },
+    });
+    await prisma.customerAddress.create({ data: { customerId: sara.id, addressLine1: "1 Rue X", city: "Rabat", phone: "0612345678", isDefault: true } });
+    await prisma.customer.create({ data: { fullName: "Karim Bennani", phone: "0699887766", phoneKey: "212699887766" } });
+
+    const names = async (q: string) => (await searchCustomersForOrderAction(q)).map((c) => c.fullName).sort();
+    expect(await names("sara")).toEqual(["Sara Amrani"]);
+    expect(await names("3456")).toEqual(["Sara Amrani"]); // stored as "06 12 34 56 78"
+    expect(await names("45678")).toEqual(["Sara Amrani"]);
+    expect(await names("0612345678")).toEqual(["Sara Amrani"]);
+    expect(await names("+212 612 34 56 78")).toEqual(["Sara Amrani"]);
+    expect(await names("9988")).toEqual(["Karim Bennani"]);
+    expect(await names("5555")).toEqual([]);
+
+    const [hit] = await searchCustomersForOrderAction("3456");
+    expect(hit.addresses).toEqual([{ addressLine1: "1 Rue X", city: "Rabat", phone: "0612345678" }]);
+    expect(await prisma.customer.count()).toBe(2); // a search never creates
+  });
+
+  it("partial phone search still honours customer visibility", async () => {
+    await setTestBusinessMode("ONLINE_AND_OFFLINE");
+    const store = await prismaBase.salesChannel.create({ data: { tenantId: DEFAULT_TENANT_ID, name: "Magasin", kind: "OFFLINE" } });
+    const wh = await prismaBase.warehouse.create({ data: { tenantId: DEFAULT_TENANT_ID, name: "Boutique" } });
+    const inStore = await prismaBase.customer.create({ data: { tenantId: DEFAULT_TENANT_ID, fullName: "Client Magasin", phone: "0611223344", phoneKey: "212611223344" } });
+    await prismaBase.sale.create({
+      data: { tenantId: DEFAULT_TENANT_ID, salesChannelId: store.id, warehouseId: wh.id, idempotencyKey: "k-cust-2", subtotal: 1, total: 1, customerId: inStore.id },
+    });
+    await prismaBase.customer.create({ data: { tenantId: DEFAULT_TENANT_ID, fullName: "Client Libre", phone: "0611223399", phoneKey: "212611223399" } });
+    await loginAsTestUser({ role: "CONFIRMATION" });
+    expect((await searchCustomersForOrderAction("112233")).map((c) => c.fullName)).toEqual(["Client Libre"]);
+  });
+});
+
 describe("sale form client — exact phone only", () => {
   beforeEach(async () => {
     await setTestBusinessMode("ONLINE_AND_OFFLINE");

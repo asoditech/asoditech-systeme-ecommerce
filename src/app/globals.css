@@ -327,6 +327,40 @@
 @media (prefers-reduced-motion: reduce) {
   .animate-blob-breathe-a, .animate-blob-breathe-b, .animate-blob-breathe-c { animation: none; }
 }
+
+/* Announcement top bar ticker (src/components/layout/announcement-bar.tsx):
+   two identical copies slide by exactly one copy's width, so the loop is
+   seamless. LTR scrolls right→left; RTL (dir="rtl") scrolls left→right.
+   Paused on hover/focus; reduced motion → one static, wrapping copy. */
+@keyframes announcement-ticker {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@keyframes announcement-ticker-rtl {
+  from { transform: translateX(0); }
+  to { transform: translateX(50%); }
+}
+.announcement-ticker-track {
+  display: flex;
+  width: max-content;
+  animation: announcement-ticker var(--ticker-duration, 30s) linear infinite;
+}
+[dir="rtl"] .announcement-ticker-track {
+  animation-name: announcement-ticker-rtl;
+}
+.announcement-ticker:hover .announcement-ticker-track,
+.announcement-ticker:focus-within .announcement-ticker-track {
+  animation-play-state: paused;
+}
+.announcement-ticker-copy {
+  white-space: nowrap;
+  padding-inline-end: 4rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .announcement-ticker-track { animation: none; width: auto; }
+  .announcement-ticker-copy { white-space: normal; padding-inline-end: 0; }
+  .announcement-ticker-copy[aria-hidden="true"] { display: none; }
+}
 /* Printing — reports (/rapports) and delivery invoices. Drop the app
    chrome so only the document prints; individual controls opt out with
    Tailwind's `print:hidden`. */

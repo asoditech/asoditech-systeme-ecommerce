@@ -56,6 +56,7 @@ import {
 } from "@/lib/validation/order";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import { findOrCreateCustomer } from "@/lib/customers/find-or-create";
+import { customerPhoneSearchKeys } from "@/lib/customers/identity";
 import { customerVisibilityWhere } from "@/lib/customers/visibility";
 import { z } from "zod";
 import type { Customer, Prisma } from "@prisma/client";
@@ -73,19 +74,23 @@ function normalizeOptional(value: string | null | undefined): string | null {
 
 export async function searchCustomersForOrderAction(query: string) {
   const user = await requirePermissionForAction("orders.create");
-  if (query.trim().length < 2) return [];
+  const q = query.trim();
+  if (q.length < 2) return [];
   return prisma.customer.findMany({
     where: {
       AND: [
         customerVisibilityWhere(user),
         {
           OR: [
-            { fullName: { contains: query, mode: "insensitive" } },
-            { phone: { contains: query, mode: "insensitive" } },
+            { fullName: { contains: q, mode: "insensitive" } },
+            { phone: { contains: q, mode: "insensitive" } },
+            ...customerPhoneSearchKeys(q).map((digits) => ({ phoneKey: { contains: digits } })),
           ],
         },
       ],
     },
+    // The default saved address prefills THIS order's delivery fields on selection.
+    include: { addresses: { where: { isDefault: true }, take: 1, select: { addressLine1: true, city: true, phone: true } } },
     take: 8,
   });
 }

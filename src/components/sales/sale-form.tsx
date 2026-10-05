@@ -3,7 +3,8 @@
 import { useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ScanBarcode, Trash2, AlertTriangle, ShoppingBasket, Banknote, Plus, CheckCircle2 } from "lucide-react";
+import { ScanBarcode, Trash2, AlertTriangle, ShoppingBasket, Banknote, Plus, CheckCircle2, Check } from "lucide-react";
+import { SelectedLineChips } from "@/components/orders/selected-line-chips";
 import { createSaleAction, searchForSaleAction, type SaleCustomer, type SaleLookupResult } from "@/actions/sales";
 import { SaleCustomerPicker } from "@/components/sales/sale-customer-picker";
 import { SALE_LOOKUP_MESSAGES } from "@/lib/sales/lookup-errors";
@@ -101,7 +102,10 @@ export function SaleForm({
   const total = lines.reduce((s, l) => s + Math.max(0, l.unitPrice * l.quantity - l.discount), 0);
   const paid = payments.reduce((s, p) => s + p.amount, 0);
 
-  function addUnit(h: SaleLookupResult) {
+  // `keepOpen`: a click in the result list keeps the list (and the query) so
+  // several articles can be picked in a row; a scan / Enter still clears it
+  // for the next scan, as before.
+  function addUnit(h: SaleLookupResult, keepOpen = false) {
     if (!h.tracked) return toast.error("Cet article n'est pas suivi en stock à cet emplacement.");
     if (h.available <= 0) return toast.error("Aucun stock disponible pour cet article.");
     const u = h.unit;
@@ -117,6 +121,7 @@ export function SaleForm({
       }
       return [...prev, { key, productId: u.productId, variationId: u.variationId, label: `${u.name}${u.variantLabel ? ` — ${u.variantLabel}` : ""}`, sku: u.sku, quantity: 1, defaultPrice: u.price, unitPrice: u.price, discount: 0, available: h.available }];
     });
+    if (keepOpen) return;
     setHits([]);
     setBrowsing(false);
     setQuery("");
@@ -290,12 +295,25 @@ export function SaleForm({
               </Button>
               <BarcodeScanButton onDetect={onCameraDetect} label="Caméra" />
             </div>
+            {hits.length > 0 && lines.length > 0 && (
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <SelectedLineChips lines={lines} onRemove={(key) => setLines((p) => p.filter((x) => x.key !== key))} />
+                </div>
+                <Button type="button" size="sm" onClick={() => { browseSeq.current += 1; setBrowsing(false); setHits([]); setQuery(""); }}>
+                  Terminé
+                </Button>
+              </div>
+            )}
             {hits.length > 0 && (
               <ul className="divide-y rounded-md border text-sm">
                 {hits.map((h) => (
                   <li key={`${h.unit.productId}-${h.unit.variationId}`}>
-                    <button type="button" className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-muted/50 disabled:opacity-50" disabled={!h.tracked || h.available <= 0} onClick={() => addUnit(h)}>
+                    <button type="button" className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-muted/50 disabled:opacity-50" disabled={!h.tracked || h.available <= 0} onClick={() => addUnit(h, true)}>
                       <span>
+                        {lines.some((l) => l.key === (h.unit.variationId ? `v:${h.unit.variationId}` : `p:${h.unit.productId}`)) && (
+                          <Check className="mr-1 inline size-3.5 text-primary" aria-label="déjà ajouté" />
+                        )}
                         {h.unit.name}
                         {h.unit.variantLabel && <span className="text-muted-foreground"> — {h.unit.variantLabel}</span>}
                         <span className="ml-2 font-mono text-xs text-muted-foreground">{h.unit.primaryBarcode ?? h.unit.sku}</span>
