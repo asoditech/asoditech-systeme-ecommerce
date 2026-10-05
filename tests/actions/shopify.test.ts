@@ -656,7 +656,7 @@ describe("Shopify integration", () => {
       expect(order).not.toBeNull();
     });
 
-    it("deduplicates a guest customer across two orders sharing the same email, without fuzzy name matching", async () => {
+    it("reuses a guest customer only when name + phone match (any phone format); e-mail alone, or same phone with another name, is a new customer", async () => {
       await seedProductWithCost();
       state.orders = [
         {
@@ -666,6 +666,7 @@ describe("Shopify integration", () => {
           displayFinancialStatus: "PENDING",
           displayFulfillmentStatus: "UNFULFILLED",
           email: "sara@example.com",
+          phone: "0612345678",
           shippingAddress: { firstName: "Sara", lastName: "Amrani", address1: "1 Rue X", city: "Rabat", country: "MA" },
           total: 50,
           subtotal: 50,
@@ -678,6 +679,7 @@ describe("Shopify integration", () => {
           displayFinancialStatus: "PENDING",
           displayFulfillmentStatus: "UNFULFILLED",
           email: "sara@example.com",
+          phone: "+212 6 12 34 56 78",
           shippingAddress: { firstName: "Sara", lastName: "Amrani", address1: "1 Rue X", city: "Rabat", country: "MA" },
           total: 50,
           subtotal: 50,
@@ -685,12 +687,33 @@ describe("Shopify integration", () => {
         },
       ];
 
+      const extra = (n: number, firstName: string, lastName: string, email: string, phone?: string) => ({
+        id: `gid://shopify/Order/${n}`,
+        name: `#${n}`,
+        createdAt: futureIso(),
+        displayFinancialStatus: "PENDING",
+        displayFulfillmentStatus: "UNFULFILLED",
+        email,
+        ...(phone ? { phone } : {}),
+        shippingAddress: { firstName, lastName, address1: "1 Rue X", city: "Rabat", country: "MA" },
+        total: 50,
+        subtotal: 50,
+        lineItems: [{ id: `gid://shopify/LineItem/${n}`, title: "Thé vert", sku: "THE-VERT", quantity: 1, productId: "gid://shopify/Product/501", unitPrice: 50, discountedTotal: 50, originalTotal: 50 }],
+      });
+      state.orders.push(
+        extra(9010, "Karim", "Amrani", "sara@example.com", "0612345678"),
+        extra(9011, "Nadia", "Bennani", "nadia@example.com"),
+        extra(9012, "Nadia", "Bennani", "nadia@example.com")
+      );
+
       await syncShopifyOrdersAction();
 
-      const customers = await prisma.customer.findMany({ where: { email: "sara@example.com" } });
-      expect(customers).toHaveLength(1);
-      const orders = await prisma.order.findMany({ where: { customerId: customers[0].id } });
-      expect(orders).toHaveLength(2);
+      const sara = await prisma.customer.findMany({ where: { fullName: "Sara Amrani" } });
+      expect(sara).toHaveLength(1);
+      expect(sara[0].phoneKey).toBe("212612345678");
+      expect(await prisma.order.count({ where: { customerId: sara[0].id } })).toBe(2);
+      expect(await prisma.customer.count({ where: { fullName: "Karim Amrani" } })).toBe(1);
+      expect(await prisma.customer.count({ where: { fullName: "Nadia Bennani" } })).toBe(2);
     });
 
     it("imports a refunded order as a completed Refund and marks paymentStatus REMBOURSE", async () => {

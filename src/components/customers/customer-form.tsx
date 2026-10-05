@@ -19,13 +19,15 @@ export function CustomerForm({ customer }: { customer?: Customer }) {
   const router = useRouter();
   const action = customer ? updateCustomerAction : createCustomerAction;
   const [state, formAction, isPending] = useActionState(
-    async (_prevState: ActionResult<Customer> | undefined, formData: FormData) => action(formData),
+    async (_prevState: ActionResult<Customer & { reused?: boolean }> | undefined, formData: FormData) => action(formData),
     undefined
   );
 
   useEffect(() => {
     if (state?.ok) {
-      toast.success(customer ? "Client mis à jour." : "Client créé.");
+      toast.success(
+        customer ? "Client mis à jour." : "reused" in state.data && state.data.reused ? "Ce client existe déjà (même nom et téléphone) — fiche existante ouverte." : "Client créé."
+      );
       router.push(`/clients/${state.data.id}`);
       router.refresh();
     } else if (state && !state.ok) {

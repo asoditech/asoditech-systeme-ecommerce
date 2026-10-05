@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { customerVisibilityWhere } from "@/lib/customers/visibility";
 import { Users, Plus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
@@ -54,6 +55,7 @@ export default async function ClientsPage({
     city: params.city,
     sort: sortFilter,
     page,
+    scope: customerVisibilityWhere(user),
   });
 
   const hasActiveFilter = Boolean(params.q || segmentFilter || params.city || params.sort);

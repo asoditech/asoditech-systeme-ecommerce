@@ -2,6 +2,7 @@
 
 import { productSearchWhereWithOptions } from "@/lib/queries/products";
 import { productLevelMatches, variantLabel } from "@/lib/catalog/lookup";
+import { customerVisibilityWhere } from "@/lib/customers/visibility";
 import { prisma } from "@/lib/prisma";
 import { requireUserForAction } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -31,10 +32,15 @@ export async function quickSearchAction(query: string): Promise<QuickSearchResul
   if (userHasPermission(user, "customers.view")) {
     const customers = await prisma.customer.findMany({
       where: {
-        OR: [
-          { fullName: { contains: trimmed, mode: "insensitive" } },
-          { phone: { contains: trimmed, mode: "insensitive" } },
-          { email: { contains: trimmed, mode: "insensitive" } },
+        AND: [
+          customerVisibilityWhere(user),
+          {
+            OR: [
+              { fullName: { contains: trimmed, mode: "insensitive" } },
+              { phone: { contains: trimmed, mode: "insensitive" } },
+              { email: { contains: trimmed, mode: "insensitive" } },
+            ],
+          },
         ],
       },
       take: 5,

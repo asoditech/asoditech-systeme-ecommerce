@@ -625,6 +625,11 @@ model Customer {
   // by (source, email) for guest checkouts — never by fuzzy name matching.
   source          RecordSource     @default(INTERNE)
   externalId      String?
+  // Identity key (src/lib/customers/identity.ts → customerPhoneKey): the phone in
+  // one canonical form (international digits, e.g. 212612345678); null when
+  // missing/invalid. A customer IS normalized name + this key — see
+  // src/lib/customers/find-or-create.ts. Maintained on every create/update.
+  phoneKey        String?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
@@ -638,6 +643,7 @@ model Customer {
   @@index([createdAt])
   @@index([source, externalId])
   @@index([tenantId])
+  @@index([tenantId, phoneKey])
   @@map("customers")
 }
 

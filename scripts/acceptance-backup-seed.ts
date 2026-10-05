@@ -12,6 +12,7 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { createHmac, randomBytes } from "node:crypto";
+import { customerPhoneKey } from "../src/lib/customers/identity";
 
 const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL ?? "";
 // Destructive — refuse anything that isn't an obviously-local dev/test DB.
@@ -217,6 +218,7 @@ async function seedTenant(opts: {
         tenantId,
         fullName: `Client ${tag} ${i}`,
         phone: `06${String(10000000 + i).slice(0, 8)}`,
+        phoneKey: customerPhoneKey(`06${String(10000000 + i).slice(0, 8)}`),
         city: "Casablanca",
         country: "Maroc",
         addresses: {

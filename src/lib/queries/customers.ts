@@ -14,11 +14,14 @@ export interface CustomerListFilters {
   city?: string;
   sort?: CustomerSort;
   page?: number;
+  /** The viewer's customer visibility (customerVisibilityWhere). */
+  scope?: Prisma.CustomerWhereInput;
 }
 
 export async function listCustomers(params: CustomerListFilters) {
   const page = Math.max(1, params.page ?? 1);
   const where: Prisma.CustomerWhereInput = {
+    AND: [params.scope ?? {}],
     ...(params.q
       ? {
           OR: [
@@ -85,9 +88,9 @@ export async function getCustomerStats(customerId: string) {
   };
 }
 
-export async function getCustomerDetail(id: string) {
-  return prisma.customer.findUnique({
-    where: { id },
+export async function getCustomerDetail(id: string, scope: Prisma.CustomerWhereInput = {}) {
+  return prisma.customer.findFirst({
+    where: { id, AND: [scope] },
     include: {
       addresses: { orderBy: { isDefault: "desc" } },
       orders: { orderBy: { createdAt: "desc" }, take: 10 },

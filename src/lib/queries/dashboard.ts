@@ -39,7 +39,12 @@ export async function getDashboardData(
   // Channel read scope (docs/adr/0039): the viewer's audit-event restriction.
   // `viewer` (Phase 4A, G5 — docs/adr/0042): scopes the low-stock count to
   // the viewer's locations; omitted, the count stays tenant-wide.
-  opts: { auditScope?: Prisma.AuditEventWhereInput; viewer?: Parameters<typeof getLowStockCountForViewer>[0] } = {}
+  // `customerScope`: the viewer's customer visibility (customerVisibilityWhere).
+  opts: {
+    auditScope?: Prisma.AuditEventWhereInput;
+    viewer?: Parameters<typeof getLowStockCountForViewer>[0];
+    customerScope?: Prisma.CustomerWhereInput;
+  } = {}
 ) {
   const period =
     periodKey === "jour"
@@ -93,7 +98,7 @@ export async function getDashboardData(
       include: { customer: { select: { fullName: true } } },
     }),
     prisma.customer.count({
-      where: { createdAt: { gte: period.from, lte: period.to }, ...(source ? { source } : {}) },
+      where: { createdAt: { gte: period.from, lte: period.to }, ...(source ? { source } : {}), ...(opts.customerScope ?? {}) },
     }),
     prisma.auditEvent.findMany({
       where: opts.auditScope ?? {},

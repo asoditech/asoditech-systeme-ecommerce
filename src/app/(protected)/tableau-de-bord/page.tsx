@@ -1,3 +1,4 @@
+import { customerVisibilityWhere } from "@/lib/customers/visibility";
 import Link from "next/link";
 import {
   ShoppingCart,
@@ -167,7 +168,11 @@ export default async function TableauDeBordPage({
       : "annee";
 
   const [data, revenueTrend, business] = await Promise.all([
-    getDashboardData(periodKey, undefined, { auditScope: auditScopeWhere(user.channels), viewer: user }),
+    getDashboardData(periodKey, undefined, {
+      auditScope: auditScopeWhere(user.channels),
+      viewer: user,
+      customerScope: customerVisibilityWhere(user),
+    }),
     getRevenueTrend(chartRange),
     getReportBusinessInfo(),
   ]);

@@ -1,4 +1,5 @@
 import "server-only";
+import { customerPhoneKey } from "@/lib/customers/identity";
 
 /**
  * The ordered catalogue of what a tenant backup contains
@@ -198,6 +199,11 @@ export function patchForRestore(model: string, row: Row): Row {
       out.lastConnectionCheckAt = null;
       out.lastSyncAt = null;
       out.lastError = null;
+      break;
+    case "Customer":
+      // Derived identity key — recomputed, so a backup taken before the
+      // column existed still restores matchable customers.
+      out.phoneKey = customerPhoneKey(typeof out.phone === "string" ? out.phone : null);
       break;
   }
   return out;

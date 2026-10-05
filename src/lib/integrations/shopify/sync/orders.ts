@@ -10,6 +10,8 @@ import { releaseStockForOrder } from "@/lib/inventory";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
 import type { ShopifyOrder } from "../types";
+import { findOrCreateCustomer } from "@/lib/customers/find-or-create";
+import { customerPhoneKey } from "@/lib/customers/identity";
 import { actorAuditFields, actorPerformedById, emptySyncSummary, isRecentlyPlaced, parseOrderPlacedAt, recordNote, upsertCustomerAddressFromOrder, type SyncActor, type SyncSummary } from "@/lib/integrations/shared";
 import {
   notifyNewOrder,
@@ -112,44 +114,10 @@ function fullName(first?: string | null, last?: string | null): string {
 }
 
 /**
- * Match priority: Shopify customer id (a real account) → email → phone.
- * Most orders on this store are guest checkouts (no linked Shopify
- * customer), and a guest doesn't always fill in the same email twice —
- * but the phone number is what's actually reliable across their orders.
- * Without a phone fallback here, the same guest ordering twice created two
- * separate Customer rows every time, which is what showed up as the same
- * name/phone listed repeatedly on the Clients page with the order count
- * split across the duplicates instead of totalled on one row.
+ * Customer of an imported order — same rule as the WooCommerce import: a
+ * Shopify account already linked to a customer → that customer, refreshed;
+ * otherwise findOrCreateCustomer (same normalized name + phone, else new).
  */
-async function findExistingShopifyCustomer(
-  order: ShopifyOrder,
-  email: string | null,
-  phone: string | null
-): Promise<{ id: string; externalId: string | null } | null> {
-  if (order.customer) {
-    const byExternalId = await prisma.customer.findFirst({
-      where: { source: "SHOPIFY", externalId: order.customer.id },
-      select: { id: true, externalId: true },
-    });
-    if (byExternalId) return byExternalId;
-  }
-  if (email) {
-    const byEmail = await prisma.customer.findFirst({
-      where: { source: "SHOPIFY", email },
-      select: { id: true, externalId: true },
-    });
-    if (byEmail) return byEmail;
-  }
-  if (phone) {
-    const byPhone = await prisma.customer.findFirst({
-      where: { source: "SHOPIFY", phone },
-      select: { id: true, externalId: true },
-    });
-    if (byPhone) return byPhone;
-  }
-  return null;
-}
-
 async function resolveCustomerForOrder(order: ShopifyOrder, actor: SyncActor): Promise<string> {
   const email = order.customer?.email ?? order.email ?? null;
   const address = order.shippingAddress ?? order.billingAddress;
@@ -159,8 +127,7 @@ async function resolveCustomerForOrder(order: ShopifyOrder, actor: SyncActor): P
     email ||
     `Client Shopify ${order.name}`;
   const phone = order.customer?.phone ?? order.phone ?? address?.phone ?? null;
-
-  const existing = await findExistingShopifyCustomer(order, email, phone);
+  const externalId = order.customer?.id ?? null;
 
   const fields = {
     fullName: name,
@@ -171,34 +138,33 @@ async function resolveCustomerForOrder(order: ShopifyOrder, actor: SyncActor): P
     country: address?.country ?? "Maroc",
   };
 
-  if (existing) {
-    await prisma.customer.update({
-      where: { id: existing.id },
-      data: {
-        ...fields,
-        // Backfill the Shopify customer id once it's known (a guest's
-        // first orders matched by email/phone, then they register) —
-        // never overwrite one already recorded.
-        externalId: existing.externalId ?? order.customer?.id ?? existing.externalId,
-      },
+  if (externalId) {
+    const linked = await prisma.customer.findFirst({
+      where: { source: "SHOPIFY", externalId },
+      select: { id: true },
     });
-    return existing.id;
+    if (linked) {
+      await prisma.customer.update({
+        where: { id: linked.id },
+        data: { ...fields, phoneKey: customerPhoneKey(phone) },
+      });
+      return linked.id;
+    }
   }
 
-  const created = await prisma.customer.create({
-    data: { ...fields, source: "SHOPIFY", externalId: order.customer?.id ?? null },
-  });
+  const { customer, reused } = await findOrCreateCustomer({ ...fields, source: "SHOPIFY", externalId });
+  if (reused) return customer.id;
 
   await recordAuditEvent({
     ...actorAuditFields(actor),
     action: "customer.created",
     entityType: "Customer",
-    entityId: created.id,
-    newValue: { fullName: created.fullName },
+    entityId: customer.id,
+    newValue: { fullName: customer.fullName },
     metadata: { source: "SHOPIFY" },
   });
 
-  return created.id;
+  return customer.id;
 }
 
 function mappedOrderFields(order: ShopifyOrder) {

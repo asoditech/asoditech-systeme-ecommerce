@@ -1,3 +1,4 @@
+import { customerVisibilityWhere } from "@/lib/customers/visibility";
 import { notFound } from "next/navigation";
 import { PhoneActions } from "@/components/phone-actions";
 import { MapPin, Plus, Wallet, ShoppingCart, Receipt, CalendarClock, ShieldAlert } from "lucide-react";
@@ -25,7 +26,7 @@ import { getReportBusinessInfo } from "@/lib/queries/business-info";
 export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("customers.view");
   const { id } = await params;
-  const customer = await getCustomerDetail(id);
+  const customer = await getCustomerDetail(id, customerVisibilityWhere(user));
   if (!customer) notFound();
 
   const [stats, business] = await Promise.all([getCustomerStats(id), getReportBusinessInfo()]);

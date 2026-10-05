@@ -807,7 +807,7 @@ describe("WooCommerce integration", () => {
       expect(order).not.toBeNull();
     });
 
-    it("deduplicates a guest customer across two orders sharing the same billing e-mail, without fuzzy name matching", async () => {
+    it("reuses a guest customer only when name + phone match (any phone format); e-mail alone, or same phone with another name, is a new customer", async () => {
       await seedProductWithCost();
       state.orders = [
         {
@@ -817,7 +817,7 @@ describe("WooCommerce integration", () => {
           date_created: futureIso(),
           customer_id: 0,
           total: "50.00",
-          billing: { first_name: "Sara", last_name: "Amrani", email: "sara@example.com", city: "Rabat", country: "MA", address_1: "1 Rue X" },
+          billing: { first_name: "Sara", last_name: "Amrani", email: "sara@example.com", phone: "0612345678", city: "Rabat", country: "MA", address_1: "1 Rue X" },
           shipping: {},
           line_items: [{ id: 2, name: "Thé vert", product_id: 501, sku: "THE-VERT", quantity: 1, price: "50.00", subtotal: "50.00", total: "50.00" }],
         },
@@ -828,18 +828,37 @@ describe("WooCommerce integration", () => {
           date_created: futureIso(),
           customer_id: 0,
           total: "50.00",
-          billing: { first_name: "Sara", last_name: "Amrani", email: "sara@example.com", city: "Rabat", country: "MA", address_1: "1 Rue X" },
+          billing: { first_name: "Sara", last_name: "Amrani", email: "sara@example.com", phone: "+212 6 12 34 56 78", city: "Rabat", country: "MA", address_1: "1 Rue X" },
           shipping: {},
           line_items: [{ id: 3, name: "Thé vert", product_id: 501, sku: "THE-VERT", quantity: 1, price: "50.00", subtotal: "50.00", total: "50.00" }],
         },
       ];
 
+      const extra = (id: number, billing: Record<string, string>) => ({
+        id,
+        number: String(id),
+        status: "pending",
+        date_created: futureIso(),
+        customer_id: 0,
+        total: "50.00",
+        billing: { city: "Rabat", country: "MA", address_1: "1 Rue X", ...billing },
+        shipping: {},
+        line_items: [{ id: id, name: "Thé vert", product_id: 501, sku: "THE-VERT", quantity: 1, price: "50.00", subtotal: "50.00", total: "50.00" }],
+      });
+      state.orders.push(
+        extra(9010, { first_name: "Karim", last_name: "Amrani", email: "sara@example.com", phone: "0612345678" }),
+        extra(9011, { first_name: "Nadia", last_name: "Bennani", email: "nadia@example.com" }),
+        extra(9012, { first_name: "Nadia", last_name: "Bennani", email: "nadia@example.com" })
+      );
+
       await syncWooCommerceOrdersAction();
 
-      const customers = await prisma.customer.findMany({ where: { email: "sara@example.com" } });
-      expect(customers).toHaveLength(1);
-      const orders = await prisma.order.findMany({ where: { customerId: customers[0].id } });
-      expect(orders).toHaveLength(2);
+      const sara = await prisma.customer.findMany({ where: { fullName: "Sara Amrani" } });
+      expect(sara).toHaveLength(1);
+      expect(sara[0].phoneKey).toBe("212612345678");
+      expect(await prisma.order.count({ where: { customerId: sara[0].id } })).toBe(2);
+      expect(await prisma.customer.count({ where: { fullName: "Karim Amrani" } })).toBe(1);
+      expect(await prisma.customer.count({ where: { fullName: "Nadia Bennani" } })).toBe(2);
     });
 
     it("imports a refunded order as a completed Refund and marks paymentStatus REMBOURSE", async () => {

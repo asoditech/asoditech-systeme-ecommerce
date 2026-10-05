@@ -25,6 +25,8 @@ import {
   type CreateSaleReturnInput,
 } from "@/lib/validation/sale";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
+import { findOrCreateCustomer } from "@/lib/customers/find-or-create";
+import { customerPhoneKey, maskCustomerPhone } from "@/lib/customers/identity";
 
 /**
  * In-store sales — docs/adr/0040-offline-sales-and-receptions.md.
@@ -155,6 +157,56 @@ export async function searchForSaleAction(input: {
     console.error(`[sales] product lookup failed: ${error instanceof Error ? error.name : "unknown"}`);
     return actionError(SALE_LOOKUP_MESSAGES.unexpected);
   }
+}
+
+/** What a seller sees of a customer: the name and a masked phone — never the number itself. */
+export interface SaleCustomer {
+  id: string;
+  fullName: string;
+  maskedPhone: string;
+}
+
+/**
+ * Sale form « Client »: customers whose phone is EXACTLY this number (any
+ * formatting — compared on the normalized key). No browsing, no partial
+ * match: without the full number a seller sees nothing.
+ */
+export async function findSaleCustomersByPhoneAction(phone: string): Promise<ActionResult<SaleCustomer[]>> {
+  await requirePermissionForAction("sales.create");
+  const phoneKey = customerPhoneKey(phone);
+  if (!phoneKey) return actionError("Numéro de téléphone invalide.");
+  const customers = await prisma.customer.findMany({
+    where: { phoneKey },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: 10,
+    select: { id: true, fullName: true, phoneKey: true },
+  });
+  return actionOk(customers.map((c) => ({ id: c.id, fullName: c.fullName, maskedPhone: maskCustomerPhone(c.phoneKey) })));
+}
+
+/** Sale form « Nouveau client »: name + phone → the existing customer if both match, else a new one. */
+export async function createSaleCustomerAction(input: { fullName: string; phone: string }): Promise<ActionResult<SaleCustomer>> {
+  const user = await requirePermissionForAction("sales.create");
+  const fullName = (input.fullName ?? "").trim();
+  if (fullName.length < 2 || fullName.length > 200) return actionError("Le nom du client est requis.");
+  if (!customerPhoneKey(input.phone)) return actionError("Numéro de téléphone invalide.");
+  const { customer, reused } = await findOrCreateCustomer({
+    fullName,
+    phone: input.phone.trim(),
+    createdById: user.id,
+  });
+  if (!reused) {
+    await recordAuditEvent({
+      actorType: "USER",
+      actorUserId: user.id,
+      action: "customer.created",
+      entityType: "Customer",
+      entityId: customer.id,
+      newValue: { fullName: customer.fullName },
+      metadata: { via: "sale_form" },
+    });
+  }
+  return actionOk({ id: customer.id, fullName: customer.fullName, maskedPhone: maskCustomerPhone(customer.phoneKey) });
 }
 
 export async function createSaleAction(input: CreateSaleInput): Promise<ActionResult<{ id: string; duplicate: boolean }>> {

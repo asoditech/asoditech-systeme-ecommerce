@@ -10,13 +10,16 @@ import {
   createCustomerAddressSchema,
 } from "@/lib/validation/customer";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
+import { findOrCreateCustomer } from "@/lib/customers/find-or-create";
+import { customerPhoneKey } from "@/lib/customers/identity";
 import type { Customer, CustomerAddress } from "@prisma/client";
 
 function normalizeOptional(value: string | null | undefined): string | null {
   return value && value.trim().length > 0 ? value.trim() : null;
 }
 
-export async function createCustomerAction(formData: FormData): Promise<ActionResult<Customer>> {
+/** `reused`: the same name + phone already existed — that customer is returned untouched. */
+export async function createCustomerAction(formData: FormData): Promise<ActionResult<Customer & { reused: boolean }>> {
   const user = await requirePermissionForAction("customers.create");
 
   const parsed = createCustomerSchema.safeParse({
@@ -34,20 +37,19 @@ export async function createCustomerAction(formData: FormData): Promise<ActionRe
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
 
-  const customer = await prisma.customer.create({
-    data: {
-      fullName: parsed.data.fullName,
-      phone: normalizeOptional(parsed.data.phone),
-      whatsapp: normalizeOptional(parsed.data.whatsapp),
-      email: normalizeOptional(parsed.data.email),
-      city: normalizeOptional(parsed.data.city),
-      region: normalizeOptional(parsed.data.region),
-      country: parsed.data.country,
-      notes: normalizeOptional(parsed.data.notes),
-      tags: parsed.data.tags,
-      createdById: user.id,
-    },
+  const { customer, reused } = await findOrCreateCustomer({
+    fullName: parsed.data.fullName,
+    phone: normalizeOptional(parsed.data.phone),
+    whatsapp: normalizeOptional(parsed.data.whatsapp),
+    email: normalizeOptional(parsed.data.email),
+    city: normalizeOptional(parsed.data.city),
+    region: normalizeOptional(parsed.data.region),
+    country: parsed.data.country,
+    notes: normalizeOptional(parsed.data.notes),
+    tags: parsed.data.tags,
+    createdById: user.id,
   });
+  if (reused) return actionOk({ ...customer, reused });
 
   await recordAuditEvent({
     actorType: "USER",
@@ -59,7 +61,7 @@ export async function createCustomerAction(formData: FormData): Promise<ActionRe
   });
 
   revalidatePath("/clients");
-  return actionOk(customer);
+  return actionOk({ ...customer, reused });
 }
 
 export async function updateCustomerAction(formData: FormData): Promise<ActionResult<Customer>> {
@@ -92,6 +94,7 @@ export async function updateCustomerAction(formData: FormData): Promise<ActionRe
     data: {
       fullName: parsed.data.fullName,
       phone: normalizeOptional(parsed.data.phone),
+      phoneKey: customerPhoneKey(parsed.data.phone),
       whatsapp: normalizeOptional(parsed.data.whatsapp),
       email: normalizeOptional(parsed.data.email),
       city: normalizeOptional(parsed.data.city),

@@ -4,7 +4,8 @@ import { useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ScanBarcode, Trash2, AlertTriangle, ShoppingBasket, Banknote, Plus, CheckCircle2 } from "lucide-react";
-import { createSaleAction, searchForSaleAction, type SaleLookupResult } from "@/actions/sales";
+import { createSaleAction, searchForSaleAction, type SaleCustomer, type SaleLookupResult } from "@/actions/sales";
+import { SaleCustomerPicker } from "@/components/sales/sale-customer-picker";
 import { SALE_LOOKUP_MESSAGES } from "@/lib/sales/lookup-errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,7 +73,8 @@ export function SaleForm({
   const idempotencyKey = useRef<string>(crypto.randomUUID());
   const [channelId, setChannelId] = useState(channels[0]?.id ?? "");
   const [warehouseId, setWarehouseId] = useState(locationsByChannel[channels[0]?.id ?? ""]?.[0]?.id ?? "");
-  const [customerLabel, setCustomerLabel] = useState("");
+  // null = « Passage » (walk-in, no customer record).
+  const [customer, setCustomer] = useState<SaleCustomer | null>(null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SaleLookupResult[]>([]);
   // true while `hits` holds the empty-query initial list (see `browse`).
@@ -190,7 +192,8 @@ export function SaleForm({
         salesChannelId: channelId,
         warehouseId,
         idempotencyKey: idempotencyKey.current,
-        customerLabel,
+        customerId: customer?.id ?? null,
+        customerLabel: customer?.fullName ?? "",
         lines: lines.map((l) => ({
           productId: l.variationId ? null : l.productId,
           variationId: l.variationId,
@@ -249,7 +252,7 @@ export function SaleForm({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="sale-customer">Client (optionnel)</Label>
-              <Input id="sale-customer" value={customerLabel} onChange={(e) => setCustomerLabel(e.target.value)} placeholder="Passage" />
+              <SaleCustomerPicker value={customer} onChange={setCustomer} />
             </div>
           </CardContent>
         </Card>

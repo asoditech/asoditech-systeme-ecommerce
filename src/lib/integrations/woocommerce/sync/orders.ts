@@ -8,7 +8,8 @@ import { recordAuditEvent } from "@/lib/audit";
 import { canTransitionOrderStatus, orderHoldsReservation } from "@/lib/validation/order";
 import { releaseStockForOrder } from "@/lib/inventory";
 import { mapCustomerFieldsFromOrder, mapOrderFields, mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
-import type { MappedCustomerFields } from "../mapper";
+import { findOrCreateCustomer } from "@/lib/customers/find-or-create";
+import { customerPhoneKey } from "@/lib/customers/identity";
 import type { WcOrder } from "../types";
 import { actorAuditFields, actorPerformedById, type SyncActor } from "./actor";
 import { isRecentlyPlaced, parseOrderPlacedAt } from "../../shared/order-recency";
@@ -137,85 +138,44 @@ export async function importOrder(
 }
 
 /**
- * Match priority: WooCommerce customer id (a real account) → email → phone.
- * Most orders on this store are guest checkouts (customer_id 0), and a
- * guest doesn't always fill in the same email twice (or leaves it blank)
- * — but the phone number is what's actually reliable across their orders.
- * Without a phone fallback here, the same guest ordering twice created two
- * separate Customer rows every time, which is what showed up as the same
- * name/phone listed repeatedly on the Clients page with the order count
- * split across the duplicates instead of totalled on one row.
+ * Customer of an imported order. A real WooCommerce account (customer_id > 0)
+ * already linked to a customer → that customer, refreshed from the order.
+ * Otherwise (guest checkouts, a first order) → findOrCreateCustomer: the
+ * existing customer with the same normalized name + phone, whatever created
+ * it, else a new one. No e-mail-only or phone-only matching: same phone with
+ * another name is another person.
  */
-async function findExistingWooCommerceCustomer(
-  wc: WcOrder,
-  fields: MappedCustomerFields
-): Promise<{ id: string; externalId: string | null } | null> {
-  if (wc.customer_id > 0) {
-    const byExternalId = await prisma.customer.findFirst({
-      where: { source: "WOOCOMMERCE", externalId: String(wc.customer_id) },
-      select: { id: true, externalId: true },
-    });
-    if (byExternalId) return byExternalId;
-  }
-  if (fields.email) {
-    const byEmail = await prisma.customer.findFirst({
-      where: { source: "WOOCOMMERCE", email: fields.email },
-      select: { id: true, externalId: true },
-    });
-    if (byEmail) return byEmail;
-  }
-  if (fields.phone) {
-    const byPhone = await prisma.customer.findFirst({
-      where: { source: "WOOCOMMERCE", phone: fields.phone },
-      select: { id: true, externalId: true },
-    });
-    if (byPhone) return byPhone;
-  }
-  return null;
-}
-
 async function resolveCustomerForOrder(wc: WcOrder, actor: SyncActor): Promise<string> {
   const fields = mapCustomerFieldsFromOrder(wc);
+  const externalId = wc.customer_id > 0 ? String(wc.customer_id) : null;
 
-  const existing = await findExistingWooCommerceCustomer(wc, fields);
-
-  if (existing) {
-    await prisma.customer.update({
-      where: { id: existing.id },
-      data: {
-        fullName: fields.fullName,
-        email: fields.email,
-        phone: fields.phone,
-        city: fields.city,
-        region: fields.region,
-        country: fields.country,
-        // Backfill the WooCommerce account id once it's known (a guest's
-        // first orders matched by email/phone, then they register) —
-        // never overwrite one already recorded.
-        externalId: existing.externalId ?? (wc.customer_id > 0 ? String(wc.customer_id) : existing.externalId),
-      },
+  if (externalId) {
+    const linked = await prisma.customer.findFirst({
+      where: { source: "WOOCOMMERCE", externalId },
+      select: { id: true },
     });
-    return existing.id;
+    if (linked) {
+      await prisma.customer.update({
+        where: { id: linked.id },
+        data: { ...fields, phoneKey: customerPhoneKey(fields.phone) },
+      });
+      return linked.id;
+    }
   }
 
-  const created = await prisma.customer.create({
-    data: {
-      ...fields,
-      source: "WOOCOMMERCE",
-      externalId: wc.customer_id > 0 ? String(wc.customer_id) : null,
-    },
-  });
+  const { customer, reused } = await findOrCreateCustomer({ ...fields, source: "WOOCOMMERCE", externalId });
+  if (reused) return customer.id;
 
   await recordAuditEvent({
     ...actorAuditFields(actor),
     action: "customer.created",
     entityType: "Customer",
-    entityId: created.id,
-    newValue: { fullName: created.fullName },
+    entityId: customer.id,
+    newValue: { fullName: customer.fullName },
     metadata: { source: "WOOCOMMERCE" },
   });
 
-  return created.id;
+  return customer.id;
 }
 
 async function createImportedOrder(

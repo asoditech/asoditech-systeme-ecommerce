@@ -55,6 +55,8 @@ import {
   type CreateOrderInput,
 } from "@/lib/validation/order";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
+import { findOrCreateCustomer } from "@/lib/customers/find-or-create";
+import { customerVisibilityWhere } from "@/lib/customers/visibility";
 import { z } from "zod";
 import type { Customer, Prisma } from "@prisma/client";
 import type { IdResult } from "@/actions/types";
@@ -70,13 +72,18 @@ function normalizeOptional(value: string | null | undefined): string | null {
 }
 
 export async function searchCustomersForOrderAction(query: string) {
-  await requirePermissionForAction("orders.create");
+  const user = await requirePermissionForAction("orders.create");
   if (query.trim().length < 2) return [];
   return prisma.customer.findMany({
     where: {
-      OR: [
-        { fullName: { contains: query, mode: "insensitive" } },
-        { phone: { contains: query, mode: "insensitive" } },
+      AND: [
+        customerVisibilityWhere(user),
+        {
+          OR: [
+            { fullName: { contains: query, mode: "insensitive" } },
+            { phone: { contains: query, mode: "insensitive" } },
+          ],
+        },
       ],
     },
     take: 8,
@@ -114,14 +121,21 @@ export async function createCustomerForOrderAction(input: {
     return actionError(parsed.error.flatten().formErrors[0] ?? "Champs invalides.");
   }
 
-  const customer = await prisma.customer.create({
-    data: {
-      fullName: parsed.data.fullName,
-      phone: normalizeOptional(parsed.data.phone),
-      city: normalizeOptional(parsed.data.city),
-      createdById: user.id,
-    },
+  // Same name + same phone as an existing customer → that customer (and
+  // their saved address) is reused, never duplicated nor modified.
+  const { customer, reused } = await findOrCreateCustomer({
+    fullName: parsed.data.fullName,
+    phone: normalizeOptional(parsed.data.phone),
+    city: normalizeOptional(parsed.data.city),
+    createdById: user.id,
   });
+  if (reused) {
+    const saved = await prisma.customerAddress.findFirst({
+      where: { customerId: customer.id, isDefault: true },
+      select: { addressLine1: true, city: true, phone: true },
+    });
+    return actionOk({ ...customer, defaultAddress: saved });
+  }
 
   // A street line with no city to pair it with isn't a usable saved address
   // (CustomerAddress.city is required) — silently skip rather than guess a
