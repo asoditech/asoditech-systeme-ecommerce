@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { REVENUE_EXCLUDED_STATUSES } from "@/lib/profitability";
 import { warehouseReadWhere } from "@/lib/auth/location-access";
 import { variationIdsMatchingOptionValue } from "@/lib/catalog/variation-search";
 import type { CurrentUser } from "@/lib/auth/session";
@@ -230,7 +231,7 @@ export async function listCategoriesWithStats(): Promise<CategoryWithStats[]> {
 
 export async function getProductSalesStats(productId: string) {
   const stats = await prisma.orderItem.aggregate({
-    where: { productId, order: { status: { notIn: ["ANNULEE", "ECHEC"] } } },
+    where: { productId, order: { status: { notIn: REVENUE_EXCLUDED_STATUSES } } },
     _sum: { quantity: true, total: true },
   });
   return {
@@ -254,7 +255,6 @@ export async function getProductProfitStats(productId: string): Promise<{
   grossProfit: number | null;
   marginPct: number | null;
 }> {
-  const { REVENUE_EXCLUDED_STATUSES } = await import("@/lib/profitability");
   const lines = await prisma.orderItem.findMany({
     where: { productId, order: { status: { notIn: REVENUE_EXCLUDED_STATUSES } } },
     select: { quantity: true, total: true, costSnapshot: true },

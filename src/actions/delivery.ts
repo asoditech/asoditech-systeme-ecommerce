@@ -6,7 +6,9 @@ import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction, requireUserForAction } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { recordAuditEvent } from "@/lib/audit";
-import { applyShipmentStatusTransition, SHIPPABLE_ORDER_STATUSES } from "@/lib/delivery";
+import { applyShipmentStatusTransition } from "@/lib/delivery";
+import { shippableOrderProblem } from "@/lib/packing";
+import { isPackingRequired } from "@/lib/packing-settings";
 import {
   createShippingProviderSchema,
   createShipmentSchema,
@@ -173,9 +175,8 @@ export async function createShipmentAction(formData: FormData): Promise<ActionRe
   // prepared/retried for delivery — not a brand-new, cancelled, already
   // shipped/delivered, or returned order. Found during the A–G audit; see
   // docs/adr/0006-delivery-providers.md.
-  if (!SHIPPABLE_ORDER_STATUSES.includes(order.status)) {
-    return actionError("Cette commande n'est pas dans un statut permettant de créer une expédition.");
-  }
+  const shipProblem = shippableOrderProblem(order, await isPackingRequired());
+  if (shipProblem) return actionError(shipProblem);
 
   const provider = await prisma.shippingProvider.findUnique({ where: { id: parsed.data.providerId } });
   if (!provider) return actionError("Prestataire de livraison introuvable.");
@@ -505,9 +506,8 @@ export async function createShipmentViaProviderAction(formData: FormData): Promi
 
   const order = await prisma.order.findUnique({ where: { id: parsed.data.orderId }, include: { customer: true } });
   if (!order) return actionError("Commande introuvable.");
-  if (!SHIPPABLE_ORDER_STATUSES.includes(order.status)) {
-    return actionError("Cette commande n'est pas dans un statut permettant de créer une expédition.");
-  }
+  const shipProblem = shippableOrderProblem(order, await isPackingRequired());
+  if (shipProblem) return actionError(shipProblem);
 
   // The duplicate-active-shipment check happens inside createShipmentViaProvider
   // (via reserveShipmentSlot's advisory-locked transaction) — a plain
@@ -573,6 +573,14 @@ export async function linkExistingShipmentAction(formData: FormData): Promise<Ac
 
   const order = await prisma.order.findUnique({ where: { id: parsed.data.orderId } });
   if (!order) return actionError("Commande introuvable.");
+  // « Vérification de l'emballage obligatoire »: linking a parcel is a
+  // shipment creation like any other — same shared rule (src/lib/packing.ts),
+  // checked before any carrier call. Off = unchanged (linking has never been
+  // restricted by order status, e.g. a parcel the store created at checkout).
+  if (await isPackingRequired()) {
+    const shipProblem = shippableOrderProblem(order, true);
+    if (shipProblem) return actionError(shipProblem);
+  }
 
   let loaded;
   try {
@@ -665,6 +673,7 @@ export async function createShipmentsBulkAction(
     include: { customer: true },
   });
   const orderById = new Map(orders.map((o) => [o.id, o]));
+  const packingRequired = await isPackingRequired();
 
   const results: { orderId: string; orderNumber: number; orderDisplayNumber?: number | null; ok: boolean; error?: string }[] =
     [];
@@ -674,13 +683,14 @@ export async function createShipmentsBulkAction(
       results.push({ orderId, orderNumber: 0, ok: false, error: "Commande introuvable." });
       continue;
     }
-    if (!SHIPPABLE_ORDER_STATUSES.includes(order.status)) {
+    const shipProblem = shippableOrderProblem(order, packingRequired);
+    if (shipProblem) {
       results.push({
         orderId,
         orderNumber: order.orderNumber,
         orderDisplayNumber: order.displayNumber,
         ok: false,
-        error: "Statut non éligible.",
+        error: shipProblem,
       });
       continue;
     }

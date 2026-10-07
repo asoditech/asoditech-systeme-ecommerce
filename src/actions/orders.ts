@@ -55,9 +55,12 @@ import {
   type CreateOrderInput,
 } from "@/lib/validation/order";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
+import { PACKING_CLEARED, packingResetFor, shippableOrderProblem } from "@/lib/packing";
+import { isPackingRequired } from "@/lib/packing-settings";
 import { findOrCreateCustomer } from "@/lib/customers/find-or-create";
 import { customerPhoneSearchKeys } from "@/lib/customers/identity";
 import { customerVisibilityWhere } from "@/lib/customers/visibility";
+import { effectiveUnitCost, locationUnitCost } from "@/lib/catalog/location-cost";
 import { z } from "zod";
 import type { Customer, Prisma } from "@prisma/client";
 import type { IdResult } from "@/actions/types";
@@ -387,6 +390,15 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
   let order;
   try {
     order = await prisma.$transaction(async (tx) => {
+      // Cost snapshot = the fulfilment warehouse's effective purchase cost
+      // (location cost → variation cost → product cost), frozen at creation as
+      // before. No warehouse (pre-32b edge case) → the global cost, unchanged.
+      if (fulfillmentWarehouseId) {
+        for (const it of resolvedItems) {
+          const atLocation = await locationUnitCost(tx, { warehouseId: fulfillmentWarehouseId, productId: it.productId, variationId: it.variationId });
+          it.costSnapshot = effectiveUnitCost(atLocation, it.costSnapshot as Prisma.Decimal | null | undefined, null);
+        }
+      }
       const created = await tx.order.create({
         data: {
           customerId: parsed.data.customerId,
@@ -539,6 +551,14 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
     return actionError("Cette commande a été expédiée — elle ne peut pas être rétablie depuis « Annulée ».");
   }
 
+  // « Vérification de l'emballage obligatoire »: an order cannot be marked
+  // « Expédiée » before its packing was verified — the same rule as every
+  // shipment-creation action (src/lib/packing.ts). Off = unchanged.
+  if (parsed.data.status === "EXPEDIEE" && (await isPackingRequired())) {
+    const shipProblem = shippableOrderProblem(existing, true);
+    if (shipProblem) return actionError(shipProblem);
+  }
+
   const lines = existing.items.map((i) => ({ productId: i.productId, variationId: i.variationId, quantity: i.quantity }));
   const wasFulfilled = existing.shippedAt !== null;
 
@@ -564,6 +584,8 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
       if (parsed.data.status === "EXPEDIEE") timestampField.shippedAt = new Date();
       if (parsed.data.status === "LIVREE") timestampField.deliveredAt = new Date();
       if (parsed.data.status === "ANNULEE") timestampField.cancelledAt = new Date();
+      // Cancelling invalidates a packing verification (src/lib/packing.ts).
+      const packingReset = packingResetFor(parsed.data.status);
 
       // Conditional update (WHERE ... AND status = <the status we validated
       // the transition from>) instead of a blind update: this is what
@@ -576,7 +598,7 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
       // nicety. See docs/adr/0002-domain-model.md's audit addendum.
       const result = await tx.order.updateMany({
         where: { id: parsed.data.id, status: existing.status },
-        data: reopening ? REOPEN_ORDER_DATA : { status: parsed.data.status, ...timestampField },
+        data: reopening ? REOPEN_ORDER_DATA : { status: parsed.data.status, ...timestampField, ...packingReset },
       });
       if (result.count === 0) {
         throw new OrderConflictError();
@@ -788,7 +810,7 @@ export async function cancelOrderAction(formData: FormData): Promise<ActionResul
     order = await prisma.$transaction(async (tx) => {
       const result = await tx.order.updateMany({
         where: { id: parsed.data.id, status: existing.status },
-        data: { status: "ANNULEE", cancelledAt: new Date() },
+        data: { status: "ANNULEE", cancelledAt: new Date(), ...PACKING_CLEARED },
       });
       if (result.count === 0) {
         throw new OrderConflictError();

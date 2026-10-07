@@ -378,7 +378,7 @@ export default async function TableauDeBordPage({
       </SummarySection>
 
       {canViewFinance && showOnline && (
-        <SummarySection title="Rentabilité" icon={TrendingUp} className="mb-6">
+        <SummarySection title={offlineSummary !== null ? "Rentabilité — commandes en ligne" : "Rentabilité"} icon={TrendingUp} className="mb-6">
           <FadeIn className="grid gap-4 sm:grid-cols-2">
             <KpiCard
               label={`Charges (${suffix})`}

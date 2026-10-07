@@ -17,6 +17,9 @@ import { SyncRefreshButton } from "@/components/sync-refresh-button";
 import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ProductChips } from "@/components/orders/product-chips";
+import { OrderRowActions } from "@/components/orders/order-row-actions";
+import { isPurgeCandidate } from "@/lib/orders/purge-ui";
+import { productLineLabel } from "@/lib/catalog/product-chips";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { listOrders } from "@/lib/queries/orders";
@@ -54,6 +57,9 @@ export default async function CommandesPage({
   const canSync =
     userHasPermission(user, "integrations.manage") && (await getConnectedCommercePlatforms()).length > 0;
   const canViewCommissions = userHasPermission(user, "commissions.view");
+  // Row menu = the order page's own « Purger cette commande de test », same
+  // permission (orders.purge — OWNER/ADMIN) and same server action.
+  const canPurge = userHasPermission(user, "orders.purge");
 
   // "Tous les statuts" / "Tous les paiements" submit the sentinel "all";
   // only a real enum value is passed through to the query, otherwise
@@ -244,6 +250,11 @@ export default async function CommandesPage({
                 <TableHead>Canal</TableHead>
                 <TableHead>Confirmé par</TableHead>
                 <TableHead>Produits</TableHead>
+                {canPurge && (
+                  <TableHead className="w-10">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -299,6 +310,27 @@ export default async function CommandesPage({
                   <TableCell>
                     <ProductChips lines={o.items.map((i) => ({ name: i.nameSnapshot, quantity: i.quantity, attributes: i.variation?.attributes }))} />
                   </TableCell>
+                  {canPurge && (
+                    <TableCell className="w-10">
+                      {isPurgeCandidate(o) && (
+                        <OrderRowActions
+                          orderHref={`/commandes/${o.id}`}
+                          summary={{
+                            orderId: o.id,
+                            orderLabel: displayOrderNumber(o, business.orderNumberPrefix),
+                            statusLabel: ORDER_STATUS_LABELS[o.status]?.label ?? o.status,
+                            customerName: displayOrderRecipient(o),
+                            total: formatCurrency(o.total.toString(), o.currency),
+                            lines: o.items.map((i) => ({
+                              name: productLineLabel(i.nameSnapshot, i.variation?.attributes),
+                              sku: i.skuSnapshot,
+                              quantity: i.quantity,
+                            })),
+                          }}
+                        />
+                      )}
+                    </TableCell>
+                  )}
                 </ClickableTableRow>
                 );
               })}

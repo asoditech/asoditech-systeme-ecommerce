@@ -113,8 +113,12 @@ describe("POST /api/webhooks/shopify", () => {
     const event = await prisma.webhookEvent.findFirstOrThrow({ where: { deliveryId: "d1" } });
     expect(event.status).toBe("TRAITE");
 
-    const audit = await prisma.auditEvent.findFirstOrThrow({ where: { action: "integration.webhook_received" } });
-    expect(audit).toBeTruthy();
+    // The delivery itself is recorded in webhook_events (dedupe / observability)
+    // and its business effect is audited (order.created); the former
+    // per-delivery "integration.webhook_received" audit row is no longer
+    // written — it was pure noise in the audit journal.
+    expect(await prisma.auditEvent.count({ where: { action: "order.created", entityId: order.id } })).toBe(1);
+    expect(await prisma.auditEvent.count({ where: { action: "integration.webhook_received" } })).toBe(0);
 
     // docs/adr/0016-notifications.md — new wiring this phase.
     const notification = await prisma.notification.findFirstOrThrow({ where: { userId: staff.id } });

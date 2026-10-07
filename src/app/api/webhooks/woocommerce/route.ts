@@ -255,7 +255,7 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
     try {
       await importProduct(loaded.client, parsed.data, { type: "INTEGRATION" });
       revalidateAfterImport("product");
-      const outcome = await recordWebhookEventOnce({
+      await recordWebhookEventOnce({
         integrationId: integration.id,
         provider: "WOOCOMMERCE",
         deliveryId,
@@ -263,15 +263,6 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
         resourceId: String(parsed.data.id),
         status: "TRAITE",
       });
-      if (outcome === "recorded") {
-        await recordAuditEvent({
-          actorType: "INTEGRATION",
-          action: "integration.webhook_received",
-          entityType: "Integration",
-          entityId: integration.id,
-          metadata: { provider: "WOOCOMMERCE", topic, productExternalId: parsed.data.id },
-        });
-      }
     } catch {
       await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, resourceId: String(parsed.data.id), status: "ECHEC" });
       return new Response(null, { status: 500 });
@@ -297,7 +288,7 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
     // is never rejected or delayed because of a plan's order limit.
     const usage = await getTenantUsage(integration.tenantId);
     await checkAndNotifyUsageThreshold(integration.tenantId, "ORDERS", usage.orders);
-    const outcome = await recordWebhookEventOnce({
+    await recordWebhookEventOnce({
       integrationId: integration.id,
       provider: "WOOCOMMERCE",
       deliveryId,
@@ -305,15 +296,6 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
       resourceId: String(parsed.data.id),
       status: "TRAITE",
     });
-    if (outcome === "recorded") {
-      await recordAuditEvent({
-        actorType: "INTEGRATION",
-        action: "integration.webhook_received",
-        entityType: "Integration",
-        entityId: integration.id,
-        metadata: { provider: "WOOCOMMERCE", topic, orderExternalId: parsed.data.id },
-      });
-    }
   } catch {
     await recordWebhookEventOnce({
       integrationId: integration.id,

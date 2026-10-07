@@ -52,6 +52,9 @@ import { ProductIdentityPanel } from "@/components/products/product-identity-pan
 import { ProductPublishPanel, type PublishChannel } from "@/components/products/product-publish-panel";
 import { variantLabel } from "@/lib/catalog/lookup";
 import { unitEconomics } from "@/lib/profitability";
+import { describeLocationCost } from "@/lib/catalog/location-cost";
+import { LocationCostDisplay } from "@/components/inventory/location-cost-display";
+import { LocationCostEditor } from "@/components/inventory/location-cost-editor";
 import { availableStock } from "@/lib/inventory";
 import { prisma } from "@/lib/prisma";
 import { resolveExternalProductEditUrl, resolveExternalAdminUrl } from "@/lib/integrations/shared";
@@ -424,10 +427,10 @@ export default async function ProduitDetailPage({
                         economics.unitMarginPct !== null ? ` · ${economics.unitMarginPct.toFixed(1)} %` : ""
                       }`
                 }
-                unavailableReason="Coût d'achat non renseigné"
+                unavailableReason="Coût global du produit non renseigné"
                 hint={
                   economics.unitCost !== null
-                    ? `Prix ${formatCurrency(product.price.toString())} − coût ${formatCurrency(String(economics.unitCost))}`
+                    ? `Prix ${formatCurrency(product.price.toString())} − coût global ${formatCurrency(String(economics.unitCost))}`
                     : undefined
                 }
                 icon={Percent}
@@ -495,7 +498,7 @@ export default async function ProduitDetailPage({
               {costVisibility.cost && (
                 <SpecItem
                   icon={Receipt}
-                  label="Coût d'achat"
+                  label="Coût global du produit"
                   value={product.cost ? formatCurrency(product.cost.toString()) : "Non renseigné"}
                   muted={!product.cost}
                 />
@@ -523,7 +526,7 @@ export default async function ProduitDetailPage({
               <CardContent className="p-0">
                 <p className="px-6 pb-3 text-xs text-muted-foreground">
                   Prix constatés sur les réceptions validées — information historique
-                  {costVisibility.cost ? <>, ne remplace pas le « Coût d&apos;achat » ci-dessus (utilisé pour la marge).</> : "."}
+                  {costVisibility.cost ? <>, ne remplace pas le « Coût global du produit » ci-dessus (utilisé pour la marge).</> : "."}
                 </p>
                 <div className="overflow-x-auto">
                   <Table>
@@ -605,7 +608,7 @@ export default async function ProduitDetailPage({
                       <TableHead>Code-barres</TableHead>
                       <TableHead className="text-right">Prix</TableHead>
                       {canViewFinance && (
-                        <TableHead className="text-right whitespace-nowrap">Coût d&apos;achat</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Coût global</TableHead>
                       )}
                       {canViewPurchases && (
                         <TableHead className="text-right whitespace-nowrap">Dernier achat</TableHead>
@@ -770,6 +773,7 @@ export default async function ProduitDetailPage({
                       <TableHead className="text-right">Stock physique</TableHead>
                       <TableHead className="text-right">Réservé</TableHead>
                       <TableHead className="text-right">Disponible</TableHead>
+                      {costVisibility.cost && <TableHead className="text-right">Coût d&apos;achat</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -778,7 +782,7 @@ export default async function ProduitDetailPage({
                         ? [
                             <TableRow key={v.id}>
                               <TableCell className="font-medium">{v.sku}</TableCell>
-                              <TableCell colSpan={4} className="text-muted-foreground">
+                              <TableCell colSpan={costVisibility.cost ? 5 : 4} className="text-muted-foreground">
                                 Aucun enregistrement de stock.
                               </TableCell>
                             </TableRow>,
@@ -790,6 +794,16 @@ export default async function ProduitDetailPage({
                               <TableCell className="text-right tabular-nums">{i.quantityOnHand}</TableCell>
                               <TableCell className="text-right tabular-nums">{i.quantityReserved}</TableCell>
                               <TableCell className="text-right tabular-nums">{availableStock(i)}</TableCell>
+                              {costVisibility.cost && (
+                                <LocationCostCell
+                                  inventoryItemId={i.id}
+                                  locationName={i.warehouse.name}
+                                  itemLabel={`${product.name} — ${v.sku}`}
+                                  locationCost={i.currentUnitCost}
+                                  globalCost={v.cost ?? product.cost}
+                                  align="right"
+                                />
+                              )}
                             </TableRow>
                           ))
                     )}
@@ -817,6 +831,7 @@ export default async function ProduitDetailPage({
                     <TableHead>Réservé</TableHead>
                     <TableHead>Disponible</TableHead>
                     <TableHead>Endommagé</TableHead>
+                    {costVisibility.cost && <TableHead>Coût d&apos;achat</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -827,6 +842,15 @@ export default async function ProduitDetailPage({
                       <TableCell>{i.quantityReserved}</TableCell>
                       <TableCell>{availableStock(i)}</TableCell>
                       <TableCell>{i.quantityDamaged}</TableCell>
+                      {costVisibility.cost && (
+                        <LocationCostCell
+                          inventoryItemId={i.id}
+                          locationName={i.warehouse.name}
+                          itemLabel={product.name}
+                          locationCost={i.currentUnitCost}
+                          globalCost={product.cost}
+                        />
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -909,5 +933,43 @@ export default async function ProduitDetailPage({
         )}
       </Tabs>
     </div>
+  );
+}
+
+/**
+ * Purchase cost of one stock location (finance.view only — the caller gates
+ * it): the amount, whether it is this location's own cost or the global
+ * product cost, and a small dialog to set / clear the location's cost. Never a
+ * selling price.
+ */
+function LocationCostCell({
+  inventoryItemId,
+  locationName,
+  itemLabel,
+  locationCost,
+  globalCost,
+  align,
+}: {
+  inventoryItemId: string;
+  locationName: string;
+  itemLabel: string;
+  locationCost: { toString(): string } | null;
+  globalCost: { toString(): string } | null;
+  align?: "right";
+}) {
+  const { cost, source } = describeLocationCost(locationCost?.toString() ?? null, globalCost?.toString() ?? null, null);
+  return (
+    <TableCell className={align === "right" ? "text-right" : undefined}>
+      <div className={`inline-flex items-start gap-1 ${align === "right" ? "flex-row-reverse text-right" : ""}`}>
+        <LocationCostDisplay cost={cost?.toString() ?? null} source={source} />
+        <LocationCostEditor
+          inventoryItemId={inventoryItemId}
+          locationName={locationName}
+          itemLabel={itemLabel}
+          locationCost={locationCost?.toString() ?? null}
+          globalCost={globalCost?.toString() ?? null}
+        />
+      </div>
+    </TableCell>
   );
 }

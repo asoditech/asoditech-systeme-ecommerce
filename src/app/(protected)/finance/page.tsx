@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requirePermission } from "@/lib/auth/guards";
 import { requireChannelKind } from "@/lib/auth/channel-access";
 import { userHasPermission } from "@/lib/auth/permissions";
+import { hasCapability } from "@/lib/auth/capabilities";
 import {
   getFinanceSummary,
   listExpenses,
@@ -70,6 +71,10 @@ export default async function FinancePage({
   const { range: period, key: periodKey, label: periodLabel } = resolvePeriod(params);
   const previousPeriod = previousPeriodOfSameLength(period);
   const canManage = userHasPermission(user, "finance.manage");
+  // These figures come from ONLINE orders only (computePeriodProfitability).
+  // A tenant that also sells in store must not read them as the whole
+  // business: say so — store sales live in Rapports › Par canal / Analyses.
+  const hasStoreSales = hasCapability(user, "offlineSales");
 
   const [summary, previousSummary, productProfit, { expenses }, categories] = await Promise.all([
     getFinanceSummary(period),
@@ -83,7 +88,11 @@ export default async function FinancePage({
     <div>
       <PageHeader
         title="Finance"
-        description="Revenus, coûts, dépenses et rentabilité réelle."
+        description={
+          hasStoreSales
+            ? "Commandes en ligne : revenus, coûts, dépenses et rentabilité. Les ventes magasin n'y sont pas incluses — voir Rapports › Par canal."
+            : "Revenus, coûts, dépenses et rentabilité réelle."
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {[

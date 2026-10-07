@@ -60,7 +60,7 @@ export function OperationalSettingsForm({
           <div className="grid gap-4 sm:grid-cols-2">
             {canEditCost && (
               <div className="space-y-1.5">
-                <Label htmlFor="op-cost">Coût d&apos;achat (MAD)</Label>
+                <Label htmlFor="op-cost">Coût global du produit (MAD)</Label>
                 <Input id="op-cost" name="cost" type="number" step="0.01" min="0" defaultValue={cost ?? ""} />
               </div>
             )}

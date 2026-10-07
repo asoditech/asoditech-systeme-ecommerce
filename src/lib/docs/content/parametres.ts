@@ -10,9 +10,9 @@ export const parametresArticles: DocArticle[] = [
     tagline: "Les informations générales de votre entreprise, utilisées sur les documents imprimés (factures, relevés).",
     permission: "settings.view",
     steps: [
-      "Ouvrir Paramètres.",
+      "Ouvrir Paramètres › Configuration, section « Entreprise ».",
       "Renseigner le nom de l'entreprise, les coordonnées, le logo.",
-      "Enregistrer (nécessite la permission de gestion des paramètres).",
+      "Cliquer « Enregistrer » dans la barre qui apparaît dès qu'un champ est modifié (nécessite la permission de gestion des paramètres). Les interrupteurs, eux, s'appliquent immédiatement.",
     ],
     troubleshooting: [
       {
@@ -25,7 +25,7 @@ export const parametresArticles: DocArticle[] = [
       },
     ],
     related: ["parametres/organisation-des-parametres"],
-    tryNow: { label: "Ouvrir Paramètres", href: "/parametres" },
+    tryNow: { label: "Ouvrir Paramètres", href: "/parametres?section=entreprise" },
     lastUpdated: LAST_UPDATED,
   },
   {

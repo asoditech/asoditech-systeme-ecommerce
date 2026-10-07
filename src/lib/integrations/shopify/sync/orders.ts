@@ -1,6 +1,7 @@
 import "server-only";
 
 import { REOPEN_ORDER_DATA, isReopenable } from "@/lib/order-confirmation";
+import { packingResetFor } from "@/lib/packing";
 import { getDefaultOnlineChannelId } from "@/lib/channels";
 
 import { prisma } from "@/lib/prisma";
@@ -353,7 +354,7 @@ async function updateExistingOrder(
         // ANNULEE → NOUVELLE resets the current confirmation state (docs/adr/0049).
         const result = await tx.order.updateMany({
           where: { id: orderId, status: existing.status },
-          data: status === "NOUVELLE" ? REOPEN_ORDER_DATA : { status },
+          data: status === "NOUVELLE" ? REOPEN_ORDER_DATA : { status, ...packingResetFor(status) },
         });
         if (result.count > 0) {
           changedFields = true;

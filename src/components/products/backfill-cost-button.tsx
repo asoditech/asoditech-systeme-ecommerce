@@ -36,7 +36,7 @@ export function BackfillCostButton({ productId, missingCount }: { productId: str
       if (res.ok) {
         toast.success(
           res.data.updated > 0
-            ? `${res.data.updated} vente(s) mise(s) à jour avec le coût actuel.`
+            ? `${res.data.updated} vente(s) mise(s) à jour avec le coût global.`
             : "Aucune vente à compléter."
         );
         setOpen(false);
@@ -53,14 +53,14 @@ export function BackfillCostButton({ productId, missingCount }: { productId: str
     <AlertDialog open={open} onOpenChange={setOpen}>
       <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
         <Wand2 className="size-4" />
-        Appliquer le coût actuel aux {missingCount} vente(s) sans coût
+        Appliquer le coût global aux {missingCount} vente(s) sans coût
       </Button>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Compléter le coût des ventes passées ?</AlertDialogTitle>
           <AlertDialogDescription>
-            Le coût d&apos;achat actuel du produit sera appliqué à {missingCount} ligne(s) de vente qui n&apos;en avaient
-            pas. Cela <strong>modifie le bénéfice affiché sur ces commandes passées</strong> et dans les rapports. Les
+            Le coût global actuel du produit sera appliqué à {missingCount} ligne(s) de vente qui n&apos;en avaient
+            pas. Les coûts d&apos;achat propres aux emplacements ne sont ni utilisés ni modifiés. Cela <strong>modifie le bénéfice affiché sur ces commandes passées</strong> et dans les rapports. Les
             ventes qui ont déjà un coût figé ne sont pas touchées. Action non réversible automatiquement.
           </AlertDialogDescription>
         </AlertDialogHeader>

@@ -15,3 +15,22 @@ export const inventoryAdjustmentSchema = z
   });
 
 export type InventoryAdjustmentInput = z.infer<typeof inventoryAdjustmentSchema>;
+
+/**
+ * Location purchase cost (InventoryItem.currentUnitCost — never a selling
+ * price). `cost: null` = « Utiliser le coût global » (clears the location
+ * override); a number sets/replaces it.
+ */
+export const locationCostSchema = z.object({
+  inventoryItemId: z.string().min(1),
+  cost: z.union([
+    z.null(),
+    z.coerce
+      .number()
+      .finite("Le coût d'achat est invalide.")
+      .min(0, "Le coût d'achat doit être positif ou nul.")
+      .max(9_999_999_999.99, "Le coût d'achat est trop élevé."),
+  ]),
+});
+export type LocationCostInput = z.infer<typeof locationCostSchema>;
+

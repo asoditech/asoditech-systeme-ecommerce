@@ -29,6 +29,8 @@ export default async function VenteDetailPage({ params }: { params: Promise<{ id
     label: `${l.nameSnapshot} (${l.skuSnapshot})`,
     sold: l.quantity,
     returned: l.returnLines.reduce((s, x) => s + x.quantitySellable + x.quantityDamaged, 0),
+    productId: l.productId,
+    variationId: l.variationId,
   }));
   const returnState = returnStateLabel(
     returnable.reduce((s, l) => s + l.sold, 0),

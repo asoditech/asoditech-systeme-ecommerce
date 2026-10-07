@@ -1,36 +1,22 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
-import { BadgePercent, Truck } from "lucide-react";
-import { updateDefaultShippingProviderAction, updateSellerPriceOverrideAction } from "@/actions/settings";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { NativeSelect } from "@/components/ui/native-select";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { BusinessSettings } from "@prisma/client";
-import type { ActionResult } from "@/actions/types";
+import { ArrowLeftRight, BadgePercent, Inbox, PackageCheck, Truck } from "lucide-react";
+import {
+  updateDefaultShippingProviderAction,
+  updatePackingVerificationAction,
+  updateSellerPriceOverrideAction,
+  updateTransferCostOverrideAction,
+} from "@/actions/settings";
+import { setWooCommerceForceNouvelleOnImportAction } from "@/actions/woocommerce";
+import { setShopifyForceNouvelleOnImportAction } from "@/actions/shopify";
+import { ChoiceCard, formSwitch, ToggleTile, ValueTile } from "@/components/settings/setting-controls";
 
-function useSettingsAction(action: (fd: FormData) => Promise<ActionResult<BusinessSettings>>, success: string) {
-  const router = useRouter();
-  const [state, formAction, isPending] = useActionState(
-    async (_prev: ActionResult<BusinessSettings> | undefined, formData: FormData) => action(formData),
-    undefined
-  );
-  useEffect(() => {
-    if (state?.ok) {
-      toast.success(success);
-      router.refresh();
-    } else if (state && !state.ok) {
-      toast.error(state.error);
-    }
-  }, [state, router, success]);
-  return { formAction, isPending };
-}
-
-const iconBox = "flex size-7 items-center justify-center rounded-md bg-muted text-muted-foreground";
+/**
+ * The company-wide switches, the shop-import switches and the default
+ * carrier, as tiles of the Configuration control center. Each saves through
+ * its EXISTING server action (same field name, same permission checks, same
+ * audit) — only the presentation changed.
+ */
 
 /**
  * « Autoriser les vendeurs magasin à modifier le prix » — company-wide.
@@ -38,43 +24,95 @@ const iconBox = "flex size-7 items-center justify-center rounded-md bg-muted tex
  * a per-user DENY set in Utilisateurs still wins.
  */
 export function SellerPriceOverrideForm({ enabled }: { enabled: boolean }) {
-  const [on, setOn] = useState(enabled);
-  const { formAction, isPending } = useSettingsAction(updateSellerPriceOverrideAction, "Réglage des prix en magasin enregistré.");
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <span className={iconBox}>
-            <BadgePercent className="size-4" />
-          </span>
-          Ventes en magasin
-        </CardTitle>
-        <CardDescription>
-          Par défaut, seul un responsable (ou un vendeur ayant le droit « modifier le prix ») peut changer le prix
-          ou accorder une remise à la caisse.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form action={formAction} className="space-y-3">
-          <input type="hidden" name="allowSellerPriceOverride" value={on ? "true" : "false"} />
-          <div className="flex items-start justify-between gap-3 rounded-lg border border-border/70 px-3 py-2.5">
-            <div>
-              <Label htmlFor="allowSellerPriceOverride">Autoriser les vendeurs magasin à modifier le prix</Label>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Activé : tout vendeur qui peut vendre en magasin peut modifier le prix ou la remise d&apos;une vente.
-                Un vendeur à qui ce droit est retiré dans Utilisateurs ne le reçoit pas.
-              </p>
-            </div>
-            <Switch id="allowSellerPriceOverride" checked={on} onCheckedChange={(v) => setOn(v === true)} />
-          </div>
-          <div className="flex justify-end">
-            <Button type="submit" disabled={isPending}>
-              {isPending ? "Enregistrement..." : "Enregistrer"}
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+    <ToggleTile
+      anchor="prix-vendeurs"
+      section="magasin"
+      icon={BadgePercent}
+      title="Prix modifiable par les vendeurs"
+      summary="Les vendeurs peuvent changer le prix ou accorder une remise à la caisse."
+      detail="Désactivé : seuls un responsable ou un vendeur ayant le droit « modifier le prix » le peuvent."
+      note="Un retrait dans Utilisateurs reste prioritaire."
+      checked={enabled}
+      save={formSwitch(updateSellerPriceOverrideAction, "allowSellerPriceOverride")}
+      onMessage="Les vendeurs magasin peuvent modifier le prix."
+      offMessage="Prix magasin : réservé aux responsables."
+    />
+  );
+}
+
+/**
+ * « Vérification de l'emballage obligatoire » — when on, an online order can
+ * only be shipped once its packing was verified (scan, or manual fallback).
+ * Enforced on the server; off = today's behaviour.
+ */
+export function PackingVerificationForm({ enabled }: { enabled: boolean }) {
+  return (
+    <ToggleTile
+      anchor="emballage"
+      section="expedition"
+      icon={PackageCheck}
+      title="Vérification avant expédition"
+      summary="Chaque article est scanné à l'étape « Emballage » avant que la commande puisse partir."
+      detail="Une commande n'apparaît dans « À expédier » qu'une fois vérifiée. Désactivé : expédition sans vérification."
+      note="Sans effet sur les commandes déjà expédiées."
+      checked={enabled}
+      save={formSwitch(updatePackingVerificationAction, "packingVerificationRequired")}
+      onMessage="Vérification de l'emballage activée."
+      offMessage="Vérification de l'emballage désactivée."
+    />
+  );
+}
+
+/**
+ * « Coût d'achat lors des transferts » — when on, users with access to the
+ * financial data can give a transfer line a purchase cost for the destination
+ * location. Off = transfers move quantities only; costs already recorded on
+ * locations are kept either way. Never a selling price.
+ */
+export function TransferCostOverrideForm({ enabled }: { enabled: boolean }) {
+  return (
+    <ToggleTile
+      anchor="cout-transferts"
+      section="stock"
+      icon={ArrowLeftRight}
+      title="Coût d'achat lors des transferts"
+      summary="Définir un coût d'achat propre à l'emplacement de destination d'un transfert."
+      detail="Les réceptions fournisseur mettent aussi à jour le coût de l'emplacement qui reçoit. Désactivé : les coûts déjà enregistrés sont conservés. Le prix de vente n'est jamais modifié."
+      note="Réservé aux utilisateurs ayant accès aux données financières."
+      checked={enabled}
+      save={formSwitch(updateTransferCostOverrideAction, "transferPurchaseCostOverrideEnabled")}
+      onMessage="Coût d'achat à destination activé pour les transferts."
+      offMessage="Coût d'achat à destination désactivé — les coûts enregistrés sont conservés."
+    />
+  );
+}
+
+const IMPORT_ACTIONS = {
+  WOOCOMMERCE: setWooCommerceForceNouvelleOnImportAction,
+  SHOPIFY: setShopifyForceNouvelleOnImportAction,
+} as const;
+
+/**
+ * « Toujours importer en Nouvelle » for one connected shop — the existing
+ * per-integration action (integrations.manage). Only the orders imported from
+ * now on are affected.
+ */
+export function ImportAsNouvelleTile({ provider, label, enabled }: { provider: "WOOCOMMERCE" | "SHOPIFY"; label: string; enabled: boolean }) {
+  return (
+    <ToggleTile
+      anchor={`import-${provider.toLowerCase()}`}
+      section="commandes"
+      icon={Inbox}
+      title={`${label} : importer en « Nouvelle »`}
+      summary="Une commande importée reste « Nouvelle », jamais auto-confirmée — l'équipe appelle toujours le client."
+      detail="Désactivé : le statut de la boutique est repris tel quel (une commande payée arrive « Confirmée »)."
+      note="Les commandes déjà importées ne changent pas."
+      checked={enabled}
+      save={(next) => IMPORT_ACTIONS[provider](next)}
+      onMessage="Activé : les nouvelles commandes arriveront en « Nouvelle »."
+      offMessage="Désactivé."
+    />
   );
 }
 
@@ -89,56 +127,39 @@ export function DefaultShippingProviderForm({
   providers: { id: string; name: string; hasCityList: boolean }[];
   defaultProviderId: string | null;
 }) {
-  const [value, setValue] = useState(defaultProviderId ?? "");
-  const { formAction, isPending } = useSettingsAction(updateDefaultShippingProviderAction, "Transporteur par défaut enregistré.");
+  const current = providers.find((p) => p.id === defaultProviderId);
+  const explanation =
+    providers.length === 0
+      ? "Aucun transporteur actif : la ville est saisie librement."
+      : providers.length === 1
+        ? "Un seul transporteur actif : sa liste de villes est utilisée automatiquement."
+        : "Plusieurs transporteurs actifs : sans choix, la ville est saisie librement.";
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <span className={iconBox}>
-            <Truck className="size-4" />
-          </span>
-          Livraison
-        </CardTitle>
-        <CardDescription>
-          Sert uniquement à proposer la liste des villes du transporteur lors de la saisie d&apos;une commande ou
-          d&apos;un client en ligne. Le transporteur réel reste choisi à la création de l&apos;expédition.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form action={formAction} className="space-y-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="defaultShippingProviderId">Transporteur par défaut</Label>
-            <NativeSelect
-              id="defaultShippingProviderId"
-              name="defaultShippingProviderId"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              className="w-full sm:w-80"
-            >
-              <option value="">Aucun (saisie libre de la ville)</option>
-              {providers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                  {p.hasCityList ? "" : " — sans liste de villes"}
-                </option>
-              ))}
-            </NativeSelect>
-            <p className="text-xs text-muted-foreground">
-              {providers.length === 0
-                ? "Aucun transporteur actif : la ville est saisie librement."
-                : providers.length === 1
-                  ? "Un seul transporteur actif : sa liste de villes est utilisée automatiquement."
-                  : "Plusieurs transporteurs actifs : sans transporteur par défaut, la ville est saisie librement."}
-            </p>
-          </div>
-          <div className="flex justify-end">
-            <Button type="submit" disabled={isPending}>
-              {isPending ? "Enregistrement..." : "Enregistrer"}
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+    <ValueTile
+      anchor="transporteur"
+      section="expedition"
+      icon={Truck}
+      title="Transporteur par défaut"
+      summary="Propose sa liste de villes lors de la saisie d'une commande ou d'un client en ligne."
+      value={current?.name ?? (defaultProviderId ? "Plus actif" : "Aucun")}
+      valueCaption={explanation}
+      note="Le transporteur réel reste choisi à la création de l'expédition."
+      action={updateDefaultShippingProviderAction}
+      success="Transporteur par défaut enregistré."
+    >
+      <div role="radiogroup" aria-label="Transporteur par défaut" className="grid gap-2 sm:grid-cols-2">
+        <ChoiceCard name="defaultShippingProviderId" value="" defaultChecked={!current} title="Aucun" description="Saisie libre de la ville" />
+        {providers.map((p) => (
+          <ChoiceCard
+            key={p.id}
+            name="defaultShippingProviderId"
+            value={p.id}
+            defaultChecked={p.id === defaultProviderId}
+            title={p.name}
+            description={p.hasCityList ? "Liste de villes du transporteur" : "Sans liste de villes"}
+          />
+        ))}
+      </div>
+    </ValueTile>
   );
 }

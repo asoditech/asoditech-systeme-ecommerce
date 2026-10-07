@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { REVENUE_EXCLUDED_STATUSES } from "@/lib/profitability";
 import type { Prisma, CustomerSegment, RecordSource } from "@prisma/client";
 
 const PAGE_SIZE = 20;
@@ -59,18 +60,20 @@ export async function listCustomers(params: CustomerListFilters) {
 }
 
 /**
- * Order stats are computed on read, never stored — see docs/adr/0002. Only
- * DELIVERED/paid orders that aren't cancelled count toward spend, since a
- * cancelled order was never real revenue.
+ * Order stats are computed on read, never stored — see docs/adr/0002.
+ * Spend and average basket are realised revenue: the same
+ * `REVENUE_EXCLUDED_STATUSES` rule as profitability (a cancelled, failed,
+ * returned or refunded order was never real revenue). The « Commandes »
+ * count keeps its own, wider definition (everything but cancelled/failed).
  */
 export async function getCustomerStats(customerId: string) {
-  const [aggregate, firstOrder, lastOrder, returnedCount, cancelledCount] = await Promise.all([
+  const [revenue, ordersCount, firstOrder, lastOrder, returnedCount, cancelledCount] = await Promise.all([
     prisma.order.aggregate({
-      where: { customerId, status: { notIn: ["ANNULEE", "ECHEC"] } },
+      where: { customerId, status: { notIn: REVENUE_EXCLUDED_STATUSES } },
       _sum: { total: true },
-      _count: true,
       _avg: { total: true },
     }),
+    prisma.order.count({ where: { customerId, status: { notIn: ["ANNULEE", "ECHEC"] } } }),
     prisma.order.findFirst({ where: { customerId }, orderBy: { placedAt: "asc" }, select: { placedAt: true } }),
     prisma.order.findFirst({ where: { customerId }, orderBy: { placedAt: "desc" }, select: { placedAt: true } }),
     prisma.order.count({ where: { customerId, status: { in: ["RETOUR", "REMBOURSEE"] } } }),
@@ -78,9 +81,9 @@ export async function getCustomerStats(customerId: string) {
   ]);
 
   return {
-    totalSpent: aggregate._sum.total ?? null,
-    ordersCount: aggregate._count,
-    avgOrderValue: aggregate._avg.total ?? null,
+    totalSpent: revenue._sum.total ?? null,
+    ordersCount,
+    avgOrderValue: revenue._avg.total ?? null,
     firstOrderAt: firstOrder?.placedAt ?? null,
     lastOrderAt: lastOrder?.placedAt ?? null,
     returnedOrders: returnedCount,

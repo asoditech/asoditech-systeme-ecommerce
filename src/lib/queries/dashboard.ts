@@ -1,6 +1,8 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { REVENUE_EXCLUDED_STATUSES } from "@/lib/profitability";
+import { DASHBOARD_HIDDEN_AUDIT_ACTIONS } from "@/lib/audit-classification";
 import {
   getFinanceSummary,
   currentDayRange,
@@ -100,8 +102,11 @@ export async function getDashboardData(
     prisma.customer.count({
       where: { createdAt: { gte: period.from, lte: period.to }, ...(source ? { source } : {}), ...(opts.customerScope ?? {}) },
     }),
+    // « Activité récente »: business / configuration / security activity only —
+    // technical and routine events stay in the journal but never crowd the
+    // dashboard (src/lib/audit-classification.ts).
     prisma.auditEvent.findMany({
-      where: opts.auditScope ?? {},
+      where: { AND: [opts.auditScope ?? {}, { action: { notIn: [...DASHBOARD_HIDDEN_AUDIT_ACTIONS] } }] },
       orderBy: { createdAt: "desc" },
       take: 8,
       include: { actorUser: { select: { name: true } } },
@@ -144,7 +149,8 @@ interface TrendBucket {
  * Monthly revenue trend for the dashboard chart, for the current year or
  * the previous one — a `RecordSource` narrows it to one sales channel,
  * matching the dashboard's own source filter. Revenue is gross order total
- * of non-cancelled/failed orders, by placedAt.
+ * of realised orders (not `REVENUE_EXCLUDED_STATUSES`, same rule as
+ * profitability), by placedAt.
  */
 export async function getRevenueTrend(
   range: RevenueTrendRange = "annee",
@@ -158,7 +164,7 @@ export async function getRevenueTrend(
   const orders = await prisma.order.findMany({
     where: {
       placedAt: { gte: from, lte: to },
-      status: { notIn: ["ANNULEE", "ECHEC"] },
+      status: { notIn: REVENUE_EXCLUDED_STATUSES },
       ...(source ? { source } : {}),
     },
     select: { placedAt: true, total: true },

@@ -8,7 +8,7 @@ interface StatusMeta {
 export const ORDER_STATUS_LABELS: Record<string, StatusMeta> = {
   NOUVELLE: { label: "Nouvelle", variant: "secondary" },
   CONFIRMEE: { label: "Confirmée", variant: "default" },
-  EN_PREPARATION: { label: "En préparation", variant: "default" },
+  EN_PREPARATION: { label: "Emballage", variant: "default" },
   EXPEDIEE: { label: "Expédiée", variant: "info" },
   LIVREE: { label: "Livrée", variant: "success" },
   ANNULEE: { label: "Annulée", variant: "outline" },

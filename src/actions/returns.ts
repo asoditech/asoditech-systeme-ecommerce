@@ -10,6 +10,8 @@ import { checkAndNotifyLowStock } from "@/lib/notifications";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
 import { confirmPhysicalReturnSchema, type ConfirmPhysicalReturnInput } from "@/lib/validation/returns";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
+import { resolveExactCode } from "@/lib/catalog/exact-code";
+import type { ScannedUnit } from "@/lib/returns/scan";
 
 /** Thrown when a submitted line would exceed what EXPEDIEE actually
  * consumed minus what was already returned — the whole request is
@@ -264,4 +266,27 @@ export async function confirmPhysicalReturnAction(
   revalidatePath("/commandes");
   revalidatePath(`/commandes/${parsed.data.orderId}`);
   return actionOk({ id: returnId });
+}
+
+/**
+ * Return dialogs' « Scanner »: a scanned / typed code → the ONE catalogue
+ * unit it stands for (shared exact resolver — barcode, variation SKU or
+ * simple-product SKU; never a name, partial or ambiguous match). Read-only:
+ * the dialog matches it to its own lines (src/lib/returns/scan.ts) and the
+ * return itself still goes through confirmPhysicalReturnAction /
+ * createSaleReturnAction with every server-side guarantee unchanged.
+ */
+export async function resolveReturnCodeAction(input: {
+  code: string;
+  scope: "order" | "sale";
+}): Promise<ActionResult<ScannedUnit>> {
+  await requirePermissionForAction(input.scope === "sale" ? "sales.return" : "orders.return");
+  const resolved = await resolveExactCode(prisma, String(input.code ?? ""));
+  if (!resolved.ok) return actionError(resolved.error);
+  const u = resolved.unit;
+  return actionOk({
+    productId: u.productId,
+    variationId: u.variationId,
+    label: u.variantLabel ? `${u.name} — ${u.variantLabel}` : u.name,
+  });
 }

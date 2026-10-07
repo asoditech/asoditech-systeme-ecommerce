@@ -13,17 +13,21 @@ import { phoneTelHref, phoneWhatsAppHref } from "@/lib/phone-links";
 export function PhoneActions({
   phone,
   whatsapp = false,
+  size = "default",
   className,
 }: {
   phone: string | null | undefined;
-  /** Offer WhatsApp (customers, suppliers) — not for e.g. a courier's line. */
+  /** Offer WhatsApp when the number is unambiguous (customers, suppliers, couriers). */
   whatsapp?: boolean;
+  /** "sm": compact, for dense tables (e.g. « Suivi ») — same links, shorter row. */
+  size?: "default" | "sm";
   className?: string;
 }) {
   const display = phone?.trim();
   if (!display) return null;
   const tel = phoneTelHref(display);
   const wa = whatsapp ? phoneWhatsAppHref(display) : null;
+  const sm = size === "sm";
 
   return (
     <span className={cn("inline-flex flex-wrap items-center gap-1.5", className)}>
@@ -31,9 +35,12 @@ export function PhoneActions({
         <a
           href={tel}
           aria-label={`Appeler ${display}`}
-          className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-1 text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(
+            "inline-flex items-center rounded-md text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            sm ? "gap-1 tabular-nums" : "min-h-8 gap-1.5 px-1"
+          )}
         >
-          <Phone className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <Phone className={cn("shrink-0 text-muted-foreground", sm ? "size-3" : "size-3.5")} aria-hidden="true" />
           <span>{display}</span>
         </a>
       ) : (
@@ -46,9 +53,12 @@ export function PhoneActions({
           rel="noopener noreferrer"
           aria-label={`Écrire sur WhatsApp à ${display}`}
           title="WhatsApp"
-          className="inline-flex size-8 items-center justify-center rounded-md border border-emerald-200 text-emerald-700 transition-colors hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-emerald-900/50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+          className={cn(
+            "inline-flex items-center justify-center rounded-md border border-emerald-200 text-emerald-700 transition-colors hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-emerald-900/50 dark:text-emerald-400 dark:hover:bg-emerald-950/40",
+            sm ? "size-6" : "size-8"
+          )}
         >
-          <WhatsAppGlyph className="size-4" />
+          <WhatsAppGlyph className={sm ? "size-3.5" : "size-4"} />
         </a>
       )}
     </span>

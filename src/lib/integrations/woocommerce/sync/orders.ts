@@ -1,6 +1,7 @@
 import "server-only";
 
 import { REOPEN_ORDER_DATA, isReopenable } from "@/lib/order-confirmation";
+import { packingResetFor } from "@/lib/packing";
 import { getDefaultOnlineChannelId } from "@/lib/channels";
 
 import { prisma } from "@/lib/prisma";
@@ -354,7 +355,7 @@ async function updateExistingOrder(
           // reopen like any other (docs/adr/0049): the current confirmation
           // state (confirmedAt, commission attribution) is reset; attempts,
           // audit and ledger history stay.
-          data: status === "NOUVELLE" ? REOPEN_ORDER_DATA : { status },
+          data: status === "NOUVELLE" ? REOPEN_ORDER_DATA : { status, ...packingResetFor(status) },
         });
         if (result.count > 0) {
           changedFields = true;

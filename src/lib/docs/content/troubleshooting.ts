@@ -23,7 +23,7 @@ export const troubleshootingArticles: DocArticle[] = [
     troubleshooting: [
       {
         symptom: "Impossible de créer une livraison",
-        cause: "La commande n'est pas Confirmée/En préparation/Échec, ou son adresse de livraison (adresse + ville) est incomplète.",
+        cause: "La commande n'est pas Confirmée/Emballage/Échec, ou son adresse de livraison (adresse + ville) est incomplète.",
         check: "Ouvrez la commande et vérifiez son statut et son adresse.",
         solution: "Confirmez la commande si nécessaire, complétez l'adresse, puis recréez l'expédition.",
         expectedResult: "L'expédition est créée.",

@@ -84,7 +84,11 @@ export default async function RapportStockPage({
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {canSeeCost && (
           <KpiCard label="Valeur au coût" value={money(totals.valueAtCost)} unavailableReason="Coûts manquants" tone="primary"
-            hint={totals.linesMissingCost > 0 ? `${totals.linesMissingCost} article(s) sans coût` : undefined} />
+            hint={
+              totals.linesMissingCost > 0
+                ? `${totals.linesMissingCost} article(s) sans coût`
+                : "Coût d'achat de chaque emplacement, sinon coût global du produit"
+            } />
         )}
         <KpiCard label="Valeur au prix de vente" value={formatCurrency(totals.valueAtRetail)} tone="info" />
         {canSeeCost && <KpiCard label="Marge potentielle" value={money(totals.potentialMargin)} tone="success" />}

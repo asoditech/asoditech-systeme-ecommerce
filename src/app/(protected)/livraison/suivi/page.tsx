@@ -211,7 +211,7 @@ export default async function SuiviPage({
         // The table is the workspace: it takes the remaining viewport height
         // and scrolls inside (sticky header) — more rows visible at once.
         <div className="rounded-lg border bg-card sm:[&>[data-slot=table-container]]:max-h-[max(18rem,calc(100dvh-19rem))] sm:[&>[data-slot=table-container]]:overflow-y-auto">
-          <TrackingTable rows={rows} includeCosts={includeCosts} />
+          <TrackingTable rows={rows} />
           <DataTablePagination
             page={page}
             pageSize={pageSize}

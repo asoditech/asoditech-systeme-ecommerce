@@ -1,8 +1,9 @@
 import "server-only";
 
-import { prisma } from "@/lib/prisma";
+import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
 import { applyStockMovement, ensureInventoryItem, InsufficientStockError } from "@/lib/inventory";
 import { displayTransferNumber } from "@/lib/format";
+import { setLocationUnitCost } from "@/lib/catalog/location-cost";
 
 /**
  * Stock transfer service — the two stock-moving lifecycle steps, each in
@@ -13,6 +14,18 @@ import { displayTransferNumber } from "@/lib/format";
  * per-line movements around it. Permission checks, audit, and cache
  * revalidation live in src/actions/transfers.ts.
  */
+
+/**
+ * « Coût d'achat à destination » for the active tenant (default off). Off =
+ * transfers move quantity only; on = a line may carry a destination PURCHASE
+ * cost (`StockTransferLine.destinationUnitCost`).
+ */
+export async function isTransferCostOverrideEnabled(
+  db: typeof prisma | PrismaTransactionClient = prisma
+): Promise<boolean> {
+  const settings = await db.businessSettings.findFirst({ select: { transferPurchaseCostOverrideEnabled: true } });
+  return settings?.transferPurchaseCostOverrideEnabled ?? false;
+}
 
 /** Thrown when a conditional status-transition update matches 0 rows —
  * a concurrent dispatch/receive/cancel already moved the transfer on. */
@@ -89,6 +102,14 @@ export interface ReceiveResult {
  * doesn't exist. Partial receive is allowed; a shortfall is recorded only
  * on `quantityReceived` — stock is never returned to the source. A line
  * whose catalogue record was deleted (both refs null) is skipped safely.
+ *
+ * A line's `destinationUnitCost` (a purchase cost frozen on the line while the
+ * tenant setting allowed it) becomes the TRANSFERT_ENTREE movement's
+ * `unitCost` AND the destination location's current purchase cost
+ * (InventoryItem.currentUnitCost — last cost wins, same transaction). Without
+ * one, the movement's unitCost stays null and the destination keeps whatever
+ * location cost it already had (never inherited from the source). The
+ * catalogue cost (Product.cost / ProductVariation.cost) is never touched.
  */
 export async function receiveTransfer(
   transferId: string,
@@ -148,17 +169,21 @@ export async function receiveTransfer(
         productId: line.productId,
         variationId: line.variationId,
       });
-      await applyStockMovement(tx, {
+      const result = await applyStockMovement(tx, {
         warehouseId: transfer.destinationWarehouseId,
         productId: line.productId,
         variationId: line.variationId,
         type: "TRANSFERT_ENTREE",
         quantity: qty,
         onHandDelta: qty,
+        unitCost: line.destinationUnitCost?.toString() ?? null,
         performedById: userId,
         reason,
         stockTransferId: transfer.id,
       });
+      if (line.destinationUnitCost !== null && result.applied) {
+        await setLocationUnitCost(tx, result.item.id, line.destinationUnitCost);
+      }
     }
 
     return { transferNumber: transfer.transferNumber, hasShortfall };

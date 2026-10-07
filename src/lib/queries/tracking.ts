@@ -15,6 +15,7 @@ import { buildParcelContentsSummary } from "@/lib/delivery";
 import { displayOrderNumber } from "@/lib/format";
 import type { StoredTrackingEvent } from "@/lib/integrations/delivery/tracking-service";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
+import { customerPhoneSearchKeys } from "@/lib/customers/identity";
 
 /**
  * Read layer for the « Suivi » module (docs/adr/0033-tracking-module.md).
@@ -51,6 +52,8 @@ export interface TrackingRow {
   customerPhone: string | null;
   city: string | null;
   productsSummary: string | null;
+  /** The order's lines for the « Produits » chips (same data as the Commandes list). */
+  productLines: { name: string; quantity: number; attributes: unknown }[];
   orderTotal: string;
   currency: string;
 
@@ -164,6 +167,7 @@ function mapRow(s: ShipmentWithRelations, includeCosts: boolean, orderNumberPref
     customerPhone: s.order.shippingPhone ?? s.order.customer.phone ?? null,
     city: s.order.shippingCity,
     productsSummary: buildParcelContentsSummary(s.order.items) || null,
+    productLines: s.order.items.map((i) => ({ name: i.nameSnapshot, quantity: i.quantity, attributes: i.variation?.attributes ?? null })),
     orderTotal: s.order.total.toString(),
     currency: s.order.currency,
 
@@ -189,6 +193,12 @@ function mapRow(s: ShipmentWithRelations, includeCosts: boolean, orderNumberPref
       ? { label: last.label || last.rawStatus, location: last.location, timestamp: last.timestamp }
       : null,
   };
+}
+
+/** "CMD-000123" / "cmd 123" / "000123" / "123" → 123; anything else → null. */
+export function orderNumberFromQuery(q: string): number | null {
+  const m = q.trim().match(/^(?:[A-Za-z]{1,10}[-\s]?)?0*(\d{1,9})$/);
+  return m ? Number(m[1]) : null;
 }
 
 export async function listTrackingRows(
@@ -220,11 +230,22 @@ export async function listTrackingRows(
             { trackingNumber: { contains: q, mode: "insensitive" } },
             { order: { is: { customer: { is: { fullName: { contains: q, mode: "insensitive" } } } } } },
             { order: { is: { customer: { is: { phone: { contains: q, mode: "insensitive" } } } } } },
+            // Partial / formatted / international phone: "0611", "06 11 22", "+212 611…"
+            // — matched on the normalized customer phoneKey (search only).
+            ...customerPhoneSearchKeys(q).map((digits) => ({
+              order: { is: { customer: { is: { phoneKey: { contains: digits } } } } },
+            })),
             { order: { is: { shippingName: { contains: q, mode: "insensitive" } } } },
             { order: { is: { shippingPhone: { contains: q, mode: "insensitive" } } } },
             { order: { is: { shippingCity: { contains: q, mode: "insensitive" } } } },
-            { order: { is: { externalNumber: { contains: q, mode: "insensitive" } } } },
-            ...(/^\d+$/.test(q) ? [{ order: { is: { orderNumber: Number(q) } } }] : []),
+            { order: { is: { externalNumber: { contains: q.replace(/^#/, ""), mode: "insensitive" } } } },
+            // The displayed number ("CMD-000123", "000123", "123") or the internal one.
+            ...(orderNumberFromQuery(q) !== null
+              ? [
+                  { order: { is: { orderNumber: orderNumberFromQuery(q)! } } },
+                  { order: { is: { displayNumber: orderNumberFromQuery(q)! } } },
+                ]
+              : []),
           ],
         }
       : {}),

@@ -54,7 +54,7 @@ export function VariationCostCell({
         min="0"
         defaultValue={committed}
         placeholder="—"
-        aria-label="Coût d'achat de la variation"
+        aria-label="Coût global de la variante"
         onBlur={save}
         onKeyDown={(e) => {
           if (e.key === "Enter") {

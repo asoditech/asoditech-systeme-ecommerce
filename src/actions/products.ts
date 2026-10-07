@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { REVENUE_EXCLUDED_STATUSES } from "@/lib/profitability";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import type { Permission } from "@/lib/auth/permissions";
@@ -1332,11 +1333,10 @@ export async function backfillProductCostSnapshotsAction(
     return actionError("Renseignez d'abord le coût d'achat du produit.");
   }
 
-  const EXCLUDED = ["ANNULEE", "ECHEC", "RETOUR", "REMBOURSEE"] as const;
   const variationCost = new Map(product.variations.map((v) => [v.id, v.cost ?? product.cost]));
 
   const lines = await prisma.orderItem.findMany({
-    where: { productId, costSnapshot: null, order: { status: { notIn: [...EXCLUDED] } } },
+    where: { productId, costSnapshot: null, order: { status: { notIn: REVENUE_EXCLUDED_STATUSES } } },
     select: { id: true, variationId: true },
   });
 

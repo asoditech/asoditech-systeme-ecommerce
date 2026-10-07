@@ -69,6 +69,16 @@ export const updateSellerPriceOverrideSchema = z.object({
   allowSellerPriceOverride: z.union([z.literal("on"), z.literal("true"), z.literal("false"), z.null(), z.undefined()]).transform((v) => v === "on" || v === "true"),
 });
 
+// « Vérification de l'emballage obligatoire » — same switch encoding.
+export const updatePackingVerificationSchema = z.object({
+  packingVerificationRequired: z.union([z.literal("on"), z.literal("true"), z.literal("false"), z.null(), z.undefined()]).transform((v) => v === "on" || v === "true"),
+});
+
+// « Coût d'achat à destination » sur les transferts — same switch encoding.
+export const updateTransferCostOverrideSchema = z.object({
+  transferPurchaseCostOverrideEnabled: z.union([z.literal("on"), z.literal("true"), z.literal("false"), z.null(), z.undefined()]).transform((v) => v === "on" || v === "true"),
+});
+
 // « Transporteur par défaut » — "" clears it.
 export const updateDefaultShippingProviderSchema = z.object({
   defaultShippingProviderId: z.union([z.literal(""), z.null(), z.undefined(), z.string().trim().min(1).max(64)]).transform((v) => (v ? v : null)),

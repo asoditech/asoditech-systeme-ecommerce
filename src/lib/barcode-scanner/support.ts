@@ -50,6 +50,50 @@ export function evaluateScannerSupport(env: ScannerEnvironment): ScannerSupportS
  */
 export const RELEVANT_BARCODE_FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "itf", "codabar"] as const;
 
+/**
+ * Camera request: the rear camera, and a HIGHER resolution as an ideal (never
+ * required — a camera that can't do it simply delivers less). With the default
+ * (often 640×480) a barcode is only a few pixels wide, so people bring the
+ * phone too close, below the lens's minimum focus distance → blur. More pixels
+ * let the code be read from a little farther away, where the lens can focus.
+ */
+export const CAMERA_CONSTRAINTS = {
+  audio: false,
+  video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+} as const;
+
+/** What `MediaStreamTrack.getCapabilities()` may report — every field optional, varies per browser AND device. */
+export interface CameraCapabilitiesLike {
+  focusMode?: string[];
+  zoom?: { min?: number; max?: number; step?: number };
+  torch?: boolean;
+}
+
+/**
+ * What the scanner may use on THIS camera — only what the device itself
+ * reports (Chrome on Android usually reports focus/zoom/torch on capable
+ * phones; Safari on iPhone may report none of them). Nothing is assumed:
+ * absent → not offered, and scanning works exactly as before.
+ */
+export interface CameraFeatures {
+  continuousFocus: boolean;
+  zoom: { min: number; max: number; step: number } | null;
+  torch: boolean;
+}
+
+export function cameraFeaturesFrom(caps: CameraCapabilitiesLike | null | undefined): CameraFeatures {
+  const z = caps?.zoom;
+  const zoom =
+    z && typeof z.min === "number" && typeof z.max === "number" && z.max > z.min
+      ? { min: z.min, max: z.max, step: typeof z.step === "number" && z.step > 0 ? z.step : 0.1 }
+      : null;
+  return {
+    continuousFocus: Array.isArray(caps?.focusMode) && caps.focusMode.includes("continuous"),
+    zoom,
+    torch: caps?.torch === true,
+  };
+}
+
 /** `decoder-unavailable`: the barcode decoder could not be loaded (e.g. the WebAssembly file failed to download). */
 export type ScannerErrorKind = "permission-denied" | "no-camera" | "camera-busy" | "decoder-unavailable" | "unknown";
 

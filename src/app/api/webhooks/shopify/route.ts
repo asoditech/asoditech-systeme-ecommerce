@@ -222,16 +222,7 @@ async function handleShopifyWebhook(
     const inventoryItemGid = `gid://shopify/InventoryItem/${parsed.data.inventory_item_id}`;
 
     try {
-      const outcome = await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: inventoryItemGid, status: "TRAITE" });
-      if (outcome === "recorded") {
-        await recordAuditEvent({
-          actorType: "INTEGRATION",
-          action: "integration.webhook_received",
-          entityType: "Integration",
-          entityId: integration.id,
-          metadata: { provider: "SHOPIFY", topic, inventoryItemExternalId: inventoryItemGid, mutatedStock: false },
-        });
-      }
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: inventoryItemGid, status: "TRAITE" });
     } catch {
       await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: inventoryItemGid, status: "ECHEC" });
       return new Response(null, { status: 500 });
@@ -287,16 +278,7 @@ async function handleShopifyWebhook(
 
       await importProduct(product, { type: "INTEGRATION" });
       revalidateAfterImport("product");
-      const outcome = await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: productGid, status: "TRAITE" });
-      if (outcome === "recorded") {
-        await recordAuditEvent({
-          actorType: "INTEGRATION",
-          action: "integration.webhook_received",
-          entityType: "Integration",
-          entityId: integration.id,
-          metadata: { provider: "SHOPIFY", topic, productExternalId: productGid },
-        });
-      }
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: productGid, status: "TRAITE" });
     } catch {
       await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: productGid, status: "ECHEC" });
       return new Response(null, { status: 500 });
@@ -333,16 +315,7 @@ async function handleShopifyWebhook(
     // is never rejected or delayed because of a plan's order limit.
     const usage = await getTenantUsage(integration.tenantId);
     await checkAndNotifyUsageThreshold(integration.tenantId, "ORDERS", usage.orders);
-    const outcome = await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: orderGid, status: "TRAITE" });
-    if (outcome === "recorded") {
-      await recordAuditEvent({
-        actorType: "INTEGRATION",
-        action: "integration.webhook_received",
-        entityType: "Integration",
-        entityId: integration.id,
-        metadata: { provider: "SHOPIFY", topic, orderExternalId: orderGid },
-      });
-    }
+    await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: orderGid, status: "TRAITE" });
   } catch {
     await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: orderGid, status: "ECHEC" });
     return new Response(null, { status: 500 });

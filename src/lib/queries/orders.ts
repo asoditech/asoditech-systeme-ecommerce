@@ -95,7 +95,7 @@ export async function listOrders(filters: OrderListFilters) {
         // needs which specific line a unit was returned from).
         salesChannel: { select: { name: true, kind: true } },
         // « Produits » column: the line snapshot name + variation options.
-        items: { select: { quantity: true, nameSnapshot: true, variation: { select: { attributes: true } } } },
+        items: { select: { quantity: true, nameSnapshot: true, skuSnapshot: true, variation: { select: { attributes: true } } } },
         returns: { select: { lines: { select: { quantitySellable: true, quantityDamaged: true } } } },
       },
     }),
@@ -123,6 +123,7 @@ export async function getOrderDetail(id: string) {
       refunds: { orderBy: { createdAt: "desc" } },
       shipments: { include: { provider: true }, orderBy: { createdAt: "desc" } },
       createdBy: true,
+      packedBy: { select: { name: true } },
       // Business channel (docs/adr/0038) — deliberately separate from
       // `fulfillmentWarehouse` below: SalesChannel is NOT a Location. Batch
       // 12: the order list already showed this (listOrders, Batch 9); the

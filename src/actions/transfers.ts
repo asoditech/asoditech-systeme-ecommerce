@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { requireLocationAccessForAction } from "@/lib/auth/location-access";
+import { userHasPermission, type Permission } from "@/lib/auth/permissions";
 import { recordAuditEvent } from "@/lib/audit";
 import { InsufficientStockError } from "@/lib/inventory";
 import {
   dispatchTransfer,
+  isTransferCostOverrideEnabled,
   receiveTransfer,
   TransferConflictError,
   TransferValidationError,
@@ -50,22 +52,47 @@ interface ResolvedLine {
   productId: string | null;
   variationId: string | null;
   quantitySent: number;
+  /** undefined = « inchangé » on a draft edit (null on create); null = no override. */
+  destinationUnitCost?: number | null;
+}
+
+type LineInput = { productId?: string | null; variationId?: string | null; quantitySent: number; destinationUnitCost?: number | null };
+
+/**
+ * Destination PURCHASE cost (never a selling price) — the server-side gate.
+ * Setting a cost requires the tenant setting « transferPurchaseCostOverrideEnabled »
+ * AND `finance.view` (a purchase cost is finance data — docs/adr/0043). Leaving
+ * it out, or null, never needs either: transfers keep working exactly as before.
+ */
+async function checkDestinationCosts(
+  user: { permissions: ReadonlySet<Permission> },
+  lines: LineInput[]
+): Promise<string | null> {
+  if (!lines.some((l) => typeof l.destinationUnitCost === "number")) return null;
+  if (!(await isTransferCostOverrideEnabled())) {
+    return "Le coût d'achat à destination n'est pas activé pour votre entreprise.";
+  }
+  if (!userHasPermission(user, "finance.view")) {
+    return "Vous n'avez pas le droit de saisir un coût d'achat.";
+  }
+  return null;
 }
 
 /** Resolve + validate each draft line's product/variation server-side. */
 async function resolveLines(
-  lines: { productId?: string | null; variationId?: string | null; quantitySent: number }[]
+  lines: LineInput[]
 ): Promise<{ ok: true; lines: ResolvedLine[] } | { ok: false; error: string }> {
   const resolved: ResolvedLine[] = [];
   for (const line of lines) {
+    const cost = { destinationUnitCost: line.destinationUnitCost };
     if (line.variationId) {
       const variation = await prisma.productVariation.findUnique({ where: { id: line.variationId } });
       if (!variation) return { ok: false, error: "Une variation sélectionnée est introuvable." };
-      resolved.push({ productId: variation.productId, variationId: variation.id, quantitySent: line.quantitySent });
+      resolved.push({ productId: variation.productId, variationId: variation.id, quantitySent: line.quantitySent, ...cost });
     } else if (line.productId) {
       const product = await prisma.product.findUnique({ where: { id: line.productId } });
       if (!product) return { ok: false, error: "Un produit sélectionné est introuvable." };
-      resolved.push({ productId: product.id, variationId: null, quantitySent: line.quantitySent });
+      resolved.push({ productId: product.id, variationId: null, quantitySent: line.quantitySent, ...cost });
     } else {
       return { ok: false, error: "Chaque ligne doit référencer un produit ou une variation." };
     }
@@ -78,7 +105,7 @@ export async function listSourceStockAction(warehouseId: string) {
   const user = await requirePermissionForAction("inventory.transfer");
   if (!warehouseId) return [];
   await requireLocationAccessForAction(user, warehouseId);
-  return listStockAtWarehouse(warehouseId);
+  return listStockAtWarehouse(warehouseId, { includeCost: userHasPermission(user, "finance.view") });
 }
 
 export async function createStockTransferAction(
@@ -106,6 +133,9 @@ export async function createStockTransferAction(
   await requireLocationAccessForAction(user, source.id);
   await requireLocationAccessForAction(user, destination.id);
 
+  const costError = await checkDestinationCosts(user, parsed.data.lines);
+  if (costError) return actionError(costError);
+
   const resolved = await resolveLines(parsed.data.lines);
   if (!resolved.ok) return actionError(resolved.error);
 
@@ -116,7 +146,7 @@ export async function createStockTransferAction(
         destinationWarehouseId: destination.id,
         notes: normalizeOptional(parsed.data.notes),
         createdById: user.id,
-        lines: { create: resolved.lines },
+        lines: { create: resolved.lines.map((l) => ({ ...l, destinationUnitCost: l.destinationUnitCost ?? null })) },
       },
     });
     const displayNumber = await claimTenantDisplayNumber(tx, created.tenantId, "transfer");
@@ -134,6 +164,7 @@ export async function createStockTransferAction(
       sourceWarehouseId: source.id,
       destinationWarehouseId: destination.id,
       lineCount: resolved.lines.length,
+      linesWithDestinationCost: resolved.lines.filter((l) => l.destinationUnitCost != null).length,
     },
   });
 
@@ -159,6 +190,9 @@ export async function updateStockTransferDraftAction(
   await requireLocationAccessForAction(user, existing.sourceWarehouseId);
   await requireLocationAccessForAction(user, existing.destinationWarehouseId);
 
+  const costError = await checkDestinationCosts(user, parsed.data.lines);
+  if (costError) return actionError(costError);
+
   const resolved = await resolveLines(parsed.data.lines);
   if (!resolved.ok) return actionError(resolved.error);
 
@@ -171,15 +205,34 @@ export async function updateStockTransferDraftAction(
         data: { notes: normalizeOptional(parsed.data.notes) },
       });
       if (gate.count === 0) throw new TransferConflictError();
+      // Lines are recreated, so a line that does not mention its destination
+      // cost keeps the one already recorded for the same article (« inchangé »)
+      // — an edit from a form that never shows the cost can't erase it.
+      const previous = await tx.stockTransferLine.findMany({
+        where: { stockTransferId: parsed.data.id },
+        select: { productId: true, variationId: true, destinationUnitCost: true },
+      });
+      const refKey = (l: { productId: string | null; variationId: string | null }) => `${l.productId ?? ""}|${l.variationId ?? ""}`;
+      const previousCost = new Map(previous.map((l) => [refKey(l), l.destinationUnitCost]));
+      const lines = resolved.lines.map((l) => ({
+        ...l,
+        destinationUnitCost: l.destinationUnitCost === undefined ? (previousCost.get(refKey(l)) ?? null) : l.destinationUnitCost,
+      }));
+      // Clearing a recorded cost is a cost write too: finance.view only.
+      const clearsCost = lines.some((l) => l.destinationUnitCost === null && previousCost.get(refKey(l)) != null);
+      if (clearsCost && !userHasPermission(user, "finance.view")) {
+        throw new TransferValidationError("Vous n'avez pas le droit de modifier un coût d'achat.");
+      }
       await tx.stockTransferLine.deleteMany({ where: { stockTransferId: parsed.data.id } });
       await tx.stockTransferLine.createMany({
-        data: resolved.lines.map((l) => ({ ...l, stockTransferId: parsed.data.id })),
+        data: lines.map((l) => ({ ...l, stockTransferId: parsed.data.id })),
       });
     });
   } catch (error) {
     if (error instanceof TransferConflictError) {
       return actionError("Seul un transfert au statut « brouillon » peut être modifié.");
     }
+    if (error instanceof TransferValidationError) return actionError(error.message);
     throw error;
   }
 

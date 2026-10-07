@@ -11,8 +11,9 @@ import { TransferReceiveForm } from "@/components/transfers/transfer-receive-for
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { getStockTransferDetail, getStockTransferAuditTimeline } from "@/lib/queries/transfers";
-import { formatDateTime, displayTransferNumber } from "@/lib/format";
+import { formatCurrency, formatDateTime, displayTransferNumber } from "@/lib/format";
 import { TRANSFER_STATUS_LABELS } from "@/lib/status-labels";
+import { TRANSFER_COST_LABEL } from "@/lib/transfer-cost-ui";
 
 type TransferDetail = NonNullable<Awaited<ReturnType<typeof getStockTransferDetail>>>;
 
@@ -35,6 +36,10 @@ export default async function TransfertDetailPage({ params }: { params: Promise<
   const timeline = await getStockTransferAuditTimeline(id);
   const ref = displayTransferNumber(transfer);
   const lines = transfer.lines.map((l) => ({ ...l, ...lineLabel(l) }));
+  // A recorded destination purchase cost is history: shown (finance.view only)
+  // whenever one exists, whatever the tenant setting is today.
+  const showCost = userHasPermission(user, "finance.view") && lines.some((l) => l.destinationUnitCost !== null);
+  const costLabel = (c: { toString(): string } | null) => (c !== null ? formatCurrency(c.toString()) : "—");
 
   return (
     <div>
@@ -70,6 +75,7 @@ export default async function TransfertDetailPage({ params }: { params: Promise<
                     <TableHead>Article</TableHead>
                     <TableHead>Envoyé</TableHead>
                     <TableHead>Reçu</TableHead>
+                    {showCost && <TableHead className="text-right">{TRANSFER_COST_LABEL}</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -89,6 +95,7 @@ export default async function TransfertDetailPage({ params }: { params: Promise<
                       >
                         {l.quantityReceived ?? "—"}
                       </TableCell>
+                      {showCost && <TableCell className="text-right tabular-nums">{costLabel(l.destinationUnitCost)}</TableCell>}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -109,6 +116,7 @@ export default async function TransfertDetailPage({ params }: { params: Promise<
                     label: l.label,
                     sku: l.sku,
                     quantitySent: l.quantitySent,
+                    ...(showCost ? { destinationCost: l.destinationUnitCost?.toString() ?? null } : {}),
                   }))}
                 />
               </CardContent>

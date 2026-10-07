@@ -128,7 +128,7 @@ export function VariantEditDialog({
           <div className="grid gap-3 sm:grid-cols-2">
             {canEditCost && (
               <div className="space-y-1.5">
-                <Label htmlFor={`vc-${variation.id}`}>Coût d&apos;achat (MAD)</Label>
+                <Label htmlFor={`vc-${variation.id}`}>Coût global de la variante (MAD)</Label>
                 <Input id={`vc-${variation.id}`} name="cost" type="number" step="0.01" min="0" defaultValue={variation.cost ?? ""} />
               </div>
             )}

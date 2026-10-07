@@ -18,6 +18,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { WAREHOUSE_TYPE_LABELS } from "@/lib/status-labels";
+import { formatCurrency } from "@/lib/format";
+import { buildTransferLinesPayload, TRANSFER_COST_LABEL, TRANSFER_COST_NOTE } from "@/lib/transfer-cost-ui";
 
 interface WarehouseOption {
   id: string;
@@ -35,11 +37,21 @@ interface DraftLine {
   sku: string;
   quantitySent: number;
   maxOnHand: number | null;
+  /** Destination purchase cost as typed ("" = none). */
+  cost: string;
+  /** Global purchase cost of the article (finance.view only), for reference. */
+  globalCost: string | null;
 }
 
 export interface TransferFormProps {
   warehouses: WarehouseOption[];
   mode?: "create" | "edit";
+  /**
+   * Show the « Coût d'achat à destination » field: tenant setting on AND
+   * finance.view (decided on the server page). Hidden → the cost is never sent,
+   * so a draft edit keeps any recorded cost. The server re-checks both.
+   */
+  costEntry?: boolean;
   transfer?: {
     id: string;
     sourceWarehouseId: string;
@@ -47,14 +59,23 @@ export interface TransferFormProps {
     destinationWarehouseId: string;
     destinationName: string;
     notes: string;
-    lines: { productId: string | null; variationId: string | null; label: string; sku: string; quantitySent: number }[];
+    lines: {
+      productId: string | null;
+      variationId: string | null;
+      label: string;
+      sku: string;
+      quantitySent: number;
+      /** Recorded destination cost (passed only with finance.view). */
+      destinationUnitCost?: string | null;
+      globalCost?: string | null;
+    }[];
   };
 }
 
 const refKey = (r: { productId: string | null; variationId: string | null }) =>
   r.variationId ? `v:${r.variationId}` : `p:${r.productId}`;
 
-export function TransferForm({ warehouses, mode = "create", transfer }: TransferFormProps) {
+export function TransferForm({ warehouses, mode = "create", transfer, costEntry = false }: TransferFormProps) {
   const router = useRouter();
   const isEdit = mode === "edit" && transfer;
 
@@ -75,6 +96,8 @@ export function TransferForm({ warehouses, mode = "create", transfer }: Transfer
       sku: l.sku,
       quantitySent: l.quantitySent,
       maxOnHand: null,
+      cost: l.destinationUnitCost ?? "",
+      globalCost: l.globalCost ?? null,
     })) ?? []
   );
 
@@ -111,6 +134,8 @@ export function TransferForm({ warehouses, mode = "create", transfer }: Transfer
         sku: row.sku,
         quantitySent: 1,
         maxOnHand: row.quantityOnHand,
+        cost: "",
+        globalCost: row.globalCost,
       },
     ]);
     setPickerOpen(false);
@@ -119,6 +144,10 @@ export function TransferForm({ warehouses, mode = "create", transfer }: Transfer
 
   function updateLine(key: string, quantitySent: number) {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, quantitySent } : l)));
+  }
+
+  function updateCost(key: string, cost: string) {
+    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, cost } : l)));
   }
 
   function removeLine(key: string) {
@@ -134,11 +163,9 @@ export function TransferForm({ warehouses, mode = "create", transfer }: Transfer
     if (lines.length === 0) return toast.error("Ajoutez au moins une ligne.");
     if (lines.some((l) => l.quantitySent < 1)) return toast.error("Chaque ligne doit avoir une quantité d'au moins 1.");
 
-    const payloadLines = lines.map((l) => ({
-      productId: l.variationId ? null : l.productId,
-      variationId: l.variationId,
-      quantitySent: l.quantitySent,
-    }));
+    const payload = buildTransferLinesPayload(lines, costEntry);
+    if (!payload.ok) return toast.error(payload.error);
+    const payloadLines = payload.lines;
 
     startTransition(async () => {
       const result = isEdit
@@ -280,6 +307,7 @@ export function TransferForm({ warehouses, mode = "create", transfer }: Transfer
                 <TableRow>
                   <TableHead>Article</TableHead>
                   <TableHead>Quantité à envoyer</TableHead>
+                  {costEntry && <TableHead>{TRANSFER_COST_LABEL}</TableHead>}
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -302,6 +330,24 @@ export function TransferForm({ warehouses, mode = "create", transfer }: Transfer
                         onChange={(e) => updateLine(l.key, Math.max(1, Number(e.target.value)))}
                       />
                     </TableCell>
+                    {costEntry && (
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <Input
+                            inputMode="decimal"
+                            className="w-28"
+                            aria-label={`${TRANSFER_COST_LABEL} — ${l.label}`}
+                            placeholder="Optionnel"
+                            value={l.cost}
+                            onChange={(e) => updateCost(l.key, e.target.value)}
+                          />
+                          <span className="text-xs text-muted-foreground">MAD</span>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Coût global : {l.globalCost !== null ? formatCurrency(l.globalCost) : "non renseigné"}
+                        </p>
+                      </TableCell>
+                    )}
                     <TableCell>
                       <Button type="button" variant="ghost" size="icon-sm" onClick={() => removeLine(l.key)}>
                         <Trash2 className="size-4" />
@@ -311,6 +357,11 @@ export function TransferForm({ warehouses, mode = "create", transfer }: Transfer
                 ))}
               </TableBody>
             </Table>
+          )}
+          {costEntry && lines.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {TRANSFER_COST_NOTE} Laissez vide pour garder le coût actuel de la destination.
+            </p>
           )}
         </CardContent>
       </Card>

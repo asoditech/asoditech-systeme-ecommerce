@@ -3,14 +3,17 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { REVENUE_EXCLUDED_STATUSES } from "@/lib/profitability";
+import { effectiveUnitCost } from "@/lib/catalog/location-cost";
 
 /**
  * Stock valuation & rotation — what the on-hand inventory is worth and
  * how fast it moves.
  *
- * Value at cost uses `Product.cost` / `ProductVariation.cost` (the
- * current standard cost, NOT the frozen sale-time `costSnapshot` — this
- * is a "what do I own right now" figure, not a realised-profit one).
+ * Value at cost uses each row's EFFECTIVE location purchase cost —
+ * `InventoryItem.currentUnitCost`, else `ProductVariation.cost`, else
+ * `Product.cost` (src/lib/catalog/location-cost.ts) — a current figure, NOT
+ * the frozen sale-time `costSnapshot` ("what do I own right now", not a
+ * realised-profit one). Each location is valued independently.
  * Value at retail uses `salePrice ?? price`. A line whose product has no
  * cost set is counted in `linesMissingCost` and contributes 0 to the
  * at-cost total — the total is flagged incomplete rather than guessed.
@@ -106,6 +109,7 @@ export async function getStockValuationReport(
     },
     select: {
       quantityOnHand: true,
+      currentUnitCost: true,
       warehouse: { select: { name: true } },
       product: { select: { id: true, name: true, sku: true, cost: true, price: true, salePrice: true } },
       variation: {
@@ -161,14 +165,15 @@ export async function getStockValuationReport(
       productName = item.variation.product.name;
       sku = item.variation.sku;
       vLabel = variantLabel(item.variation.attributes);
-      const cost = item.variation.cost ?? item.variation.product.cost;
+      const cost = effectiveUnitCost(item.currentUnitCost, item.variation.cost, item.variation.product.cost);
       unitCost = includeCost && cost != null ? Number(cost) : null;
       unitRetail = Number(item.variation.price ?? item.variation.product.salePrice ?? item.variation.product.price ?? 0);
       unitsSold = soldByVariation.get(item.variation.id) ?? 0;
     } else if (item.product) {
       productName = item.product.name;
       sku = item.product.sku;
-      unitCost = includeCost && item.product.cost != null ? Number(item.product.cost) : null;
+      const cost = effectiveUnitCost(item.currentUnitCost, null, item.product.cost);
+      unitCost = includeCost && cost != null ? Number(cost) : null;
       unitRetail = Number(item.product.salePrice ?? item.product.price ?? 0);
       unitsSold = soldByProduct.get(item.product.id) ?? 0;
     } else {

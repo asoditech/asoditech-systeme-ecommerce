@@ -435,6 +435,7 @@ model User {
   passwordResetTokens        PasswordResetToken[]
   customersCreated           Customer[]                 @relation("CustomerCreatedBy")
   ordersCreated              Order[]                    @relation("OrderCreatedBy")
+  ordersPacked               Order[]                    @relation("OrderPackedBy")
   productsCreated            Product[]                  @relation("ProductCreatedBy")
   productPublications        ProductPublication[]       @relation("ProductPublicationPublishedBy")
   warehousesCreated          Warehouse[]                @relation("WarehouseCreatedBy")
@@ -1217,6 +1218,15 @@ model InventoryItem {
   quantityOnHand     Int       @default(0)
   quantityReserved   Int       @default(0)
   quantityDamaged    Int       @default(0)
+  // CURRENT purchase cost of this product/variation AT THIS LOCATION (never a
+  // selling price). Null = no location cost: the effective cost falls back to
+  // ProductVariation.cost, then Product.cost (src/lib/catalog/location-cost.ts).
+  // Set — last cost wins, no averaging/layers — by a received transfer line
+  // carrying `destinationUnitCost`, and by a validated reception while
+  // BusinessSettings.transferPurchaseCostOverrideEnabled is on. Read when a new
+  // store sale / ASODITECH order freezes its costSnapshot and by stock
+  // valuation. DB-enforced: NULL or >= 0.
+  currentUnitCost    Decimal?  @db.Decimal(12, 2)
   // Shopify's own InventoryItem gid at this (product/variant, location)
   // pair — a distinct resource from the Product/ProductVariation gid, and
   // exactly what the inventorySetQuantities mutation requires as its
@@ -1438,6 +1448,13 @@ model StockTransferLine {
   variationId      String?
   quantitySent     Int
   quantityReceived Int?
+  // PURCHASE cost per unit that applies to the quantity received at the
+  // destination (never a selling price). Only settable while
+  // BusinessSettings.transferPurchaseCostOverrideEnabled is on; on receive it
+  // is copied to the TRANSFERT_ENTREE movement's `unitCost`. Null = no
+  // override (the movement's unitCost stays null, as before). Never written to
+  // Product.cost / ProductVariation.cost. DB-enforced: NULL or >= 0.
+  destinationUnitCost Decimal? @db.Decimal(12, 2)
 
   stockTransfer StockTransfer     @relation(fields: [stockTransferId], references: [id], onDelete: Cascade)
   tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -1556,6 +1573,12 @@ model StocktakeLine {
 // ---------------------------------------------------------------------------
 // Orders — see docs/adr/0002-domain-model.md for the state machine
 // ---------------------------------------------------------------------------
+
+/// How an order's packing was verified (Order.packingMethod).
+enum PackingMethod {
+  SCAN
+  MANUAL
+}
 
 enum OrderStatus {
   NOUVELLE
@@ -1680,6 +1703,15 @@ model Order {
   createdById          String?
   tenant               Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   createdBy            User?                      @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  // Packing verification (« Emballage » = status EN_PREPARATION): set when
+  // the packed products were verified against the order lines — by scan, or
+  // by a manager's manual fallback. Cleared when the lines change or the
+  // order is cancelled / reopened. Only gates shipment creation when
+  // BusinessSettings.packingVerificationRequired is on (src/lib/packing.ts).
+  packedAt             DateTime?
+  packedById           String?
+  packedBy             User?                      @relation("OrderPackedBy", fields: [packedById], references: [id], onDelete: SetNull)
+  packingMethod        PackingMethod?
   customer             Customer                   @relation(fields: [customerId], references: [id], onDelete: Restrict)
   fulfillmentWarehouse Warehouse?                 @relation("OrderFulfillmentWarehouse", fields: [fulfillmentWarehouseId], references: [id], onDelete: SetNull)
   salesChannel         SalesChannel?              @relation(fields: [salesChannelId], references: [id], onDelete: Restrict)
@@ -2691,6 +2723,14 @@ model BusinessSettings {
   // The shipment's real provider is still chosen at shipment creation.
   defaultShippingProviderId String?
   defaultShippingProvider   ShippingProvider? @relation("DefaultShippingProvider", fields: [defaultShippingProviderId], references: [id], onDelete: SetNull)
+  // « Vérification de l'emballage obligatoire »: when true, an online order
+  // can only be shipped (« À expédier » + every shipment-creation action)
+  // once its packing was verified (Order.packedAt). Default false = unchanged.
+  packingVerificationRequired Boolean @default(false)
+  // « Coût d'achat à destination » sur les transferts: when true, a transfer
+  // line may carry `StockTransferLine.destinationUnitCost` (a PURCHASE cost,
+  // never a selling price). Default false = transfers move quantity only.
+  transferPurchaseCostOverrideEnabled Boolean @default(false)
 
   updatedAt DateTime @updatedAt
 

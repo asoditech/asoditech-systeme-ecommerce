@@ -2,11 +2,12 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { variantLabel } from "@/lib/catalog/lookup";
+import { REVENUE_EXCLUDED_STATUSES } from "@/lib/profitability";
 
 export async function getTopProducts(limit = 5) {
   const grouped = await prisma.orderItem.groupBy({
     by: ["productId"],
-    where: { productId: { not: null }, order: { status: { notIn: ["ANNULEE", "ECHEC"] } } },
+    where: { productId: { not: null }, order: { status: { notIn: REVENUE_EXCLUDED_STATUSES } } },
     _sum: { quantity: true, total: true },
     orderBy: { _sum: { quantity: "desc" } },
     take: limit,
@@ -37,7 +38,7 @@ export interface TopSellingUnit {
 /**
  * Dashboard "Top Selling Products" ranking (UI refinement pass, 2026-09) —
  * the SAME safe metric `getTopProducts` already uses (units sold / revenue
- * from OrderItem, excluding ANNULEE/ECHEC orders, no new accounting concept),
+ * from OrderItem, excluding `REVENUE_EXCLUDED_STATUSES` orders, no new accounting concept),
  * just grouped one level finer: by SELLABLE UNIT (product+variation pair,
  * the same `productId ?? variationId` identity every other catalog surface
  * uses — see `ProductIdentityPanel`'s `unitKey`) instead of by product alone,
@@ -51,7 +52,7 @@ export async function getTopSellingUnits(period: { from: Date; to: Date }, limit
     by: ["productId", "variationId"],
     where: {
       productId: { not: null },
-      order: { status: { notIn: ["ANNULEE", "ECHEC"] }, placedAt: { gte: period.from, lte: period.to } },
+      order: { status: { notIn: REVENUE_EXCLUDED_STATUSES }, placedAt: { gte: period.from, lte: period.to } },
     },
     _sum: { quantity: true, total: true },
     orderBy: { _sum: { quantity: "desc" } },

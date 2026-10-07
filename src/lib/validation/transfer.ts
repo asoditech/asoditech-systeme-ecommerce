@@ -23,6 +23,31 @@ export function canTransitionTransferStatus(from: TransferStatusValue, to: Trans
   return TRANSFER_STATUS_TRANSITIONS[from].includes(to);
 }
 
+/** Largest value a Decimal(12,2) column holds. */
+export const MAX_UNIT_COST = 9_999_999_999.99;
+
+/**
+ * Optional destination PURCHASE cost of a line (never a selling price):
+ *   - absent (undefined) → « inchangé »: a draft edit keeps the line's current value;
+ *   - null or ""         → no override;
+ *   - a number           → the override, >= 0.
+ * Whether it may be set at all is decided server-side
+ * (BusinessSettings.transferPurchaseCostOverrideEnabled + finance.view).
+ */
+export const destinationUnitCostSchema = z.preprocess(
+  (v) => (v === "" ? null : v),
+  z
+    .union([
+      z.null(),
+      z.coerce
+        .number()
+        .finite("Le coût d'achat à destination est invalide.")
+        .min(0, "Le coût d'achat à destination doit être positif ou nul.")
+        .max(MAX_UNIT_COST, "Le coût d'achat à destination est trop élevé."),
+    ])
+    .optional()
+);
+
 /** One draft line — exactly one of productId / variationId, enforced at the
  * application level (see the schema comment on StockTransferLine). */
 const transferLineInputSchema = z
@@ -30,6 +55,7 @@ const transferLineInputSchema = z
     productId: z.string().min(1).nullish(),
     variationId: z.string().min(1).nullish(),
     quantitySent: z.coerce.number().int().positive("La quantité doit être au moins 1."),
+    destinationUnitCost: destinationUnitCostSchema,
   })
   .refine((line) => Boolean(line.productId) !== Boolean(line.variationId), {
     message: "Chaque ligne doit référencer soit un produit, soit une variation.",

@@ -60,8 +60,8 @@ export async function getStockTransferDetail(id: string, viewer?: LocationViewer
       lines: {
         orderBy: { id: "asc" },
         include: {
-          product: { select: { name: true, sku: true } },
-          variation: { select: { sku: true, attributes: true, product: { select: { name: true } } } },
+          product: { select: { name: true, sku: true, cost: true } },
+          variation: { select: { sku: true, attributes: true, cost: true, product: { select: { name: true, cost: true } } } },
         },
       },
     },
@@ -82,12 +82,12 @@ export async function getStockTransferAuditTimeline(id: string) {
  * physical stock. Any product status: an ARCHIVE product can still have
  * units to move out of a location.
  */
-export async function listStockAtWarehouse(warehouseId: string) {
+export async function listStockAtWarehouse(warehouseId: string, opts: { includeCost?: boolean } = {}) {
   const items = await prisma.inventoryItem.findMany({
     where: { warehouseId, quantityOnHand: { gt: 0 } },
     include: {
-      product: { select: { name: true, sku: true } },
-      variation: { select: { sku: true, attributes: true, product: { select: { name: true } } } },
+      product: { select: { name: true, sku: true, cost: true } },
+      variation: { select: { sku: true, attributes: true, cost: true, product: { select: { name: true, cost: true } } } },
     },
     orderBy: { updatedAt: "desc" },
   });
@@ -101,5 +101,10 @@ export async function listStockAtWarehouse(warehouseId: string) {
       ? `${i.variation.product.name} (${Object.values(i.variation.attributes as Record<string, string>).join(", ")})`
       : (i.product?.name ?? "—"),
     sku: i.variation?.sku ?? i.product?.sku ?? "—",
+    // Global purchase cost (variation → product) — finance.view data, so only
+    // when the caller asked for it (docs/adr/0043). Never a selling price.
+    globalCost: opts.includeCost
+      ? ((i.variation ? (i.variation.cost ?? i.variation.product.cost) : i.product?.cost) ?? null)?.toString() ?? null
+      : null,
   }));
 }

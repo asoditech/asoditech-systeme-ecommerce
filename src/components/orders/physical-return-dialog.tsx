@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Undo2 } from "lucide-react";
 import { confirmPhysicalReturnAction } from "@/actions/returns";
+import { ReturnScanField } from "@/components/returns/return-scan-field";
+import { applyReturnScan, type ScannedUnit } from "@/lib/returns/scan";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,6 +32,9 @@ export interface ReturnableOrderLine {
   /** Sum of every prior physical-return event's sellable + damaged
    * quantities for this line. */
   alreadyReturned: number;
+  /** Catalogue unit of the line — lets « Scanner » find it (null when the product was deleted). */
+  productId?: string | null;
+  variationId?: string | null;
 }
 
 interface LineDraft {
@@ -65,6 +70,26 @@ export function PhysicalReturnDialog({ orderId, lines }: { orderId: string; line
       const current = prev[orderItemId] ?? { sellable: "0", damaged: "0" };
       return { ...prev, [orderItemId]: { ...current, [field]: value } };
     });
+  }
+
+  /** « Scanner »: +1 revendable on the scanned unit's line, within what remains (src/lib/returns/scan.ts). */
+  function applyScan(unit: ScannedUnit) {
+    const toInt = (v: string | undefined) => Math.max(0, Math.trunc(Number(v ?? 0)) || 0);
+    const result = applyReturnScan(
+      lines.map((l) => ({
+        id: l.orderItemId,
+        label: l.nameSnapshot,
+        productId: l.productId ?? null,
+        variationId: l.variationId ?? null,
+        remaining: l.consumedQuantity - l.alreadyReturned,
+        sellable: toInt(drafts[l.orderItemId]?.sellable),
+        damaged: toInt(drafts[l.orderItemId]?.damaged),
+      })),
+      unit,
+      "commande"
+    );
+    if (result.ok) setDraft(result.lineId, "sellable", String(result.sellable));
+    return result;
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -133,7 +158,9 @@ export function PhysicalReturnDialog({ orderId, lines }: { orderId: string; line
             vente — seule une unité revendable augmente le stock disponible.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {/* min-w-0: the 6-column table scrolls inside its own container instead of widening the dialog past the screen. */}
+        <form onSubmit={handleSubmit} className="min-w-0 space-y-4">
+          <ReturnScanField scope="order" onUnit={applyScan} />
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>

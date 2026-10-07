@@ -3,12 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { recordAuditEvent } from "@/lib/audit";
 import {
   updateBusinessSettingsSchema,
   updateCostingMethodSchema,
   updateDefaultShippingProviderSchema,
   updateSellerPriceOverrideSchema,
+  updatePackingVerificationSchema,
+  updateTransferCostOverrideSchema,
 } from "@/lib/validation/settings";
 import { requireCapabilityForAction } from "@/lib/auth/capabilities";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
@@ -18,26 +21,59 @@ function normalizeOptional(value: string | null | undefined): string | null {
   return value && value.trim().length > 0 ? value.trim() : null;
 }
 
+/** Every field `updateBusinessSettingsAction` manages (one schema, see updateBusinessSettingsSchema). */
+const BUSINESS_SETTINGS_FIELDS = [
+  "companyName",
+  "currency",
+  "logoUrl",
+  "address",
+  "city",
+  "country",
+  "phone",
+  "email",
+  "timezone",
+  "lowStockDefaultThreshold",
+  "orderNumberPrefix",
+  "supportName",
+  "supportWhatsapp",
+  "supportPhone",
+  "supportEmail",
+  "supportHours",
+] as const;
+
+/**
+ * Company-wide settings (Paramètres → Configuration). Each section saves
+ * only ITS fields: a field absent from the submitted form keeps its stored
+ * value (so saving « Support » never resets the company name), a field
+ * present but empty is cleared. The merged result is validated by the one
+ * shared schema, exactly as before.
+ */
 export async function updateBusinessSettingsAction(formData: FormData): Promise<ActionResult<BusinessSettings>> {
   const user = await requirePermissionForAction("settings.manage");
 
+  const current = await prisma.businessSettings.findUnique({ where: { tenantId: user.tenantId } });
+  const submitted = BUSINESS_SETTINGS_FIELDS.filter((f) => formData.has(f));
+  const value = (field: (typeof BUSINESS_SETTINGS_FIELDS)[number]) =>
+    formData.has(field) ? formData.get(field) : (current?.[field] ?? undefined);
+
+  const threshold = value("lowStockDefaultThreshold");
   const parsed = updateBusinessSettingsSchema.safeParse({
-    companyName: formData.get("companyName") || "",
-    currency: formData.get("currency") || "MAD",
-    logoUrl: formData.get("logoUrl"),
-    address: formData.get("address"),
-    city: formData.get("city"),
-    country: formData.get("country") || "Maroc",
-    phone: formData.get("phone"),
-    email: formData.get("email"),
-    timezone: formData.get("timezone") || "Africa/Casablanca",
-    lowStockDefaultThreshold: formData.get("lowStockDefaultThreshold") || 5,
-    orderNumberPrefix: formData.get("orderNumberPrefix") || "CMD",
-    supportName: formData.get("supportName"),
-    supportWhatsapp: formData.get("supportWhatsapp"),
-    supportPhone: formData.get("supportPhone"),
-    supportEmail: formData.get("supportEmail"),
-    supportHours: formData.get("supportHours"),
+    companyName: value("companyName") || "",
+    currency: value("currency") || "MAD",
+    logoUrl: value("logoUrl"),
+    address: value("address"),
+    city: value("city"),
+    country: value("country") || "Maroc",
+    phone: value("phone"),
+    email: value("email"),
+    timezone: value("timezone") || "Africa/Casablanca",
+    lowStockDefaultThreshold: threshold === "" || threshold == null ? 5 : threshold, // a stored 0 stays 0
+    orderNumberPrefix: value("orderNumberPrefix") || "CMD",
+    supportName: value("supportName"),
+    supportWhatsapp: value("supportWhatsapp"),
+    supportPhone: value("supportPhone"),
+    supportEmail: value("supportEmail"),
+    supportHours: value("supportHours"),
   });
   if (!parsed.success) {
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
@@ -47,34 +83,28 @@ export async function updateBusinessSettingsAction(formData: FormData): Promise<
   // global singleton — looked up/created by `tenantId`, never the old
   // fixed `id: "singleton"` (which now belongs only to the bootstrap
   // tenant's original row).
+  const data = {
+    companyName: parsed.data.companyName,
+    currency: parsed.data.currency,
+    logoUrl: normalizeOptional(parsed.data.logoUrl),
+    address: normalizeOptional(parsed.data.address),
+    city: normalizeOptional(parsed.data.city),
+    country: parsed.data.country,
+    phone: normalizeOptional(parsed.data.phone),
+    email: normalizeOptional(parsed.data.email),
+    timezone: parsed.data.timezone,
+    lowStockDefaultThreshold: parsed.data.lowStockDefaultThreshold,
+    orderNumberPrefix: parsed.data.orderNumberPrefix,
+    supportName: normalizeOptional(parsed.data.supportName),
+    supportWhatsapp: normalizeOptional(parsed.data.supportWhatsapp),
+    supportPhone: normalizeOptional(parsed.data.supportPhone),
+    supportEmail: normalizeOptional(parsed.data.supportEmail),
+    supportHours: normalizeOptional(parsed.data.supportHours),
+  };
   const settings = await prisma.businessSettings.upsert({
     where: { tenantId: user.tenantId },
-    update: {
-      companyName: parsed.data.companyName,
-      currency: parsed.data.currency,
-      logoUrl: normalizeOptional(parsed.data.logoUrl),
-      address: normalizeOptional(parsed.data.address),
-      city: normalizeOptional(parsed.data.city),
-      country: parsed.data.country,
-      phone: normalizeOptional(parsed.data.phone),
-      email: normalizeOptional(parsed.data.email),
-      timezone: parsed.data.timezone,
-      lowStockDefaultThreshold: parsed.data.lowStockDefaultThreshold,
-      orderNumberPrefix: parsed.data.orderNumberPrefix,
-      supportName: normalizeOptional(parsed.data.supportName),
-      supportWhatsapp: normalizeOptional(parsed.data.supportWhatsapp),
-      supportPhone: normalizeOptional(parsed.data.supportPhone),
-      supportEmail: normalizeOptional(parsed.data.supportEmail),
-      supportHours: normalizeOptional(parsed.data.supportHours),
-    },
-    create: {
-      ...parsed.data,
-      supportName: normalizeOptional(parsed.data.supportName),
-      supportWhatsapp: normalizeOptional(parsed.data.supportWhatsapp),
-      supportPhone: normalizeOptional(parsed.data.supportPhone),
-      supportEmail: normalizeOptional(parsed.data.supportEmail),
-      supportHours: normalizeOptional(parsed.data.supportHours),
-    },
+    update: data,
+    create: data,
   });
 
   await recordAuditEvent({
@@ -84,6 +114,7 @@ export async function updateBusinessSettingsAction(formData: FormData): Promise<
     entityType: "BusinessSettings",
     entityId: settings.id,
     newValue: { companyName: settings.companyName },
+    metadata: { fields: submitted },
   });
 
   revalidatePath("/parametres");
@@ -162,6 +193,78 @@ export async function updateSellerPriceOverrideAction(formData: FormData): Promi
   });
   revalidatePath("/parametres");
   revalidatePath("/ventes/nouvelle");
+  return actionOk(settings);
+}
+
+/**
+ * « Vérification de l'emballage obligatoire » — tenant-wide, default off.
+ * When on, an online order is shippable only once its packing was verified
+ * (Order.packedAt): « À expédier » and every shipment-creation action enforce
+ * it on the server (src/lib/packing.ts). Off = today's behaviour.
+ */
+export async function updatePackingVerificationAction(formData: FormData): Promise<ActionResult<BusinessSettings>> {
+  const user = await requirePermissionForAction("settings.manage");
+  const parsed = updatePackingVerificationSchema.safeParse({ packingVerificationRequired: formData.get("packingVerificationRequired") });
+  if (!parsed.success) return actionError("Valeur invalide.", parsed.error.flatten().fieldErrors);
+
+  const previous = await prisma.businessSettings.findUnique({ where: { tenantId: user.tenantId }, select: { packingVerificationRequired: true } });
+  const settings = await prisma.businessSettings.upsert({
+    where: { tenantId: user.tenantId },
+    update: { packingVerificationRequired: parsed.data.packingVerificationRequired },
+    create: { packingVerificationRequired: parsed.data.packingVerificationRequired },
+  });
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "settings.updated",
+    entityType: "BusinessSettings",
+    entityId: settings.id,
+    previousValue: { packingVerificationRequired: previous?.packingVerificationRequired ?? false },
+    newValue: { packingVerificationRequired: settings.packingVerificationRequired },
+  });
+  revalidatePath("/parametres");
+  revalidatePath("/livraison");
+  return actionOk(settings);
+}
+
+/**
+ * « Coût d'achat à destination » sur les transferts — tenant-wide, default off.
+ * When on, a transfer line may carry a destination PURCHASE cost (never a
+ * selling price), copied to the TRANSFERT_ENTREE movement on receive
+ * (src/lib/transfers.ts). Turning it off blocks entering new costs; costs
+ * already recorded on transfer lines stay as history. Off = today's behaviour.
+ */
+export async function updateTransferCostOverrideAction(formData: FormData): Promise<ActionResult<BusinessSettings>> {
+  const user = await requirePermissionForAction("settings.manage");
+  // A purchase-cost setting is financial data too (docs/adr/0043).
+  if (!userHasPermission(user, "finance.view")) {
+    return actionError("Ce réglage est réservé aux utilisateurs ayant accès aux données financières.");
+  }
+  const parsed = updateTransferCostOverrideSchema.safeParse({
+    transferPurchaseCostOverrideEnabled: formData.get("transferPurchaseCostOverrideEnabled"),
+  });
+  if (!parsed.success) return actionError("Valeur invalide.", parsed.error.flatten().fieldErrors);
+
+  const previous = await prisma.businessSettings.findUnique({
+    where: { tenantId: user.tenantId },
+    select: { transferPurchaseCostOverrideEnabled: true },
+  });
+  const settings = await prisma.businessSettings.upsert({
+    where: { tenantId: user.tenantId },
+    update: { transferPurchaseCostOverrideEnabled: parsed.data.transferPurchaseCostOverrideEnabled },
+    create: { transferPurchaseCostOverrideEnabled: parsed.data.transferPurchaseCostOverrideEnabled },
+  });
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "settings.updated",
+    entityType: "BusinessSettings",
+    entityId: settings.id,
+    previousValue: { transferPurchaseCostOverrideEnabled: previous?.transferPurchaseCostOverrideEnabled ?? false },
+    newValue: { transferPurchaseCostOverrideEnabled: settings.transferPurchaseCostOverrideEnabled },
+  });
+  revalidatePath("/parametres");
+  revalidatePath("/transferts");
   return actionOk(settings);
 }
 

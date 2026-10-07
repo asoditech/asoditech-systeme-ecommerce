@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { REVENUE_EXCLUDED_STATUSES } from "@/lib/profitability";
 import { getFinanceSummary, currentMonthRange, currentDayRange } from "@/lib/queries/finance";
 import { getTopProducts } from "@/lib/queries/analytics";
 import { getDeliveryStats } from "@/lib/queries/delivery";
@@ -208,7 +209,7 @@ export async function toolTopProductsToday(): Promise<string> {
     by: ["productId"],
     where: {
       productId: { not: null },
-      order: { status: { notIn: ["ANNULEE", "ECHEC"] }, placedAt: { gte: from, lte: to } },
+      order: { status: { notIn: REVENUE_EXCLUDED_STATUSES }, placedAt: { gte: from, lte: to } },
     },
     _sum: { quantity: true },
     orderBy: { _sum: { quantity: "desc" } },

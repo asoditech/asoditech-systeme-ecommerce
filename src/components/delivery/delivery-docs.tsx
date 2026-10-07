@@ -50,7 +50,7 @@ function FlowOverview() {
           <p className="font-medium text-foreground">2. Préparation &amp; expédition</p>
           <ul className="ml-4 list-disc space-y-1">
             <li>
-              Vous faites avancer la commande ici : Nouvelle → Confirmée → En préparation → Expédiée. Le stock est
+              Vous faites avancer la commande ici : Nouvelle → Confirmée → Emballage → Expédiée. Le stock est
               réservé à la création, puis déduit à l&apos;expédition.
             </li>
             <li>

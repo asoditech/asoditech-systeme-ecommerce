@@ -21,6 +21,8 @@ import { listAccessibleActiveWarehouses, hasGlobalLocationAccess } from "@/lib/a
 import { listInventoryItems, listWarehousesWithStats, type StockStatusFilter, type InventorySort } from "@/lib/queries/inventory";
 import { listCategories } from "@/lib/queries/products";
 import { availableStock } from "@/lib/inventory";
+import { describeLocationCost } from "@/lib/catalog/location-cost";
+import { LocationCostDisplay } from "@/components/inventory/location-cost-display";
 
 export const metadata = { title: "Stock — ASODITECH Gestion E-commerce" };
 
@@ -80,6 +82,10 @@ export default async function StockPage({
     allowedWarehouseIds: isGlobal ? null : warehouses.map((w) => w.id),
   });
   const canAdjust = userHasPermission(user, "inventory.adjust");
+  // Purchase cost is finance.view data (docs/adr/0043): the column — and every
+  // cost value — is rendered only for those users. Read from the rows already
+  // loaded (InventoryItem.currentUnitCost + product/variation cost): no extra query.
+  const canViewCost = userHasPermission(user, "finance.view");
   const canSync =
     userHasPermission(user, "integrations.manage") && (await getConnectedCommercePlatforms()).length > 0;
 
@@ -175,6 +181,7 @@ export default async function StockPage({
                 <TableHead className="text-right">Disponible</TableHead>
                 <TableHead className="text-right">Endommagé</TableHead>
                 <TableHead>État</TableHead>
+                {canViewCost && <TableHead className="text-right">Coût d&apos;achat</TableHead>}
                 {canAdjust && <TableHead />}
               </TableRow>
             </TableHeader>
@@ -231,6 +238,14 @@ export default async function StockPage({
                         <Badge variant="success">En stock</Badge>
                       )}
                     </TableCell>
+                    {canViewCost && (
+                      <TableCell className="text-right">
+                        {(() => {
+                          const { cost, source } = describeLocationCost(i.currentUnitCost, i.variation?.cost, product?.cost);
+                          return <LocationCostDisplay cost={cost?.toString() ?? null} source={source} />;
+                        })()}
+                      </TableCell>
+                    )}
                     {canAdjust && (
                       <TableCell>
                         <StockAdjustmentDialog

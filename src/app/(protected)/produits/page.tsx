@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { ClickableTableRow } from "@/components/clickable-table-row";
+import { ProductRowActions } from "@/components/products/product-row-actions";
 import { Button } from "@/components/ui/button";
 import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
@@ -56,6 +57,9 @@ export default async function ProduitsPage({
   // may see it. The column is rendered server-side so its value never
   // reaches the HTML for an agent or warehouse user (client feedback #8).
   const canViewCost = userHasPermission(user, "finance.view");
+  // Row menu = the product page's own « Retirer du catalogue », same
+  // permission (products.edit) and same server action.
+  const canRemove = userHasPermission(user, "products.edit");
 
   const [categories, connectedPlatforms] = await Promise.all([
     listCategories(),
@@ -194,9 +198,14 @@ export default async function ProduitsPage({
                 <TableHead>Produit</TableHead>
                 <TableHead>Catégorie</TableHead>
                 <TableHead className="text-right">Prix de vente</TableHead>
-                {canViewCost && <TableHead className="text-right">Coût d&apos;achat</TableHead>}
+                {canViewCost && <TableHead className="text-right" title="Coût global du produit — un emplacement peut avoir son propre coût (onglet Stock)">Coût global</TableHead>}
                 <TableHead className="text-right">Stock</TableHead>
                 <TableHead>Statut</TableHead>
+                {canRemove && (
+                  <TableHead className="w-10">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -298,6 +307,11 @@ export default async function ProduitsPage({
                     <TableCell>
                       <StatusBadge status={p.status} labels={PRODUCT_STATUS_LABELS} />
                     </TableCell>
+                    {canRemove && (
+                      <TableCell className="w-10">
+                        <ProductRowActions productId={p.id} productName={p.name} />
+                      </TableCell>
+                    )}
                   </ClickableTableRow>
                 );
               })}

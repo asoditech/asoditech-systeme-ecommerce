@@ -94,3 +94,16 @@ describe("RELEVANT_BARCODE_FORMATS", () => {
     expect(RELEVANT_BARCODE_FORMATS).not.toContain("pdf417");
   });
 });
+
+describe("BarcodeScanButton — existing callers keep the same contract", () => {
+  it("default render is the same closed button (single mode); the camera is never touched before a click", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { BarcodeScanButton } = await import("@/components/barcode-scanner/barcode-scan-button");
+    const labelled = renderToStaticMarkup(createElement(BarcodeScanButton, { onDetect: () => {}, label: "Caméra" }));
+    expect(labelled).toContain("Caméra");
+    expect(labelled).not.toContain("<video");
+    const iconOnly = renderToStaticMarkup(createElement(BarcodeScanButton, { onDetect: () => {}, label: "" }));
+    expect(iconOnly).toContain('aria-label="Scanner avec la caméra"');
+  });
+});

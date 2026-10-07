@@ -5,6 +5,9 @@ import { requirePermission } from "@/lib/auth/guards";
 import { getStockTransferDetail } from "@/lib/queries/transfers";
 import { listAccessibleActiveWarehouses } from "@/lib/auth/location-access";
 import { displayTransferNumber } from "@/lib/format";
+import { userHasPermission } from "@/lib/auth/permissions";
+import { isTransferCostOverrideEnabled } from "@/lib/transfers";
+import { canEnterTransferCost } from "@/lib/transfer-cost-ui";
 
 export const metadata = { title: "Modifier le transfert — ASODITECH Gestion E-commerce" };
 
@@ -17,6 +20,10 @@ export default async function ModifierTransfertPage({ params }: { params: Promis
   if (transfer.status !== "BROUILLON") redirect(`/transferts/${id}`);
 
   const warehouses = await listAccessibleActiveWarehouses(user);
+  // Purchase costs reach the browser only with finance.view (docs/adr/0043);
+  // the field itself also needs the tenant setting.
+  const canViewFinance = userHasPermission(user, "finance.view");
+  const costEntry = canEnterTransferCost(await isTransferCostOverrideEnabled(), canViewFinance);
   const ref = displayTransferNumber(transfer);
 
   return (
@@ -33,6 +40,7 @@ export default async function ModifierTransfertPage({ params }: { params: Promis
         <TransferForm
           warehouses={warehouses}
           mode="edit"
+          costEntry={costEntry}
           transfer={{
             id: transfer.id,
             sourceWarehouseId: transfer.source.id,
@@ -48,6 +56,12 @@ export default async function ModifierTransfertPage({ params }: { params: Promis
                 : (l.product?.name ?? "Article supprimé"),
               sku: l.variation?.sku ?? l.product?.sku ?? "—",
               quantitySent: l.quantitySent,
+              ...(costEntry
+                ? {
+                    destinationUnitCost: l.destinationUnitCost?.toString() ?? null,
+                    globalCost: (l.variation ? (l.variation.cost ?? l.variation.product.cost) : l.product?.cost)?.toString() ?? null,
+                  }
+                : {}),
             })),
           }}
         />

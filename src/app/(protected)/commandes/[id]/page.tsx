@@ -4,6 +4,7 @@ import { unitImageUrl } from "@/lib/catalog/unit-image";
 import { notFound } from "next/navigation";
 import {
   Package,
+  PackageCheck,
   StickyNote,
   Undo2,
   Truck,
@@ -37,6 +38,13 @@ import { EditShippingAddressDialog } from "@/components/orders/edit-shipping-add
 import { OverrideShipmentCostDialog } from "@/components/delivery/override-shipment-cost-dialog";
 import { AssignAgentControl } from "@/components/commissions/assign-agent-control";
 import { OrderLifecycleStepper, type OrderCommissionStatus } from "@/components/orders/order-lifecycle-stepper";
+import { PackingPanel } from "@/components/orders/packing-panel";
+import { PurgeOrderButton } from "@/components/orders/purge-order-dialog";
+import { previewOrderPurgeAction } from "@/actions/order-purge";
+import { shouldOfferPurge } from "@/lib/orders/purge-ui";
+import { packingLines } from "@/lib/packing";
+import { isPackingRequired } from "@/lib/packing-settings";
+import { productLineLabel } from "@/lib/catalog/product-chips";
 import { getOrderCommission, listAssignableCommissionAgents } from "@/lib/queries/commissions";
 import { getOrderConfirmationAttempts } from "@/lib/queries/order-confirmation";
 import { computeOrderProfit } from "@/lib/profitability";
@@ -105,6 +113,16 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
   const canRefund = userHasPermission(user, "orders.refund");
   const canReturnPhysical = userHasPermission(user, "orders.return");
   const canManageDelivery = userHasPermission(user, "delivery.manage");
+  // Test-order purge (src/lib/orders/purge.ts): offered only to an orders.purge
+  // holder (OWNER / ADMIN), and only when the server preview says it's eligible.
+  const canPurge = userHasPermission(user, "orders.purge");
+  const purgeEvaluation = canPurge ? await previewOrderPurgeAction(order.id) : null;
+  const canPack = userHasPermission(user, "orders.pack");
+  const canPackManual = userHasPermission(user, "orders.pack_manual");
+  const packingRequired = await isPackingRequired();
+  const lines = packingLines(
+    order.items.map((i) => ({ ...i, label: productLineLabel(i.nameSnapshot, i.variation?.attributes) }))
+  );
   const canViewFinance = userHasPermission(user, "finance.view");
   const canManageFinance = userHasPermission(user, "finance.manage");
   const profit = canViewFinance
@@ -154,6 +172,8 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
       skuSnapshot: item.skuSnapshot,
       consumedQuantity: item.quantity,
       alreadyReturned,
+      productId: item.productId,
+      variationId: item.variationId,
     };
   });
   const returnState = returnStateLabel(
@@ -198,6 +218,23 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
             {canReturnPhysical && order.shippedAt !== null && (
               <PhysicalReturnDialog orderId={order.id} lines={returnableLines} />
             )}
+            {purgeEvaluation?.ok && shouldOfferPurge(canPurge, purgeEvaluation) && (
+              <PurgeOrderButton
+                initialEvaluation={purgeEvaluation.data}
+                summary={{
+                  orderId: order.id,
+                  orderLabel: displayOrderNumber(order, business.orderNumberPrefix),
+                  statusLabel: ORDER_STATUS_LABELS[order.status]?.label ?? order.status,
+                  customerName: displayOrderRecipient(order),
+                  total: formatCurrency(order.total.toString(), order.currency),
+                  lines: order.items.map((i) => ({
+                    name: productLineLabel(i.nameSnapshot, i.variation?.attributes),
+                    sku: i.skuSnapshot,
+                    quantity: i.quantity,
+                  })),
+                }}
+              />
+            )}
           </div>
         }
       />
@@ -219,6 +256,22 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
+          {order.packedAt ? (
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm">
+              <PackageCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
+              <span>
+                Emballage vérifié le {formatDateTime(order.packedAt)}
+                {order.packedBy?.name ? ` par ${order.packedBy.name}` : ""} ·{" "}
+                {order.packingMethod === "MANUAL" ? "validation manuelle" : "scan"}
+              </span>
+            </div>
+          ) : order.status === "EN_PREPARATION" && canPack ? (
+            <PackingPanel orderId={order.id} lines={lines} canPackManual={canPackManual} />
+          ) : order.status === "CONFIRMEE" && packingRequired ? (
+            <p className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+              Passez la commande à « Emballage » pour vérifier son emballage : elle ne pourra être expédiée qu&apos;ensuite.
+            </p>
+          ) : null}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><Package className="size-4 text-muted-foreground" />Articles</CardTitle>

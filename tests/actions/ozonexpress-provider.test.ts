@@ -334,6 +334,50 @@ describe("OzonExpress connector — Server Action layer", () => {
       expect(await prisma.shipment.count({ where: { orderId } })).toBe(0);
     });
 
+    describe("« Vérification de l'emballage obligatoire » (shared packing gate)", () => {
+      const setPacking = (on: boolean) =>
+        prisma.businessSettings.upsert({
+          where: { tenantId: "default" },
+          update: { packingVerificationRequired: on },
+          create: { packingVerificationRequired: on },
+        });
+
+      it("setting OFF (default): unchanged — confirmed and unpacked « Emballage » orders can still be linked", async () => {
+        await loginAsTestUser({ role: "MANAGER" });
+        const provider = await configuredProvider();
+        const confirmed = await seedShippableOrder();
+        const packing = await seedShippableOrder();
+        await updateOrderStatusAction(formData({ id: packing, status: "EN_PREPARATION" }));
+        state.parcels.set("OFF-1", { tracking: "OFF-1", status: "Nouveau Colis", deliveredPrice: 20, codPrice: "0" });
+        state.parcels.set("OFF-2", { tracking: "OFF-2", status: "Nouveau Colis", deliveredPrice: 20, codPrice: "0" });
+
+        expect((await linkExistingShipmentAction(formData({ orderId: confirmed, providerId: provider.id, trackingNumber: "OFF-1" }))).ok).toBe(true);
+        expect((await linkExistingShipmentAction(formData({ orderId: packing, providerId: provider.id, trackingNumber: "OFF-2" }))).ok).toBe(true);
+      });
+
+      it("setting ON: a confirmed or unpacked order is refused before any carrier call; a packed one is linked", async () => {
+        await loginAsTestUser({ role: "MANAGER" });
+        const provider = await configuredProvider();
+        await setPacking(true);
+        const orderId = await seedShippableOrder(); // CONFIRMEE
+        state.parcels.set("ON-1", { tracking: "ON-1", status: "Nouveau Colis", deliveredPrice: 20, codPrice: "0" });
+        const callsBefore = state.seenUrls.filter((u) => u.includes("/tracking")).length;
+
+        const refused = await linkExistingShipmentAction(formData({ orderId, providerId: provider.id, trackingNumber: "ON-1" }));
+        expect(refused).toMatchObject({ ok: false, error: "L'emballage de cette commande n'a pas encore été vérifié." });
+
+        await updateOrderStatusAction(formData({ id: orderId, status: "EN_PREPARATION" })); // « Emballage », not verified
+        const stillRefused = await linkExistingShipmentAction(formData({ orderId, providerId: provider.id, trackingNumber: "ON-1" }));
+        expect(stillRefused).toMatchObject({ ok: false, error: "L'emballage de cette commande n'a pas encore été vérifié." });
+        expect(await prisma.shipment.count({ where: { orderId } })).toBe(0);
+        expect(state.seenUrls.filter((u) => u.includes("/tracking")).length).toBe(callsBefore); // never reached OzonExpress
+
+        await prisma.order.update({ where: { id: orderId }, data: { packedAt: new Date(), packingMethod: "SCAN" } });
+        expect((await linkExistingShipmentAction(formData({ orderId, providerId: provider.id, trackingNumber: "ON-1" }))).ok).toBe(true);
+        expect(await prisma.shipment.count({ where: { orderId } })).toBe(1);
+      });
+    });
+
     it("rejects a second link for the same tracking number", async () => {
       await loginAsTestUser({ role: "MANAGER" });
       const provider = await configuredProvider();

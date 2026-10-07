@@ -53,7 +53,7 @@ export function OrderLifecycleStepper({
       : [
           { key: "NOUVELLE", label: "Nouvelle", date: placedAt },
           { key: "CONFIRMEE", label: "Confirmée", date: confirmedAt },
-          { key: "EN_PREPARATION", label: "En préparation", date: null },
+          { key: "EN_PREPARATION", label: "Emballage", date: null },
           { key: "EXPEDIEE", label: "Expédiée", date: shippedAt },
           { key: "LIVREE", label: "Livrée", date: deliveredAt },
         ];

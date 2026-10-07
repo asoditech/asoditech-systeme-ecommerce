@@ -19,7 +19,7 @@ export function SettingsNav({
 }) {
   const pathname = usePathname();
   const items = [
-    ...(canView ? [{ href: "/parametres", label: "Général" }] : []),
+    ...(canView ? [{ href: "/parametres", label: "Configuration" }] : []),
     { href: "/parametres/notifications", label: "Notifications" },
     ...(canView ? [{ href: "/parametres/abonnement", label: "Abonnement & Utilisation" }] : []),
     ...(canManageChannels ? [{ href: "/parametres/canaux", label: "Canaux de vente" }] : []),

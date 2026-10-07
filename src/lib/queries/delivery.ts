@@ -3,7 +3,9 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import "@/lib/integrations/delivery/providers"; // populates the registry — see that module's own doc comment
 import { listDeliveryProviders, getDeliveryProvider } from "@/lib/integrations/delivery/registry";
-import { SHIPPABLE_ORDER_STATUSES, ACTIVE_SHIPMENT_STATUSES } from "@/lib/delivery";
+import { ACTIVE_SHIPMENT_STATUSES } from "@/lib/delivery";
+import { shippableOrderWhere } from "@/lib/packing";
+import { isPackingRequired } from "@/lib/packing-settings";
 import type { Prisma, ShipmentStatus, ShippingProviderType } from "@prisma/client";
 
 const PAGE_SIZE = 30;
@@ -190,8 +192,10 @@ export async function listOrdersAwaitingShipment(params: { page?: number; search
   const page = Math.max(1, params.page ?? 1);
   const search = params.search?.trim();
 
+  // Order eligibility (incl. « Vérification de l'emballage obligatoire ») is
+  // the same rule every shipment-creation action enforces — src/lib/packing.ts.
   const where: Prisma.OrderWhereInput = {
-    status: { in: SHIPPABLE_ORDER_STATUSES },
+    ...shippableOrderWhere(await isPackingRequired()),
     shipments: { none: { status: { in: ACTIVE_SHIPMENT_STATUSES } } },
     ...(search
       ? {

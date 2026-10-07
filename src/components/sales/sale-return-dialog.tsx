@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Undo2 } from "lucide-react";
 import { createSaleReturnAction } from "@/actions/sales";
+import { ReturnScanField } from "@/components/returns/return-scan-field";
+import { applyReturnScan, type ScannedUnit } from "@/lib/returns/scan";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -18,6 +20,9 @@ interface ReturnableLine {
   sold: number;
   /** Already returned (sellable + damaged) on earlier returns. */
   returned: number;
+  /** Catalogue unit of the line — lets « Scanner » find it. */
+  productId?: string | null;
+  variationId?: string | null;
 }
 
 /**
@@ -38,6 +43,25 @@ export function SaleReturnDialog({ saleId, lines, refundable }: { saleId: string
   const [note, setNote] = useState("");
 
   const chosen = lines.filter((l) => (qty[l.id]?.sellable ?? 0) + (qty[l.id]?.damaged ?? 0) > 0);
+
+  /** « Scanner »: +1 revendable on the scanned unit's line, within what remains (src/lib/returns/scan.ts). */
+  function applyScan(unit: ScannedUnit) {
+    const result = applyReturnScan(
+      lines.map((l) => ({
+        id: l.id,
+        label: l.label,
+        productId: l.productId ?? null,
+        variationId: l.variationId ?? null,
+        remaining: l.sold - l.returned,
+        sellable: qty[l.id]?.sellable ?? 0,
+        damaged: qty[l.id]?.damaged ?? 0,
+      })),
+      unit,
+      "vente"
+    );
+    if (result.ok) setQty((p) => ({ ...p, [result.lineId]: { sellable: result.sellable, damaged: p[result.lineId]?.damaged ?? 0 } }));
+    return result;
+  }
 
   function submit() {
     startTransition(async () => {
@@ -70,6 +94,7 @@ export function SaleReturnDialog({ saleId, lines, refundable }: { saleId: string
           <DialogHeader>
             <DialogTitle>Retour de vente</DialogTitle>
           </DialogHeader>
+          <ReturnScanField scope="sale" onUnit={applyScan} />
           <div className="divide-y rounded-md border text-sm">
             {lines.map((l) => {
               const remaining = l.sold - l.returned;

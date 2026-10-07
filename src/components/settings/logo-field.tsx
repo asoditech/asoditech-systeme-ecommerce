@@ -17,9 +17,16 @@ import { Label } from "@/components/ui/label";
 const MAX_DIM = 320;
 const MAX_BYTES = 1_400_000;
 
-export function LogoField({ defaultValue }: { defaultValue: string | null }) {
-  const [value, setValue] = useState(defaultValue ?? "");
+export function LogoField({ defaultValue, showLabel = true }: { defaultValue: string | null; showLabel?: boolean }) {
+  const [value, setRawValue] = useState(defaultValue ?? "");
   const fileRef = useRef<HTMLInputElement>(null);
+  const hiddenRef = useRef<HTMLInputElement>(null);
+  // A user change of the logo tells the enclosing form it has unsaved changes
+  // (a hidden input's value never fires an input event on its own).
+  function setValue(next: string) {
+    setRawValue(next);
+    hiddenRef.current?.dispatchEvent(new Event("input", { bubbles: true }));
+  }
 
   async function onFile(file: File) {
     if (!file.type.startsWith("image/")) {
@@ -40,8 +47,8 @@ export function LogoField({ defaultValue }: { defaultValue: string | null }) {
 
   return (
     <div className="space-y-2 sm:col-span-2">
-      <Label>Logo</Label>
-      <input type="hidden" name="logoUrl" value={value} />
+      {showLabel && <Label>Logo</Label>}
+      <input ref={hiddenRef} type="hidden" name="logoUrl" value={value} />
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-md border bg-muted">
           {value ? (

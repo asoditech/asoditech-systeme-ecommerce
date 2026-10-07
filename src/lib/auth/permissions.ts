@@ -29,6 +29,18 @@ export const PERMISSIONS = [
   // orders.edit — the CONFIRMATION role holds this but not the full
   // status machine.
   "orders.confirm",
+  // Packing (« Emballage » = EN_PREPARATION): scan the packed products against
+  // the order lines and validate (Order.packedAt). Narrower than orders.edit —
+  // the WAREHOUSE role holds it without the order status machine.
+  "orders.pack",
+  // Controlled fallback: validate packing lines manually (no / damaged code),
+  // with a mandatory reason and an audit event. MANAGER and above by default.
+  "orders.pack_manual",
+  // Physically remove a TEST order that never left the warehouse (never
+  // shipped, internal, no carrier parcel / refund / return / commission) —
+  // src/lib/orders/purge.ts. OWNER / ADMIN only (ALL_PERMISSIONS); no other
+  // role holds it by default.
+  "orders.purge",
   "customers.view",
   "customers.create",
   "customers.edit",
@@ -130,6 +142,9 @@ export const PERMISSION_CHANNEL_DOMAIN: Readonly<Partial<Record<Permission, Chan
   "orders.refund": "ONLINE",
   "orders.return": "ONLINE",
   "orders.confirm": "ONLINE",
+  "orders.pack": "ONLINE",
+  "orders.pack_manual": "ONLINE",
+  "orders.purge": "ONLINE",
   "delivery.view": "ONLINE",
   "delivery.manage": "ONLINE",
   "commissions.view": "ONLINE",
@@ -164,6 +179,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     "orders.refund",
     "orders.return",
     "orders.confirm",
+    "orders.pack",
+    "orders.pack_manual",
     "customers.view",
     "customers.create",
     "customers.edit",
@@ -211,6 +228,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   WAREHOUSE: [
     "dashboard.view",
     "orders.view",
+    "orders.pack",
     "products.view",
     "inventory.view",
     "inventory.adjust",

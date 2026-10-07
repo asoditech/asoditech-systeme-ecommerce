@@ -42,6 +42,26 @@ describe("« Produits » chips", () => {
     expect(productLineLabel("Casquette", null)).toBe("Casquette");
   });
 
+  it("whole-word matching: a size letter inside a word is NOT treated as already shown", () => {
+    // "L" is not in "Polo", "S" is not in "Badyss", "M" is not in "Maillot".
+    expect(productLineLabel("Polo Variant Test", { Taille: "L" })).toBe("Polo Variant Test — L");
+    expect(productLineLabel("T-Shirt Badyss Classic", { Taille: "S", Couleur: "Noir" })).toBe("T-Shirt Badyss Classic — S / Noir");
+    expect(productLineLabel("Maillot", { Taille: "M" })).toBe("Maillot — M");
+    // A standalone token in the name IS already shown.
+    expect(productLineLabel("Polo L", { Taille: "L" })).toBe("Polo L");
+    expect(productLineLabel("T-shirt Noir - S", { Couleur: "Noir", Taille: "S" })).toBe("T-shirt Noir - S");
+  });
+
+  it("case and accents ignored; multi-word values must appear as the same words in order", () => {
+    expect(productLineLabel("Robe ÉCRU", { Couleur: "écru" })).toBe("Robe ÉCRU");
+    expect(productLineLabel("Robe ecru", { Couleur: "Écru" })).toBe("Robe ecru");
+    expect(productLineLabel("Chemise Bleu Marine", { Couleur: "Bleu Marine" })).toBe("Chemise Bleu Marine");
+    expect(productLineLabel("Chemise Marine Bleu", { Couleur: "Bleu Marine" })).toBe("Chemise Marine Bleu — Bleu Marine");
+    expect(productLineLabel("Chemise Bleue", { Couleur: "Bleu" })).toBe("Chemise Bleue — Bleu"); // "bleu" ≠ "bleue"
+    expect(productLineLabel("Basket", { Pointure: "42", Couleur: "Rouge" })).toBe("Basket — 42 / Rouge");
+    expect(productLineLabel("Basket 42", { Pointure: "42" })).toBe("Basket 42");
+  });
+
   it("merges identical lines, shows at most N chips and a +N rest", () => {
     const r = productChips([
       { name: "Bolder Smile", quantity: 1 },

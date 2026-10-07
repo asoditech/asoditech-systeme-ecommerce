@@ -1,94 +1,42 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 import { Calculator } from "lucide-react";
 import { updateCostingMethodAction } from "@/actions/settings";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ChoiceCard, ValueTile } from "@/components/settings/setting-controls";
+import { COSTING_METHOD_HELP, COSTING_METHOD_LABELS } from "@/lib/settings/configuration-model";
 import type { BusinessSettings, CostingMethod } from "@prisma/client";
-import type { ActionResult } from "@/actions/types";
-
-const COSTING_METHOD_LABELS: Record<CostingMethod, string> = {
-  MANUAL: "Manuel",
-  LAST_COST: "Dernier coût d'achat",
-  WEIGHTED_AVERAGE: "Coût moyen pondéré",
-};
-
-const COSTING_METHOD_HELP: Record<CostingMethod, string> = {
-  MANUAL: "Le coût est renseigné manuellement.",
-  LAST_COST: "Le coût du produit est remplacé par le dernier coût d'achat validé.",
-  WEIGHTED_AVERAGE: "Le coût est recalculé selon le stock existant et le nouveau coût d'achat.",
-};
 
 /**
- * Product costing (Phase 3 — Product Costing & Profitability input). A
- * small, standalone control, independently savable — same conventions as
- * BusinessSettingsForm (useActionState + useEffect for the toast/refresh,
- * French copy) but its own form/action so this one field doesn't ride on
- * the big company-info submit.
+ * Product costing: how a validated reception updates a product's CURRENT
+ * cost. The existing action (`updateCostingMethodAction`), as a value tile
+ * whose editor offers the three methods as cards.
  */
 export function CostingMethodForm({ settings }: { settings: Pick<BusinessSettings, "costingMethod"> }) {
-  const router = useRouter();
-  const [method, setMethod] = useState<CostingMethod>(settings.costingMethod);
-  const [state, formAction, isPending] = useActionState(
-    async (_prevState: ActionResult<BusinessSettings> | undefined, formData: FormData) =>
-      updateCostingMethodAction(formData),
-    undefined
-  );
-
-  useEffect(() => {
-    if (state?.ok) {
-      toast.success("Méthode de calcul du coût enregistrée.");
-      router.refresh();
-    } else if (state && !state.ok) {
-      toast.error(state.error);
-    }
-  }, [state, router]);
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <span className="flex size-7 items-center justify-center rounded-md bg-muted text-muted-foreground">
-            <Calculator className="size-4" />
-          </span>
-          Coûts & valorisation
-        </CardTitle>
-        <CardDescription>
-          Détermine comment une réception validée met à jour le coût ACTUEL d&apos;un produit — utilisé pour la
-          valorisation du stock et les rapports de rentabilité. N&apos;affecte jamais le coût déjà figé sur une
-          commande ou une vente passée.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form action={formAction} className="space-y-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="costingMethod">Méthode de calcul du coût</Label>
-            <Select name="costingMethod" value={method} onValueChange={(v) => v && setMethod(v as CostingMethod)}>
-              <SelectTrigger id="costingMethod" className="w-full sm:w-80">
-                <SelectValue>{(value: string) => COSTING_METHOD_LABELS[value as CostingMethod] ?? value}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(COSTING_METHOD_LABELS) as CostingMethod[]).map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {COSTING_METHOD_LABELS[value]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">{COSTING_METHOD_HELP[method]}</p>
-          </div>
-          <div className="flex justify-end">
-            <Button type="submit" disabled={isPending}>
-              {isPending ? "Enregistrement..." : "Enregistrer"}
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+    <ValueTile
+      anchor="methode-cout"
+      section="stock"
+      icon={Calculator}
+      title="Méthode de calcul du coût"
+      summary="Comment une réception validée met à jour le coût actuel d'un produit."
+      value={COSTING_METHOD_LABELS[settings.costingMethod]}
+      valueCaption={COSTING_METHOD_HELP[settings.costingMethod]}
+      note="Jamais le coût déjà figé sur une commande ou une vente passée."
+      action={updateCostingMethodAction}
+      success="Méthode de calcul du coût enregistrée."
+    >
+      <div role="radiogroup" aria-label="Méthode de calcul du coût" className="grid gap-2">
+        {(Object.keys(COSTING_METHOD_LABELS) as CostingMethod[]).map((m) => (
+          <ChoiceCard
+            key={m}
+            name="costingMethod"
+            value={m}
+            defaultChecked={m === settings.costingMethod}
+            title={COSTING_METHOD_LABELS[m]}
+            description={COSTING_METHOD_HELP[m]}
+          />
+        ))}
+      </div>
+    </ValueTile>
   );
 }

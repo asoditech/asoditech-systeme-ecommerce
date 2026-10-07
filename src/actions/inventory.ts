@@ -8,7 +8,7 @@ import { recordAuditEvent } from "@/lib/audit";
 import { checkAndNotifyLowStock } from "@/lib/notifications";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
 import { applyStockMovement, InsufficientStockError } from "@/lib/inventory";
-import { inventoryAdjustmentSchema } from "@/lib/validation/inventory";
+import { inventoryAdjustmentSchema, locationCostSchema, type LocationCostInput } from "@/lib/validation/inventory";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import type { InventoryItem } from "@prisma/client";
 
@@ -114,3 +114,72 @@ export async function adjustInventoryAction(formData: FormData): Promise<ActionR
   revalidatePath("/produits");
   return actionOk(updated);
 }
+
+/**
+ * Sets or clears the CURRENT purchase cost of one stock location for one
+ * product/variation (InventoryItem.currentUnitCost — never a selling price).
+ * `cost: null` = « Utiliser le coût global »: the effective cost falls back to
+ * the variation, then product, cost. Touches ONLY that row's currentUnitCost —
+ * never Product.cost / ProductVariation.cost, a cost snapshot, a movement's
+ * unitCost or a transfer line. Independent of the transfer-cost setting (which
+ * governs only the automatic writes).
+ *
+ * Purchase cost is `finance.view` data (docs/adr/0043); the row's location
+ * must also be one the user may operate on (docs/adr/0037). The tenant scope
+ * of `findUnique` makes another tenant's row « introuvable ».
+ */
+export async function updateLocationCostAction(
+  input: LocationCostInput
+): Promise<ActionResult<{ id: string; cost: string | null }>> {
+  const user = await requirePermissionForAction("finance.view");
+
+  const parsed = locationCostSchema.safeParse(input);
+  if (!parsed.success) return actionError("Coût invalide.", parsed.error.flatten().fieldErrors);
+
+  const existing = await prisma.inventoryItem.findUnique({
+    where: { id: parsed.data.inventoryItemId },
+    select: {
+      id: true,
+      warehouseId: true,
+      productId: true,
+      variationId: true,
+      currentUnitCost: true,
+      variation: { select: { productId: true } },
+    },
+  });
+  if (!existing) return actionError("Stock introuvable.");
+  await requireLocationAccessForAction(user, existing.warehouseId);
+
+  const next = parsed.data.cost;
+  // One row, one column, in a transaction — the location's quantities and
+  // every other cost field are left exactly as they are.
+  const updated = await prisma.$transaction((tx) =>
+    tx.inventoryItem.update({
+      where: { id: existing.id },
+      data: { currentUnitCost: next },
+      select: { id: true, currentUnitCost: true },
+    })
+  );
+
+  const before = existing.currentUnitCost?.toString() ?? null;
+  const after = updated.currentUnitCost?.toString() ?? null;
+  if (before !== after) {
+    await recordAuditEvent({
+      actorType: "USER",
+      actorUserId: user.id,
+      action: "inventory.location_cost_updated",
+      entityType: "InventoryItem",
+      entityId: existing.id,
+      previousValue: { currentUnitCost: before },
+      newValue: { currentUnitCost: after },
+      metadata: { warehouseId: existing.warehouseId, productId: existing.productId, variationId: existing.variationId },
+    });
+  }
+
+  const productId = existing.productId ?? existing.variation?.productId;
+  if (productId) revalidatePath(`/produits/${productId}`);
+  revalidatePath("/stock");
+  revalidatePath("/rapports/stock");
+  return actionOk({ id: updated.id, cost: after });
+}
+

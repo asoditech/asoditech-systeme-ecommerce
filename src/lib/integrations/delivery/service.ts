@@ -7,10 +7,11 @@ import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import {
   applyShipmentStatusTransition,
   buildParcelContentsSummary,
-  SHIPPABLE_ORDER_STATUSES,
   ACTIVE_SHIPMENT_STATUSES,
 } from "@/lib/delivery";
 import { DEFAULT_SHIPPING_COUNTRY } from "@/lib/format";
+import { shippableOrderProblem, shippableOrderWhere } from "@/lib/packing";
+import { isPackingRequired } from "@/lib/packing-settings";
 import { matchCityName } from "./city-match";
 import { resolveProviderCity, providerExposesCityCatalogue } from "./city-resolution";
 import { getDeliveryProvider, assertCapability } from "./registry";
@@ -163,7 +164,7 @@ export async function loadApiProvider(providerId: string): Promise<LoadedApiProv
  * distinct shippingCity values of every order actually eligible for a
  * shipment via THIS provider right now would resolve against it —
  * eligible meaning exactly what `createShipmentViaProviderAction` itself
- * checks (SHIPPABLE_ORDER_STATUSES, no ACTIVE_SHIPMENT_STATUSES shipment
+ * checks (shippableOrderWhere — incl. the packing requirement — and no ACTIVE_SHIPMENT_STATUSES shipment
  * already on this provider), so an order whose only shipment attempt
  * failed locally (e.g. on an earlier unresolved city) is correctly
  * included as still needing one, not just orders that never had an
@@ -191,7 +192,7 @@ async function enrichWithCityResolutionDiagnostics(
 
     const orders = await prisma.order.findMany({
       where: {
-        status: { in: SHIPPABLE_ORDER_STATUSES },
+        ...shippableOrderWhere(await isPackingRequired()),
         shipments: { none: { providerId, status: { in: ACTIVE_SHIPMENT_STATUSES } } },
       },
       select: { shippingCity: true },
@@ -307,6 +308,10 @@ export async function createShipmentViaProvider(params: {
   updatedById: string;
   notes: string | null;
 }): Promise<Shipment> {
+  // Same eligibility as « À expédier » (incl. the packing requirement) —
+  // enforced here too, so no caller can create a parcel for an unpacked order.
+  const shipProblem = shippableOrderProblem(params.order, await isPackingRequired());
+  if (shipProblem) throw new DeliveryConfigError(shipProblem);
   const addressError = requireAddress(params.order);
   if (addressError) throw addressError;
 

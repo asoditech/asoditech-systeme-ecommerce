@@ -24,6 +24,7 @@ function row(over: Partial<TrackingRow>): TrackingRow {
     customerPhone: "0612345678",
     city: "Rabat",
     productsSummary: null,
+    productLines: [],
     orderTotal: "249.00",
     currency: "MAD",
     localStatus: "EN_TRANSIT",
@@ -46,26 +47,50 @@ function row(over: Partial<TrackingRow>): TrackingRow {
   };
 }
 
-const render = (rows: TrackingRow[], includeCosts = false) =>
-  renderToStaticMarkup(createElement(TrackingTable, { rows, includeCosts }));
+const render = (rows: TrackingRow[]) => renderToStaticMarkup(createElement(TrackingTable, { rows }));
 
 describe("TrackingTable", () => {
-  it("columns in operational priority; « Transporteur » replaced by « Livreur »", () => {
+  it("columns in operational priority; no carrier fee; « Produits » last", () => {
     const html = render([row({})]);
     const heads = [...html.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map((m) => m[1]);
-    expect(heads).toEqual(["Commande", "Client", "Ville", "Montant", "Livreur", "Situation", "Dernier évènement"]);
+    expect(heads).toEqual(["Commande", "Client", "Ville", "Montant", "Livreur", "Situation", "Dernier évènement", "Produits"]);
     expect(html).not.toContain("Transporteur");
-    expect(html).not.toContain("OzonExpress");
-    expect(render([row({})], true)).toContain("Frais transporteur");
+    expect(html).not.toContain("Frais");
+    expect(html).toContain("249,00"); // the order amount is kept
   });
 
-  it("courier name + phone when the carrier provided them; « — » otherwise", () => {
+  it("client phone under the name: tel: + WhatsApp when unambiguous", () => {
+    const html = render([row({ customerPhone: "0612345678" })]);
+    expect(html).toContain('href="tel:0612345678"');
+    expect(html).toContain("wa.me/212612345678");
+    // An ambiguous number: still callable, no WhatsApp guessed.
+    const local = render([row({ customerPhone: "612345" })]);
+    expect(local).toContain('href="tel:612345"');
+    expect(local).not.toContain("wa.me");
+  });
+
+  it("courier name + phone (tel: + WhatsApp) when the carrier provided them; « — » otherwise", () => {
     const withCourier = render([row({ courierName: "Hassan hajjaj", courierPhone: "0693993731" })]);
     expect(withCourier).toContain("Hassan hajjaj");
     expect(withCourier).toContain('href="tel:0693993731"');
+    expect(withCourier).toContain("wa.me/212693993731");
     expect(render([row({ courierPhone: "0693993731" })])).toContain("0693993731");
-    const none = render([row({})]);
+    const none = render([row({ customerPhone: null })]);
     expect(none).toMatch(/<td[^>]*><span class="text-muted-foreground">—<\/span><\/td>/);
+  });
+
+  it("« Produits » uses the shared ProductChips", () => {
+    const html = render([
+      row({
+        productLines: [
+          { name: "T-shirt", quantity: 1, attributes: { Couleur: "Noir" } },
+          { name: "T-shirt", quantity: 1, attributes: { Couleur: "Blanc" } },
+          { name: "Casquette", quantity: 2, attributes: null },
+        ],
+      }),
+    ]);
+    expect(html).toContain("T-shirt — Noir");
+    expect(html).toContain("+1");
   });
 
   it("situation shows the carrier's own wording, coloured by the normalized status", () => {

@@ -333,7 +333,7 @@ export function ProductForm({
                 </Field>
                 {canEditCost && (
                   <Field>
-                    <Label htmlFor="cost">Coût d&apos;achat</Label>
+                    <Label htmlFor="cost">Coût global du produit</Label>
                     <MoneyInput id="cost" name="cost" defaultValue={product?.cost ?? ""} />
                   </Field>
                 )}

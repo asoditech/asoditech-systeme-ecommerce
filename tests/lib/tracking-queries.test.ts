@@ -110,6 +110,23 @@ describe("tracking queries (« Suivi » module, docs/adr/0033)", () => {
     expect((await listTrackingRows({ q: "ABC123" }, { includeCosts: true })).rows).toHaveLength(1);
   });
 
+  it("search: partial / formatted / international phone, displayed and internal order number", async () => {
+    const p = await provider("OzonExpress");
+    const s = await shipment({ providerId: p.id, customerName: "Sara Amrani" });
+    const order = await prisma.order.findFirstOrThrow({ where: { shipments: { some: { id: s.id } } } });
+    await prisma.customer.update({ where: { id: order.customerId }, data: { phone: "06 11 22 33 44", phoneKey: "212611223344" } });
+    await prisma.order.update({ where: { id: order.id }, data: { displayNumber: 123 } });
+    await shipment({ providerId: p.id, customerName: "Autre Client" });
+
+    const ids = async (q: string) => (await listTrackingRows({ q }, { includeCosts: false })).rows.map((r) => r.shipmentId);
+    for (const q of ["0611", "06 11 22", "+212 611 22 33 44", "0611223344", "Sara", "CMD-000123", "000123", String(order.orderNumber)]) {
+      expect(await ids(q), q).toContain(s.id);
+    }
+    expect(await ids("0699")).not.toContain(s.id);
+    const [row] = (await listTrackingRows({ q: "Sara" }, { includeCosts: false })).rows;
+    expect(row.productLines).toEqual([]);
+  });
+
   it("hides all cost fields when includeCosts is false", async () => {
     const p = await provider("OzonExpress", { returnCost: 15 });
     await shipment({ providerId: p.id, status: "LIVRE", cost: 30, costSource: "CARRIER_API" });

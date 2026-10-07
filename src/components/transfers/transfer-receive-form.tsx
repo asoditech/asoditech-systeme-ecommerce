@@ -7,6 +7,8 @@ import { receiveStockTransferAction } from "@/actions/transfers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { formatCurrency } from "@/lib/format";
+import { TRANSFER_COST_LABEL } from "@/lib/transfer-cost-ui";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,6 +25,8 @@ interface ReceiveLine {
   label: string;
   sku: string;
   quantitySent: number;
+  /** Recorded destination purchase cost — passed only for finance.view users. */
+  destinationCost?: string | null;
 }
 
 export function TransferReceiveForm({
@@ -39,6 +43,8 @@ export function TransferReceiveForm({
   const [received, setReceived] = React.useState<Record<string, number>>(
     () => Object.fromEntries(lines.map((l) => [l.id, l.quantitySent]))
   );
+
+  const showCost = lines.some((l) => l.destinationCost !== undefined && l.destinationCost !== null);
 
   function setQty(lineId: string, value: number, max: number) {
     setReceived((prev) => ({ ...prev, [lineId]: Math.max(0, Math.min(max, value)) }));
@@ -68,6 +74,7 @@ export function TransferReceiveForm({
             <TableHead>Article</TableHead>
             <TableHead>Envoyé</TableHead>
             <TableHead>Reçu</TableHead>
+            {showCost && <TableHead className="text-right">{TRANSFER_COST_LABEL}</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -88,6 +95,11 @@ export function TransferReceiveForm({
                   onChange={(e) => setQty(l.id, Number(e.target.value), l.quantitySent)}
                 />
               </TableCell>
+              {showCost && (
+                <TableCell className="text-right tabular-nums">
+                  {l.destinationCost ? formatCurrency(l.destinationCost) : "—"}
+                </TableCell>
+              )}
             </TableRow>
           ))}
         </TableBody>
@@ -103,6 +115,7 @@ export function TransferReceiveForm({
             <AlertDialogDescription>
               Les quantités reçues seront ajoutées au stock de la destination. Un écart éventuel
               (perte / casse en transit) est enregistré et n&apos;est pas rendu à la source.
+              {showCost && " Le coût d'achat à destination indiqué devient le coût d'achat de cet emplacement."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

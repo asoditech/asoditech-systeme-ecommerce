@@ -13,6 +13,7 @@ import { isProductAvailableOnChannel } from "@/lib/channels";
 import { classifySaleLookupError, SALE_LOOKUP_MESSAGES } from "@/lib/sales/lookup-errors";
 import { listSellableUnits, lookupSellableUnits, toSellerSafeUnit, variantLabel, type SellerSafeUnit } from "@/lib/catalog/lookup";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
+import { effectiveUnitCost, locationUnitCost } from "@/lib/catalog/location-cost";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
 import { checkAndNotifyLowStock } from "@/lib/notifications";
@@ -328,6 +329,13 @@ export async function createSaleAction(input: CreateSaleInput): Promise<ActionRe
   let sale;
   try {
     sale = await prisma.$transaction(async (tx) => {
+      // Cost snapshot = the sale location's effective purchase cost (location
+      // cost → variation cost → product cost), read in THIS transaction and
+      // frozen on the line. `l.costSnapshot` already holds the global part.
+      for (const l of resolved) {
+        const atLocation = await locationUnitCost(tx, { warehouseId: ctx.warehouseId, productId: l.productId, variationId: l.variationId });
+        l.costSnapshot = effectiveUnitCost(atLocation, l.costSnapshot, null);
+      }
       const created = await tx.sale.create({
         data: {
           salesChannelId: ctx.channelId,
@@ -363,6 +371,7 @@ export async function createSaleAction(input: CreateSaleInput): Promise<ActionRe
             type: "VENTE",
             quantity: line.quantity,
             onHandDelta: -line.quantity,
+            unitCost: line.costSnapshot?.toString() ?? null,
             saleId: created.id,
             performedById: user.id,
             reason: `Vente magasin ${displaySaleNumber(numbered)}`,

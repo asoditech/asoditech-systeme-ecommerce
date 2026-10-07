@@ -65,12 +65,15 @@ export type AuditAction =
   | "order.created"
   | "order.updated"
   | "order.status_changed"
+  | "order.packed"
+  | "order.purged"
   | "order.cancelled"
   | "order.refund.created"
   | "order.refund.status_changed"
   | "order.return_confirmed"
   | "inventory.adjusted"
   | "inventory.reconciled"
+  | "inventory.location_cost_updated"
   | "warehouse.created"
   | "warehouse.updated"
   | "warehouse.activated"
@@ -126,6 +129,10 @@ export type AuditAction =
   | "integration.sync_started"
   | "integration.sync_completed"
   | "integration.sync_partial_failure"
+  // No longer written (stopped 2026-10): every store webhook delivery is
+  // already recorded in webhook_events, and its business effect is audited
+  // (order.created, product.*). Kept so historical rows still type-check
+  // and display in the journal.
   | "integration.webhook_received"
   | "integration.webhook_rejected"
   | "settings.updated"

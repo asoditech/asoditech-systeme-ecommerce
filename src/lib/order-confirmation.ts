@@ -1,4 +1,5 @@
 import "server-only";
+import { PACKING_CLEARED } from "@/lib/packing";
 
 import type { PrismaTransactionClient } from "@/lib/prisma";
 import { reserveStockForOrder } from "@/lib/inventory";
@@ -58,6 +59,8 @@ export const REOPEN_ORDER_DATA = {
   cancelledAt: null,
   confirmedAt: null,
   confirmationAgentId: null,
+  // A reopened order must be packed (and verified) again — src/lib/packing.ts.
+  ...PACKING_CLEARED,
 } as const;
 
 /** Only a cancelled order that was never shipped may go back to NOUVELLE (no stock was ever consumed). */

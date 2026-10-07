@@ -85,7 +85,7 @@ export const livraisonArticles: DocArticle[] = [
     tagline: "Confier une commande à un transporteur pour qu'elle soit livrée au client.",
     permission: "delivery.manage",
     prerequisites: [
-      "La commande est Confirmée, En préparation, ou en Échec de livraison précédent.",
+      "La commande est Confirmée, en Emballage, ou en Échec de livraison précédent (avec « Vérification de l'emballage obligatoire » : emballage vérifié requis).",
       "L'adresse de livraison (adresse + ville) est renseignée.",
       "La ville est reconnue par le transporteur choisi (voir Villes et correspondances).",
       "Un prestataire de livraison est configuré.",

@@ -5,6 +5,7 @@ import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
 import { applyStockMovement, ensureInventoryItem } from "@/lib/inventory";
 import { displayReceptionNumber } from "@/lib/format";
 import { computeUpdatedCost } from "@/lib/catalog/costing";
+import { setLocationUnitCost } from "@/lib/catalog/location-cost";
 
 /**
  * Reception domain service — docs/adr/0040-offline-sales-and-receptions.md.
@@ -62,8 +63,14 @@ export async function validateReceptionInTx(
   // Product costing (Phase 3): read the tenant's chosen method ONCE, not
   // per line. No row yet (a tenant that has never opened /parametres) is
   // the same as MANUAL — the column's own DB default, never guessed.
-  const settings = await tx.businessSettings.findFirst({ select: { costingMethod: true } });
+  const settings = await tx.businessSettings.findFirst({
+    select: { costingMethod: true, transferPurchaseCostOverrideEnabled: true },
+  });
   const costingMethod = settings?.costingMethod ?? "MANUAL";
+  // Location purchase cost: while the tenant setting is on, the received unit
+  // cost becomes this location's current cost (last cost wins). Off = no write,
+  // and any location cost recorded earlier is kept as is.
+  const updateLocationCost = settings?.transferPurchaseCostOverrideEnabled ?? false;
 
   let total = d2(0);
   const label = displayReceptionNumber(reception);
@@ -94,6 +101,7 @@ export async function validateReceptionInTx(
       // Never silently lose received stock: ensureInventoryItem just created the row.
       throw new ReceptionError(`Impossible d'enregistrer le stock de « ${line.nameSnapshot} ».`);
     }
+    if (updateLocationCost) await setLocationUnitCost(tx, result.item.id, line.unitCost);
     total = total.plus(d2(line.unitCost).times(line.quantity));
 
     // Product costing (Phase 3): updates the CURRENT STANDARD cost only —
