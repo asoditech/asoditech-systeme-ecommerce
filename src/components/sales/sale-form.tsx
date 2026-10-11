@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ScanBarcode, Trash2, AlertTriangle, ShoppingBasket, Banknote, Plus, CheckCircle2, Check } from "lucide-react";
 import { SelectedLineChips } from "@/components/orders/selected-line-chips";
-import { createSaleAction, searchForSaleAction, type SaleCustomer, type SaleLookupResult } from "@/actions/sales";
+import { createSaleAction, explainSaleScanMissAction, searchForSaleAction, type SaleCustomer, type SaleLookupResult } from "@/actions/sales";
+import { scanCodeForMessage, withScanHint } from "@/lib/catalog/scan-input";
 import { SaleCustomerPicker } from "@/components/sales/sale-customer-picker";
 import { SALE_LOOKUP_MESSAGES } from "@/lib/sales/lookup-errors";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
+import { LOOKUP_SCAN_FORMATS } from "@/lib/barcode-scanner/support";
 import { useDismissOnOutside } from "@/lib/use-dismiss-on-outside";
 import { formatCurrency } from "@/lib/format";
 import { CASH_PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
@@ -152,14 +154,40 @@ export function SaleForm({
   }
 
   async function search(code?: string) {
-    const q = code ?? query;
-    if (!q.trim() || !channelId || !warehouseId) return;
+    const q = (code ?? query).trim();
+    if (!q) return;
+    if (!channelId || !warehouseId) return toast.error("Choisissez un canal et un emplacement avant de scanner.");
+    // Empty the field at once: a scanner's next code must never be appended
+    // to this one (unknown code, no stock, slow lookup…). A typed search
+    // that opens a pick list gets its text back below.
+    setQuery("");
     const found = await runLookup(q);
     if (!found) return;
-    if (found.length === 0) return toast.error("Aucun article trouvé sur ce canal.");
+    if (found.length === 0) return void notFound(q);
     // A scanner types the code then presses Enter → exact hit goes straight into the cart.
     if (found.length === 1 && found[0].unit.matchedBy !== "partial") addUnit(found[0]);
-    else setHits(found);
+    else {
+      setQuery((current) => (current === "" ? q : current));
+      setHits(found);
+    }
+  }
+
+  // Nothing matched: say WHY when it is known — the code designates an article
+  // this channel may not sell (server, tenant-scoped), or the code itself
+  // looks garbled (keyboard layout, scanner prefix, web QR…: scan-input.ts).
+  // The scanner DID read something: never reported as a scanner failure.
+  async function notFound(q: string) {
+    const shown = scanCodeForMessage(q);
+    let detail = "";
+    try {
+      const r = await explainSaleScanMissAction({ query: q, salesChannelId: channelId, warehouseId });
+      if (r.ok) detail = r.data.message;
+    } catch {
+      // the detail is optional — the base message below is still shown
+    }
+    toast.error(detail ? `Code reçu « ${shown} » : ${detail}` : withScanHint(`Aucun article trouvé sur ce canal pour le code reçu « ${shown} ».`, q), {
+      duration: 10_000,
+    });
   }
 
   // Initial list: clicking the EMPTY field (or ArrowDown) shows the first
@@ -283,7 +311,8 @@ export function SaleForm({
                   if (e.key === "Enter") {
                     e.preventDefault();
                     closeBrowse();
-                    void search();
+                    // The field's own value: a code scanned before hydration is in the DOM, not yet in state.
+                    void search(e.currentTarget.value);
                   } else if (e.key === "ArrowDown") {
                     void browse();
                   }
@@ -293,7 +322,7 @@ export function SaleForm({
                 <ScanBarcode className="size-4" />
                 Chercher
               </Button>
-              <BarcodeScanButton onDetect={onCameraDetect} label="Caméra" />
+              <BarcodeScanButton formats={LOOKUP_SCAN_FORMATS} onDetect={onCameraDetect} label="Caméra" />
             </div>
             {hits.length > 0 && lines.length > 0 && (
               <div className="flex items-start gap-2">

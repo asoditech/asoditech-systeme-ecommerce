@@ -240,16 +240,24 @@ describe("stock and transaction", () => {
     expect(movements[0]).toMatchObject({ type: "RESERVATION", quantity: QTY });
   });
 
-  it("10. insufficient available stock: same semantics as a Phase 6B confirmation (backorders allowed, docs/adr/0030)", async () => {
+  // P2 (deliberate change — docs/adr/0030's "backorders allowed" no longer holds
+  // at confirmation): a shortage is refused, the same way for « Client déjà
+  // confirmé » as for the queue; only an authorised, reasoned override passes.
+  it("10. insufficient available stock: refused the same way at creation and in the queue (P2)", async () => {
     const seed = await seedCatalog(1); // only 1 on hand, order needs 3
     await loginCreator(seed.warehouse.id);
-    const id = await create(orderInput(seed, { customerAlreadyConfirmed: true }));
-    expect((await orderOf(id)).status).toBe("CONFIRMEE");
-    expect(await reservedOf(seed.itemId)).toBe(QTY);
+    const atCreation = await createOrderAction(orderInput(seed, { customerAlreadyConfirmed: true }));
+    expect(atCreation.ok).toBe(false);
+    if (!atCreation.ok) expect(atCreation.fieldErrors?.stockShortage).toHaveLength(1);
+    expect(await prisma.order.count()).toBe(0);
+    expect(await reservedOf(seed.itemId)).toBe(0);
     // identical to confirming an existing NOUVELLE order through the queue
     const nouvelle = await create(orderInput(seed));
-    expect((await recordConfirmationAttemptAction(fd({ id: nouvelle, outcome: "CONFIRME" }))).ok).toBe(true);
-    expect(await reservedOf(seed.itemId)).toBe(QTY * 2);
+    const queued = await recordConfirmationAttemptAction(fd({ id: nouvelle, outcome: "CONFIRME" }));
+    expect(queued.ok).toBe(false);
+    if (!queued.ok) expect(queued.fieldErrors?.stockShortage).toHaveLength(1);
+    expect((await orderOf(nouvelle)).status).toBe("NOUVELLE");
+    expect(await reservedOf(seed.itemId)).toBe(0);
   });
 
   it("10/17. a failure inside the confirmation (stock error) rolls the WHOLE creation back — no partial order", async () => {
@@ -259,7 +267,9 @@ describe("stock and transaction", () => {
 
     const r = await createOrderAction(orderInput(seed, { customerAlreadyConfirmed: true }));
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/Stock insuffisant/);
+    // P2: a stock error inside the confirmation is answered from a fresh read
+    // after the rollback — here stock is actually sufficient, so « réessayez ».
+    if (!r.ok) expect(r.error).toMatch(/Stock insuffisant|Le stock a changé/);
     expect(await prisma.order.count()).toBe(0);
     expect(await prisma.orderItem.count()).toBe(0);
     expect(await prisma.orderConfirmationAttempt.count()).toBe(0);

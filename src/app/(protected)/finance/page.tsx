@@ -16,35 +16,12 @@ import {
   getFinanceSummary,
   listExpenses,
   listExpenseCategories,
-  currentMonthRange,
-  currentQuarterRange,
-  currentYearRange,
-  previousPeriodOfSameLength,
-  type PeriodRange,
 } from "@/lib/queries/finance";
+import { resolveTenantReportRange } from "@/lib/reports/range";
 import { computeProductProfitability } from "@/lib/profitability";
 import { formatCurrency, formatDate } from "@/lib/format";
 
 export const metadata = { title: "Finance — ASODITECH Gestion E-commerce" };
-
-function parseDate(value: string | undefined, endOfDay = false): Date | undefined {
-  if (!value) return undefined;
-  const d = new Date(endOfDay ? `${value}T23:59:59` : `${value}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? undefined : d;
-}
-
-function resolvePeriod(params: { period?: string; from?: string; to?: string }): {
-  range: PeriodRange;
-  key: string;
-  label: string;
-} {
-  const from = parseDate(params.from);
-  const to = parseDate(params.to, true);
-  if (from && to) return { range: { from, to }, key: "custom", label: `${params.from} → ${params.to}` };
-  if (params.period === "quarter") return { range: currentQuarterRange(), key: "quarter", label: "Ce trimestre" };
-  if (params.period === "year") return { range: currentYearRange(), key: "year", label: "Cette année" };
-  return { range: currentMonthRange(), key: "month", label: "Ce mois" };
-}
 
 function pctLabel(pct: number | null): string | undefined {
   return pct === null ? undefined : `Marge ${pct.toFixed(1)} %`;
@@ -68,8 +45,8 @@ export default async function FinancePage({
   // Order-derived data: needs an ONLINE channel (docs/adr/0039).
   requireChannelKind(user, "ONLINE");
   const params = await searchParams;
-  const { range: period, key: periodKey, label: periodLabel } = resolvePeriod(params);
-  const previousPeriod = previousPeriodOfSameLength(period);
+  // Same resolution (and business time zone) as every /rapports page.
+  const { range: period, previous: previousPeriod, key: periodKey, label: periodLabel } = await resolveTenantReportRange(params);
   const canManage = userHasPermission(user, "finance.manage");
   // These figures come from ONLINE orders only (computePeriodProfitability).
   // A tenant that also sells in store must not read them as the whole
@@ -137,6 +114,7 @@ export default async function FinancePage({
           trend={trendLabel(summary.revenue, previousSummary.revenue)}
           icon={Wallet}
           tone="primary"
+          info="revenue"
         />
         <KpiCard
           label="Coût des marchandises vendues"
@@ -154,7 +132,7 @@ export default async function FinancePage({
           icon={TrendingUp}
           tone="success"
         />
-        <KpiCard label="Coût de livraison" value={formatCurrency(summary.deliveryCostTotal)} icon={Truck} tone="info" />
+        <KpiCard label="Coût de livraison" value={formatCurrency(summary.deliveryCostTotal)} icon={Truck} tone="info" info="deliveryCost" />
         <KpiCard
           label="Publicité"
           value={formatCurrency(summary.advertisingCost)}
@@ -180,9 +158,10 @@ export default async function FinancePage({
           label="Panier moyen"
           value={summary.avgOrderValue !== null ? formatCurrency(summary.avgOrderValue) : null}
           unavailableReason="Aucune commande"
-          hint={`${summary.ordersCount} commande(s)`}
+          hint={`${summary.ordersCount} commande(s) valide(s)`}
           icon={Percent}
           tone="info"
+          info="averageBasket"
         />
       </div>
 

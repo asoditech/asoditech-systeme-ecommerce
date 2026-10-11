@@ -5,6 +5,7 @@ import type { CurrentUser } from "@/lib/auth/session";
 import { analyticsAccess, requireSection, type AnalyticsAccess, type AnalyticsSection } from "@/lib/analytics/access";
 import { resolveAnalyticsPeriod, type AnalyticsPeriod } from "@/lib/analytics/period";
 import { analyticsParams, parseAnalyticsFilters, type AnalyticsFilters } from "@/lib/analytics/filters";
+import { getBusinessTimeZone } from "@/lib/time/business-zone";
 
 export interface AnalyticsContext {
   user: CurrentUser;
@@ -30,15 +31,15 @@ export async function analyticsContext(searchParams: SearchParams, section: Anal
   const user = await requirePermission("analytics.view");
   const access = analyticsAccess(user);
   requireSection(access, section);
-  return contextFor(user, access, searchParams);
+  return contextFor(user, access, searchParams, await getBusinessTimeZone());
 }
 
-export function contextFor(user: CurrentUser, access: AnalyticsAccess, searchParams: SearchParams): AnalyticsContext {
+export function contextFor(user: CurrentUser, access: AnalyticsAccess, searchParams: SearchParams, timeZone?: string): AnalyticsContext {
   const one = (k: string) => {
     const v = searchParams[k];
     return Array.isArray(v) ? v[0] : v;
   };
-  const period = resolveAnalyticsPeriod({ period: one("period"), from: one("from"), to: one("to") });
+  const period = resolveAnalyticsPeriod({ period: one("period"), from: one("from"), to: one("to") }, new Date(), timeZone);
   const filters = parseAnalyticsFilters(searchParams);
   const params = analyticsParams(period, filters);
   const filterParams = Object.fromEntries(Object.entries(params).filter(([k]) => !["period", "from", "to"].includes(k)));

@@ -10,6 +10,7 @@ import { AnalyticsFilterBar, type AnalyticsFilterControl } from "@/components/an
 import { FunnelBars } from "@/components/analytics/funnel-bars";
 import { SeriesChart } from "@/components/analytics/series-chart";
 import { MetricDefinitions } from "@/components/analytics/metric-definitions";
+import { AnalyticsMetricInfo } from "@/components/analytics/analytics-metric-info";
 import {
   LineChart,
   ShoppingCart,
@@ -110,29 +111,32 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
             <section className="space-y-3">
               <h2 className="text-sm font-medium text-muted-foreground">Activité en ligne — commandes passées sur la période</h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <KpiCard label="Commandes en ligne" value={String(online.orders)} icon={ShoppingCart} trend={trendOf(meaningfulDelta(online.orders, previous!.orders, pop))} hint={`${online.pending} encore à confirmer`} />
-                <KpiCard label="Commandes confirmées" value={String(online.confirmed)} icon={CheckCircle2} tone="success" />
-                <KpiCard label="Taux de confirmation" value={online.confirmationRate === null ? null : formatPct(online.confirmationRate)} unavailableReason="Aucune commande" icon={Percent} tone="info" />
-                <KpiCard label="Commandes livrées" value={String(online.delivered)} icon={PackageCheck} tone="success" hint={`sur ${online.shipped} expédiées`} />
-                <KpiCard label="Taux de livraison" value={online.deliveryRate === null ? null : formatPct(online.deliveryRate)} unavailableReason="Aucune expédition" icon={Truck} tone="info" />
-                <KpiCard label="Annulées" value={String(online.cancelled)} icon={Ban} tone="warning" />
-                <KpiCard label="Échecs de livraison" value={String(online.failed)} icon={TriangleAlert} tone="danger" />
-                <KpiCard label="Retournées" value={String(online.returned)} icon={Undo2} tone="danger" hint="Retour + Remboursée" />
+                <KpiCard label="Commandes en ligne" metric="ordersPlaced" value={String(online.orders)} icon={ShoppingCart} trend={trendOf(meaningfulDelta(online.orders, previous!.orders, pop))} hint={`${online.pending} encore à confirmer`} />
+                <KpiCard label="Commandes confirmées" metric="confirmedOrders" value={String(online.confirmed)} icon={CheckCircle2} tone="success" />
+                <KpiCard label="Taux de confirmation" metric="confirmationRate" value={online.confirmationRate === null ? null : formatPct(online.confirmationRate)} unavailableReason="Aucune commande appelée" icon={Percent} tone="info" hint={`sur ${online.wentThroughConfirmation} appelée(s)`} />
+                <KpiCard label="Commandes livrées" metric="deliveredOrders" value={String(online.delivered)} icon={PackageCheck} tone="success" hint={`sur ${online.shipped} expédiées`} />
+                <KpiCard label="Taux de livraison réussie" metric="deliveryRate" value={online.deliveryRate === null ? null : formatPct(online.deliveryRate)} unavailableReason="Aucune livraison terminée" icon={Truck} tone="info" />
+                <KpiCard label="Annulées" metric="cancelledOrders" value={String(online.cancelled)} icon={Ban} tone="warning" />
+                <KpiCard label="Échecs de livraison" metric="failedDeliveries" value={String(online.failed)} icon={TriangleAlert} tone="danger" />
+                <KpiCard label="Retournées" metric="returnedOrders" value={String(online.returned)} icon={Undo2} tone="danger" hint="Colis retourné, ou commande Retour / Remboursée" />
               </div>
 
               <h2 className="pt-2 text-sm font-medium text-muted-foreground">Chiffre d&apos;affaires en ligne</h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                <KpiCard label="CA commandé" value={formatCurrency(online.placedRevenue)} icon={Wallet} trend={trendOf(meaningfulDelta(online.placedRevenue, previous!.placedRevenue, pop))} hint="Hors annulées, échecs, retours" />
-                <KpiCard label="CA livré" value={formatCurrency(online.deliveredRevenue)} icon={PackageCheck} tone="success" hint="Commandes de la période livrées" />
-                <KpiCard label="Panier moyen" value={online.averageOrderValue === null ? null : formatCurrency(online.averageOrderValue)} unavailableReason="Aucune commande" icon={Receipt} tone="info" />
-                <KpiCard label="Unités vendues" value={String(online.unitsSold)} icon={Boxes} tone="violet" />
-                <KpiCard label="Remboursé" value={formatCurrency(online.refundedAmount)} icon={Undo2} tone="danger" hint={`Valeur retournée : ${formatCurrency(online.returnedValue)}`} />
+                <KpiCard label="Chiffre d'affaires" metric="netRevenue" value={formatCurrency(online.netRevenue)} icon={Wallet} trend={trendOf(meaningfulDelta(online.netRevenue, previous!.netRevenue, pop))} hint={`Brut ${formatCurrency(online.placedRevenue)}, remboursements déduits`} />
+                <KpiCard label="CA livré" metric="deliveredRevenue" value={formatCurrency(online.deliveredRevenue)} icon={PackageCheck} tone="success" hint="Commandes de la période livrées" />
+                <KpiCard label="Panier moyen" metric="averageBasket" value={online.averageOrderValue === null ? null : formatCurrency(online.averageOrderValue)} unavailableReason="Aucune commande" icon={Receipt} tone="info" />
+                <KpiCard label="Unités vendues" metric="unitsSold" value={String(online.unitsSold)} icon={Boxes} tone="violet" />
+                <KpiCard label="Remboursé" metric="refunded" value={formatCurrency(online.refundedAmount)} icon={Undo2} tone="danger" hint={`Valeur retournée : ${formatCurrency(online.returnedValue)}`} />
               </div>
 
               <div className="grid gap-6 lg:grid-cols-3">
                 <Card className="lg:col-span-2">
                   <CardHeader>
-                    <CardTitle>CA commandé et commandes — {period.label}</CardTitle>
+                    <CardTitle className="flex items-center gap-1.5">
+                Chiffre d&apos;affaires et commandes — {period.label}
+                <AnalyticsMetricInfo metric="revenueOrdersChart" />
+              </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <SalesChart data={series!} />
@@ -140,7 +144,10 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
                 </Card>
                 <Card>
                   <CardHeader>
-                    <CardTitle>Entonnoir des commandes</CardTitle>
+                    <CardTitle className="flex items-center gap-1.5">
+                Entonnoir des commandes
+                <AnalyticsMetricInfo metric="orderFunnel" />
+              </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <FunnelBars
@@ -157,7 +164,10 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Produits les plus vendus en ligne</CardTitle>
+                  <CardTitle className="flex items-center gap-1.5">
+                Produits les plus vendus en ligne
+                <AnalyticsMetricInfo metric="topProducts" />
+              </CardTitle>
                 </CardHeader>
                 <CardContent>
                   {products!.rows.length === 0 ? (
@@ -203,9 +213,9 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
             <section className="space-y-3">
               <h2 className="text-sm font-medium text-muted-foreground">Commissions — écritures de la période</h2>
               <div className="grid gap-4 sm:grid-cols-3">
-                <KpiCard label="Commissions gagnées" value={formatCurrency(commissions.earned)} icon={HandCoins} tone="success" hint={`${commissions.earnedCount} commande(s) livrée(s)`} />
-                <KpiCard label="Commissions annulées" value={formatCurrency(commissions.reversed)} icon={Undo2} tone="danger" hint={`${commissions.reversedCount} écriture(s)`} />
-                <KpiCard label="Commissions nettes" value={formatCurrency(commissions.net)} icon={Wallet} tone="primary" />
+                <KpiCard label="Commissions gagnées" metric="commissionsEarned" value={formatCurrency(commissions.earned)} icon={HandCoins} tone="success" hint={`${commissions.earnedCount} commande(s) livrée(s)`} />
+                <KpiCard label="Commissions annulées" metric="commissionsReversed" value={formatCurrency(commissions.reversed)} icon={Undo2} tone="danger" hint={`${commissions.reversedCount} écriture(s)`} />
+                <KpiCard label="Commissions nettes" metric="commissionsNet" value={formatCurrency(commissions.net)} icon={Wallet} tone="primary" />
               </div>
             </section>
           )}
@@ -215,9 +225,10 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
               <h2 className="text-sm font-medium text-muted-foreground">Rentabilité (Finance)</h2>
               {pnl ? (
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  <KpiCard label="Coût des marchandises" value={pnl.cogsComplete ? formatCurrency(pnl.cogs!) : null} unavailableReason="Coût manquant" icon={PackageMinus} tone="warning" />
+                  <KpiCard label="Coût des marchandises" metric="cogs" value={pnl.cogsComplete ? formatCurrency(pnl.cogs!) : null} unavailableReason="Coût manquant" icon={PackageMinus} tone="warning" />
                   <KpiCard
                     label="Bénéfice brut"
+                    metric="grossProfit"
                     value={pnl.grossProfit !== null ? formatCurrency(pnl.grossProfit) : null}
                     unavailableReason="Non calculable"
                     hint={pnl.grossMarginPct !== null ? `Marge ${pnl.grossMarginPct.toFixed(1)} %` : undefined}
@@ -226,14 +237,15 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
                   />
                   <KpiCard
                     label="Bénéfice net"
+                    metric="netProfit"
                     value={pnl.netProfit !== null ? formatCurrency(pnl.netProfit) : null}
                     unavailableReason="Non calculable"
                     hint={pnl.netMarginPct !== null ? `Marge ${pnl.netMarginPct.toFixed(1)} %` : undefined}
                     icon={TrendingDown}
                     tone="violet"
                   />
-                  <KpiCard label="Dépenses enregistrées" value={formatCurrency(pnl.expensesTotal)} hint="Déjà déduites du bénéfice net" icon={ReceiptText} tone="danger" />
-                  <KpiCard label="Coût de livraison" value={formatCurrency(pnl.deliveryCostTotal)} hint="Déjà déduit du bénéfice net" icon={Truck} tone="info" />
+                  <KpiCard label="Dépenses enregistrées" metric="expenses" value={formatCurrency(pnl.expensesTotal)} hint="Déjà déduites du bénéfice net" icon={ReceiptText} tone="danger" />
+                  <KpiCard label="Coût de livraison" metric="deliveryCost" value={formatCurrency(pnl.deliveryCostTotal)} hint="Déjà déduit du bénéfice net" icon={Truck} tone="info" />
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
@@ -247,15 +259,18 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
             <section className="space-y-3">
               <h2 className="text-sm font-medium text-muted-foreground">Ventes en magasin — vos magasins et emplacements</h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                <KpiCard label="Ventes" value={String(store.report.salesCount)} icon={Store} hint={`${store.report.unitsSold} unité(s)`} />
-                <KpiCard label="CA brut magasin" value={formatCurrency(store.report.grossSales)} icon={Wallet} tone="success" />
-                <KpiCard label="Remboursements" value={formatCurrency(store.report.refunds)} icon={Undo2} tone="danger" hint="Retours reçus sur la période" />
-                <KpiCard label="CA net magasin" value={formatCurrency(store.report.netSales)} icon={Wallet} tone="primary" />
-                <KpiCard label="Ticket moyen" value={store.averageSaleValue === null ? null : formatCurrency(store.averageSaleValue)} unavailableReason="Aucune vente" icon={Receipt} tone="info" />
+                <KpiCard label="Ventes" metric="storeSales" value={String(store.report.salesCount)} icon={Store} hint={`${store.report.unitsSold} unité(s)`} />
+                <KpiCard label="CA brut magasin" metric="storeGrossSales" value={formatCurrency(store.report.grossSales)} icon={Wallet} tone="success" />
+                <KpiCard label="Remboursements" metric="storeRefunds" value={formatCurrency(store.report.refunds)} icon={Undo2} tone="danger" hint="Retours reçus sur la période" />
+                <KpiCard label="CA net magasin" metric="storeNetSales" value={formatCurrency(store.report.netSales)} icon={Wallet} tone="primary" />
+                <KpiCard label="Ticket moyen" metric="storeAverageTicket" value={store.averageSaleValue === null ? null : formatCurrency(store.averageSaleValue)} unavailableReason="Aucune vente" icon={Receipt} tone="info" />
               </div>
               <Card>
                 <CardHeader>
-                  <CardTitle>CA brut magasin — {period.label}</CardTitle>
+                  <CardTitle className="flex items-center gap-1.5">
+                CA brut magasin — {period.label}
+                <AnalyticsMetricInfo metric="storeGrossSales" />
+              </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <SeriesChart data={store.series} series={[{ key: "revenue", label: "CA brut magasin", color: "var(--color-primary)" }]} currency />

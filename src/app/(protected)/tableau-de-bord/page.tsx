@@ -31,6 +31,8 @@ import { FadeIn } from "@/components/motion/stagger-list";
 import { CommandHero } from "@/components/dashboard/command-hero";
 import { RevenueTrendChart } from "@/components/dashboard/revenue-trend-chart";
 import { TopSellingProducts } from "@/components/dashboard/top-selling-products";
+import { DashboardMetricInfo } from "@/components/dashboard/dashboard-metric-info";
+import { DashboardDefinitions } from "@/components/dashboard/dashboard-definitions";
 import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -244,17 +246,20 @@ export default async function TableauDeBordPage({
   // always had as a standalone KpiCard, just relocated.
   const heroStats = [
     canViewOrders && showOnline
-      ? { label: `Commandes (${suffix})`, value: String(data.finance.ordersCount), icon: ShoppingCart }
+      ? { label: `Commandes (${suffix})`, value: String(data.ordersPlaced), icon: ShoppingCart, explain: <DashboardMetricInfo metric="ordersPlaced" /> }
       : null,
     canViewFinance && showOnline
       ? {
           label: `Panier moyen (${suffix})`,
           value: data.finance.avgOrderValue !== null ? formatCurrency(data.finance.avgOrderValue) : "—",
           icon: ShoppingBag,
+          explain: <DashboardMetricInfo metric="averageBasket" />,
         }
       : null,
-    canViewCustomers ? { label: `Nouveaux clients (${suffix})`, value: String(data.newCustomersThisPeriod), icon: Users } : null,
-  ].filter((s): s is { label: string; value: string; icon: typeof ShoppingCart } => s !== null);
+    canViewCustomers
+      ? { label: `Nouveaux clients (${suffix})`, value: String(data.newCustomersThisPeriod), icon: Users, explain: <DashboardMetricInfo metric="newCustomers" /> }
+      : null,
+  ].filter((s): s is { label: string; value: string; icon: typeof ShoppingCart; explain: React.ReactElement } => s !== null);
 
   return (
     <div>
@@ -300,6 +305,7 @@ export default async function TableauDeBordPage({
           <CommandHero
             eyebrow={`Vue d'ensemble · ${suffix}`}
             label="Chiffre d'affaires total"
+            explain={<DashboardMetricInfo metric="totalRevenue" />}
             value={formatCurrency(totalRevenue)}
             hint="En ligne + Magasin net"
             sparklineData={canViewFinance && showOnline ? revenueTrend.map((d) => ({ value: d.revenue })) : undefined}
@@ -310,6 +316,7 @@ export default async function TableauDeBordPage({
           <CommandHero
             eyebrow={`Vue d'ensemble · ${suffix}`}
             label={`Chiffre d'affaires${canFilterChannel ? " en ligne" : ""}`}
+            explain={<DashboardMetricInfo metric="revenue" />}
             value={formatCurrency(data.finance.revenue)}
             trend={trend(data.finance.revenue, data.previousFinance.revenue)}
             sparklineData={revenueTrend.map((d) => ({ value: d.revenue }))}
@@ -320,6 +327,7 @@ export default async function TableauDeBordPage({
           <CommandHero
             eyebrow={`Vue d'ensemble · ${suffix}`}
             label="Ventes magasin nettes"
+            explain={<DashboardMetricInfo metric="storeNetSales" />}
             value={formatCurrency(offlineSummary.netSales)}
             hint={`${offlineSummary.salesCount} vente(s) · ${offlineSummary.unitsSold} article(s)`}
             stats={heroStats}
@@ -333,7 +341,7 @@ export default async function TableauDeBordPage({
         {!hasHero && heroStats.length > 0 && (
           <FadeIn className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {canViewOrders && showOnline && (
-              <KpiCard label={`Commandes (${suffix})`} value={String(data.finance.ordersCount)} icon={ShoppingCart} tone="violet" />
+              <KpiCard label={`Commandes (${suffix})`} value={String(data.ordersPlaced)} icon={ShoppingCart} tone="violet" explain={<DashboardMetricInfo metric="ordersPlaced" className="-ml-1" />} />
             )}
             {canViewFinance && showOnline && (
               <KpiCard
@@ -342,10 +350,11 @@ export default async function TableauDeBordPage({
                 unavailableReason="Aucune commande"
                 icon={ShoppingBag}
                 tone="info"
+                explain={<DashboardMetricInfo metric="averageBasket" className="-ml-1" />}
               />
             )}
             {canViewCustomers && (
-              <KpiCard label={`Nouveaux clients (${suffix})`} value={String(data.newCustomersThisPeriod)} icon={Users} tone="info" />
+              <KpiCard label={`Nouveaux clients (${suffix})`} value={String(data.newCustomersThisPeriod)} icon={Users} tone="info" explain={<DashboardMetricInfo metric="newCustomers" className="-ml-1" />} />
             )}
           </FadeIn>
         )}
@@ -362,6 +371,7 @@ export default async function TableauDeBordPage({
                 trend={trend(data.finance.revenue, data.previousFinance.revenue)}
                 icon={Wallet}
                 tone="primary"
+                explain={<DashboardMetricInfo metric="revenue" className="-ml-1" />}
               />
             )}
             {!showOfflineHeadline && offlineSummary && showOffline && (
@@ -371,6 +381,7 @@ export default async function TableauDeBordPage({
                 hint={`${offlineSummary.salesCount} vente(s) · ${offlineSummary.unitsSold} article(s)`}
                 icon={Store}
                 tone="primary"
+                explain={<DashboardMetricInfo metric="storeNetSales" className="-ml-1" />}
               />
             )}
           </FadeIn>
@@ -387,6 +398,7 @@ export default async function TableauDeBordPage({
               trend={trend(data.finance.chargesTotal, data.previousFinance.chargesTotal)}
               icon={Receipt}
               tone="warning"
+              explain={<DashboardMetricInfo metric="charges" className="-ml-1" />}
             />
             <KpiCard
               label={`Bénéfice net (${suffix})`}
@@ -395,6 +407,7 @@ export default async function TableauDeBordPage({
               hint={!data.finance.cogsComplete ? "Coût d'achat manquant sur certains produits" : undefined}
               icon={TrendingUp}
               tone="success"
+              explain={<DashboardMetricInfo metric="netProfit" className="-ml-1" />}
             />
           </FadeIn>
         </SummarySection>
@@ -409,6 +422,7 @@ export default async function TableauDeBordPage({
                 value={String(stockOverview.onHand)}
                 hint="Réparti entre réservé et disponible"
                 icon={Boxes}
+                explain={<DashboardMetricInfo metric="stockOnHand" className="-ml-1" />}
                 segments={[
                   { label: "Disponible", value: stockOverview.available, className: "bg-emerald-500" },
                   { label: "Réservé", value: stockOverview.reserved, className: "bg-amber-500" },
@@ -422,6 +436,7 @@ export default async function TableauDeBordPage({
                 hint={data.lowStockCount > 0 ? "Nécessite votre attention" : undefined}
                 icon={AlertCircle}
                 tone={data.lowStockCount > 0 ? "warning" : "success"}
+                explain={<DashboardMetricInfo metric="lowStock" className="-ml-1" />}
               />
             )}
           </FadeIn>
@@ -452,15 +467,16 @@ export default async function TableauDeBordPage({
                   <MetricBreakdown
                     className="px-3.5"
                     rows={[
-                      { key: "toConfirm", label: "À confirmer", value: String(confirmationSummary.toConfirm), icon: PhoneCall, tone: "default" },
+                      { key: "toConfirm", label: "À confirmer", value: String(confirmationSummary.toConfirm), icon: PhoneCall, tone: "default", explain: <DashboardMetricInfo metric="toConfirm" /> },
                       {
                         key: "confirmedThisMonth",
                         label: "Confirmées ce mois",
                         value: String(confirmationSummary.confirmedThisMonth),
                         icon: CheckCircle2,
                         tone: "success",
+                        explain: <DashboardMetricInfo metric="confirmedThisMonth" />,
                       },
-                      { key: "toRecall", label: "À rappeler", value: String(confirmationSummary.toRecall), icon: RotateCcw, tone: "warning" },
+                      { key: "toRecall", label: "À rappeler", value: String(confirmationSummary.toRecall), icon: RotateCcw, tone: "warning", explain: <DashboardMetricInfo metric="toRecall" /> },
                     ]}
                   />
                 </CardContent>
@@ -487,12 +503,14 @@ export default async function TableauDeBordPage({
                         key: "earned",
                         label: "Gagnée ce mois",
                         value: formatCurrency(commissionSummary.earnedThisMonth, commissionSummary.currency),
+                        explain: <DashboardMetricInfo metric="commissionEarned" />,
                       },
                       {
                         key: "remaining",
                         label: "Reste à payer",
                         value: formatCurrency(commissionSummary.remainingTotal, commissionSummary.currency),
                         tone: commissionSummary.remainingTotal > 0 ? "warning" : "default",
+                        explain: <DashboardMetricInfo metric="commissionRemaining" />,
                       },
                     ]}
                   />
@@ -503,7 +521,9 @@ export default async function TableauDeBordPage({
               <KpiCard
                 label="Taux de livraison réussie"
                 value={data.deliveryStats.successRate !== null ? `${(data.deliveryStats.successRate * 100).toFixed(1)}%` : null}
-                unavailableReason="Aucune expédition"
+                hint={`${data.deliveryStats.delivered} livrée(s) sur ${data.deliveryStats.delivered + data.deliveryStats.failed + data.deliveryStats.returned} terminée(s) sur la période`}
+                explain={<DashboardMetricInfo metric="deliveryRate" className="-ml-1" />}
+                unavailableReason="Aucune livraison terminée sur la période"
                 icon={Truck}
                 tone="warning"
               />
@@ -518,8 +538,9 @@ export default async function TableauDeBordPage({
             {canViewFinance && showOnline && (
               <Card className={canViewOrders ? "lg:col-span-2" : "lg:col-span-3"}>
                 <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-                  <CardTitle>
+                  <CardTitle className="flex items-center gap-1">
                     Chiffre d&apos;affaires{canFilterChannel ? " en ligne" : ""} — {REVENUE_TREND_LABELS[chartRange].toLowerCase()}
+                    <DashboardMetricInfo metric="revenueTrend" />
                   </CardTitle>
                   <SegmentedControl>
                     {(Object.keys(REVENUE_TREND_LABELS) as RevenueTrendRange[]).map((key) => (
@@ -545,6 +566,7 @@ export default async function TableauDeBordPage({
                   <CardTitle className="flex items-center gap-1.5">
                     <Trophy className="size-4 text-primary" />
                     Meilleures ventes
+                    <DashboardMetricInfo metric="topSelling" />
                   </CardTitle>
                   <Button variant="ghost" size="sm" render={<Link href="/analyses" />}>
                     Voir tout <ArrowRight className="size-4" />
@@ -571,7 +593,10 @@ export default async function TableauDeBordPage({
             {canViewOrders && (
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Commandes nécessitant une action</CardTitle>
+                  <CardTitle className="flex items-center gap-1">
+                    Commandes nécessitant une action
+                    <DashboardMetricInfo metric="ordersRequiringAction" />
+                  </CardTitle>
                   <Button variant="ghost" size="sm" render={<Link href="/commandes" />}>
                     Voir tout <ArrowRight className="size-4" />
                   </Button>
@@ -602,7 +627,10 @@ export default async function TableauDeBordPage({
             {canViewOrders && (
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Commandes récentes</CardTitle>
+                  <CardTitle className="flex items-center gap-1">
+                    Commandes récentes
+                    <DashboardMetricInfo metric="recentOrders" />
+                  </CardTitle>
                   <Button variant="ghost" size="sm" render={<Link href="/commandes" />}>
                     Voir tout <ArrowRight className="size-4" />
                   </Button>
@@ -624,7 +652,10 @@ export default async function TableauDeBordPage({
             {canViewAudit && (
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Activité récente</CardTitle>
+                  <CardTitle className="flex items-center gap-1">
+                    Activité récente
+                    <DashboardMetricInfo metric="recentActivity" />
+                  </CardTitle>
                   <Button variant="ghost" size="sm" render={<Link href="/journal-audit" />}>
                     Voir tout <ArrowRight className="size-4" />
                   </Button>
@@ -651,6 +682,8 @@ export default async function TableauDeBordPage({
           </div>
         </SummarySection>
       )}
+
+      <DashboardDefinitions />
     </div>
   );
 }

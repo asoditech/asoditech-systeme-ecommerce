@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { reportProblemAction } from "@/actions/support";
+import { requestPlanUpgradeAction } from "@/actions/plans";
 import { updateBusinessSettingsAction } from "@/actions/settings";
 import { resetDb } from "../helpers/db";
 import { loginAsTestUser, createTestUser } from "../helpers/auth";
@@ -40,6 +41,16 @@ describe("reportProblemAction", () => {
       expect.objectContaining({ to: "help@boutique.ma", reporterRole: expect.any(String) }),
     );
     void owner;
+  });
+
+  it("an upgrade request (« Passer à PRO ») always goes to ASODITECH, never to the tenant's own support email", async () => {
+    await loginAsTestUser({ role: "OWNER" });
+    await updateBusinessSettingsAction(fd({ companyName: "X", supportEmail: "help@boutique.ma" }));
+
+    expect((await requestPlanUpgradeAction(fd({ requestedPlanCode: "PRO" }))).ok).toBe(true);
+
+    expect(sendSupportTicketEmail).toHaveBeenCalledWith(expect.objectContaining({ to: "asoditech@gmail.com" }));
+    expect(sendSupportTicketEmail).not.toHaveBeenCalledWith(expect.objectContaining({ to: "help@boutique.ma" }));
   });
 
   it("falls back to asoditech@gmail.com when no support email is configured", async () => {

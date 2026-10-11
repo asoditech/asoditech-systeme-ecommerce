@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LogoField } from "@/components/settings/logo-field";
 import { SettingsForm, ValueTile } from "@/components/settings/setting-controls";
+import { SettingInfo } from "@/components/settings/setting-info";
+import type { SettingId } from "@/lib/settings/settings-explanations";
 import { identityCompletion, orderNumberPreview } from "@/lib/settings/configuration-model";
 import { cn } from "@/lib/utils";
 import type { BusinessSettings } from "@prisma/client";
@@ -17,12 +19,28 @@ import type { BusinessSettings } from "@prisma/client";
  * fuseau horaire is not offered: it is stored but nothing uses it.
  */
 
-function Field({ label, htmlFor, children, className }: { label: string; htmlFor: string; children: React.ReactNode; className?: string }) {
+function Field({
+  label,
+  htmlFor,
+  children,
+  className,
+  info,
+}: {
+  label: string;
+  htmlFor: string;
+  children: React.ReactNode;
+  className?: string;
+  /** « ⓘ » explanation of the field (src/lib/settings/settings-explanations.ts). */
+  info?: SettingId;
+}) {
   return (
     <div className={cn("space-y-1.5", className)}>
-      <Label htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground">
-        {label}
-      </Label>
+      <div className="flex items-center gap-1">
+        <Label htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground">
+          {label}
+        </Label>
+        {info && <SettingInfo setting={info} label={label} />}
+      </div>
       {children}
     </div>
   );
@@ -49,8 +67,9 @@ export function CompanySettingsForm({ settings }: { settings: BusinessSettings }
     <div id="identite" className="grid scroll-mt-24 gap-5 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
       <aside className="space-y-4">
         <div className="overflow-hidden rounded-2xl border bg-card shadow-xs">
-          <div className="border-b bg-muted/40 px-5 py-2.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+          <div className="flex items-center gap-1 border-b bg-muted/40 px-5 py-2.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
             Aperçu sur vos documents
+            <SettingInfo setting="documentPreview" />
           </div>
           <div className="space-y-4 p-5">
             <div className="flex items-center gap-3">
@@ -78,7 +97,10 @@ export function CompanySettingsForm({ settings }: { settings: BusinessSettings }
         </div>
         <div className="rounded-2xl border bg-card p-4 shadow-xs">
           <div className="flex items-center justify-between text-sm">
-            <span className="font-medium">Identité complète</span>
+            <span className="flex items-center gap-1 font-medium">
+              Identité complète
+              <SettingInfo setting="identityCompletion" />
+            </span>
             <span className="font-semibold tabular-nums">{completion.percent} %</span>
           </div>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={completion.percent} aria-valuemin={0} aria-valuemax={100} aria-label="Identité complète">
@@ -93,37 +115,40 @@ export function CompanySettingsForm({ settings }: { settings: BusinessSettings }
       <SettingsForm action={updateBusinessSettingsAction} success="Informations de l'entreprise enregistrées." className="rounded-2xl border bg-card p-5 shadow-xs sm:p-6">
         <div className="space-y-7">
           <FieldGroup title="Identité">
-            <Field label="Nom de l'entreprise" htmlFor="companyName">
+            <Field label="Nom de l'entreprise" htmlFor="companyName" info="companyName">
               <Input id="companyName" name="companyName" defaultValue={settings.companyName} />
             </Field>
             <LogoField defaultValue={settings.logoUrl} />
           </FieldGroup>
           <FieldGroup title="Coordonnées">
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="E-mail de contact" htmlFor="email">
+              <Field label="E-mail de contact" htmlFor="email" info="companyEmail">
                 <Input id="email" name="email" type="email" defaultValue={settings.email ?? ""} />
               </Field>
-              <Field label="Téléphone" htmlFor="phone">
+              <Field label="Téléphone" htmlFor="phone" info="companyPhone">
                 <Input id="phone" name="phone" defaultValue={settings.phone ?? ""} />
               </Field>
             </div>
           </FieldGroup>
           <FieldGroup title="Adresse">
-            <Field label="Adresse" htmlFor="address">
+            <Field label="Adresse" htmlFor="address" info="companyAddress">
               <Input id="address" name="address" defaultValue={settings.address ?? ""} />
             </Field>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Ville" htmlFor="city">
+              <Field label="Ville" htmlFor="city" info="companyAddress">
                 <Input id="city" name="city" defaultValue={settings.city ?? ""} />
               </Field>
-              <Field label="Pays" htmlFor="country">
+              <Field label="Pays" htmlFor="country" info="companyAddress">
                 <Input id="country" name="country" defaultValue={settings.country} />
               </Field>
             </div>
           </FieldGroup>
           <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/50 px-4 py-3">
             <div>
-              <p className="text-sm font-medium">Devise</p>
+              <p className="flex items-center gap-1 text-sm font-medium">
+                Devise
+                <SettingInfo setting="currency" />
+              </p>
               <p className="text-xs text-muted-foreground">Fixée pour cette installation — non modifiable ici.</p>
             </div>
             <span className="rounded-lg bg-background px-2.5 py-1 text-sm font-bold tabular-nums shadow-xs">{settings.currency}</span>
@@ -157,6 +182,7 @@ export function OrderNumberingForm({ settings }: { settings: BusinessSettings })
       note="Les numéros déjà attribués ne changent pas."
       action={updateBusinessSettingsAction}
       success="Préfixe des commandes enregistré."
+      info={<SettingInfo setting="orderNumberPrefix" />}
     >
       <Field label="Préfixe des numéros de commande" htmlFor="orderNumberPrefix">
         <Input id="orderNumberPrefix" name="orderNumberPrefix" maxLength={10} defaultValue={settings.orderNumberPrefix} className="font-mono sm:w-48" autoFocus />
@@ -182,6 +208,7 @@ export function StockThresholdForm({ settings }: { settings: BusinessSettings })
       valueCaption="Alerte « stock faible » par défaut"
       action={updateBusinessSettingsAction}
       success="Seuil de stock faible enregistré."
+      info={<SettingInfo setting="lowStockThreshold" />}
     >
       <Field label="Seuil par défaut (unités)" htmlFor="lowStockDefaultThreshold">
         <Input
@@ -208,8 +235,9 @@ export function SupportSettingsForm({ settings }: { settings: BusinessSettings }
   return (
     <div id="contacts" className="grid scroll-mt-24 gap-5 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
       <aside className="overflow-hidden rounded-2xl border bg-card shadow-xs">
-        <div className="border-b bg-muted/40 px-5 py-2.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+        <div className="flex items-center gap-1 border-b bg-muted/40 px-5 py-2.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
           Ce que voient vos équipes
+          <SettingInfo setting="supportPreview" />
         </div>
         <div className="space-y-4 p-5">
           <div>
@@ -244,10 +272,10 @@ export function SupportSettingsForm({ settings }: { settings: BusinessSettings }
         <div className="space-y-7">
           <FieldGroup title="Présentation">
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Nom du support" htmlFor="supportName">
+              <Field label="Nom du support" htmlFor="supportName" info="supportName">
                 <Input id="supportName" name="supportName" defaultValue={settings.supportName ?? ""} placeholder="Ex. : YounessWeb Support" />
               </Field>
-              <Field label="Horaires" htmlFor="supportHours">
+              <Field label="Horaires" htmlFor="supportHours" info="supportHours">
                 <Input id="supportHours" name="supportHours" defaultValue={settings.supportHours ?? ""} placeholder="Ex. : Lun–Sam, 9h–18h" />
               </Field>
             </div>
@@ -255,14 +283,14 @@ export function SupportSettingsForm({ settings }: { settings: BusinessSettings }
           <FieldGroup title="Moyens de contact">
             <p className="-mt-1 text-xs text-muted-foreground">WhatsApp et téléphone sont indépendants : un numéro de téléphone n&apos;est pas forcément joignable sur WhatsApp.</p>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="WhatsApp" htmlFor="supportWhatsapp">
+              <Field label="WhatsApp" htmlFor="supportWhatsapp" info="supportWhatsapp">
                 <Input id="supportWhatsapp" name="supportWhatsapp" defaultValue={settings.supportWhatsapp ?? ""} placeholder="+212XXXXXXXXX" />
               </Field>
-              <Field label="Téléphone" htmlFor="supportPhone">
+              <Field label="Téléphone" htmlFor="supportPhone" info="supportPhone">
                 <Input id="supportPhone" name="supportPhone" defaultValue={settings.supportPhone ?? ""} placeholder="+212XXXXXXXXX" />
               </Field>
             </div>
-            <Field label="E-mail du support" htmlFor="supportEmail">
+            <Field label="E-mail du support" htmlFor="supportEmail" info="supportEmail">
               <Input id="supportEmail" name="supportEmail" type="email" defaultValue={settings.supportEmail ?? ""} placeholder="support@example.com" />
             </Field>
           </FieldGroup>

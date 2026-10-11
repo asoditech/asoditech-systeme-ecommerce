@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SoundToggle } from "@/components/notifications/sound-toggle";
 import type { AlertRule, Channel, WhatsAppStatus } from "@/lib/notification-settings";
 import { cn } from "@/lib/utils";
+import { SettingInfo } from "@/components/settings/setting-info";
 
 /**
  * Paramètres → Notifications building blocks (docs/adr/0058 "Final
@@ -28,6 +29,7 @@ export function InAppChannelCard() {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <CardTitle className="text-base">Dans l&apos;application</CardTitle>
+            <SettingInfo setting="inAppAlerts" />
             <Badge variant="outline" className="border-emerald-300 bg-emerald-50 font-medium text-emerald-800">
               Toujours actif
             </Badge>
@@ -57,6 +59,7 @@ export function EmailChannelCard({ address, available }: { address: string; avai
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <CardTitle className="text-base">Alertes par email</CardTitle>
+            <SettingInfo setting="emailAlerts" />
             <Badge
               variant="outline"
               className={cn("font-medium", available ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "text-muted-foreground")}
@@ -105,7 +108,10 @@ export function AlertPreferencesCard({
           <ListChecks className="size-4.5" />
         </SectionIcon>
         <div className="min-w-0">
-          <CardTitle className="text-base">Préférences d&apos;alertes</CardTitle>
+          <div className="flex items-center gap-1">
+            <CardTitle className="text-base">Préférences d&apos;alertes</CardTitle>
+            <SettingInfo setting="alertPreferences" />
+          </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Les alertes que vous recevez selon vos droits, et par quel canal. Chaque canal n&apos;est pas disponible pour chaque
             alerte.

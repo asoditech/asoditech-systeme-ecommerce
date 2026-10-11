@@ -11,7 +11,15 @@ import { recordAuditEvent } from "@/lib/audit";
 import { applyStockMovement, applySaleReturnLine, InsufficientStockError } from "@/lib/inventory";
 import { isProductAvailableOnChannel } from "@/lib/channels";
 import { classifySaleLookupError, SALE_LOOKUP_MESSAGES } from "@/lib/sales/lookup-errors";
-import { listSellableUnits, lookupSellableUnits, toSellerSafeUnit, variantLabel, type SellerSafeUnit } from "@/lib/catalog/lookup";
+import {
+  explainExactMiss,
+  listSellableUnits,
+  lookupSellableUnits,
+  toSellerSafeUnit,
+  variantLabel,
+  type ExactMissReason,
+  type SellerSafeUnit,
+} from "@/lib/catalog/lookup";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { effectiveUnitCost, locationUnitCost } from "@/lib/catalog/location-cost";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
@@ -157,6 +165,38 @@ export async function searchForSaleAction(input: {
     if (kind) return actionError(SALE_LOOKUP_MESSAGES[kind]);
     console.error(`[sales] product lookup failed: ${error instanceof Error ? error.name : "unknown"}`);
     return actionError(SALE_LOOKUP_MESSAGES.unexpected);
+  }
+}
+
+/**
+ * The sale screen found nothing for a scanned/typed code: why — the code
+ * designates an article this channel may not sell (archived/draft/disabled,
+ * or not enabled on the channel), or no article at all. Same permission and
+ * channel/location checks as the lookup; tenant-scoped (another tenant's
+ * code is just « unknown »). Read-only; a failure only drops the detail.
+ */
+export async function explainSaleScanMissAction(input: {
+  query: string;
+  salesChannelId: string;
+  warehouseId: string;
+}): Promise<ActionResult<{ reason: ExactMissReason; message: string }>> {
+  const user = await requirePermissionForAction("sales.create");
+  const parsed = lookupForSaleSchema.safeParse(input);
+  if (!parsed.success || !parsed.data.query.trim()) return actionError("Code invalide.");
+  try {
+    const ctx = await resolveSaleContext(user, parsed.data.salesChannelId, parsed.data.warehouseId);
+    if (!ctx.ok) return actionError("Canal ou emplacement non autorisé.");
+    const miss = await explainExactMiss(prisma, parsed.data.query, { channelId: ctx.channelId });
+    const message =
+      miss.reason === "inactive"
+        ? `« ${miss.label} » correspond à ce code mais n'est pas actif (archivé, brouillon ou variante désactivée) : il ne peut pas être vendu.`
+        : miss.reason === "not_on_channel"
+          ? `« ${miss.label} » correspond à ce code mais n'est pas activé sur ce canal de vente.`
+          : "";
+    return actionOk({ reason: miss.reason, message });
+  } catch (error) {
+    const kind = classifySaleLookupError(error);
+    return actionError(kind ? SALE_LOOKUP_MESSAGES[kind] : SALE_LOOKUP_MESSAGES.unexpected);
   }
 }
 

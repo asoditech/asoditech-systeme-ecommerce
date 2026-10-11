@@ -10,6 +10,8 @@ export interface BreakdownRow {
   meta?: string;
   icon?: LucideIcon;
   tone?: "default" | "success" | "warning" | "danger";
+  /** « ⓘ » next to the label (e.g. <DashboardMetricInfo/>). */
+  explain?: React.ReactNode;
 }
 
 const TONE_ICON_CLASS: Record<NonNullable<BreakdownRow["tone"]>, string> = {
@@ -47,7 +49,14 @@ export function MetricBreakdown({ rows, className }: { rows: BreakdownRow[]; cla
               </span>
             )}
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{r.label}</p>
+              {r.explain ? (
+                <p className="flex min-w-0 items-center gap-0.5 text-sm font-medium">
+                  <span className="truncate">{r.label}</span>
+                  {r.explain}
+                </p>
+              ) : (
+                <p className="truncate text-sm font-medium">{r.label}</p>
+              )}
               {r.meta && <p className="truncate text-[11px] text-muted-foreground">{r.meta}</p>}
             </div>
           </div>

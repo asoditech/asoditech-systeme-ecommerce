@@ -47,33 +47,33 @@ import {
 } from "@/lib/integrations/delivery/service";
 import { notifyShipmentFailed, notifyShipmentsFailed, notifyConnectionError } from "@/lib/notifications";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
+import {
+  DeliveryMalformedResponseError,
+  DeliveryTimeoutError,
+  DeliveryUnavailableError,
+} from "@/lib/integrations/delivery/errors";
+import { CARRIER_UNCERTAIN_RETRY_WARNING } from "@/lib/shipment-confirmation";
+import { shipmentNotificationContext } from "@/lib/shipment-notification-context";
 
-/** Loads the order number + provider name a shipment-failed notification needs. */
-async function shipmentNotificationContext(shipmentId: string) {
-  const s = await prisma.shipment.findUnique({
-    where: { id: shipmentId },
-    select: {
-      id: true,
-      orderId: true,
-      failedReason: true,
-      order: { select: { orderNumber: true, displayNumber: true } },
-      provider: { select: { name: true } },
-    },
-  });
-  return s
-    ? {
-        id: s.id,
-        orderId: s.orderId,
-        orderNumber: s.order.orderNumber,
-        orderDisplayNumber: s.order.displayNumber,
-        providerName: s.provider.name,
-        reason: s.failedReason,
-      }
-    : null;
-}
 
 function normalizeOptional(value: string | null | undefined): string | null {
   return value && value.trim().length > 0 ? value.trim() : null;
+}
+
+/**
+ * The operator-facing message for a failed carrier shipment creation. A
+ * timeout, a 5xx / unreachable carrier or an unreadable answer leaves the
+ * carrier-side outcome UNKNOWN — the parcel may exist although we recorded a
+ * failure (no carrier idempotency key, docs/adr/0013) — so those get the
+ * "check the carrier portal before retrying" warning.
+ */
+function shipmentCreationErrorMessage(error: unknown): string {
+  const message = friendlyDeliveryError(error);
+  const uncertain =
+    error instanceof DeliveryTimeoutError ||
+    error instanceof DeliveryUnavailableError ||
+    error instanceof DeliveryMalformedResponseError;
+  return uncertain ? `${message} ${CARRIER_UNCERTAIN_RETRY_WARNING}` : message;
 }
 
 export async function createShippingProviderAction(formData: FormData): Promise<ActionResult<IdResult>> {
@@ -230,11 +230,24 @@ export async function updateShipmentStatusAction(formData: FormData): Promise<Ac
     failedReason: formData.get("failedReason"),
   });
   if (!parsed.success) {
-    return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+    const fieldErrors = parsed.error.flatten().fieldErrors;
+    return actionError(fieldErrors.failedReason?.[0] ?? "Champs invalides.", fieldErrors);
   }
 
-  const existing = await prisma.shipment.findUnique({ where: { id: parsed.data.id }, include: { order: true } });
+  const existing = await prisma.shipment.findUnique({
+    where: { id: parsed.data.id },
+    include: { order: true, provider: { select: { type: true } } },
+  });
   if (!existing) return actionError("Expédition introuvable.");
+
+  // A parcel registered at a carrier is cancelled AT the carrier
+  // (cancelShipmentAction, when the connector supports it) — marking it
+  // « Annulé » here alone would leave a live parcel with a dead local row.
+  if (parsed.data.status === "ANNULE" && existing.provider.type === "API" && existing.externalId) {
+    return actionError(
+      "Ce colis est enregistré chez le transporteur : il ne peut pas être annulé ici. Annulez-le chez le transporteur (ou via « Annuler » si le connecteur le permet), puis synchronisez son statut."
+    );
+  }
 
   const result = await applyShipmentStatusTransition({
     shipmentId: existing.id,
@@ -247,9 +260,13 @@ export async function updateShipmentStatusAction(formData: FormData): Promise<Ac
   });
   if (!result.ok) {
     return actionError(
-      result.reason === "invalid_transition"
-        ? `Transition de statut invalide : ${existing.status} → ${parsed.data.status}.`
-        : "Cette expédition a été modifiée entre-temps. Rechargez la page et réessayez."
+      result.reason === "order_blocked"
+        ? `Statut non modifié : la commande ne peut pas passer « Expédiée » — ${result.message}`
+        : result.reason === "conflict_active"
+          ? `Statut non modifié : ${result.message}`
+        : result.reason === "invalid_transition"
+          ? `Transition de statut invalide : ${existing.status} → ${parsed.data.status}.`
+          : "Cette expédition a été modifiée entre-temps. Rechargez la page et réessayez."
     );
   }
 
@@ -259,9 +276,12 @@ export async function updateShipmentStatusAction(formData: FormData): Promise<Ac
     action: "shipment.status_changed",
     entityType: "Shipment",
     entityId: existing.id,
-    previousValue: { status: existing.status, cost: existing.cost?.toString() ?? null },
+    // failedReason on both sides: a later ECHEC overwrites the column, so
+    // the audit trail is where earlier reasons survive.
+    previousValue: { status: existing.status, cost: existing.cost?.toString() ?? null, failedReason: existing.failedReason },
     newValue: {
       status: parsed.data.status,
+      failedReason: parsed.data.status === "ECHEC" ? normalizeOptional(parsed.data.failedReason) : existing.failedReason,
       ...(result.finalizedCost
         ? { cost: result.finalizedCost.cost, costSource: result.finalizedCost.costSource }
         : {}),
@@ -276,11 +296,14 @@ export async function updateShipmentStatusAction(formData: FormData): Promise<Ac
   // A shipment reaching LIVRE just advanced the order to LIVREE (inside
   // applyShipmentStatusTransition) — tell a linked WooCommerce store so
   // its order moves to "completed" too, instead of staying "processing".
-  if (parsed.data.status === "LIVRE") {
+  if (result.orderDelivered) {
     await pushOrderStatusToWooCommerce(existing.orderId);
   }
 
+  // The order's own status may have moved too (Expédiée / Livrée).
   revalidatePath("/livraison");
+  revalidatePath("/livraison/suivi");
+  revalidatePath("/commandes");
   revalidatePath(`/commandes/${existing.orderId}`);
   return actionOk({ id: existing.id });
 }
@@ -535,7 +558,7 @@ export async function createShipmentViaProviderAction(formData: FormData): Promi
     revalidatePath(`/commandes/${order.id}`);
     return actionOk({ id: shipment.id });
   } catch (error) {
-    const message = friendlyDeliveryError(error);
+    const message = shipmentCreationErrorMessage(error);
     await recordAuditEvent({
       actorType: "USER",
       actorUserId: user.id,
@@ -706,7 +729,7 @@ export async function createShipmentsBulkAction(
       });
       results.push({ orderId, orderNumber: order.orderNumber, orderDisplayNumber: order.displayNumber, ok: true });
     } catch (error) {
-      const message = friendlyDeliveryError(error);
+      const message = shipmentCreationErrorMessage(error);
       await recordAuditEvent({
         actorType: "USER",
         actorUserId: user.id,
@@ -773,10 +796,18 @@ export async function deleteFailedShipmentAction(formData: FormData): Promise<Ac
   const parsed = shipmentIdSchema.safeParse({ shipmentId: formData.get("shipmentId") });
   if (!parsed.success) return actionError("Expédition invalide.");
 
-  const shipment = await prisma.shipment.findUnique({ where: { id: parsed.data.shipmentId } });
+  const shipment = await prisma.shipment.findUnique({
+    where: { id: parsed.data.shipmentId },
+    include: { provider: { select: { type: true } } },
+  });
   if (!shipment) return actionError("Expédition introuvable.");
   if (shipment.status !== "ECHEC" || shipment.externalId) {
     return actionError("Seule une tentative d'expédition en échec (sans colis chez le transporteur) peut être supprimée.");
+  }
+  // A MANUEL / FLOTTE_INTERNE failure is a real delivery outcome (with its
+  // frozen failure cost), not a failed API creation attempt — history.
+  if (shipment.provider.type !== "API") {
+    return actionError("Un échec de livraison manuel fait partie de l'historique de la commande : il ne peut pas être supprimé.");
   }
 
   await prisma.shipment.delete({ where: { id: shipment.id } });
@@ -848,6 +879,13 @@ export async function generateDeliveryManifestAction(formData: FormData): Promis
   }
 }
 
+/** The shipment's failedReason as the sync just left it — read back rather
+ * than re-derived, for the `shipment.status_changed` audit. */
+async function currentFailedReason(shipmentId: string): Promise<string | null> {
+  const row = await prisma.shipment.findUnique({ where: { id: shipmentId }, select: { failedReason: true } });
+  return row?.failedReason ?? null;
+}
+
 export async function syncShipmentStatusAction(formData: FormData): Promise<ActionResult<{ outcome: SyncShipmentStatusOutcome["outcome"] }>> {
   const user = await requirePermissionForAction("delivery.manage");
 
@@ -879,8 +917,8 @@ export async function syncShipmentStatusAction(formData: FormData): Promise<Acti
       action: "shipment.status_changed",
       entityType: "Shipment",
       entityId: shipment.id,
-      previousValue: { status: shipment.status },
-      newValue: { status: result.newStatus },
+      previousValue: { status: shipment.status, failedReason: shipment.failedReason },
+      newValue: { status: result.newStatus, failedReason: await currentFailedReason(shipment.id) },
       metadata: { source: "provider_sync" },
     });
     if (result.newStatus === "ECHEC" && shipment.status !== "ECHEC") {
@@ -942,8 +980,8 @@ export async function refreshShipmentStatusesAction(): Promise<
         action: "shipment.status_changed",
         entityType: "Shipment",
         entityId: shipment.id,
-        previousValue: { status: shipment.status },
-        newValue: { status: result.newStatus },
+        previousValue: { status: shipment.status, failedReason: shipment.failedReason },
+        newValue: { status: result.newStatus, failedReason: await currentFailedReason(shipment.id) },
         metadata: { source: "provider_sync_bulk" },
       });
       if (result.newStatus === "ECHEC" && shipment.status !== "ECHEC") {

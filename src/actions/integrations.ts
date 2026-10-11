@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
-import { encryptSecret } from "@/lib/crypto";
+import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { validateStoreUrl, InvalidStoreUrlError } from "@/lib/integrations/woocommerce/ssrf";
 import { validateShopDomain, InvalidShopDomainError } from "@/lib/integrations/shopify/ssrf";
 import { isShopifyIntegrationEnabled, SHOPIFY_DISABLED_MESSAGE } from "@/lib/integrations/shopify/feature-flag";
@@ -88,8 +88,19 @@ export async function connectIntegrationAction(formData: FormData): Promise<Acti
   }
 
   const hasCredentials = Boolean(parsed.data.apiKey || parsed.data.apiSecret);
+  // Updating the WooCommerce key/secret must not drop the webhook signing
+  // secret generated earlier (« Webhooks » → it is pasted into the store's
+  // 5 webhooks): losing it made every webhook fail with 401 until it was
+  // regenerated and re-pasted by hand.
+  const keptWebhookSecret = parsed.data.provider === "WOOCOMMERCE" ? await existingWooWebhookSecret(user.tenantId) : null;
   const credentialsEncrypted = hasCredentials
-    ? encryptSecret(JSON.stringify({ apiKey: parsed.data.apiKey ?? "", apiSecret: parsed.data.apiSecret ?? "" }))
+    ? encryptSecret(
+        JSON.stringify({
+          apiKey: parsed.data.apiKey ?? "",
+          apiSecret: parsed.data.apiSecret ?? "",
+          ...(keptWebhookSecret ? { webhookSecret: keptWebhookSecret } : {}),
+        })
+      )
     : null;
 
   const integration = await prisma.integration.upsert({
@@ -123,6 +134,21 @@ export async function connectIntegrationAction(formData: FormData): Promise<Acti
   // boundary at all. Found during the A–G audit; see
   // docs/adr/0004-integration-architecture.md.
   return actionOk({ id: integration.id });
+}
+
+/** The stored WooCommerce webhook secret of this tenant, if any (never returned to the client). */
+async function existingWooWebhookSecret(tenantId: string): Promise<string | null> {
+  const row = await prisma.integration.findUnique({
+    where: { tenantId_provider: { tenantId, provider: "WOOCOMMERCE" } },
+    select: { credentialsEncrypted: true },
+  });
+  if (!row?.credentialsEncrypted) return null;
+  try {
+    const stored = JSON.parse(decryptSecret(row.credentialsEncrypted)) as { webhookSecret?: unknown };
+    return typeof stored.webhookSecret === "string" && stored.webhookSecret ? stored.webhookSecret : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function disconnectIntegrationAction(formData: FormData): Promise<ActionResult<undefined>> {

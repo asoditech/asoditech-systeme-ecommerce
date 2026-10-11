@@ -58,7 +58,9 @@ describe("resolveExactCode", () => {
   it("no fuzzy matching: name, partial SKU, unknown or empty code → not found", async () => {
     await seed();
     for (const code of ["T-shirt", "Casquette", "TS-NO", "CAP", "UNKNOWN", "", "   "]) {
-      expect(await resolveExactCode(prisma, code), code).toEqual({ ok: false, reason: "not_found", error: EXACT_CODE_MESSAGES.notFound });
+      // The received code is echoed back (never an empty « »).
+      const error = code.trim() ? `${EXACT_CODE_MESSAGES.notFound} Code reçu : « ${code.trim()} ».` : EXACT_CODE_MESSAGES.notFound;
+      expect(await resolveExactCode(prisma, code), code).toEqual({ ok: false, reason: "not_found", error });
     }
   });
 });

@@ -25,6 +25,7 @@ import {
   UnavailableTile,
 } from "@/components/settings/config/config-blocks";
 import { HashFocus } from "@/components/settings/config/config-search";
+import { SettingInfo } from "@/components/settings/setting-info";
 import {
   CONFIG_SECTIONS,
   configAttention,
@@ -107,12 +108,12 @@ export function ConfigurationView(props: ConfigurationViewProps) {
           <>
             {attention.length > 0 && (
               <section className="space-y-3">
-                <SectionTitle title="À corriger" hint="Les réglages manquants qui changent ce que voient vos équipes et vos clients." />
+                <SectionTitle title="À corriger" hint="Les réglages manquants qui changent ce que voient vos équipes et vos clients." info={<SettingInfo setting="pointsToCheck" label="À corriger" />} />
                 <AttentionCards items={attention} />
               </section>
             )}
             <section className="space-y-3">
-              <SectionTitle title="Vos réglages" hint="Chaque carte montre l'état actuel ; ouvrez-la pour modifier." />
+              <SectionTitle title="Vos réglages" hint="Chaque carte montre l'état actuel ; ouvrez-la pour modifier." info={<SettingInfo setting="settingsTiles" />} />
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {WORKSPACES.map((id) => (
                   <SectionTile key={id} summary={sectionSummary(ctx, id)} settingsCount={countOf(id)} />
@@ -138,10 +139,13 @@ export function ConfigurationView(props: ConfigurationViewProps) {
   );
 }
 
-function SectionTitle({ title, hint }: { title: string; hint?: string }) {
+function SectionTitle({ title, hint, info }: { title: string; hint?: string; info?: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-3">
-      <h3 className="text-sm font-semibold tracking-tight">{title}</h3>
+      <h3 className="flex items-center gap-1 text-sm font-semibold tracking-tight">
+        {title}
+        {info}
+      </h3>
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
@@ -175,6 +179,7 @@ function Workspace({ id, props }: { id: ConfigWorkspaceId; props: ConfigurationV
                   title={`${s.label} : importer en « Nouvelle »`}
                   on={s.value!}
                   note="Modifiable par les utilisateurs qui gèrent les intégrations."
+                  info={<SettingInfo setting="importAsNouvelle" label={`${s.label} : importer en « Nouvelle »`} />}
                 />
               )
             )}
@@ -226,6 +231,7 @@ function Workspace({ id, props }: { id: ConfigWorkspaceId; props: ConfigurationV
                 icon={Store}
                 title="Ventes magasin non activées"
                 message="Votre entreprise est en mode « En ligne » uniquement. Les ventes magasin ne sont pas activées : ce mode est géré par l'équipe ASODITECH."
+                info={<SettingInfo setting="storeModeUnavailable" />}
               />
             )}
           </div>
@@ -248,6 +254,7 @@ function Workspace({ id, props }: { id: ConfigWorkspaceId; props: ConfigurationV
                 icon={ArrowLeftRight}
                 title="Coût d'achat lors des transferts"
                 message="Réservé aux utilisateurs ayant accès aux données financières."
+                info={<SettingInfo setting="transferCostOverride" />}
               />
             )}
           </div>

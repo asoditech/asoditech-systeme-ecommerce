@@ -65,7 +65,9 @@ describe("getSalesReport", () => {
     expect(report.current.revenue).toBe(100); // cancelled order excluded
     expect(report.previous.revenue).toBe(40);
     expect(report.deltas.revenue).toBe(150); // (100-40)/40 * 100
-    expect(report.current.deliveryRate).toBe(50); // 1 of 2 orders LIVREE
+    // S6 — one « Taux de livraison réussie »: delivered ÷ orders WITH an outcome;
+    // the cancelled order never shipped, so it has none (was 1 ÷ 2 = 50).
+    expect(report.current.deliveryRate).toBe(100);
   });
 
   it("uses daily granularity for a month and monthly for a year", async () => {

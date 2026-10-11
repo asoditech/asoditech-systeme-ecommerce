@@ -43,6 +43,27 @@ export type RefreshTrackingOutcome =
  * A shipment with no `externalId` (manual provider) is not refreshable —
  * returns ok:false with a clear message.
  */
+/**
+ * Courier columns to write after a successful tracking fetch. A carrier only
+ * names the courier in some responses, so a response without a courier
+ * keeps what is stored — nothing is ever wiped by an empty answer, nothing
+ * is invented. But the name and phone describe ONE person:
+ *   - a DIFFERENT courier name replaces name AND phone together (the phone
+ *     is cleared when the new response has none — never the previous
+ *     courier's number next to the new courier's name);
+ *   - the same courier (or no name) only refreshes the phone when one is sent.
+ */
+export function courierUpdateData(
+  courier: { name: string | null; phone: string | null } | null | undefined,
+  stored: { courierName: string | null; courierPhone: string | null }
+): { courierName?: string; courierPhone?: string | null } {
+  const name = courier?.name?.trim() || null;
+  const phone = courier?.phone?.trim() || null;
+  const sameCourier = name !== null && name.toLocaleLowerCase("fr") === (stored.courierName?.trim() ?? "").toLocaleLowerCase("fr");
+  if (name !== null && !sameCourier) return { courierName: name, courierPhone: phone };
+  return phone !== null ? { courierPhone: phone } : {};
+}
+
 export async function refreshShipmentTracking(params: {
   shipment: Shipment;
   order: Order;
@@ -94,8 +115,7 @@ export async function refreshShipmentTracking(params: {
       where: { id: shipment.id },
       data: {
         trackingEvents: events as unknown as Prisma.InputJsonValue,
-        courierName: detail.courier?.name ?? null,
-        courierPhone: detail.courier?.phone ?? null,
+        ...courierUpdateData(detail.courier, fresh),
         lastTrackingSyncAt: new Date(),
         trackingSyncError: null,
       },

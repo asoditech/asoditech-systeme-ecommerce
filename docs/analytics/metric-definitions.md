@@ -1,15 +1,26 @@
 # Analytics — metric definitions
 
+> **Unified definitions (2026-10, S6).** Every label below means the same
+> thing on every screen — dashboard, Finance, /analyses, /rapports,
+> /livraison. The formulas live in `src/lib/metrics/formulas.ts`; the
+> in-app « ⓘ » explanations (what / how / worked example) in
+> `src/lib/metrics/glossary.ts`, whose examples are computed with those same
+> functions. `tests/lib/metrics-consistency.test.ts` checks one seeded month
+> across every surface. The section « Unified definitions » at the end of
+> this file is authoritative where an older table row differs.
+
 Source of truth for every figure under `/analyses` and in its CSV exports
 (`/analyses/export/<type>`). The same definitions are rendered in-app under
-« Définitions des indicateurs » (`src/lib/analytics/definitions.ts`). Design
+« Définitions des indicateurs » (`src/lib/metrics/analytics-explanations.ts` — français / arabe, exemples calculés sur le jeu fictif `src/lib/metrics/example-dataset.ts`). Design
 and authorization: `docs/adr/0051-analytics-performance-intelligence.md`.
 
 Conventions
 - **Periods**: today, yesterday, last 7 days, last 30 days (default), current
-  month, previous month, custom range. Server-local days, both ends inclusive
-  (`resolveDateRangePreset`, the same convention as /livraison and /rapports).
-  Buckets are daily, or monthly beyond 62 days.
+  month, previous month, custom range. Days of the tenant's business time
+  zone (`BusinessSettings.timezone`, « Africa/Casablanca » by default —
+  `src/lib/time/zoned.ts`), both ends inclusive (`resolveDateRangePreset`,
+  the same convention as /livraison and /rapports). Buckets are daily, or
+  monthly beyond 62 days.
 - **Comparison** with the previous period of the same length is shown only
   when both periods hold at least 20 events (`meaningfulDelta`).
 - **Durations** are computed only from real timestamps; an order missing one
@@ -29,11 +40,12 @@ order) is in the period, narrowed by the origin / Online channel filters.
 | Metric | Formula | Exclusions / notes |
 |---|---|---|
 | Orders | count | all statuses |
-| Confirmed | status ∈ {CONFIRMEE, EN_PREPARATION, EXPEDIEE, LIVREE, ECHEC, RETOUR, REMBOURSEE} **or** `confirmedAt` set | ECHEC/RETOUR/REMBOURSEE are only reachable after confirmation. A reopened order (ADR 0049) is unconfirmed again |
-| Confirmation rate | confirmed ÷ orders | NOUVELLE orders stay in the denominator (shown as "encore à confirmer") |
+| Confirmed | `confirmedAt` set (the order's confirmation stands) | An order that reached Échec / Retour without ever being confirmed is not counted. A reopened order (ADR 0049) is unconfirmed again |
+| Confirmation rate | confirmed ÷ orders that went through confirmation (≥ 1 `OrderConfirmationAttempt`, or `confirmedAt` set) | Orders nobody has called yet stay out of the denominator (« À confirmer ») — `confirmationRatePct` |
 | Shipped (cohort) | status ∈ {EXPEDIEE, LIVREE, ECHEC, RETOUR, REMBOURSEE} or `shippedAt` set | |
-| Delivered / Cancelled / Failed / Returned | CURRENT status LIVREE / ANNULEE / ECHEC / RETOUR+REMBOURSEE | |
-| Delivery rate (overview) | delivered ÷ shipped (cohort) | |
+| Delivered / Failed / Returned | final delivery outcome of the shipped cohort orders (`orderDeliveryOutcome`): the order's current shipment (newest real parcel — an API-creation failure is never one), or the order's own status when it has no shipment; a recorded RETOUR / REMBOURSEE wins | In transit / waiting / cancelled = no outcome |
+| Cancelled | CURRENT status ANNULEE | |
+| Delivery rate (overview) | delivered ÷ (delivered + failed + returned) — « Taux de livraison réussie » (`deliveryOutcomeRate`) | Orders without an outcome yet stay out of the denominator |
 | CA commandé (placed revenue) | Σ `Order.total` | excludes ANNULEE, ECHEC, RETOUR, REMBOURSEE (`REVENUE_EXCLUDED_STATUSES`, same as Finance and the sales report) |
 | CA livré (delivered revenue) | Σ `Order.total` of cohort orders currently LIVREE | same cohort, NOT orders delivered in the period |
 | Average order value | placed revenue ÷ orders counted in it | |
@@ -64,8 +76,8 @@ Population: Online orders whose `shippedAt` is in the period (set by the
 | Metric | Formula |
 |---|---|
 | Shipped | count |
-| Delivered / Failed / Returned / In progress | CURRENT status: LIVREE / ECHEC or ANNULEE (only reachable after ECHEC) / RETOUR or REMBOURSEE / anything else |
-| Delivery, failure, return rate | each ÷ shipped |
+| Delivered / Failed / Returned / In progress | final outcome per order (`orderDeliveryOutcome`): the order's current shipment (newest real parcel, API-creation failures excluded), else the order's own status; a recorded RETOUR / REMBOURSEE wins over the parcel's « Livré ». « In progress » = no outcome yet (in transit, waiting, or cancelled without a failed parcel) |
+| Delivery, failure, return rate | each ÷ (delivered + failed + returned); « in progress » stays out of every rate |
 | Confirmed → shipped | `shippedAt − confirmedAt` |
 | Shipped → delivered | `deliveredAt − shippedAt`, delivered orders only |
 | Confirmed → delivered | `deliveredAt − confirmedAt`, delivered orders only |
@@ -117,3 +129,24 @@ or delivery metric exists for a store sale.
   attempt: they count as confirmed but are « sans confirmateur enregistré ».
 - There is no order status history table; outcomes are the CURRENT status of
   the population, never a reconstructed past state.
+
+
+## Unified definitions (S6, 2026-10)
+
+| Label | Definition | Population / date | Notes |
+|---|---|---|---|
+| Chiffre d'affaires | Σ order totals (delivery fee charged to the customer included, discounts deducted) − COMPLETE refunds on those orders | Orders placed in the period (`placedAt`), not Annulée / Échec / Retour / Remboursée | Refunds are attributed to the refunded order's period. Dashboard headline, its chart and sparkline, Finance, /analyses, /rapports/ventes and /rapports/canaux all show this net figure. |
+| CA produits | Σ order-line totals | Same orders | /rapports/rentabilite, /rapports/profitabilite: no delivery fee, no order-level discount, no refund (refunds are not recorded per product — data-model limit). |
+| Commandes | Count of orders placed, any status | `placedAt` | The revenue-order count is only used for the average basket. |
+| Panier moyen | Gross total of the revenue orders ÷ their count | `placedAt` | Refunds are later events and do not shrink the basket. |
+| Confirmées | Orders whose confirmation stands (`confirmedAt` set) | `placedAt` | An order that reached Échec / Retour without ever being confirmed is not counted. |
+| Taux de confirmation | Confirmées ÷ orders that went through confirmation (≥ 1 `OrderConfirmationAttempt`, or confirmed on import) | `placedAt` | Orders nobody has called yet stay out (they are « À confirmer »). |
+| Confirmées ce mois / aujourd'hui | Distinct orders with a « Confirmé » attempt in the business-time-zone month / day | attempt `createdAt` | Was a count of attempt rows. |
+| Taux de livraison réussie | Delivered ÷ (delivered + failed + returned), one final outcome per order | Order screens: shipped orders placed in the period; delivery screens (/livraison, dashboard, /rapports/livraison): orders with a shipment created in the period | Outcome = the order's current shipment (the newest real parcel — a failed API creation attempt is never one), or the order's own status when it has no shipment; a recorded Retour / Remboursée wins. In transit and cancelled = no outcome. Delivery screens count shipments, so an order handled with no shipment record appears only on the order screens. |
+| Commandes expédiées (/livraison) | Orders with a shipment created in the period, counted once (their current shipment) | `Shipment.createdAt` | Replaced attempts are history (« Afficher l'historique ») and never counted twice; costs keep every attempt. |
+| Nouveaux clients | Buyers of the period (a revenue order in it) whose first-ever order is in the period | `placedAt` | Never the date the customer record was created or imported. |
+| Remboursé | Σ COMPLETE refunds of the period's orders | order `placedAt` | Same in /analyses and /rapports/tresorerie. |
+| Coût de livraison (Finance, dashboard « Charges ») | Σ recorded shipment costs of the orders placed in the period, every attempt included | order `placedAt` | Matched to the revenue it served; cancelled shipments and cancelled orders excluded. /rapports/livraison keeps a per-shipment view (shipments created in the period). |
+| Produits en stock faible | Stock rows (article × active location) whose AVAILABLE stock (physique − réservé) ≤ the product's threshold | now | Same rule as the low-stock alerts (`checkAndNotifyLowStock`, which additionally skips products with `trackInventory` off) and the /stock « Stock faible » badge and « Stock faible » / « Rupture » filters (inactive locations left out there too). One article in two locations counts twice. |
+| À encaisser (/rapports/tresorerie) | Totals of the period's orders still En attente / Partiellement payé, excluding Annulée / Échec / Retour / Remboursée | `placedAt` | A partly paid order counts its full total: the amount already paid is not recorded (data-model limit, shown on the card). |
+| Gagnée ce mois / Reste à payer (dashboard) | EARNED entries of the business-time-zone month / Σ over every agent (active or not) of earned − reversed − paid | entry `createdAt` | Same as /analyses and /commissions. Payout closing keeps its own calendar months. Agents paid in different currencies are summed as is (limit). |

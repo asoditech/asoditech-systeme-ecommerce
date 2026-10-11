@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import type { OrderStatus, RecordSource } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { PeriodRange } from "@/lib/queries/finance";
+import { NON_REVENUE_ORDER_STATUSES } from "@/lib/metrics/formulas";
 
 /**
  * The single source of truth for "how much did I really make" — used by
@@ -35,7 +36,9 @@ function marginPct(profit: Prisma.Decimal, revenue: Prisma.Decimal): number | nu
  * that is still counted nets out through its `refunds` relation. Aligning
  * COGS with revenue this way is what prevents double-counting a return.
  */
-export const REVENUE_EXCLUDED_STATUSES: OrderStatus[] = ["ANNULEE", "ECHEC", "RETOUR", "REMBOURSEE"];
+// Derived from the one shared list (src/lib/metrics/formulas.ts) so the two
+// can never drift; kept as a mutable array for Prisma `in` / `notIn` filters.
+export const REVENUE_EXCLUDED_STATUSES: OrderStatus[] = [...NON_REVENUE_ORDER_STATUSES];
 
 export function isRevenueOrder(status: OrderStatus): boolean {
   return !REVENUE_EXCLUDED_STATUSES.includes(status);
@@ -195,17 +198,21 @@ export async function computePeriodProfitability(
   // successful delivery's carrier price, a return-rule charge, a
   // failure-rule charge, or a manual accounting correction. Reads the
   // recorded per-shipment cost — never today's provider settings.
+  // Matched to the revenue it served (S6 — one rule with /rapports/
+  // profitabilite): the shipments of the orders PLACED in the period, every
+  // attempt included (each was charged). Was the shipment's own createdAt,
+  // which put a parcel's cost and its order's revenue in different months.
   const deliveryBySource = await prisma.shipment.groupBy({
     by: ["costSource"],
     where: {
-      createdAt: { gte: period.from, lte: period.to },
+      order: { placedAt: { gte: period.from, lte: period.to }, ...(source ? { source } : {}) },
       cost: { not: null },
       // Client feedback #3: a cancelled order's parcel never reached the
       // customer, and a cancelled shipment completed no delivery service —
       // neither is a delivery deduction. Return / failure charges live on
       // their own `costSource` for RETOUR / ECHEC orders and are unaffected.
       status: { not: "ANNULE" },
-      order: { status: { not: "ANNULEE" } },
+      NOT: { order: { status: "ANNULEE" } },
     },
     _sum: { cost: true },
   });

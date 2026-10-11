@@ -7,9 +7,13 @@ import { Plus, Trash2, Search, ShieldAlert, AlertTriangle, Check } from "lucide-
 import {
   createOrderAction,
   createCustomerForOrderAction,
+  getOrderLinesStockAction,
   searchCustomersForOrderAction,
   searchProductsForOrderAction,
+  type PickerStock,
 } from "@/actions/orders";
+import { StockOverrideDialog } from "@/components/orders/stock-override-dialog";
+import { stockShortageOf, type StockShortage } from "@/lib/stock-shortage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CityInput } from "@/components/delivery/city-input";
@@ -45,6 +49,8 @@ interface LineItem {
   key: string;
   productId?: string;
   variationId?: string;
+  /** The parent product — only to look up stock (P2); never sent with the order. */
+  stockProductId: string;
   label: string;
   sku: string;
   unitPrice: number;
@@ -69,6 +75,19 @@ export function OrderForm({
   const defaultWarehouseId = warehouses.find((w) => w.isDefault)?.id ?? warehouses[0]?.id ?? "";
   const [confirmationAgentId, setConfirmationAgentId] = React.useState("");
   const [fulfillmentWarehouseId, setFulfillmentWarehouseId] = React.useState(defaultWarehouseId);
+  // P2: the warehouse whose stock is shown — the SAME rule the order uses when
+  // created (one warehouse = the server-side default), so the badge, the
+  // confirmation check and the override token all talk about the same rows.
+  const stockWarehouseId = warehouses.length > 1 && fulfillmentWarehouseId ? fulfillmentWarehouseId : null;
+  const [lineStock, setLineStock] = React.useState<Record<string, PickerStock>>({});
+  // Stale-response guard (P2): the warehouse whose stock may be displayed NOW,
+  // updated synchronously on change, plus a sequence for line-stock refreshes.
+  // A response is applied only if it was requested for the current warehouse
+  // (and, for lines, is the latest request) — a slow answer for a warehouse the
+  // user already left can never overwrite the shown stock.
+  const currentStockWarehouse = React.useRef<string | null>(stockWarehouseId);
+  const lineStockRequest = React.useRef(0);
+  const [shortage, setShortage] = React.useState<StockShortage | null>(null);
   const [customer, setCustomer] = React.useState<Customer | null>(null);
   const [customerQuery, setCustomerQuery] = React.useState("");
   const [customerResults, setCustomerResults] = React.useState<CustomerSearchResult[]>([]);
@@ -121,14 +140,19 @@ export function OrderForm({
 
   React.useEffect(() => {
     if (productQuery.trim().length < 2) return;
+    let cancelled = false; // a newer query or warehouse supersedes this one
     const t = setTimeout(async () => {
       const q = productQuery.trim();
-      const results = await searchProductsForOrderAction(productQuery);
+      const results = await searchProductsForOrderAction(productQuery, stockWarehouseId);
+      if (cancelled || currentStockWarehouse.current !== stockWarehouseId) return;
       setProductResults(results);
       setProductSearchedFor(q);
     }, 120);
-    return () => clearTimeout(t);
-  }, [productQuery]);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [productQuery, stockWarehouseId]);
   // Initial list shown when the picker is opened with an empty query: the
   // first active products by name, fetched once on first open (never on page
   // load). Typing 2+ characters switches to the normal search below.
@@ -138,22 +162,55 @@ export function OrderForm({
     setProductOpen(open);
     if (!open || initialProducts !== null || initialProductsLoading) return;
     setInitialProductsLoading(true);
-    searchProductsForOrderAction("")
-      .then(setInitialProducts)
-      .catch(() => setInitialProducts([]))
+    const requestedFor = stockWarehouseId;
+    searchProductsForOrderAction("", requestedFor)
+      .then((list) => {
+        if (currentStockWarehouse.current === requestedFor) setInitialProducts(list);
+      })
+      .catch(() => {
+        if (currentStockWarehouse.current === requestedFor) setInitialProducts([]);
+      })
       .finally(() => setInitialProductsLoading(false));
   }
   const productQueryEmpty = productQuery.trim().length === 0;
   const visibleProductResults =
     productQuery.trim().length >= 2 ? productResults : productQueryEmpty ? (initialProducts ?? []) : [];
 
+  /** P2: the fulfilment warehouse changed — every stock shown must follow it. */
+  function changeFulfillmentWarehouse(id: string) {
+    setFulfillmentWarehouseId(id);
+    setInitialProducts(null); // re-fetched for the new warehouse on next open
+    const nextStockWarehouseId = warehouses.length > 1 && id ? id : null;
+    currentStockWarehouse.current = nextStockWarehouseId;
+    const seq = ++lineStockRequest.current;
+    if (items.length === 0) return;
+    const requested = items.map((i) => ({ productId: i.stockProductId, variationId: i.variationId ?? null }));
+    const isLatest = () => seq === lineStockRequest.current && currentStockWarehouse.current === nextStockWarehouseId;
+    getOrderLinesStockAction(nextStockWarehouseId, requested)
+      // merge: lines added meanwhile keep the stock their own (current) search gave them
+      .then((fresh) => {
+        if (isLatest()) setLineStock((prev) => ({ ...prev, ...fresh }));
+      })
+      .catch(() => {
+        // never keep showing the previous warehouse's numbers for these lines
+        if (!isLatest()) return;
+        setLineStock((prev) => {
+          const next = { ...prev };
+          for (const u of requested) delete next[stockKey(u.productId, u.variationId)];
+          return next;
+        });
+      });
+  }
+
   function addProductLine(product: ProductWithVariations, variation?: ProductVariation) {
+    setLineStock((prev) => ({ ...prev, [stockKey(product.id, variation?.id)]: variation ? variation.stock : product.stock }));
     setItems((prev) => [
       ...prev,
       {
         key: `${product.id}-${variation?.id ?? "base"}-${Date.now()}`,
         productId: variation ? undefined : product.id,
         variationId: variation?.id,
+        stockProductId: product.id,
         label: variation ? `${product.name} (${Object.values(variation.attributes as Record<string, string>).join(", ")})` : product.name,
         sku: variation?.sku ?? product.sku,
         // Batch 4: variation.salePrice is a new top tier on this screen's
@@ -241,6 +298,10 @@ export function OrderForm({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    submitOrder();
+  }
+
+  function submitOrder(override?: { token: string; reason: string }) {
     if (!customer) {
       toast.error("Sélectionnez un client.");
       return;
@@ -249,6 +310,7 @@ export function OrderForm({
       toast.error("Ajoutez au moins un article.");
       return;
     }
+    setShortage(null);
 
     startTransition(async () => {
       const result = await createOrderAction({
@@ -258,6 +320,9 @@ export function OrderForm({
         channel: channel as CreateOrderInputChannel,
         confirmationAgentId: confirmationAgentId || null,
         customerAlreadyConfirmed: canConfirm && customerAlreadyConfirmed,
+        // P2: authorised override of a stock refusal for that immediate confirmation.
+        stockOverrideToken: override?.token ?? null,
+        stockOverrideReason: override?.reason ?? null,
         shippingCost: Number(shippingCost || 0),
         discountTotal: Number(discountTotal || 0),
         currency: "MAD",
@@ -278,6 +343,11 @@ export function OrderForm({
         })),
       });
 
+      const refusedForStock = stockShortageOf(result);
+      if (refusedForStock) {
+        setShortage(refusedForStock);
+        return;
+      }
       if (result.ok) {
         toast.success("Commande créée.");
         router.push(`/commandes/${result.data.id}`);
@@ -290,6 +360,13 @@ export function OrderForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      <StockOverrideDialog
+        key={shortage?.token ?? "none"}
+        shortage={shortage}
+        pending={isPending}
+        onCancel={() => setShortage(null)}
+        onOverride={(token, reason) => submitOrder({ token, reason })}
+      />
       <Card>
         <CardHeader>
           <CardTitle>Client</CardTitle>
@@ -435,6 +512,7 @@ export function OrderForm({
                         <span className="flex items-center gap-1.5 font-medium">
                           {p.name} — {Object.values(v.attributes as Record<string, string>).join(", ")}
                           {isUnitInOrder(p.id, v.id) && <Check className="size-3.5 text-primary" aria-label="déjà ajouté" />}
+                          <StockBadge stock={v.stock} />
                         </span>
                         <span className="text-xs text-muted-foreground">
                           {v.sku} · {formatCurrency((v.salePrice ?? v.price ?? p.price).toString())}
@@ -451,6 +529,7 @@ export function OrderForm({
                       <span className="flex items-center gap-1.5 font-medium">
                         {p.name}
                         {isUnitInOrder(p.id) && <Check className="size-3.5 text-primary" aria-label="déjà ajouté" />}
+                        <StockBadge stock={p.stock} />
                       </span>
                       <span className="text-xs text-muted-foreground">
                         {p.sku} · {formatCurrency(p.price.toString())}
@@ -488,7 +567,10 @@ export function OrderForm({
                   <TableRow key={i.key}>
                     <TableCell>
                       <p className="font-medium">{i.label}</p>
-                      <p className="text-xs text-muted-foreground">{i.sku}</p>
+                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        {i.sku}
+                        <StockBadge stock={lineStock[stockKey(i.stockProductId, i.variationId)]} requested={i.quantity} />
+                      </p>
                     </TableCell>
                     <TableCell>
                       <Input
@@ -646,7 +728,7 @@ export function OrderForm({
                         <Label>Entrepôt de préparation</Label>
                         <Select
                           value={fulfillmentWarehouseId}
-                          onValueChange={(v) => v && setFulfillmentWarehouseId(v)}
+                          onValueChange={(v) => v && changeFulfillmentWarehouse(v)}
                         >
                           <SelectTrigger className="w-full">
                             <SelectValue>
@@ -728,3 +810,36 @@ export function OrderForm({
 
 type CreateOrderInputMethod = "PAIEMENT_LIVRAISON" | "VIREMENT_BANCAIRE" | "CARTE_BANCAIRE" | "MOBILE_MONEY" | "AUTRE";
 type CreateOrderInputChannel = "TELEPHONE" | "WHATSAPP" | "INSTAGRAM" | "FACEBOOK" | "SITE_WEB" | "AUTRE";
+
+function stockKey(productId: string, variationId?: string | null): string {
+  return variationId ? `v:${variationId}` : `p:${productId}`;
+}
+
+/**
+ * P2 — stock at the selected fulfilment warehouse, quantity only. With
+ * `requested`, warns when the line asks for more than is available (the
+ * confirmation would then be refused unless a manager overrides it).
+ */
+function StockBadge({ stock, requested }: { stock?: PickerStock; requested?: number }) {
+  if (!stock) return null;
+  if (stock.state !== "tracked") {
+    return (
+      <Badge variant="outline" className="font-normal">
+        {stock.state === "no_warehouse" ? "Stock : emplacement inconnu" : "Stock non suivi"}
+      </Badge>
+    );
+  }
+  const short = requested !== undefined ? requested > stock.available : stock.available <= 0;
+  const label =
+    stock.available <= 0
+      ? stock.reserved > stock.onHand
+        ? "Rupture (surréservé)"
+        : "Rupture"
+      : `Stock : ${stock.available}`;
+  return (
+    <Badge variant={short ? "warning" : "secondary"} className="font-normal" title={`En stock ${stock.onHand}, réservé ${stock.reserved}`}>
+      {label}
+      {requested !== undefined && short && stock.available > 0 ? ` (demandé ${requested})` : ""}
+    </Badge>
+  );
+}

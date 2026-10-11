@@ -10,6 +10,7 @@ import { requirePermission } from "@/lib/auth/guards";
 import { listAgentPerformance } from "@/lib/queries/commissions";
 import { resolveDateRangePreset, DATE_RANGE_PRESET_LABELS, type DateRangePreset } from "@/lib/date-range-presets";
 import { formatCurrency, formatPercent } from "@/lib/format";
+import { getBusinessTimeZone } from "@/lib/time/business-zone";
 
 export const metadata = { title: "Performance confirmation — ASODITECH Gestion E-commerce" };
 
@@ -32,7 +33,7 @@ export default async function ConfirmationPerformancePage({
   const rangeParam: DateRangePreset =
     params.range && params.range in DATE_RANGE_PRESET_LABELS ? (params.range as DateRangePreset) : "this-month";
   const preset: DateRangePreset = params.dateFrom || params.dateTo ? "custom" : rangeParam;
-  const { from, to } = resolveDateRangePreset(preset, new Date(), { from: params.dateFrom, to: params.dateTo });
+  const { from, to } = resolveDateRangePreset(preset, new Date(), { from: params.dateFrom, to: params.dateTo }, await getBusinessTimeZone());
 
   const rows = await listAgentPerformance(from || to ? { from, to } : undefined);
   const currency = rows[0]?.currency ?? "MAD";

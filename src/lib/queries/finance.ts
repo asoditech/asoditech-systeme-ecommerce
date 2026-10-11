@@ -2,6 +2,8 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { computePeriodProfitability } from "@/lib/profitability";
+import { getBusinessTimeZone } from "@/lib/time/business-zone";
+import { parseZonedDay, zonedDayStartOffset, zonedInstant, zonedParts } from "@/lib/time/zoned";
 
 export interface PeriodRange {
   from: Date;
@@ -27,12 +29,6 @@ export async function getFinanceSummary(period: PeriodRange, source?: Parameters
 
 export type ExpenseSort = "recent" | "amount-desc" | "amount-asc";
 
-function parseExpenseDate(value: string | undefined, endOfDay = false): Date | undefined {
-  if (!value) return undefined;
-  const d = new Date(endOfDay ? `${value}T23:59:59` : value);
-  return Number.isNaN(d.getTime()) ? undefined : d;
-}
-
 export async function listExpenses(params: {
   q?: string;
   categoryId?: string;
@@ -43,8 +39,10 @@ export async function listExpenses(params: {
 }) {
   const PAGE_SIZE = 25;
   const page = Math.max(1, params.page ?? 1);
-  const dateFrom = parseExpenseDate(params.dateFrom);
-  const dateTo = parseExpenseDate(params.dateTo, true);
+  // Whole days of the business time zone, both ends inclusive.
+  const timeZone = await getBusinessTimeZone();
+  const dateFrom = parseZonedDay(params.dateFrom, timeZone);
+  const dateTo = parseZonedDay(params.dateTo, timeZone, true);
   const where = {
     ...(params.categoryId ? { categoryId: params.categoryId } : {}),
     ...(params.q
@@ -89,38 +87,37 @@ export async function listExpenseCategories() {
   return prisma.expenseCategory.findMany({ orderBy: { name: "asc" } });
 }
 
-export function currentDayRange(): PeriodRange {
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const to = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-  return { from, to };
+// Period helpers — calendar periods of the BUSINESS time zone when
+// `timeZone` is given (src/lib/time/zoned.ts; server callers pass
+// getBusinessTimeZone()), server-local otherwise. A period ends at its last
+// millisecond: the next period's start minus 1 ms.
+const lastMsBefore = (d: Date) => new Date(d.getTime() - 1);
+
+export function currentDayRange(timeZone?: string, now: Date = new Date()): PeriodRange {
+  return { from: zonedDayStartOffset(now, 0, timeZone), to: lastMsBefore(zonedDayStartOffset(now, 1, timeZone)) };
 }
 
-export function yesterdayRange(): PeriodRange {
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-  const to = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59);
-  return { from, to };
+export function yesterdayRange(timeZone?: string, now: Date = new Date()): PeriodRange {
+  return { from: zonedDayStartOffset(now, -1, timeZone), to: lastMsBefore(zonedDayStartOffset(now, 0, timeZone)) };
 }
 
-export function currentMonthRange(): PeriodRange {
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), 1);
-  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-  return { from, to };
+export function currentMonthRange(timeZone?: string, now: Date = new Date()): PeriodRange {
+  const p = zonedParts(now, timeZone);
+  return { from: zonedInstant(timeZone, p.year, p.month, 1), to: lastMsBefore(zonedInstant(timeZone, p.year, p.month + 1, 1)) };
 }
 
-export function currentQuarterRange(): PeriodRange {
-  const now = new Date();
-  const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
-  const from = new Date(now.getFullYear(), quarterStartMonth, 1);
-  const to = new Date(now.getFullYear(), quarterStartMonth + 3, 0, 23, 59, 59);
-  return { from, to };
+export function currentQuarterRange(timeZone?: string, now: Date = new Date()): PeriodRange {
+  const p = zonedParts(now, timeZone);
+  const quarterStartMonth = Math.floor((p.month - 1) / 3) * 3 + 1;
+  return {
+    from: zonedInstant(timeZone, p.year, quarterStartMonth, 1),
+    to: lastMsBefore(zonedInstant(timeZone, p.year, quarterStartMonth + 3, 1)),
+  };
 }
 
-export function currentYearRange(): PeriodRange {
-  const now = new Date();
-  return { from: new Date(now.getFullYear(), 0, 1), to: new Date(now.getFullYear(), 11, 31, 23, 59, 59) };
+export function currentYearRange(timeZone?: string, now: Date = new Date()): PeriodRange {
+  const p = zonedParts(now, timeZone);
+  return { from: zonedInstant(timeZone, p.year, 1, 1), to: lastMsBefore(zonedInstant(timeZone, p.year + 1, 1, 1)) };
 }
 
 export function previousPeriodOfSameLength(period: PeriodRange): PeriodRange {

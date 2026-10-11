@@ -15,6 +15,8 @@ import type { IntegrationProvider } from "@prisma/client";
  * the request (found via a genuine concurrent-delivery test during Phase
  * 21 — see docs/adr/0011-shopify-integration.md; the same fix applies to
  * the WooCommerce webhook route, which had the identical latent race).
+ * A failed delivery (ECHEC) is reprocessed when retried, and its row then
+ * takes the retry's outcome.
  */
 export async function recordWebhookEventOnce(data: {
   integrationId: string;
@@ -28,7 +30,13 @@ export async function recordWebhookEventOnce(data: {
     await prisma.webhookEvent.create({ data });
     return "recorded";
   } catch (error) {
-    if (isUniqueConstraintError(error)) return "already_recorded";
-    throw error;
+    if (!isUniqueConstraintError(error)) throw error;
+    // A retried delivery that had FAILED: its new outcome replaces the ECHEC
+    // row (a row already TRAITE/IGNORE is never overwritten).
+    await prisma.webhookEvent.updateMany({
+      where: { integrationId: data.integrationId, deliveryId: data.deliveryId, status: "ECHEC" },
+      data: { status: data.status, topic: data.topic, resourceId: data.resourceId },
+    });
+    return "already_recorded";
   }
 }

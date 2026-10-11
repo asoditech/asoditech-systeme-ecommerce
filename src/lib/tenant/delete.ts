@@ -90,11 +90,13 @@ const PLATFORM_ONLY_ACCESSORS: readonly string[] = [
 // its Warehouse (which precedes User in the child-first order below).
 const ACCESS_CONFIG_ACCESSORS: readonly string[] = ["userLocation", "userChannel", "userPermissionOverride"];
 
-// Physical Online-order returns are not part of a backup, and neither
-// cascades from anything deleted earlier: an OrderReturn RESTRICTS its Order's
-// delete and an OrderReturnLine RESTRICTS its Warehouse's — so a tenant with a
-// single return could not be deleted at all (docs/adr/0053). Lines first.
-const ORDER_RETURN_ACCESSORS: readonly string[] = ["orderReturnLine", "orderReturn"];
+// Physical Online-order returns: an OrderReturn RESTRICTS its Order's delete
+// and an OrderReturnLine RESTRICTS its Warehouse's — so a tenant with a single
+// return could not be deleted at all (docs/adr/0053). Cleared explicitly, lines
+// first. They are now also part of BACKUP_MODELS (so the business loop below
+// finds nothing left of them); the P3 ReturnReception RESTRICTS its
+// OrderReturn, so it goes before both.
+const ORDER_RETURN_ACCESSORS: readonly string[] = ["returnReception", "orderReturnLine", "orderReturn"];
 
 /** Every model carrying `tenantId` — the purge's dry-run AND its zero-row proof, from the schema itself. */
 const TENANT_MODEL_ACCESSORS: readonly string[] = Prisma.dmmf.datamodel.models
@@ -210,7 +212,9 @@ export async function deleteTenantData(tenantId: string): Promise<DeleteTenantRe
 
         for (const accessor of BUSINESS_ACCESSORS_DELETE_ORDER) {
           const { count } = await delegateOf(tx, accessor).deleteMany({});
-          deletedCounts[accessor] = count;
+          // Accumulate: the order-return models were already cleared (and
+          // counted) above and appear here again with 0 rows left.
+          deletedCounts[accessor] = (deletedCounts[accessor] ?? 0) + count;
           totalDeleted += count;
         }
 

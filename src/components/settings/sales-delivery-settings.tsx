@@ -10,6 +10,7 @@ import {
 import { setWooCommerceForceNouvelleOnImportAction } from "@/actions/woocommerce";
 import { setShopifyForceNouvelleOnImportAction } from "@/actions/shopify";
 import { ChoiceCard, formSwitch, ToggleTile, ValueTile } from "@/components/settings/setting-controls";
+import { SettingInfo } from "@/components/settings/setting-info";
 
 /**
  * The company-wide switches, the shop-import switches and the default
@@ -37,6 +38,7 @@ export function SellerPriceOverrideForm({ enabled }: { enabled: boolean }) {
       save={formSwitch(updateSellerPriceOverrideAction, "allowSellerPriceOverride")}
       onMessage="Les vendeurs magasin peuvent modifier le prix."
       offMessage="Prix magasin : réservé aux responsables."
+      info={<SettingInfo setting="sellerPriceOverride" />}
     />
   );
 }
@@ -60,6 +62,7 @@ export function PackingVerificationForm({ enabled }: { enabled: boolean }) {
       save={formSwitch(updatePackingVerificationAction, "packingVerificationRequired")}
       onMessage="Vérification de l'emballage activée."
       offMessage="Vérification de l'emballage désactivée."
+      info={<SettingInfo setting="packingVerification" />}
     />
   );
 }
@@ -84,6 +87,7 @@ export function TransferCostOverrideForm({ enabled }: { enabled: boolean }) {
       save={formSwitch(updateTransferCostOverrideAction, "transferPurchaseCostOverrideEnabled")}
       onMessage="Coût d'achat à destination activé pour les transferts."
       offMessage="Coût d'achat à destination désactivé — les coûts enregistrés sont conservés."
+      info={<SettingInfo setting="transferCostOverride" />}
     />
   );
 }
@@ -112,6 +116,7 @@ export function ImportAsNouvelleTile({ provider, label, enabled }: { provider: "
       save={(next) => IMPORT_ACTIONS[provider](next)}
       onMessage="Activé : les nouvelles commandes arriveront en « Nouvelle »."
       offMessage="Désactivé."
+      info={<SettingInfo setting="importAsNouvelle" label={`${label} : importer en « Nouvelle »`} />}
     />
   );
 }
@@ -146,6 +151,7 @@ export function DefaultShippingProviderForm({
       note="Le transporteur réel reste choisi à la création de l'expédition."
       action={updateDefaultShippingProviderAction}
       success="Transporteur par défaut enregistré."
+      info={<SettingInfo setting="defaultShippingProvider" />}
     >
       <div role="radiogroup" aria-label="Transporteur par défaut" className="grid gap-2 sm:grid-cols-2">
         <ChoiceCard name="defaultShippingProviderId" value="" defaultChecked={!current} title="Aucun" description="Saisie libre de la ville" />

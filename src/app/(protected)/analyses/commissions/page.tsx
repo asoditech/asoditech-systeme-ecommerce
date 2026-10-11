@@ -8,6 +8,7 @@ import { AnalyticsFilterBar } from "@/components/analytics/analytics-filter-bar"
 import { SeriesChart } from "@/components/analytics/series-chart";
 import { SortHeader } from "@/components/analytics/sort-header";
 import { MetricDefinitions } from "@/components/analytics/metric-definitions";
+import { AnalyticsMetricInfo } from "@/components/analytics/analytics-metric-info";
 import { HandCoins, Undo2, Wallet } from "lucide-react";
 import { analyticsContext } from "@/lib/analytics/context";
 import { analyticsQuery, SOURCE_KEYS, sortRows, sourceLabel } from "@/lib/analytics/filters";
@@ -55,14 +56,17 @@ export default async function CommissionAnalyticsPage({ searchParams }: { search
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <KpiCard label="Commissions gagnées" value={formatCurrency(c.earned)} icon={HandCoins} tone="success" hint={`${c.earnedCount} écriture(s) — commandes passées à Livrée`} />
-        <KpiCard label="Commissions annulées" value={formatCurrency(c.reversed)} icon={Undo2} tone="danger" hint={`${c.reversedCount} écriture(s) — commandes sorties de Livrée`} />
-        <KpiCard label="Commissions nettes" value={formatCurrency(c.net)} icon={Wallet} />
+        <KpiCard label="Commissions gagnées" metric="commissionsEarned" value={formatCurrency(c.earned)} icon={HandCoins} tone="success" hint={`${c.earnedCount} écriture(s) — commandes passées à Livrée`} />
+        <KpiCard label="Commissions annulées" metric="commissionsReversed" value={formatCurrency(c.reversed)} icon={Undo2} tone="danger" hint={`${c.reversedCount} écriture(s) — commandes sorties de Livrée`} />
+        <KpiCard label="Commissions nettes" metric="commissionsNet" value={formatCurrency(c.net)} icon={Wallet} />
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Par période</CardTitle>
+          <CardTitle className="flex items-center gap-1.5">
+                Par période
+                <AnalyticsMetricInfo metric="commissionSeries" />
+              </CardTitle>
         </CardHeader>
         <CardContent>
           <SeriesChart
@@ -78,7 +82,10 @@ export default async function CommissionAnalyticsPage({ searchParams }: { search
 
       <Card>
         <CardHeader>
-          <CardTitle>Par agent</CardTitle>
+          <CardTitle className="flex items-center gap-1.5">
+                Par agent
+                <AnalyticsMetricInfo metric="commissionByAgent" />
+              </CardTitle>
         </CardHeader>
         <CardContent>
           {rows.length === 0 ? (

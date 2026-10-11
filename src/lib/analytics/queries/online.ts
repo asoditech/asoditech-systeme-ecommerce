@@ -1,11 +1,21 @@
 import "server-only";
 
-import type { OrderConfirmationOutcome, OrderStatus, Prisma } from "@prisma/client";
+import type { OrderConfirmationOutcome, OrderStatus, Prisma, ShipmentStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { REVENUE_EXCLUDED_STATUSES } from "@/lib/profitability";
 import type { PeriodRange } from "@/lib/queries/finance";
 import { bucketKey, bucketKeys, bucketLabel, type AnalyticsPeriod } from "@/lib/analytics/period";
 import { orderFilterWhere, sourceKeyOf, sourceLabel, type AnalyticsFilters, type SourceKey } from "@/lib/analytics/filters";
+import {
+  asPct,
+  averageBasket,
+  confirmationRatePct,
+  countOutcomes,
+  deliveryOutcomeRate,
+  netRevenue,
+  orderDeliveryOutcome,
+  type OutcomeCounts,
+} from "@/lib/metrics/formulas";
 
 /**
  * Online order analytics — docs/adr/0051 and docs/analytics/metric-definitions.md.
@@ -56,8 +66,23 @@ export function placedCohortWhere(range: PeriodRange, filters: AnalyticsFilters)
   return { AND: [{ placedAt: { gte: range.from, lte: range.to } }, orderFilterWhere(filters)] };
 }
 
-const confirmedWhere: Prisma.OrderWhereInput = { OR: [{ status: { in: CONFIRMED_REACHED } }, { confirmedAt: { not: null } }] };
+/** Confirmed = the order's confirmation stands (src/lib/metrics/formulas.ts — confirmationRatePct). */
+const confirmedWhere: Prisma.OrderWhereInput = { confirmedAt: { not: null } };
+/** Went through confirmation: at least one attempt recorded, or confirmed (e.g. on import). */
+const wentThroughConfirmationWhere: Prisma.OrderWhereInput = { OR: [{ confirmedAt: { not: null } }, { confirmationAttempts: { some: {} } }] };
 const shippedWhere: Prisma.OrderWhereInput = { OR: [{ status: { in: SHIPPED_REACHED } }, { shippedAt: { not: null } }] };
+
+/** The order's shipments, newest first, for its CURRENT one (failed API creation attempts are never parcels). */
+const shipmentsForOutcome = {
+  orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  select: { status: true, externalId: true, provider: { select: { type: true } } },
+} satisfies Prisma.Order$shipmentsArgs;
+
+export function currentShipmentStatus(
+  shipments: { status: ShipmentStatus; externalId: string | null; provider: { type: string } }[]
+): ShipmentStatus | null {
+  return shipments.find((x) => !(x.status === "ECHEC" && x.externalId === null && x.provider.type === "API"))?.status ?? null;
+}
 
 // ---------------------------------------------------------------------------
 // Overview — operational + commercial KPIs over the placed cohort
@@ -67,6 +92,8 @@ export interface OnlineOverview {
   orders: number;
   pending: number;
   confirmed: number;
+  /** Orders that went through confirmation (the rate's denominator). */
+  wentThroughConfirmation: number;
   confirmationRate: number | null;
   shipped: number;
   delivered: number;
@@ -74,8 +101,10 @@ export interface OnlineOverview {
   cancelled: number;
   failed: number;
   returned: number;
-  /** « CA commandé » — total of placed orders not cancelled/failed/returned/refunded. */
+  /** Gross — total of placed orders not cancelled/failed/returned/refunded. */
   placedRevenue: number;
+  /** « Chiffre d'affaires » — placedRevenue − COMPLETE refunds on those orders (same as Finance / dashboard). */
+  netRevenue: number;
   revenueOrders: number;
   averageOrderValue: number | null;
   unitsSold: number;
@@ -89,34 +118,41 @@ export interface OnlineOverview {
 
 export async function getOnlineOverview(range: PeriodRange, filters: AnalyticsFilters): Promise<OnlineOverview> {
   const cohort = placedCohortWhere(range, filters);
-  const [byStatus, confirmed, shipped, units, refunds] = await Promise.all([
+  const revenueCohort: Prisma.OrderWhereInput = { AND: [cohort, { status: { notIn: REVENUE_EXCLUDED_STATUSES } }] };
+  const [byStatus, confirmed, wentThrough, shipped, units, refunds, revenueRefunds, outcomeRows] = await Promise.all([
     prisma.order.groupBy({ by: ["status"], where: cohort, _count: true, _sum: { total: true } }),
     prisma.order.count({ where: { AND: [cohort, confirmedWhere] } }),
+    prisma.order.count({ where: { AND: [cohort, wentThroughConfirmationWhere] } }),
     prisma.order.count({ where: { AND: [cohort, shippedWhere] } }),
-    prisma.orderItem.aggregate({ where: { order: { AND: [cohort, { status: { notIn: REVENUE_EXCLUDED_STATUSES } }] } }, _sum: { quantity: true } }),
+    prisma.orderItem.aggregate({ where: { order: revenueCohort }, _sum: { quantity: true } }),
     prisma.refund.aggregate({ where: { status: "COMPLETE", order: cohort }, _sum: { amount: true } }),
+    prisma.refund.aggregate({ where: { status: "COMPLETE", order: revenueCohort }, _sum: { amount: true } }),
+    prisma.order.findMany({ where: { AND: [cohort, shippedWhere] }, select: { status: true, shipments: shipmentsForOutcome } }),
   ]);
+  const outcomes = countOutcomes(outcomeRows.map((o) => orderDeliveryOutcome(o.status, currentShipmentStatus(o.shipments))));
   const count = (s: OrderStatus[]) => byStatus.filter((g) => s.includes(g.status)).reduce((n, g) => n + g._count, 0);
   const sum = (s: OrderStatus[]) => round2(byStatus.filter((g) => s.includes(g.status)).reduce((n, g) => n + num(g._sum.total), 0));
   const orders = byStatus.reduce((n, g) => n + g._count, 0);
   const revenueStatuses = ALL_STATUSES.filter((s) => !REVENUE_EXCLUDED_STATUSES.includes(s));
   const placedRevenue = sum(revenueStatuses);
   const revenueOrders = count(revenueStatuses);
-  const delivered = count(["LIVREE"]);
   return {
     orders,
     pending: count(["NOUVELLE"]),
     confirmed,
-    confirmationRate: pct(confirmed, orders),
+    wentThroughConfirmation: wentThrough,
+    confirmationRate: confirmationRatePct(confirmed, wentThrough),
     shipped,
-    delivered,
-    deliveryRate: pct(delivered, shipped),
+    // Final outcome per order (its current parcel) — src/lib/metrics/formulas.ts.
+    delivered: outcomes.delivered,
+    deliveryRate: asPct(deliveryOutcomeRate(outcomes)),
     cancelled: count(["ANNULEE"]),
-    failed: count(["ECHEC"]),
-    returned: count(RETURNED_STATUSES),
+    failed: outcomes.failed,
+    returned: outcomes.returned,
     placedRevenue,
+    netRevenue: netRevenue(placedRevenue, num(revenueRefunds._sum.amount)),
     revenueOrders,
-    averageOrderValue: revenueOrders > 0 ? round2(placedRevenue / revenueOrders) : null,
+    averageOrderValue: averageBasket(placedRevenue, revenueOrders),
     unitsSold: units._sum.quantity ?? 0,
     deliveredRevenue: sum(["LIVREE"]),
     returnedValue: sum(RETURNED_STATUSES),
@@ -127,7 +163,7 @@ export async function getOnlineOverview(range: PeriodRange, filters: AnalyticsFi
 export interface RevenuePoint {
   key: string;
   label: string;
-  /** « CA commandé » of orders placed that day/month. */
+  /** « Chiffre d'affaires » (net of completed refunds) of orders placed that day/month. */
   revenue: number;
   /** Orders placed that day/month (all statuses). */
   orders: number;
@@ -138,14 +174,15 @@ export interface RevenuePoint {
 export async function getOnlineRevenueSeries(period: AnalyticsPeriod, filters: AnalyticsFilters): Promise<RevenuePoint[]> {
   const rows = await prisma.order.findMany({
     where: placedCohortWhere(period.range, filters),
-    select: { placedAt: true, status: true, total: true },
+    select: { placedAt: true, status: true, total: true, refunds: { where: { status: "COMPLETE" }, select: { amount: true } } },
   });
-  const buckets = new Map(bucketKeys(period.range, period.granularity).map((k) => [k, { revenue: 0, orders: 0, deliveredRevenue: 0 }]));
+  const buckets = new Map(bucketKeys(period.range, period.granularity, period.timeZone).map((k) => [k, { revenue: 0, orders: 0, deliveredRevenue: 0 }]));
   for (const o of rows) {
-    const b = buckets.get(bucketKey(o.placedAt, period.granularity));
+    const b = buckets.get(bucketKey(o.placedAt, period.granularity, period.timeZone));
     if (!b) continue;
     b.orders += 1;
-    if (!REVENUE_EXCLUDED_STATUSES.includes(o.status)) b.revenue += num(o.total);
+    // Net, like the headline figure: completed refunds come off the order's own day.
+    if (!REVENUE_EXCLUDED_STATUSES.includes(o.status)) b.revenue += num(o.total) - o.refunds.reduce((n, r) => n + num(r.amount), 0);
     if (o.status === "LIVREE") b.deliveredRevenue += num(o.total);
   }
   return [...buckets.entries()].map(([key, b]) => ({
@@ -177,6 +214,8 @@ export interface ConfirmerRow {
 export interface ConfirmationAnalytics {
   entered: number;
   confirmed: number;
+  /** Orders of the cohort that went through confirmation (the rate's denominator). */
+  wentThroughConfirmation: number;
   pending: number;
   cancelledBeforeConfirmation: number;
   confirmationRate: number | null;
@@ -204,7 +243,10 @@ export async function getConfirmationAnalytics(period: AnalyticsPeriod, filters:
   const confirmedInRange: Prisma.OrderWhereInput = { AND: [{ confirmedAt: { gte: range.from, lte: range.to } }, orderFilter] };
 
   const [cohortRows, attemptGroups, confirmAttempts, attemptDays, confirmedOrders, withoutConfirmer] = await Promise.all([
-    prisma.order.findMany({ where: cohort, select: { placedAt: true, status: true, confirmedAt: true, source: true, channel: true } }),
+    prisma.order.findMany({
+      where: cohort,
+      select: { placedAt: true, status: true, confirmedAt: true, source: true, channel: true, _count: { select: { confirmationAttempts: true } } },
+    }),
     prisma.orderConfirmationAttempt.groupBy({ by: ["agentUserId", "outcome"], where: attemptWhere, _count: true }),
     prisma.orderConfirmationAttempt.findMany({
       where: { ...attemptWhere, outcome: "CONFIRME" },
@@ -220,9 +262,14 @@ export async function getConfirmationAnalytics(period: AnalyticsPeriod, filters:
     filters.confirmerId ? Promise.resolve(0) : prisma.order.count({ where: { AND: [confirmedInRange, { confirmationAttempts: { none: { outcome: "CONFIRME" } } }] } }),
   ]);
 
-  const isConfirmed = (o: { status: OrderStatus; confirmedAt: Date | null }) => CONFIRMED_REACHED.includes(o.status) || o.confirmedAt !== null;
+  // src/lib/metrics/formulas.ts — confirmationRatePct: confirmed (confirmedAt
+  // set) ÷ went through confirmation (an attempt recorded, or confirmed).
+  const isConfirmed = (o: { confirmedAt: Date | null }) => o.confirmedAt !== null;
+  const wentThrough = (o: { confirmedAt: Date | null; _count: { confirmationAttempts: number } }) =>
+    o.confirmedAt !== null || o._count.confirmationAttempts > 0;
   const entered = cohortRows.length;
   const confirmed = cohortRows.filter(isConfirmed).length;
+  const wentThroughConfirmation = cohortRows.filter(wentThrough).length;
 
   // Per confirmer — attempts by outcome, plus their own confirmation times.
   const userIds = [...new Set(attemptGroups.map((g) => g.agentUserId).filter((x): x is string => x !== null))];
@@ -255,25 +302,26 @@ export async function getConfirmationAnalytics(period: AnalyticsPeriod, filters:
   });
 
   // By origin — same cohort, same "reached confirmation" rule.
-  const src = new Map<SourceKey, { entered: number; confirmed: number }>();
+  const src = new Map<SourceKey, { entered: number; confirmed: number; wentThrough: number }>();
   for (const o of cohortRows) {
     const k = sourceKeyOf(o);
-    const b = src.get(k) ?? { entered: 0, confirmed: 0 };
+    const b = src.get(k) ?? { entered: 0, confirmed: 0, wentThrough: 0 };
     b.entered += 1;
     if (isConfirmed(o)) b.confirmed += 1;
+    if (wentThrough(o)) b.wentThrough += 1;
     src.set(k, b);
   }
 
   // Per day/month: cohort entered/confirmed by placedAt; attempts by their own date.
-  const buckets = new Map(bucketKeys(range, period.granularity).map((k) => [k, { entered: 0, confirmed: 0, attempts: 0 }]));
+  const buckets = new Map(bucketKeys(range, period.granularity, period.timeZone).map((k) => [k, { entered: 0, confirmed: 0, attempts: 0 }]));
   for (const o of cohortRows) {
-    const b = buckets.get(bucketKey(o.placedAt, period.granularity));
+    const b = buckets.get(bucketKey(o.placedAt, period.granularity, period.timeZone));
     if (!b) continue;
     b.entered += 1;
     if (isConfirmed(o)) b.confirmed += 1;
   }
   for (const a of attemptDays) {
-    const b = buckets.get(bucketKey(a.createdAt, period.granularity));
+    const b = buckets.get(bucketKey(a.createdAt, period.granularity, period.timeZone));
     if (b) b.attempts += 1;
   }
 
@@ -282,7 +330,8 @@ export async function getConfirmationAnalytics(period: AnalyticsPeriod, filters:
     confirmed,
     pending: cohortRows.filter((o) => o.status === "NOUVELLE").length,
     cancelledBeforeConfirmation: cohortRows.filter((o) => o.status === "ANNULEE" && o.confirmedAt === null).length,
-    confirmationRate: pct(confirmed, entered),
+    wentThroughConfirmation,
+    confirmationRate: confirmationRatePct(confirmed, wentThroughConfirmation),
     attempts,
     attemptsPerConfirmedOrder: confirmAttempts.length > 0 ? round1(attempts / confirmAttempts.length) : null,
     outcomes: [...outcomes.entries()].map(([outcome, count]) => ({ outcome, count })).sort((a, b) => b.count - a.count),
@@ -290,7 +339,7 @@ export async function getConfirmationAnalytics(period: AnalyticsPeriod, filters:
     confirmedWithoutConfirmer: withoutConfirmer,
     byConfirmer,
     bySource: [...src.entries()]
-      .map(([key, b]) => ({ key, label: sourceLabel(key), entered: b.entered, confirmed: b.confirmed, rate: pct(b.confirmed, b.entered) }))
+      .map(([key, b]) => ({ key, label: sourceLabel(key), entered: b.entered, confirmed: b.confirmed, rate: confirmationRatePct(b.confirmed, b.wentThrough) }))
       .sort((a, b) => b.entered - a.entered),
     series: [...buckets.entries()].map(([key, b]) => ({ key, label: bucketLabel(key, period.granularity), ...b })),
   };
@@ -302,12 +351,9 @@ export async function getConfirmationAnalytics(period: AnalyticsPeriod, filters:
 
 export type DeliveryOutcome = "delivered" | "failed" | "returned" | "inProgress";
 
-/** Current status of a SHIPPED order → its delivery outcome. ANNULEE after shipping is only reachable from ECHEC. */
-export function deliveryOutcomeOf(status: OrderStatus): DeliveryOutcome {
-  if (status === "LIVREE") return "delivered";
-  if (status === "RETOUR" || status === "REMBOURSEE") return "returned";
-  if (status === "ECHEC" || status === "ANNULEE") return "failed";
-  return "inProgress";
+/** A shipped order's final outcome (src/lib/metrics/formulas.ts — orderDeliveryOutcome), « en cours » when none yet. */
+export function deliveryOutcomeOf(status: OrderStatus, currentShipment: ShipmentStatus | null = null): DeliveryOutcome {
+  return orderDeliveryOutcome(status, currentShipment) ?? "inProgress";
 }
 
 export interface DeliveryRow {
@@ -336,6 +382,7 @@ export interface DeliveryAnalytics {
 
 type ShippedOrder = {
   status: OrderStatus;
+  outcome: DeliveryOutcome;
   source: string;
   channel: string | null;
   confirmedAt: Date | null;
@@ -346,15 +393,18 @@ type ShippedOrder = {
 
 function deliveryRow(key: string, label: string, rows: ShippedOrder[]): DeliveryRow {
   const c = { delivered: 0, failed: 0, returned: 0, inProgress: 0 };
-  for (const o of rows) c[deliveryOutcomeOf(o.status)] += 1;
+  for (const o of rows) c[o.outcome] += 1;
+  // Rates over orders WITH an outcome — the one « Taux de livraison réussie »
+  // (src/lib/metrics/formulas.ts); « en cours » stays out of every rate.
+  const finished = c.delivered + c.failed + c.returned;
   return {
     key,
     label,
     shipped: rows.length,
     ...c,
-    deliveryRate: pct(c.delivered, rows.length),
-    failureRate: pct(c.failed, rows.length),
-    returnRate: pct(c.returned, rows.length),
+    deliveryRate: asPct(deliveryOutcomeRate(c)),
+    failureRate: pct(c.failed, finished),
+    returnRate: pct(c.returned, finished),
     shippedToDelivered: durationOf(
       rows.filter((o) => o.status === "LIVREE" && o.deliveredAt && o.shippedAt).map((o) => o.deliveredAt!.getTime() - o.shippedAt!.getTime())
     ),
@@ -364,7 +414,7 @@ function deliveryRow(key: string, label: string, rows: ShippedOrder[]): Delivery
 /**
  * Population: Online orders whose `shippedAt` is in the period (the shipping
  * event ASODITECH records — `EXPEDIEE`, or the carrier moving the parcel to
- * EN_TRANSIT). Outcome = the order's CURRENT status. Carrier = the provider of
+ * EN_TRANSIT). Outcome = orderDeliveryOutcome (a recorded Retour / Remboursée wins). Carrier = the provider of
  * the order's latest shipment, excluding API-creation failures that never
  * reached the carrier (same exclusion as the delivery report, ADR 0031).
  */
@@ -380,7 +430,7 @@ export async function getDeliveryAnalytics(period: AnalyticsPeriod, filters: Ana
       shippedAt: true,
       deliveredAt: true,
       shipments: {
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         select: { status: true, externalId: true, provider: { select: { id: true, name: true, type: true } } },
       },
     },
@@ -389,6 +439,7 @@ export async function getDeliveryAnalytics(period: AnalyticsPeriod, filters: Ana
     const s = o.shipments.find((x) => !(x.status === "ECHEC" && x.externalId === null && x.provider.type === "API"));
     return {
       status: o.status,
+      outcome: deliveryOutcomeOf(o.status, s?.status ?? null),
       source: o.source,
       channel: o.channel,
       confirmedAt: o.confirmedAt,
@@ -408,13 +459,12 @@ export async function getDeliveryAnalytics(period: AnalyticsPeriod, filters: Ana
     return [...m.entries()].map(([key, v]) => deliveryRow(key, v.label, v.rows)).sort((a, b) => b.shipped - a.shipped);
   };
 
-  const buckets = new Map(bucketKeys(range, period.granularity).map((k) => [k, { shipped: 0, delivered: 0, failed: 0, returned: 0 }]));
+  const buckets = new Map(bucketKeys(range, period.granularity, period.timeZone).map((k) => [k, { shipped: 0, delivered: 0, failed: 0, returned: 0 }]));
   for (const o of orders) {
-    const b = buckets.get(bucketKey(o.shippedAt!, period.granularity));
+    const b = buckets.get(bucketKey(o.shippedAt!, period.granularity, period.timeZone));
     if (!b) continue;
     b.shipped += 1;
-    const out = deliveryOutcomeOf(o.status);
-    if (out !== "inProgress") b[out] += 1;
+    if (o.outcome !== "inProgress") b[o.outcome] += 1;
   }
 
   const both = (a: keyof ShippedOrder, b: keyof ShippedOrder, only?: (o: ShippedOrder) => boolean) =>
@@ -461,30 +511,45 @@ export interface SourceFunnelRow {
 export async function getOnlineSourceFunnel(range: PeriodRange, filters: AnalyticsFilters): Promise<SourceFunnelRow[]> {
   const rows = await prisma.order.findMany({
     where: placedCohortWhere(range, filters),
-    select: { source: true, channel: true, status: true, confirmedAt: true, shippedAt: true, total: true },
+    select: {
+      source: true,
+      channel: true,
+      status: true,
+      confirmedAt: true,
+      shippedAt: true,
+      total: true,
+      _count: { select: { confirmationAttempts: true } },
+      shipments: shipmentsForOutcome,
+      refunds: { where: { status: "COMPLETE" }, select: { amount: true } },
+    },
   });
-  const m = new Map<SourceKey, Omit<SourceFunnelRow, "key" | "label" | "confirmationRate" | "deliveryRate">>();
+  type Acc = Omit<SourceFunnelRow, "key" | "label" | "confirmationRate" | "deliveryRate"> & { wentThrough: number };
+  const m = new Map<SourceKey, Acc>();
   for (const o of rows) {
     const k = sourceKeyOf(o);
-    const b = m.get(k) ?? { orders: 0, confirmed: 0, shipped: 0, delivered: 0, returned: 0, cancelled: 0, failed: 0, revenue: 0 };
+    const b = m.get(k) ?? { orders: 0, confirmed: 0, wentThrough: 0, shipped: 0, delivered: 0, returned: 0, cancelled: 0, failed: 0, revenue: 0 };
     b.orders += 1;
-    if (CONFIRMED_REACHED.includes(o.status) || o.confirmedAt) b.confirmed += 1;
-    if (SHIPPED_REACHED.includes(o.status) || o.shippedAt) b.shipped += 1;
-    if (o.status === "LIVREE") b.delivered += 1;
-    if (RETURNED_STATUSES.includes(o.status)) b.returned += 1;
+    // Same definitions as the overview (src/lib/metrics/formulas.ts).
+    if (o.confirmedAt) b.confirmed += 1;
+    if (o.confirmedAt || o._count.confirmationAttempts > 0) b.wentThrough += 1;
+    if (SHIPPED_REACHED.includes(o.status) || o.shippedAt) {
+      b.shipped += 1;
+      const outcome = orderDeliveryOutcome(o.status, currentShipmentStatus(o.shipments));
+      if (outcome) b[outcome] += 1;
+    }
     if (o.status === "ANNULEE") b.cancelled += 1;
-    if (o.status === "ECHEC") b.failed += 1;
-    if (!REVENUE_EXCLUDED_STATUSES.includes(o.status)) b.revenue += num(o.total);
+    // Net « Chiffre d'affaires », as everywhere else.
+    if (!REVENUE_EXCLUDED_STATUSES.includes(o.status)) b.revenue += num(o.total) - o.refunds.reduce((n, r) => n + num(r.amount), 0);
     m.set(k, b);
   }
   return [...m.entries()]
-    .map(([key, b]) => ({
+    .map(([key, { wentThrough, ...b }]) => ({
       key,
       label: sourceLabel(key),
       ...b,
       revenue: round2(b.revenue),
-      confirmationRate: pct(b.confirmed, b.orders),
-      deliveryRate: pct(b.delivered, b.shipped),
+      confirmationRate: confirmationRatePct(b.confirmed, wentThrough),
+      deliveryRate: asPct(deliveryOutcomeRate(b as OutcomeCounts)),
     }))
     .sort((a, b) => b.orders - a.orders);
 }

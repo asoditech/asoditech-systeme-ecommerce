@@ -19,7 +19,7 @@ import {
 } from "@/lib/validation/user";
 import { isGlobalRole } from "@/lib/auth/effective-access";
 import { requireCapabilityForAction } from "@/lib/auth/capabilities";
-import { isPermission, type Permission } from "@/lib/auth/permissions";
+import { DENY_ONLY_PERMISSIONS, isPermission, type Permission } from "@/lib/auth/permissions";
 import { permissionAvailable } from "@/lib/tenant/business-mode";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
 
@@ -329,6 +329,10 @@ export async function setUserPermissionOverridesAction(
   }
   if (all.some((p) => NON_OVERRIDABLE_PERMISSIONS.has(p))) {
     return actionError("Cette permission est réservée aux rôles propriétaire et administrateur.");
+  }
+  // P2: DENY-only permissions (the stock override) — refused here, not just hidden in the UI.
+  if (grants.some((p) => DENY_ONLY_PERMISSIONS.has(p as Permission))) {
+    return actionError("Cette capacité est réservée aux rôles propriétaire, administrateur et responsable — elle ne peut pas être accordée individuellement.");
   }
   if (grants.some((p) => denies.includes(p))) {
     return actionError("Une permission ne peut pas être à la fois accordée et refusée.");

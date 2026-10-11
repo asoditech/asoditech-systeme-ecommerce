@@ -1133,6 +1133,19 @@ describe("WooCommerce integration", () => {
       const decrypted = JSON.parse(decryptSecret(integration.credentialsEncrypted!));
       expect(decrypted.webhookSecret).toBe(result.data.secret);
     });
+
+    it("re-saving the store key/secret keeps the webhook secret (webhooks keep verifying)", async () => {
+      await loginAsTestUser({ role: "ADMIN" });
+      await connectFakeStore();
+      const generated = await generateWooCommerceWebhookSecretAction();
+      if (!generated.ok) throw new Error(generated.error);
+
+      await connectFakeStore(); // e.g. rotated consumer key/secret
+
+      const integration = await prisma.integration.findFirstOrThrow({ where: { provider: "WOOCOMMERCE" } });
+      const decrypted = JSON.parse(decryptSecret(integration.credentialsEncrypted!));
+      expect(decrypted).toMatchObject({ apiKey: FAKE_CONSUMER_KEY, webhookSecret: generated.data.secret });
+    });
   });
 
   describe("disconnectIntegrationAction — WooCommerce", () => {

@@ -75,9 +75,9 @@ export async function getCommissionAnalytics(period: AnalyticsPeriod, filters: A
   }
   const byAgent = [...rows.values()].map((r) => ({ ...r, earned: round2(r.earned), reversed: round2(r.reversed), net: round2(r.net) }));
 
-  const buckets = new Map(bucketKeys(period.range, period.granularity).map((k) => [k, { earned: 0, reversed: 0 }]));
+  const buckets = new Map(bucketKeys(period.range, period.granularity, period.timeZone).map((k) => [k, { earned: 0, reversed: 0 }]));
   for (const e of entries) {
-    const b = buckets.get(bucketKey(e.createdAt, period.granularity));
+    const b = buckets.get(bucketKey(e.createdAt, period.granularity, period.timeZone));
     if (!b) continue;
     if (e.type === "EARNED") b.earned += num(e.amount);
     else b.reversed += -num(e.amount);

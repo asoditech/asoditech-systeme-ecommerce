@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WAREHOUSE_TYPE_LABELS } from "@/lib/status-labels";
+import { SettingInfo } from "@/components/settings/setting-info";
 
 /**
  * Business-channel administration (docs/adr/0038). A channel is a business
@@ -65,16 +66,25 @@ function ChannelCard({ channel, locations }: { channel: ChannelRow; locations: L
         </div>
         <CardTitle className="text-[15px]">{channel.name}</CardTitle>
         <Badge variant="outline">{KIND_LABEL[channel.kind]}</Badge>
-        {channel.isDefault && <Badge variant="secondary">Par défaut</Badge>}
+        {channel.isDefault && (
+          <span className="inline-flex items-center gap-0.5">
+            <Badge variant="secondary">Par défaut</Badge>
+            <SettingInfo setting="channelDefault" />
+          </span>
+        )}
         {!channel.isActive && <Badge variant="destructive">Inactif</Badge>}
-        <span className="ml-auto text-xs text-muted-foreground">
+        <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
           {channel.productCount} produit(s) · {channel.userCount} utilisateur(s)
+          <SettingInfo setting="channelCounts" />
         </span>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1.5">
-            <Label htmlFor={`name-${channel.id}`}>Nom</Label>
+            <div className="flex items-center gap-1">
+              <Label htmlFor={`name-${channel.id}`}>Nom</Label>
+              <SettingInfo setting="channelName" />
+            </div>
             <Input id={`name-${channel.id}`} value={name} onChange={(e) => setName(e.target.value)} className="w-64" />
           </div>
           <Button
@@ -102,12 +112,16 @@ function ChannelCard({ channel, locations }: { channel: ChannelRow; locations: L
               Actif
             </label>
           )}
+          {!channel.isDefault && <SettingInfo setting="channelActive" className="mb-1.5" />}
         </div>
 
         <div className="space-y-2">
-          <Label className="flex items-center gap-1.5">
-            <MapPin className="size-3.5" /> Emplacements de vente
-          </Label>
+          <div className="flex items-center gap-1">
+            <Label className="flex items-center gap-1.5">
+              <MapPin className="size-3.5" /> Emplacements de vente
+            </Label>
+            <SettingInfo setting="channelLocations" />
+          </div>
           <p className="text-xs text-muted-foreground">
             Les emplacements physiques d&apos;où ce canal vend. C&apos;est un rattachement, pas un stock : la quantité
             reste sur l&apos;emplacement et n&apos;est jamais dupliquée par canal.
@@ -173,16 +187,25 @@ export function ChannelsPanel({ channels, locations }: { channels: ChannelRow[];
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-[15px]">Nouveau canal de vente</CardTitle>
+          <CardTitle className="flex items-center gap-1 text-[15px]">
+            Nouveau canal de vente
+            <SettingInfo setting="newChannel" />
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="new-channel-name">Nom</Label>
+              <div className="flex items-center gap-1">
+                <Label htmlFor="new-channel-name">Nom</Label>
+                <SettingInfo setting="channelName" />
+              </div>
               <Input id="new-channel-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="ex. Magasin Casablanca" />
             </div>
             <div className="space-y-1.5">
-              <Label>Type</Label>
+              <div className="flex items-center gap-1">
+                <Label>Type</Label>
+                <SettingInfo setting="channelType" />
+              </div>
               <Select value={kind} onValueChange={(v) => v && setKind(v as "ONLINE" | "OFFLINE")}>
                 <SelectTrigger className="w-full">
                   <SelectValue>{(v: string) => KIND_LABEL[v as "ONLINE" | "OFFLINE"] ?? v}</SelectValue>
@@ -194,7 +217,10 @@ export function ChannelsPanel({ channels, locations }: { channels: ChannelRow[];
               </Select>
             </div>
           </div>
-          <Label>Emplacements de vente</Label>
+          <div className="flex items-center gap-1">
+            <Label>Emplacements de vente</Label>
+            <SettingInfo setting="channelLocations" />
+          </div>
           <div className="grid gap-2 sm:grid-cols-2">
             {locations.map((l) => (
               <label key={l.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">

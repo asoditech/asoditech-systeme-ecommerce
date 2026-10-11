@@ -9,7 +9,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
-import { prisma } from "@/lib/prisma";
 import { isShopifyIntegrationEnabled } from "@/lib/integrations/shopify/feature-flag";
 import { INTEGRATION_PROVIDER_LABELS } from "@/lib/status-labels";
 import type { IntegrationProvider } from "@prisma/client";
@@ -38,7 +37,6 @@ const PLANNED_PROVIDER_BRANDS: Partial<Record<string, BrandKey>> = {
 export default async function IntegrationsPage() {
   const user = await requirePermission("integrations.view");
   const canManage = userHasPermission(user, "integrations.manage");
-  const integrations = await prisma.integration.findMany();
   // Shopify is disabled for now (client feedback #10): no connection card,
   // it shows on the roadmap instead. Flip SHOPIFY_INTEGRATION_ENABLED to
   // restore its card.
@@ -56,8 +54,8 @@ export default async function IntegrationsPage() {
         title="Intégrations"
         description={
           shopifyEnabled
-            ? "État des connexions externes. WooCommerce et Shopify disposent d'un adaptateur de synchronisation réel ; les autres intégrations restent au stade de configuration/planification — voir docs/adr/0010-woocommerce-integration.md et docs/adr/0011-shopify-integration.md."
-            : "État des connexions externes. WooCommerce dispose d'un adaptateur de synchronisation réel ; les autres intégrations restent au stade de configuration/planification — voir docs/adr/0010-woocommerce-integration.md."
+            ? "État des connexions externes : WooCommerce et Shopify se synchronisent avec ASODITECH ; les intégrations « Bientôt disponible » ne sont pas encore utilisables."
+            : "État des connexions externes : WooCommerce se synchronise avec ASODITECH ; les intégrations « Bientôt disponible » ne sont pas encore utilisables."
         }
       />
 
@@ -102,12 +100,6 @@ export default async function IntegrationsPage() {
         </div>
       </div>
 
-      {integrations.length === 0 && (
-        <div className="mt-6 flex items-center gap-2 text-sm text-muted-foreground">
-          <Plug className="size-4" />
-          Aucune intégration configurée pour le moment.
-        </div>
-      )}
     </div>
   );
 }

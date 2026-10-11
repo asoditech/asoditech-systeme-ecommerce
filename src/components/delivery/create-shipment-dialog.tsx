@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { startTransition, useActionState, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Truck } from "lucide-react";
@@ -19,6 +19,18 @@ import {
 } from "@/components/ui/dialog";
 import { EditShippingAddressDialog } from "@/components/orders/edit-shipping-address-dialog";
 import { CityMappingDialog } from "@/components/delivery/city-mapping-dialog";
+import { ShipmentConfirmationSummary } from "@/components/delivery/shipment-confirmation-summary";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { createConfirmGate } from "@/lib/shipment-confirmation";
 import type { ShippingProviderType, IntegrationStatus } from "@prisma/client";
 import type { ActionResult, IdResult } from "@/actions/types";
 
@@ -58,16 +70,28 @@ export interface ShipmentProviderOption {
   capabilities: string[];
 }
 
+/** What the confirmation step shows about the order (carrier comes from the selection). */
+export interface ShipmentOrderSummary {
+  recipientName: string;
+  city: string | null;
+  /** null = prepaid, nothing to collect (same rule as the server's `codAmount`). */
+  codAmount: number | null;
+  currency: string;
+  lineCount: number;
+}
+
 export function CreateShipmentDialog({
   orderId,
   providers,
   defaultNotes,
   orderAddress,
+  orderSummary,
 }: {
   orderId: string;
   providers: ShipmentProviderOption[];
   defaultNotes?: string;
   orderAddress?: OrderShippingAddress;
+  orderSummary?: ShipmentOrderSummary;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -92,6 +116,28 @@ export function CreateShipmentDialog({
     undefined
   );
 
+  // A carrier (API) shipment is confirmed first: submitting the form only
+  // stages it; nothing reaches the server — hence no carrier call — until
+  // « Confirmer la création ». A manual provider records a local row only.
+  const gate = useRef(createConfirmGate<FormData>()).current;
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    if (!isApiProvider) return; // native form action, unchanged
+    event.preventDefault();
+    if (isPending || !apiProviderReady) return;
+    gate.request(new FormData(event.currentTarget));
+    setConfirmOpen(true);
+  }
+  function confirmCreation() {
+    setConfirmOpen(false);
+    gate.confirm((formData) => startTransition(() => formAction(formData)));
+  }
+  function cancelCreation() {
+    gate.cancel();
+    setConfirmOpen(false);
+  }
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button type="button" size="sm" />}>
@@ -102,7 +148,7 @@ export function CreateShipmentDialog({
         <DialogHeader>
           <DialogTitle>Nouvelle expédition</DialogTitle>
         </DialogHeader>
-        <form action={formAction} className="space-y-4">
+        <form action={formAction} onSubmit={handleSubmit} className="space-y-4">
           <input type="hidden" name="orderId" value={orderId} />
           <div className="space-y-1.5">
             <Label htmlFor="providerId">Prestataire</Label>
@@ -182,6 +228,37 @@ export function CreateShipmentDialog({
             </Button>
           </DialogFooter>
         </form>
+        <AlertDialog open={confirmOpen} onOpenChange={(next) => (next ? setConfirmOpen(true) : cancelCreation())}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Créer le colis chez {selectedProvider?.name ?? "le transporteur"} ?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Le colis sera enregistré immédiatement chez le transporteur. Vérifiez ces informations avant de confirmer.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <ShipmentConfirmationSummary
+              rows={[
+                { label: "Transporteur", value: selectedProvider?.name ?? "—" },
+                ...(orderSummary
+                  ? [
+                      { label: "Destinataire", value: orderSummary.recipientName },
+                      { label: "Ville", value: orderSummary.city ?? "—" },
+                      { label: "Montant à encaisser (COD)", money: { amount: orderSummary.codAmount, currency: orderSummary.currency } },
+                      { label: "Lignes de commande", value: String(orderSummary.lineCount) },
+                    ]
+                  : []),
+              ]}
+            />
+            <AlertDialogFooter>
+              <AlertDialogCancel type="button" onClick={cancelCreation}>
+                Annuler
+              </AlertDialogCancel>
+              <AlertDialogAction type="button" disabled={isPending} onClick={confirmCreation}>
+                Confirmer la création
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );

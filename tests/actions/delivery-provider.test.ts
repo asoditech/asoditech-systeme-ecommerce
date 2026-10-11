@@ -5,9 +5,11 @@ import {
   configureDeliveryProviderApiAction,
   testDeliveryProviderConnectionAction,
   createShipmentViaProviderAction,
+  createShipmentsBulkAction,
   cancelShipmentAction,
   syncShipmentStatusAction,
 } from "@/actions/delivery";
+import { CARRIER_UNCERTAIN_RETRY_WARNING } from "@/lib/shipment-confirmation";
 import { updateOrderStatusAction, createOrderAction } from "@/actions/orders";
 import { getCurrentUser } from "@/lib/auth/session";
 import { hasGlobalLocationAccess } from "@/lib/auth/location-access";
@@ -353,6 +355,39 @@ describe("delivery provider API connector actions", () => {
       expect(events.map((e) => e.action)).toContain("shipment.creation_failed");
       expect(events.map((e) => e.action)).not.toContain("shipment.created");
     });
+
+    // P1: a carrier 5xx / timeout leaves the carrier-side outcome unknown — the
+    // operator is told to check the carrier portal before retrying (single + bulk).
+    it("warns to check the carrier portal before retrying after a carrier 5xx (single and bulk)", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await configuredConnectedProvider();
+      const orderId = await seedShippableOrder();
+      carrierState.forceCreateStatus = 503;
+
+      const single = await createShipmentViaProviderAction(formData({ orderId, providerId: provider.id }));
+      expect(single.ok).toBe(false);
+      if (!single.ok) expect(single.error).toContain(CARRIER_UNCERTAIN_RETRY_WARNING);
+
+      const bulk = await createShipmentsBulkAction(formData({ providerId: provider.id, orderIds: orderId }));
+      expect(bulk.ok).toBe(true);
+      if (bulk.ok) {
+        expect(bulk.data.results).toHaveLength(1);
+        expect(bulk.data.results[0]!.ok).toBe(false);
+        expect(bulk.data.results[0]!.error).toContain(CARRIER_UNCERTAIN_RETRY_WARNING);
+      }
+    });
+
+    it("does not add the carrier-portal warning to a local refusal that never reached the carrier", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await configuredConnectedProvider();
+      const orderId = await seedShippableOrder();
+      await prisma.order.update({ where: { id: orderId }, data: { shippingAddressLine1: null } });
+
+      const result = await createShipmentViaProviderAction(formData({ orderId, providerId: provider.id }));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).not.toContain(CARRIER_UNCERTAIN_RETRY_WARNING);
+      expect(carrierState.shipments.size).toBe(0);
+    });
   });
 
   describe("cancelShipmentAction / syncShipmentStatusAction", () => {
@@ -395,6 +430,75 @@ describe("delivery provider API connector actions", () => {
       mockCookieStore.clear();
       await loginAsTestUser({ role: "SUPPORT" });
       await expect(cancelShipmentAction(formData({ shipmentId }))).rejects.toThrow();
+    });
+  });
+
+  describe("carrier cancellation pre-check / self-heal audit", () => {
+    async function connectedProvider() {
+      const provider = await seedApiProviderRow();
+      await configureDeliveryProviderApiAction(
+        formData({ providerId: provider.id, providerKey: REFERENCE_PROVIDER_KEY, credentialsJson: JSON.stringify({ apiKey: FAKE_API_KEY }) })
+      );
+      return provider.id;
+    }
+
+    const cancelCalls = () =>
+      vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => /\/shipments\/[^/]+\/cancel$/.test(new URL(String(input)).pathname));
+
+    it("refuses to cancel an EN_TRANSIT parcel WITHOUT calling the carrier", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const providerId = await connectedProvider();
+      const orderId = await seedShippableOrder();
+      const create = await createShipmentViaProviderAction(formData({ orderId, providerId }));
+      if (!create.ok) throw new Error("setup failed");
+      const shipment = await prisma.shipment.findUniqueOrThrow({ where: { id: create.data.id } });
+      carrierState.shipments.get(shipment.externalId!)!.status = "in_transit";
+      expect((await syncShipmentStatusAction(formData({ shipmentId: shipment.id }))).ok).toBe(true);
+      expect((await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } })).status).toBe("EN_TRANSIT");
+
+      const result = await cancelShipmentAction(formData({ shipmentId: shipment.id }));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/ne peut plus être annulée/);
+
+      expect(cancelCalls()).toHaveLength(0);
+      expect(carrierState.shipments.get(shipment.externalId!)!.status).toBe("in_transit");
+      expect((await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } })).status).toBe("EN_TRANSIT");
+      expect(await prisma.auditEvent.count({ where: { action: "shipment.cancellation_failed", entityId: shipment.id } })).toBe(1);
+    });
+
+    it("an EN_ATTENTE parcel is still cancelled at the carrier (one call)", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const providerId = await connectedProvider();
+      const orderId = await seedShippableOrder();
+      const create = await createShipmentViaProviderAction(formData({ orderId, providerId }));
+      if (!create.ok) throw new Error("setup failed");
+
+      expect((await cancelShipmentAction(formData({ shipmentId: create.data.id }))).ok).toBe(true);
+      expect(cancelCalls()).toHaveLength(1);
+    });
+
+    it("the self-heal removal of a failed API attempt is audited with its status / reason / cost", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const providerId = await connectedProvider();
+      const orderId = await seedShippableOrder();
+      carrierState.forceCreateStatus = 422;
+      expect((await createShipmentViaProviderAction(formData({ orderId, providerId }))).ok).toBe(false);
+      carrierState.forceCreateStatus = undefined;
+      const failed = await prisma.shipment.findFirstOrThrow({ where: { orderId, status: "ECHEC", externalId: null } });
+
+      const created = await createShipmentViaProviderAction(formData({ orderId, providerId }));
+      expect(created.ok).toBe(true);
+      expect(await prisma.shipment.findUnique({ where: { id: failed.id } })).toBeNull();
+
+      const audits = await prisma.auditEvent.findMany({ where: { action: "shipment.deleted", entityType: "Order", entityId: orderId } });
+      expect(audits).toHaveLength(1);
+      expect(audits[0].previousValue).toMatchObject({
+        shipmentId: failed.id,
+        status: "ECHEC",
+        failedReason: failed.failedReason,
+        cost: failed.cost?.toString() ?? null,
+      });
+      expect(audits[0].metadata).toMatchObject({ providerId, via: "self_heal" });
     });
   });
 });

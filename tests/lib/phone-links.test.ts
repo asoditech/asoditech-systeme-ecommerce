@@ -26,6 +26,8 @@ describe("phoneWhatsAppHref", () => {
   it("international numbers are used as-is (+, 00, or 212 with 12 digits)", () => {
     expect(phoneWhatsAppHref("+212 6 12 34 56 78")).toBe("https://wa.me/212612345678");
     expect(phoneWhatsAppHref("00212612345678")).toBe("https://wa.me/212612345678");
+    expect(phoneWhatsAppHref("+212 0612345678")).toBe("https://wa.me/212612345678");
+    expect(phoneWhatsAppHref("00212 0612345678")).toBe("https://wa.me/212612345678");
     expect(phoneWhatsAppHref("212612345678")).toBe("https://wa.me/212612345678");
     expect(phoneWhatsAppHref("+33 6 12 34 56 78")).toBe("https://wa.me/33612345678");
   });

@@ -24,6 +24,8 @@ export interface ProductListFilters {
   type?: ProductTypeFilter;
   sort?: ProductSort;
   page?: number;
+  /** Rows per page — the list page passes the URL's 10/50/100; other callers keep the 20 default. */
+  pageSize?: number;
 }
 
 /**
@@ -62,6 +64,7 @@ export async function productSearchWhereWithOptions(
 
 export async function listProducts(params: ProductListFilters, viewer?: Pick<CurrentUser, "locations">) {
   const page = Math.max(1, params.page ?? 1);
+  const pageSize = params.pageSize && params.pageSize > 0 ? params.pageSize : PAGE_SIZE;
   // Stock figures cover only the viewer's own locations (docs/adr/0050);
   // omitted = tenant-wide (non-page callers).
   const stockScope = viewer ? warehouseReadWhere(viewer) : {};
@@ -81,22 +84,26 @@ export async function listProducts(params: ProductListFilters, viewer?: Pick<Cur
   // the merchant-facing creation date (the store's `date_created` for an
   // imported product, `now()` for one made here) — `createdAt` is only the
   // local insert time, which reshuffles on every re-import. Fall back to
-  // `createdAt` for any row a sync hasn't populated yet.
-  const orderBy: Prisma.ProductOrderByWithRelationInput[] =
-    params.sort === "name"
-      ? [{ name: "asc" }]
+  // `createdAt` for any row a sync hasn't populated yet. `id` is only a
+  // unique tie-break (equal names/prices/dates) so offset pages never
+  // repeat or skip a row — it does not change the business order.
+  const orderBy: Prisma.ProductOrderByWithRelationInput[] = [
+    ...(params.sort === "name"
+      ? [{ name: "asc" as const }]
       : params.sort === "price-asc"
-        ? [{ price: "asc" }]
+        ? [{ price: "asc" as const }]
         : params.sort === "price-desc"
-          ? [{ price: "desc" }]
-          : [{ platformCreatedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }];
+          ? [{ price: "desc" as const }]
+          : [{ platformCreatedAt: { sort: "desc" as const, nulls: "last" as const } }, { createdAt: "desc" as const }]),
+    { id: "asc" },
+  ];
 
   const [products, total] = await Promise.all([
     prisma.product.findMany({
       where,
       orderBy,
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
       include: {
         category: true,
         inventoryItems: { where: stockScope, select: { quantityOnHand: true, quantityReserved: true } },
@@ -123,7 +130,7 @@ export async function listProducts(params: ProductListFilters, viewer?: Pick<Cur
     prisma.product.count({ where }),
   ]);
 
-  return { products, total, page, pageSize: PAGE_SIZE };
+  return { products, total, page, pageSize };
 }
 
 export async function getProductDetail(id: string, viewer?: Pick<CurrentUser, "locations">) {

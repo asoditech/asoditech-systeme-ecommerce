@@ -3,6 +3,7 @@
 import { Calculator } from "lucide-react";
 import { updateCostingMethodAction } from "@/actions/settings";
 import { ChoiceCard, ValueTile } from "@/components/settings/setting-controls";
+import { SettingInfo } from "@/components/settings/setting-info";
 import { COSTING_METHOD_HELP, COSTING_METHOD_LABELS } from "@/lib/settings/configuration-model";
 import type { BusinessSettings, CostingMethod } from "@prisma/client";
 
@@ -24,6 +25,7 @@ export function CostingMethodForm({ settings }: { settings: Pick<BusinessSetting
       note="Jamais le coût déjà figé sur une commande ou une vente passée."
       action={updateCostingMethodAction}
       success="Méthode de calcul du coût enregistrée."
+      info={<SettingInfo setting="costingMethod" />}
     >
       <div role="radiogroup" aria-label="Méthode de calcul du coût" className="grid gap-2">
         {(Object.keys(COSTING_METHOD_LABELS) as CostingMethod[]).map((m) => (

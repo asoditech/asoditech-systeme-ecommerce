@@ -29,6 +29,7 @@ export function MetricWithProgress({
   segments,
   percent,
   barClassName,
+  explain,
 }: {
   label: string;
   value: string;
@@ -37,6 +38,8 @@ export function MetricWithProgress({
   segments?: ProgressSegment[];
   percent?: number;
   barClassName?: string;
+  /** « ⓘ » next to the label (e.g. <DashboardMetricInfo/>). */
+  explain?: React.ReactNode;
 }) {
   const total = segments?.reduce((sum, s) => sum + s.value, 0) ?? 0;
 
@@ -54,6 +57,7 @@ export function MetricWithProgress({
               </span>
             )}
             <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+            {explain}
           </div>
           <p className="truncate text-2xl font-bold tracking-tight tabular-nums">{value}</p>
           {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}

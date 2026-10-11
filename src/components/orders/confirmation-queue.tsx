@@ -20,6 +20,8 @@ import {
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { CONFIRMATION_OUTCOME_LABELS as OUTCOME_LABELS } from "@/lib/status-labels";
 import { buildCustomerWhatsAppUrl } from "@/lib/whatsapp";
+import { StockOverrideDialog } from "@/components/orders/stock-override-dialog";
+import { stockShortageOf, type StockShortage } from "@/lib/stock-shortage";
 
 export interface ConfirmationQueueOrder {
   id: string;
@@ -34,9 +36,13 @@ export interface ConfirmationQueueOrder {
   itemCount: number;
   attemptCount: number;
   flagged: boolean;
-  /** Batch 3, Task 8 — at least one line requests more than is currently
-   * available. Informational only: confirming is never blocked by this. */
+  /** At least one line requests more than is available at the order's
+   * fulfilment warehouse — since P2 confirming is refused unless an
+   * authorised user overrides it. */
   stockWarning: boolean;
+  /** P2 — at least one line has no stock row there, or its product's stock
+   * tracking is off: « Stock non suivi » (never blocks). */
+  stockUntracked: boolean;
   recentAttempts: { outcome: string; agentName: string | null; createdAt: string }[];
 }
 
@@ -72,13 +78,25 @@ function ConfirmationCard({ order }: { order: ConfirmationQueueOrder }) {
   const [note, setNote] = useState("");
   const [noAnswerKind, setNoAnswerKind] = useState<(typeof NO_ANSWER_OUTCOMES)[number]>("PAS_DE_REPONSE");
 
-  function submit(outcome: string) {
+  const [shortage, setShortage] = useState<StockShortage | null>(null);
+
+  function submit(outcome: string, override?: { token: string; reason: string }) {
     const fd = new FormData();
     fd.set("id", order.id);
     fd.set("outcome", outcome);
     if (note.trim()) fd.set("note", note.trim());
+    if (override) {
+      fd.set("stockOverrideToken", override.token);
+      fd.set("stockOverrideReason", override.reason);
+    }
+    setShortage(null);
     startTransition(async () => {
       const res = await recordConfirmationAttemptAction(fd);
+      const refusedForStock = stockShortageOf(res);
+      if (refusedForStock) {
+        setShortage(refusedForStock);
+        return;
+      }
       if (res.ok) {
         toast.success(
           outcome === "CONFIRME"
@@ -169,11 +187,21 @@ function ConfirmationCard({ order }: { order: ConfirmationQueueOrder }) {
         <div className="mt-2 flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
           <span>
-            Stock actuellement insuffisant pour au moins un article — la commande reste confirmable, la quantité
-            manquante pourra être livrée en différé.
+            Stock insuffisant à l&apos;emplacement de préparation pour au moins un article — la confirmation sera
+            refusée, sauf validation motivée d&apos;un responsable.
           </span>
         </div>
       )}
+      {order.stockUntracked && (
+        <p className="mt-2 text-xs text-muted-foreground">Stock non suivi pour au moins un article à cet emplacement.</p>
+      )}
+      <StockOverrideDialog
+        key={shortage?.token ?? "none"}
+        shortage={shortage}
+        pending={isPending}
+        onCancel={() => setShortage(null)}
+        onOverride={(token, reason) => submit("CONFIRME", { token, reason })}
+      />
 
       {order.recentAttempts.length > 0 && (
         <ul className="mt-3 space-y-0.5 border-l-2 border-muted pl-3 text-xs text-muted-foreground">

@@ -44,17 +44,27 @@ function startOfUtcDay(now = new Date()): Date {
 /**
  * Atomic "first delivery-failure WhatsApp of the UTC day" claim on the
  * user's own row: a conditional UPDATE, so two concurrent bundles cannot
- * both win. Claimed before sending (no retries in V1).
+ * both win. Claimed before sending (no retries in V1); returns the claim
+ * time, or null when another bundle already holds today's claim.
  */
-async function claimDailyDeliveryFailure(userId: string): Promise<boolean> {
+async function claimDailyDeliveryFailure(userId: string): Promise<Date | null> {
+  const claimedAt = new Date();
   const { count } = await prisma.user.updateMany({
     where: {
       id: userId,
       OR: [{ whatsappDeliveryFailureNotifiedAt: null }, { whatsappDeliveryFailureNotifiedAt: { lt: startOfUtcDay() } }],
     },
-    data: { whatsappDeliveryFailureNotifiedAt: new Date() },
+    data: { whatsappDeliveryFailureNotifiedAt: claimedAt },
   });
-  return count === 1;
+  return count === 1 ? claimedAt : null;
+}
+
+/** Gives today's claim back after a send Meta refused, so a later failure summary can still go out today. */
+async function releaseDailyDeliveryFailure(userId: string, claimedAt: Date): Promise<void> {
+  await prisma.user.updateMany({
+    where: { id: userId, whatsappDeliveryFailureNotifiedAt: claimedAt },
+    data: { whatsappDeliveryFailureNotifiedAt: null },
+  });
 }
 
 export async function sendWhatsAppToUsers(
@@ -74,8 +84,17 @@ export async function sendWhatsAppToUsers(
     for (const item of items) {
       const to = ready.get(item.userId);
       if (!to) continue;
-      if (options.oncePerDay === "delivery_failure" && !(await claimDailyDeliveryFailure(item.userId))) continue;
-      await sendTemplateMessage(to, item.message);
+      let claimedAt: Date | null = null;
+      if (options.oncePerDay === "delivery_failure") {
+        claimedAt = await claimDailyDeliveryFailure(item.userId);
+        if (!claimedAt) continue;
+      }
+      const result = await sendTemplateMessage(to, item.message);
+      if (!result.ok) {
+        // Template name only — never the number or the message parameters.
+        console.error(`[whatsapp] send refused (non-fatal): template=${item.message.templateName}`);
+        if (claimedAt) await releaseDailyDeliveryFailure(item.userId, claimedAt);
+      }
     }
   } catch (error) {
     console.error(`[whatsapp] dispatch failed (non-fatal): ${error instanceof Error ? error.name : "unknown"}`);

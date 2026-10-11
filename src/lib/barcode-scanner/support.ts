@@ -51,6 +51,16 @@ export function evaluateScannerSupport(env: ScannerEnvironment): ScannerSupportS
 export const RELEVANT_BARCODE_FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "itf", "codabar"] as const;
 
 /**
+ * Camera formats of the LOOKUP screens (sale, reception, packing, returns,
+ * traceability): the linear ones + QR, because the ASODITECH label's QR
+ * (`/scan/<token>`) resolves to its article there (src/lib/catalog/lookup.ts).
+ * Barcode ENTRY fields (product form, identity panel) keep the linear list:
+ * a QR's URL is not a product barcode. QR decoding by the bundled ZXing
+ * decoder is verified in tests/lib/label-scan-compat.test.ts.
+ */
+export const LOOKUP_SCAN_FORMATS = [...RELEVANT_BARCODE_FORMATS, "qr_code"] as const;
+
+/**
  * Camera request: the rear camera, and a HIGHER resolution as an ideal (never
  * required — a camera that can't do it simply delivers less). With the default
  * (often 640×480) a barcode is only a few pixels wide, so people bring the

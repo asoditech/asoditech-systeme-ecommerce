@@ -7,6 +7,8 @@ import {
   previousPeriodOfSameLength,
   type PeriodRange,
 } from "@/lib/queries/finance";
+import { getBusinessTimeZone } from "@/lib/time/business-zone";
+import { parseZonedDay } from "@/lib/time/zoned";
 
 /**
  * Shared date-range resolution for every /rapports page and its CSV
@@ -28,44 +30,48 @@ export interface ResolvedReportRange {
   params: { period?: ReportPeriodKey; from?: string; to?: string };
 }
 
-function parseDay(value: string | undefined, endOfDay = false): Date | undefined {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
-  const d = new Date(endOfDay ? `${value}T23:59:59.999` : `${value}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? undefined : d;
-}
-
-function toDay(d: Date): string {
-  return d.toLocaleDateString("en-CA");
-}
-
-export function resolveReportRange(params: {
-  period?: string;
-  from?: string;
-  to?: string;
-}): ResolvedReportRange {
-  const from = parseDay(params.from);
-  const to = parseDay(params.to, true);
+/**
+ * Days and calendar periods are the BUSINESS time zone's when `timeZone` is
+ * given (src/lib/time/zoned.ts) — use resolveTenantReportRange from a
+ * request; `undefined` keeps server-local days (pure tests).
+ */
+export function resolveReportRange(
+  params: {
+    period?: string;
+    from?: string;
+    to?: string;
+  },
+  timeZone?: string,
+  now: Date = new Date()
+): ResolvedReportRange {
+  const from = parseZonedDay(params.from, timeZone);
+  const to = parseZonedDay(params.to, timeZone, true);
   if (from && to && from <= to) {
     const range = { from, to };
     return {
       range,
       previous: previousPeriodOfSameLength(range),
       key: "custom",
-      label: `${toDay(from)} → ${toDay(to)}`,
+      label: `${params.from} → ${params.to}`,
       params: { from: params.from, to: params.to },
     };
   }
 
   if (params.period === "quarter") {
-    const range = currentQuarterRange();
+    const range = currentQuarterRange(timeZone, now);
     return { range, previous: previousPeriodOfSameLength(range), key: "quarter", label: "Ce trimestre", params: { period: "quarter" } };
   }
   if (params.period === "year") {
-    const range = currentYearRange();
+    const range = currentYearRange(timeZone, now);
     return { range, previous: previousPeriodOfSameLength(range), key: "year", label: "Cette année", params: { period: "year" } };
   }
-  const range = currentMonthRange();
+  const range = currentMonthRange(timeZone, now);
   return { range, previous: previousPeriodOfSameLength(range), key: "month", label: "Ce mois", params: { period: "month" } };
+}
+
+/** resolveReportRange in the current tenant's business time zone. */
+export async function resolveTenantReportRange(params: { period?: string; from?: string; to?: string }): Promise<ResolvedReportRange> {
+  return resolveReportRange(params, await getBusinessTimeZone());
 }
 
 /** Percentage change current vs previous, one decimal — null when the

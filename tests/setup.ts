@@ -33,3 +33,18 @@ vi.mock("next/cache", () => ({
 }));
 
 vi.mock("server-only", () => ({}));
+
+// `after()` (next/server) needs a live request scope. Stand-in: run the task
+// immediately (its synchronous part completes before the action returns, as
+// in the existing email-log assertions) and keep the promise so a test can
+// `await flushAfterTasks()` for the rest. Everything else in next/server is real.
+const { pendingAfterTasks } = vi.hoisted(() => ({ pendingAfterTasks: [] as Promise<unknown>[] }));
+export async function flushAfterTasks() {
+  while (pendingAfterTasks.length > 0) await Promise.all(pendingAfterTasks.splice(0));
+}
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (task: Promise<unknown> | (() => unknown)) => {
+    pendingAfterTasks.push(Promise.resolve(typeof task === "function" ? task() : task));
+  },
+}));

@@ -9,6 +9,7 @@ import { BreakdownBarList } from "@/components/analytics/breakdown-bar-list";
 import { SeriesChart } from "@/components/analytics/series-chart";
 import { SortHeader } from "@/components/analytics/sort-header";
 import { MetricDefinitions } from "@/components/analytics/metric-definitions";
+import { AnalyticsMetricInfo } from "@/components/analytics/analytics-metric-info";
 import { ShoppingCart, CheckCircle2, Percent, PhoneCall, Timer, Hourglass, Ban, UserX } from "lucide-react";
 import { analyticsContext } from "@/lib/analytics/context";
 import { analyticsQuery, SOURCE_KEYS, sortRows, sourceLabel } from "@/lib/analytics/filters";
@@ -72,20 +73,23 @@ export default async function ConfirmationAnalyticsPage({ searchParams }: { sear
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Entrées dans la confirmation" value={String(c.entered)} icon={ShoppingCart} hint="Commandes passées sur la période" />
-        <KpiCard label="Confirmées" value={String(c.confirmed)} icon={CheckCircle2} tone="success" hint={`${c.pending} encore à confirmer`} />
-        <KpiCard label="Taux de confirmation" value={c.confirmationRate === null ? null : formatPct(c.confirmationRate)} unavailableReason="Aucune commande" icon={Percent} tone="info" />
-        <KpiCard label="Annulées avant confirmation" value={String(c.cancelledBeforeConfirmation)} icon={Ban} tone="warning" />
-        <KpiCard label="Tentatives d'appel" value={String(c.attempts)} icon={PhoneCall} tone="violet" hint={c.attemptsPerConfirmedOrder === null ? undefined : `${String(c.attemptsPerConfirmedOrder).replace(".", ",")} tentative(s) par confirmation`} />
-        <KpiCard label="Délai moyen de confirmation" value={c.confirmationTime.sample ? formatHours(c.confirmationTime.avgHours) : null} unavailableReason="Aucune confirmation" icon={Timer} hint={c.confirmationTime.sample ? `sur ${c.confirmationTime.sample} commande(s)` : undefined} />
-        <KpiCard label="Délai médian de confirmation" value={c.confirmationTime.sample ? formatHours(c.confirmationTime.medianHours) : null} unavailableReason="Aucune confirmation" icon={Hourglass} />
-        <KpiCard label="Confirmées sans confirmateur enregistré" value={filters.confirmerId ? null : String(c.confirmedWithoutConfirmer)} unavailableReason="Sans objet (filtre confirmateur)" icon={UserX} tone="warning" hint="Importations / historique — attribuées à personne" />
+        <KpiCard label="Entrées dans la confirmation" metric="confirmationEntered" value={String(c.entered)} icon={ShoppingCart} hint="Commandes passées sur la période" />
+        <KpiCard label="Confirmées" metric="confirmedOrders" value={String(c.confirmed)} icon={CheckCircle2} tone="success" hint={`${c.pending} encore à confirmer`} />
+        <KpiCard label="Taux de confirmation" metric="confirmationRate" value={c.confirmationRate === null ? null : formatPct(c.confirmationRate)} unavailableReason="Aucune commande" icon={Percent} tone="info" />
+        <KpiCard label="Annulées avant confirmation" metric="cancelledBeforeConfirmation" value={String(c.cancelledBeforeConfirmation)} icon={Ban} tone="warning" />
+        <KpiCard label="Tentatives d'appel" metric="confirmationAttempts" value={String(c.attempts)} icon={PhoneCall} tone="violet" hint={c.attemptsPerConfirmedOrder === null ? undefined : `${String(c.attemptsPerConfirmedOrder).replace(".", ",")} tentative(s) par confirmation`} />
+        <KpiCard label="Délai moyen de confirmation" metric="confirmationAvgTime" value={c.confirmationTime.sample ? formatHours(c.confirmationTime.avgHours) : null} unavailableReason="Aucune confirmation" icon={Timer} hint={c.confirmationTime.sample ? `sur ${c.confirmationTime.sample} commande(s)` : undefined} />
+        <KpiCard label="Délai médian de confirmation" metric="confirmationMedianTime" value={c.confirmationTime.sample ? formatHours(c.confirmationTime.medianHours) : null} unavailableReason="Aucune confirmation" icon={Hourglass} />
+        <KpiCard label="Confirmées sans confirmateur enregistré" metric="confirmedWithoutConfirmer" value={filters.confirmerId ? null : String(c.confirmedWithoutConfirmer)} unavailableReason="Sans objet (filtre confirmateur)" icon={UserX} tone="warning" hint="Importations / historique — attribuées à personne" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Entrées, confirmées et tentatives — {period.label}</CardTitle>
+            <CardTitle className="flex items-center gap-1.5">
+                Entrées, confirmées et tentatives — {period.label}
+                <AnalyticsMetricInfo metric="confirmationSeries" />
+              </CardTitle>
           </CardHeader>
           <CardContent>
             <SeriesChart
@@ -100,7 +104,10 @@ export default async function ConfirmationAnalyticsPage({ searchParams }: { sear
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Résultats des tentatives</CardTitle>
+            <CardTitle className="flex items-center gap-1.5">
+                Résultats des tentatives
+                <AnalyticsMetricInfo metric="attemptOutcomes" />
+              </CardTitle>
           </CardHeader>
           <CardContent>
             {c.outcomes.length === 0 ? (
@@ -121,7 +128,10 @@ export default async function ConfirmationAnalyticsPage({ searchParams }: { sear
 
       <Card>
         <CardHeader>
-          <CardTitle>Par confirmateur</CardTitle>
+          <CardTitle className="flex items-center gap-1.5">
+                Par confirmateur
+                <AnalyticsMetricInfo metric="confirmationByConfirmer" />
+              </CardTitle>
         </CardHeader>
         <CardContent>
           {rows.length === 0 ? (
@@ -165,7 +175,10 @@ export default async function ConfirmationAnalyticsPage({ searchParams }: { sear
 
       <Card>
         <CardHeader>
-          <CardTitle>Par origine</CardTitle>
+          <CardTitle className="flex items-center gap-1.5">
+                Par origine
+                <AnalyticsMetricInfo metric="confirmationBySource" />
+              </CardTitle>
         </CardHeader>
         <CardContent>
           {c.bySource.length === 0 ? (

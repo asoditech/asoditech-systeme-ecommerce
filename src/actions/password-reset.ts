@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { prisma, prismaBase } from "@/lib/prisma";
 import { requirePermissionForAction, requirePlatformAdminForAction } from "@/lib/auth/guards";
 import { runUnscoped, runWithTenant } from "@/lib/tenant/context";
@@ -10,6 +11,16 @@ import { hashPassword } from "@/lib/auth/password";
 import { destroyAllSessionsForUser } from "@/lib/auth/session";
 import { recordAuditEvent } from "@/lib/audit";
 import { sendPasswordResetEmail } from "@/lib/email";
+import {
+  PROGRESSIVE_LIMITS,
+  RATE_LIMITS,
+  clearProgressive,
+  consumeRateLimit,
+  getClientIp,
+  normalizeEmail,
+  rateLimitKey,
+} from "@/lib/security/rate-limit";
+import { knownDeviceMatchesUser, readKnownDevice } from "@/lib/security/known-device";
 import { requestPasswordResetSchema, resetPasswordSchema } from "@/lib/validation/auth";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import type { PrismaTransactionClient } from "@/lib/prisma";
@@ -32,6 +43,8 @@ import type { PrismaTransactionClient } from "@/lib/prisma";
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour — shorter-lived than an invitation
 const GENERIC_INVALID_TOKEN = "Ce lien de réinitialisation n'est plus valide.";
+const TOO_MANY_RESET_REQUESTS = "Trop de demandes de réinitialisation. Réessayez plus tard.";
+const TOO_MANY_RESET_ATTEMPTS = "Trop de tentatives. Réessayez plus tard.";
 
 async function issueResetToken(tx: PrismaTransactionClient, userId: string): Promise<string> {
   const rawToken = generateRawToken();
@@ -52,6 +65,57 @@ export async function requestPasswordResetAction(
     return actionError("Adresse e-mail invalide.");
   }
 
+  // Rate limiting (src/lib/security/rate-limit.ts), before any lookup —
+  // separate from every login bucket. The IP limit may say so: it is about
+  // the caller, not about any account. The EMAIL limits (keyed on any
+  // submitted address, account or not; hourly AND daily) are absorbed
+  // silently — the usual generic success, no email sent — so they can
+  // neither reveal an account nor be used to flood an inbox. A known device
+  // of the address (src/lib/security/known-device.ts) uses its own quota
+  // instead: an attacker exhausting the address's quota can't silently make
+  // the owner's own recovery unusable. That exemption covers the device's
+  // OWN user only, and only while that user is still ACTIVE with the same
+  // password (knownDeviceMatchesUser) — email is unique per tenant, so a
+  // same-address account in another tenant (or a disabled one) must not
+  // lend its device to requests for this address: every other account is
+  // served only within the address's normal quota, which the device's
+  // requests are charged to as well.
+  const ip = await getClientIp();
+  if (ip) {
+    const flood = await consumeRateLimit(RATE_LIMITS.resetRequestIp, rateLimitKey(RATE_LIMITS.resetRequestIp, ip), "open");
+    if (!flood.allowed && flood.reason === "limited") return actionError(TOO_MANY_RESET_REQUESTS);
+  }
+  const email = normalizeEmail(parsed.data.email);
+  const device = await readKnownDevice(email);
+  const deviceOwner = device
+    ? await runUnscoped("password-reset:request:device", () =>
+        prismaBase.user.findUnique({ where: { id: device.userId }, select: { id: true, email: true, status: true, passwordHash: true } })
+      )
+    : null;
+  const deviceOwnerId =
+    device !== null && deviceOwner !== null && normalizeEmail(deviceOwner.email) === email && knownDeviceMatchesUser(device, deviceOwner)
+      ? deviceOwner.id
+      : null;
+  const addressQuotaAllows = async () => {
+    const perEmail = await consumeRateLimit(RATE_LIMITS.resetRequestEmail, rateLimitKey(RATE_LIMITS.resetRequestEmail, email), "open");
+    if (!perEmail.allowed) return false;
+    const perEmailDaily = await consumeRateLimit(
+      RATE_LIMITS.resetRequestEmailDaily,
+      rateLimitKey(RATE_LIMITS.resetRequestEmailDaily, email),
+      "open"
+    );
+    return perEmailDaily.allowed;
+  };
+  let othersAllowed: boolean;
+  if (device && deviceOwnerId) {
+    const perDevice = await consumeRateLimit(RATE_LIMITS.resetRequestDevice, rateLimitKey(RATE_LIMITS.resetRequestDevice, device.nonce), "open");
+    if (!perDevice.allowed) return actionOk(undefined);
+    othersAllowed = await addressQuotaAllows();
+  } else {
+    if (!(await addressQuotaAllows())) return actionOk(undefined);
+    othersAllowed = true;
+  }
+
   // Unscoped: email is unique per tenant, not globally (docs/adr/0025) —
   // the same address can match an ACTIVE user in more than one tenant.
   const candidates = await runUnscoped("password-reset:request", () =>
@@ -63,10 +127,21 @@ export async function requestPasswordResetAction(
 
   for (const candidate of candidates) {
     if (candidate.tenant.status !== "ACTIVE") continue;
+    if (candidate.id !== deviceOwnerId && !othersAllowed) continue; // beyond the address quota: silently absorbed
     await runWithTenant(candidate.tenantId, "password-reset:request", async () => {
       const rawToken = await issueResetToken(prisma, candidate.id);
       // Never returned to the browser — see the module doc comment.
-      await sendPasswordResetEmail({ to: candidate.email, resetUrl: `/reinitialiser-mot-de-passe/${rawToken}` });
+      // N2: the slow part (the provider call) runs after the response via
+      // `after()` — on Vercel the invocation is kept alive (waitUntil) until
+      // it settles — so an existing account no longer answers measurably
+      // slower than an unknown one. The token and the audit row are still
+      // written before responding; sendEmail is already best-effort.
+      const to = candidate.email;
+      after(() =>
+        sendPasswordResetEmail({ to, resetUrl: `/reinitialiser-mot-de-passe/${rawToken}` }).catch(() => {
+          console.error("[email] password reset email delivery failed");
+        })
+      );
       await recordAuditEvent({
         actorType: "SYSTEM",
         action: "password_reset.requested",
@@ -92,6 +167,14 @@ export async function resetPasswordAction(
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
 
+  // Flood control (Batch 1A): the 256-bit token is not guessable, but each
+  // attempt costs a lookup (and bcrypt on success).
+  const ip = await getClientIp();
+  if (ip) {
+    const flood = await consumeRateLimit(RATE_LIMITS.resetConfirmIp, rateLimitKey(RATE_LIMITS.resetConfirmIp, ip), "open");
+    if (!flood.allowed && flood.reason === "limited") return actionError(TOO_MANY_RESET_ATTEMPTS);
+  }
+
   const found = await findUsablePasswordResetToken(parsed.data.token);
   if (!found) {
     return actionError(GENERIC_INVALID_TOKEN);
@@ -109,21 +192,49 @@ export async function resetPasswordAction(
     return actionError(GENERIC_INVALID_TOKEN);
   }
 
-  await runWithTenant(resetToken.tenantId, "password-reset:complete", async () => {
-    await prisma.user.update({
-      where: { id: resetToken.userId },
-      data: { passwordHash: await hashPassword(parsed.data.password) },
+  const passwordHash = await hashPassword(parsed.data.password);
+  const completed = await runWithTenant(resetToken.tenantId, "password-reset:complete", async () => {
+    // One transaction: claim this token (conditionally — a concurrent use of
+    // the same link loses here instead of resetting twice), set the
+    // password, and (N3) retire every OTHER still-usable link of this user,
+    // so an older reset email can no longer be used afterwards. Already-used
+    // and expired tokens are left exactly as they are.
+    const done = await prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const claimed = await tx.passwordResetToken.updateMany({
+        where: { id: resetToken.id, usedAt: null },
+        data: { usedAt: now },
+      });
+      if (claimed.count !== 1) return false;
+      await tx.user.update({ where: { id: resetToken.userId }, data: { passwordHash } });
+      await tx.passwordResetToken.updateMany({
+        where: { userId: resetToken.userId, usedAt: null, expiresAt: { gt: now } },
+        data: { usedAt: now },
+      });
+      await recordAuditEvent(
+        {
+          actorType: "USER",
+          actorUserId: resetToken.userId,
+          action: "password_reset.completed",
+          entityType: "User",
+          entityId: resetToken.userId,
+        },
+        tx
+      );
+      return true;
     });
-    await prisma.passwordResetToken.update({ where: { id: resetToken.id }, data: { usedAt: new Date() } });
-    await destroyAllSessionsForUser(resetToken.userId);
-    await recordAuditEvent({
-      actorType: "USER",
-      actorUserId: resetToken.userId,
-      action: "password_reset.completed",
-      entityType: "User",
-      entityId: resetToken.userId,
-    });
+    if (done) await destroyAllSessionsForUser(resetToken.userId);
+    return done;
   });
+  if (!completed) return actionError(GENERIC_INVALID_TOKEN);
+
+  // The owner of the address just proved control of it: lift the cooldowns
+  // an attacker may have caused on this address — everywhere, and for this
+  // address + IP. The new password also revokes every known device of the
+  // user (their stamp no longer matches — src/lib/security/known-device.ts).
+  const resetEmail = normalizeEmail(resetToken.user.email);
+  await clearProgressive(PROGRESSIVE_LIMITS.loginEmail, rateLimitKey(PROGRESSIVE_LIMITS.loginEmail, resetEmail));
+  if (ip) await clearProgressive(PROGRESSIVE_LIMITS.loginEmailIp, rateLimitKey(PROGRESSIVE_LIMITS.loginEmailIp, resetEmail, ip));
 
   redirect("/connexion");
 }

@@ -1,12 +1,13 @@
 import { resolveDateRangePreset, DATE_RANGE_PRESET_LABELS, type DateRangePreset } from "@/lib/date-range-presets";
 import { previousPeriodOfSameLength, type PeriodRange } from "@/lib/queries/finance";
+import { zonedDayKey, zonedInstant, zonedParts } from "@/lib/time/zoned";
 
 /**
  * Analytics period resolution (docs/adr/0051). Reuses the app's existing
- * preset maths (`resolveDateRangePreset` — server-local days, the same
- * convention as /livraison and every /rapports page); no new timezone
- * architecture. Both ends inclusive. Anything unparseable falls back to the
- * last 30 days rather than letting an invalid date reach Prisma.
+ * preset maths (`resolveDateRangePreset`) in the BUSINESS time zone — the
+ * same days as /livraison and every /rapports page (src/lib/time/zoned.ts).
+ * Both ends inclusive. Anything unparseable falls back to the last 30 days
+ * rather than letting an invalid date reach Prisma.
  */
 
 export const ANALYTICS_PERIODS = ["today", "yesterday", "7d", "30d", "this-month", "last-month"] as const;
@@ -31,32 +32,44 @@ export interface AnalyticsPeriod {
   /** Echoed into links / the filter form / the CSV export. */
   params: { period?: string; from?: string; to?: string };
   granularity: "day" | "month";
+  /** The business time zone the days / buckets are cut in (undefined = server-local). */
+  timeZone?: string;
 }
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
-export function resolveAnalyticsPeriod(input: { period?: string; from?: string; to?: string }, now: Date = new Date()): AnalyticsPeriod {
+export function resolveAnalyticsPeriod(
+  input: { period?: string; from?: string; to?: string },
+  now: Date = new Date(),
+  timeZone?: string
+): AnalyticsPeriod {
   if (input.from && input.to && DAY.test(input.from) && DAY.test(input.to)) {
-    const r = resolveDateRangePreset("custom", now, { from: input.from, to: input.to });
+    const r = resolveDateRangePreset("custom", now, { from: input.from, to: input.to }, timeZone);
     if (r.from && r.to && r.from <= r.to) {
-      return build("custom", `${input.from} → ${input.to}`, { from: r.from, to: r.to }, { from: input.from, to: input.to });
+      return build("custom", `${input.from} → ${input.to}`, { from: r.from, to: r.to }, { from: input.from, to: input.to }, timeZone);
     }
   }
   const key = (ANALYTICS_PERIODS as readonly string[]).includes(input.period ?? "") ? (input.period as AnalyticsPeriodKey) : "30d";
-  const r = resolveDateRangePreset(key as DateRangePreset, now);
-  return build(key, ANALYTICS_PERIOD_LABELS[key], { from: r.from!, to: r.to! }, { period: key });
+  const r = resolveDateRangePreset(key as DateRangePreset, now, undefined, timeZone);
+  return build(key, ANALYTICS_PERIOD_LABELS[key], { from: r.from!, to: r.to! }, { period: key }, timeZone);
 }
 
-function build(key: AnalyticsPeriodKey, label: string, range: PeriodRange, params: AnalyticsPeriod["params"]): AnalyticsPeriod {
+function build(
+  key: AnalyticsPeriodKey,
+  label: string,
+  range: PeriodRange,
+  params: AnalyticsPeriod["params"],
+  timeZone: string | undefined
+): AnalyticsPeriod {
   const spanDays = (range.to.getTime() - range.from.getTime()) / 86_400_000;
-  return { key, label, range, previous: previousPeriodOfSameLength(range), params, granularity: spanDays > 62 ? "month" : "day" };
+  return { key, label, range, previous: previousPeriodOfSameLength(range), params, granularity: spanDays > 62 ? "month" : "day", timeZone };
 }
 
 const MONTHS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 
-/** Bucket key of a date for the period's granularity (server-local day, like the sales report). */
-export function bucketKey(d: Date, granularity: "day" | "month"): string {
-  const day = d.toLocaleDateString("en-CA");
+/** Bucket key of a date for the period's granularity — its day (or month) in the business time zone. */
+export function bucketKey(d: Date, granularity: "day" | "month", timeZone?: string): string {
+  const day = zonedDayKey(d, timeZone);
   return granularity === "month" ? day.slice(0, 7) : day;
 }
 
@@ -66,15 +79,16 @@ export function bucketLabel(key: string, granularity: "day" | "month"): string {
 }
 
 /** Every bucket key of the range, in order — so an empty day is a 0, not a gap. */
-export function bucketKeys(range: PeriodRange, granularity: "day" | "month"): string[] {
+export function bucketKeys(range: PeriodRange, granularity: "day" | "month", timeZone?: string): string[] {
   const keys: string[] = [];
-  const cursor = new Date(range.from);
-  cursor.setHours(0, 0, 0, 0);
-  if (granularity === "month") cursor.setDate(1);
-  while (cursor <= range.to) {
-    keys.push(bucketKey(cursor, granularity));
-    if (granularity === "month") cursor.setMonth(cursor.getMonth() + 1);
-    else cursor.setDate(cursor.getDate() + 1);
+  const start = zonedParts(range.from, timeZone);
+  for (let i = 0; ; i++) {
+    const cursor =
+      granularity === "month"
+        ? zonedInstant(timeZone, start.year, start.month + i, 1)
+        : zonedInstant(timeZone, start.year, start.month, start.day + i);
+    if (cursor > range.to) break;
+    keys.push(bucketKey(cursor, granularity, timeZone));
   }
   return keys;
 }

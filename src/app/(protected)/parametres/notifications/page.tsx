@@ -2,6 +2,7 @@ import { PageHeader } from "@/components/page-header";
 import { SettingsNav } from "@/components/settings/settings-nav";
 import { AlertPreferencesCard, EmailChannelCard, InAppChannelCard } from "@/components/settings/notification-channels";
 import { WhatsAppNotificationsCard } from "@/components/settings/whatsapp-notifications-card";
+import { AccountSecurityCard } from "@/components/settings/account-security-card";
 import { requireUser } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { getMyNotificationSettings } from "@/lib/notification-settings";
@@ -50,6 +51,7 @@ export default async function NotificationSettingsPage() {
             whatsappStatus={settings.whatsapp.status}
             locationScope={settings.locationScope}
           />
+          <AccountSecurityCard />
         </div>
       </div>
     </div>

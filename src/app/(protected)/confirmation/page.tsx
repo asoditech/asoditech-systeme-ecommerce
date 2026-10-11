@@ -17,7 +17,7 @@ import {
   listOrdersConfirmedByAgent,
   getMyConfirmationStats,
   getConfirmationDashboardSummary,
-  flagInsufficientStock,
+  stockFlagsForOrders,
   CONFIRMATION_RETRY_FLAG,
 } from "@/lib/queries/order-confirmation";
 import {
@@ -42,8 +42,8 @@ type QueueSourceOrder = Awaited<ReturnType<typeof listOrdersAwaitingConfirmation
 
 async function toQueueOrders(orders: QueueSourceOrder[]): Promise<ConfirmationQueueOrder[]> {
   // Batch 3, Task 8 — one batched availability query for the whole page,
-  // not one per order (see flagInsufficientStock's own doc comment).
-  const [flagged, business] = await Promise.all([flagInsufficientStock(orders), getReportBusinessInfo()]);
+  // not one per order (see stockFlagsForOrders's own doc comment).
+  const [stockFlags, business] = await Promise.all([stockFlagsForOrders(orders), getReportBusinessInfo()]);
   return orders.map((o) => ({
     id: o.id,
     displayNumber: displayOrderNumber(o, business.orderNumberPrefix),
@@ -57,7 +57,8 @@ async function toQueueOrders(orders: QueueSourceOrder[]): Promise<ConfirmationQu
     itemCount: o._count.items,
     attemptCount: o.confirmationAttemptCount,
     flagged: o.confirmationAttemptCount >= CONFIRMATION_RETRY_FLAG,
-    stockWarning: flagged.has(o.id),
+    stockWarning: stockFlags.insufficient.has(o.id),
+    stockUntracked: stockFlags.untracked.has(o.id),
     recentAttempts: o.confirmationAttempts.map((a) => ({
       outcome: a.outcome,
       agentName: a.agent?.name ?? null,

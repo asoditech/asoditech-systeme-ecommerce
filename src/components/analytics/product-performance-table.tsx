@@ -1,7 +1,17 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader } from "@/components/analytics/sort-header";
+import { AnalyticsMetricInfo } from "@/components/analytics/analytics-metric-info";
+import type { AnalyticsMetricId } from "@/lib/metrics/analytics-explanations";
 import { formatCurrency } from "@/lib/format";
 import type { CategoryRow, ProductRow } from "@/lib/analytics/queries/products";
+
+/** Column header label with its « ⓘ » explanation. */
+const withInfo = (label: string, metric: AnalyticsMetricId) => (
+  <span className="inline-flex items-center gap-0.5">
+    {label}
+    <AnalyticsMetricInfo metric={metric} label={label} />
+  </span>
+);
 
 const money = (v: number | null | undefined) => (v === null || v === undefined ? "coût manquant" : formatCurrency(v));
 
@@ -20,8 +30,17 @@ export function ProductPerformanceTable({
   sort: { basePath: string; params: Record<string, string>; key: string; dir: "asc" | "desc" };
 }) {
   const withFinance = rows.some((r) => "cogs" in r);
-  const head = (column: string, label: string, className?: string) => (
-    <SortHeader column={column} label={label} basePath={sort.basePath} params={sort.params} active={sort.key === column} dir={sort.dir} className={className} />
+  const head = (column: string, label: string, className?: string, metric?: AnalyticsMetricId) => (
+    <SortHeader
+      column={column}
+      label={label}
+      basePath={sort.basePath}
+      params={sort.params}
+      active={sort.key === column}
+      dir={sort.dir}
+      className={className}
+      info={metric && <AnalyticsMetricInfo metric={metric} label={label} className="align-middle" />}
+    />
   );
   return (
     <Table className="text-[13px]">
@@ -30,12 +49,12 @@ export function ProductPerformanceTable({
           {head("name", "Produit")}
           <TableHead>Variation</TableHead>
           <TableHead>Catégorie</TableHead>
-          {head("units", "Unités", "text-right")}
-          {head("orders", parentLabel, "text-right")}
-          {head("revenue", "CA", "text-right")}
-          {head("returns", "Unités retournées", "text-right")}
-          {withFinance && <TableHead className="text-right">Coût</TableHead>}
-          {withFinance && <TableHead className="text-right">Bénéfice brut</TableHead>}
+          {head("units", "Unités", "text-right", "productUnits")}
+          {head("orders", parentLabel, "text-right", "productOrders")}
+          {head("revenue", "CA", "text-right", "productRevenue")}
+          {head("returns", "Unités retournées", "text-right", "productReturnedUnits")}
+          {withFinance && <TableHead className="text-right">{withInfo("Coût", "productCost")}</TableHead>}
+          {withFinance && <TableHead className="text-right">{withInfo("Bénéfice brut", "productGrossProfit")}</TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>

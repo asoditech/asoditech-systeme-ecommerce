@@ -18,6 +18,7 @@ import {
   releaseStockForOrder,
   fulfillStockForOrder,
   InsufficientStockError,
+  availableStock,
 } from "@/lib/inventory";
 import {
   notifyNewOrder,
@@ -37,6 +38,14 @@ import {
   isReopenable,
 } from "@/lib/order-confirmation";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
+import {
+  confirmationFailureResult,
+  draftOrderBindingId,
+  draftStockLines,
+  orderStockShortageResult,
+  prepareStockOverride,
+  stockShortageResult,
+} from "@/lib/stock-validation";
 import { ORDER_CHANNEL_LABELS } from "@/lib/status-labels";
 import { requireEntitlement, EntitlementDeniedError } from "@/lib/entitlements/checks";
 import { getTenantUsage } from "@/lib/entitlements/usage";
@@ -56,6 +65,7 @@ import {
 } from "@/lib/validation/order";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import { PACKING_CLEARED, packingResetFor, shippableOrderProblem } from "@/lib/packing";
+import { orderGoodsCameBack, RESHIP_AFTER_RETURN_MESSAGE } from "@/lib/delivery";
 import { isPackingRequired } from "@/lib/packing-settings";
 import { findOrCreateCustomer } from "@/lib/customers/find-or-create";
 import { customerPhoneSearchKeys } from "@/lib/customers/identity";
@@ -67,6 +77,9 @@ import type { IdResult } from "@/actions/types";
 
 /** Thrown when a conditional status-transition update matches 0 rows — see updateOrderStatusAction. */
 class OrderConflictError extends Error {}
+/** Goods of the order came back between the early check and the locked
+ * re-check in updateOrderStatusAction — see orderGoodsCameBack. */
+class ReshipAfterReturnError extends Error {}
 
 /** Thrown when a refund would push the order's total refunded amount past its total. */
 class RefundLimitError extends Error {}
@@ -179,8 +192,11 @@ export async function createCustomerForOrderAction(input: {
   return actionOk({ ...customer, defaultAddress });
 }
 
-export async function searchProductsForOrderAction(query: string) {
+export async function searchProductsForOrderAction(query: string, warehouseId?: string | null) {
   const user = await requirePermissionForAction("orders.create");
+  // P2: stock for the SELECTED fulfilment warehouse only (access-checked) —
+  // quantities only, never a cost.
+  const stockWarehouseId = await resolvePickerWarehouseId(user, warehouseId);
   // Phase 4C (docs/adr/0044): the order form never uses a purchase cost —
   // it reaches the browser only for a `finance.view` holder. Same response
   // shape for everyone (`cost: null` otherwise).
@@ -198,7 +214,10 @@ export async function searchProductsForOrderAction(query: string) {
       // SKU finds its parent product.
       ...(search ? { OR: search.or } : {}),
     },
-    include: { variations: true },
+    include: {
+      variations: { include: { inventoryItems: { where: { warehouseId: stockWarehouseId ?? "" }, select: STOCK_SELECT } } },
+      inventoryItems: { where: { warehouseId: stockWarehouseId ?? "" }, select: STOCK_SELECT },
+    },
     ...(q ? { take: 8 } : { orderBy: [{ name: "asc" as const }, { id: "asc" as const }], take: 20 }),
   });
 
@@ -213,22 +232,86 @@ export async function searchProductsForOrderAction(query: string) {
     // (name, reference, product SKU) — or a barcode-only match — keeps all.
     const matched = search && !productLevelMatches(p, q) ? matchingVariationIds(p.variations, q, search.optionVariationIds) : null;
     const variationOnly = matched !== null && p.variations.some((v) => v.isActive && matched.has(v.id));
+    const { inventoryItems: productStockRows, ...product } = p;
     return {
-    ...p,
+    ...product,
+    stock: pickerStock(stockWarehouseId, product.trackInventory, productStockRows[0]),
     price: p.price.toString(),
     salePrice: p.salePrice?.toString() ?? null,
     cost: canSeeCost ? (p.cost?.toString() ?? null) : null,
     variations: p.variations
       .filter((v) => v.isActive)
       .filter((v) => !variationOnly || matched.has(v.id))
-      .map((v) => ({
+      .map(({ inventoryItems: variationStockRows, ...v }) => ({
         ...v,
+        stock: pickerStock(stockWarehouseId, product.trackInventory, variationStockRows[0]),
         price: v.price?.toString() ?? null,
         cost: canSeeCost ? (v.cost?.toString() ?? null) : null,
         salePrice: v.salePrice?.toString() ?? null,
       })),
     };
   });
+}
+
+/** P2 — what the order form shows next to a product/variation, for ONE warehouse. Quantities only. */
+export type PickerStock =
+  | { state: "tracked"; available: number; onHand: number; reserved: number }
+  | { state: "no_row" | "tracking_disabled" | "no_warehouse"; available: null; onHand: null; reserved: null };
+
+const STOCK_SELECT = { quantityOnHand: true, quantityReserved: true } as const;
+
+function pickerStock(
+  warehouseId: string | null,
+  trackInventory: boolean,
+  row: { quantityOnHand: number; quantityReserved: number } | undefined
+): PickerStock {
+  if (!warehouseId) return { state: "no_warehouse", available: null, onHand: null, reserved: null };
+  if (!row) return { state: "no_row", available: null, onHand: null, reserved: null };
+  if (!trackInventory) return { state: "tracking_disabled", available: null, onHand: null, reserved: null };
+  return { state: "tracked", available: availableStock(row), onHand: row.quantityOnHand, reserved: row.quantityReserved };
+}
+
+/** The warehouse whose stock the order form shows: the chosen one (must be active and accessible), else the user's default. */
+async function resolvePickerWarehouseId(user: CurrentUserForPicker, warehouseId: string | null | undefined): Promise<string | null> {
+  if (warehouseId) {
+    const warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId }, select: { id: true, isActive: true } });
+    if (!warehouse || !warehouse.isActive) throw new Error("Entrepôt de préparation invalide.");
+    await requireLocationAccessForAction(user, warehouse.id);
+    return warehouse.id;
+  }
+  return resolveAuthorizedDefaultWarehouseId(user);
+}
+type CurrentUserForPicker = Awaited<ReturnType<typeof requirePermissionForAction>>;
+
+/**
+ * P2 — refresh the stock shown for lines already added to the order form
+ * when the fulfilment warehouse changes. Same rules as the picker; quantities only.
+ */
+export async function getOrderLinesStockAction(
+  warehouseId: string | null,
+  units: { productId: string; variationId?: string | null }[]
+): Promise<Record<string, PickerStock>> {
+  const user = await requirePermissionForAction("orders.create");
+  const stockWarehouseId = await resolvePickerWarehouseId(user, warehouseId);
+  const safeUnits = units.slice(0, 200);
+  const productIds = [...new Set(safeUnits.map((u) => u.productId))];
+  const variationIds = [...new Set(safeUnits.map((u) => u.variationId).filter((v): v is string => Boolean(v)))];
+  const [products, rows] = await Promise.all([
+    prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, trackInventory: true } }),
+    stockWarehouseId
+      ? prisma.inventoryItem.findMany({
+          where: { warehouseId: stockWarehouseId, OR: [{ productId: { in: productIds } }, { variationId: { in: variationIds } }] },
+          select: { productId: true, variationId: true, ...STOCK_SELECT },
+        })
+      : Promise.resolve([]),
+  ]);
+  const tracked = new Map(products.map((p) => [p.id, p.trackInventory]));
+  const out: Record<string, PickerStock> = {};
+  for (const u of safeUnits) {
+    const row = u.variationId ? rows.find((r) => r.variationId === u.variationId) : rows.find((r) => r.productId === u.productId && !r.variationId);
+    out[u.variationId ? `v:${u.variationId}` : `p:${u.productId}`] = pickerStock(stockWarehouseId, tracked.get(u.productId) ?? false, row);
+  }
+  return out;
 }
 
 export async function createOrderAction(input: CreateOrderInput): Promise<ActionResult<IdResult>> {
@@ -387,6 +470,22 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
   const itemsDiscountTotal = parsed.data.items.reduce((sum, i) => sum + i.discount, 0);
   const total = subtotal - itemsDiscountTotal - parsed.data.discountTotal + parsed.data.shippingCost;
 
+  // P2: « Client déjà confirmé » confirms inside the creation transaction, with
+  // the same stock policy as every confirmation. No order id exists before
+  // creation, so an override token is bound to a server-computed fingerprint of
+  // this exact draft (customer, warehouse, lines) — validated before the transaction.
+  const stockBindingId = draftOrderBindingId({ customerId: parsed.data.customerId, fulfillmentWarehouseId, lines: resolvedItems });
+  const preparedOverride = customerAlreadyConfirmed
+    ? prepareStockOverride({
+        user,
+        bindingId: stockBindingId,
+        token: parsed.data.stockOverrideToken,
+        reason: parsed.data.stockOverrideReason,
+        via: "order_creation",
+      })
+    : ({ ok: true, override: null } as const);
+  if (!preparedOverride.ok) return actionError(preparedOverride.error);
+
   let order;
   try {
     order = await prisma.$transaction(async (tx) => {
@@ -453,10 +552,19 @@ export async function createOrderAction(input: CreateOrderInput): Promise<Action
         orderId: created.id,
         confirmerUserId: user.id,
         note: `Client déjà confirmé hors ASODITECH — commande manuelle (${ORDER_CHANNEL_LABELS[parsed.data.channel] ?? parsed.data.channel}).`,
+        stockOverride: preparedOverride.override,
       });
       return tx.order.findUniqueOrThrow({ where: { id: created.id } });
     });
   } catch (error) {
+    // P2: a stock shortage at the immediate confirmation (the whole creation
+    // rolled back) → the read-only shortage answer for this exact draft.
+    if (customerAlreadyConfirmed) {
+      const failure = await confirmationFailureResult(error, async () =>
+        stockShortageResult({ user, bindingId: stockBindingId, fulfillmentWarehouseId, lines: await draftStockLines(resolvedItems) })
+      );
+      if (failure) return failure;
+    }
     if (
       error instanceof InsufficientStockError ||
       error instanceof OrderNotConfirmableError ||
@@ -562,6 +670,26 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
   const lines = existing.items.map((i) => ({ productId: i.productId, variationId: i.variationId, quantity: i.quantity }));
   const wasFulfilled = existing.shippedAt !== null;
 
+  // Re-entering « Expédiée » never deducts stock again (wasFulfilled), so
+  // it's refused once goods of the order came back — see orderGoodsCameBack.
+  if (parsed.data.status === "EXPEDIEE" && wasFulfilled && (await orderGoodsCameBack(prisma, existing.id))) {
+    return actionError(RESHIP_AFTER_RETURN_MESSAGE);
+  }
+
+  // P2: optional authorised stock override for NOUVELLE → CONFIRMEE only,
+  // validated BEFORE the transaction (role + permission + reason + signed token).
+  const confirming = parsed.data.status === "CONFIRMEE";
+  const prepared = confirming
+    ? prepareStockOverride({
+        user,
+        bindingId: parsed.data.id,
+        token: formData.get("stockOverrideToken"),
+        reason: formData.get("stockOverrideReason"),
+        via: "status_change",
+      })
+    : ({ ok: true, override: null } as const);
+  if (!prepared.ok) return actionError(prepared.error);
+
   let order;
   try {
     order = await prisma.$transaction(async (tx) => {
@@ -576,8 +704,18 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
           orderId: parsed.data.id,
           confirmerUserId: user.id,
           note: parsed.data.note ?? null,
+          stockOverride: prepared.override,
         });
         return tx.order.findUniqueOrThrow({ where: { id: parsed.data.id } });
+      }
+
+      // The early orderGoodsCameBack check above ran outside any lock: a
+      // physical return (which locks the order row — physical-return.ts)
+      // or a parcel « Retourné » could commit in between. Re-checked here
+      // under the order row lock, so the re-entry can't slip past it.
+      if (parsed.data.status === "EXPEDIEE" && wasFulfilled) {
+        await tx.$queryRaw`SELECT id FROM "orders" WHERE id = ${parsed.data.id} FOR UPDATE`;
+        if (await orderGoodsCameBack(tx, parsed.data.id)) throw new ReshipAfterReturnError();
       }
 
       const timestampField: Record<string, Date> = {};
@@ -640,6 +778,13 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
       return tx.order.findUniqueOrThrow({ where: { id: parsed.data.id } });
     });
   } catch (error) {
+    // P2: a confirmation's stock shortage (fresh read-only answer, after the
+    // rollback) or a verified lock race. Any other InsufficientStockError —
+    // shipping (EXPEDIEE) — keeps its message, exactly as before.
+    if (confirming) {
+      const failure = await confirmationFailureResult(error, () => orderStockShortageResult(user, parsed.data.id));
+      if (failure) return failure;
+    }
     if (error instanceof InsufficientStockError) {
       return actionError(error.message);
     }
@@ -647,6 +792,9 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
       return actionError(
         "Cette commande a été modifiée entre-temps par une autre action. Rechargez la page et réessayez."
       );
+    }
+    if (error instanceof ReshipAfterReturnError) {
+      return actionError(RESHIP_AFTER_RETURN_MESSAGE);
     }
     if (error instanceof OrderNotConfirmableError) {
       return actionError(error.message);
@@ -686,6 +834,12 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
     (parsed.data.status === "CONFIRMEE" && existing.status === "NOUVELLE") ||
     (parsed.data.status === "ANNULEE" && !wasFulfilled && orderHoldsReservation(existing.status)) ||
     (parsed.data.status === "EXPEDIEE" && !wasFulfilled);
+  // Cancelled: tell WooCommerce BEFORE pushing stock. WooCommerce restocks a
+  // cancelled order by itself; the absolute sellable number pushed next must
+  // be the last write, or the store ends up one order quantity too high.
+  if (parsed.data.status === "ANNULEE") {
+    await pushOrderStatusToWooCommerce(order.id);
+  }
   if (stockMoved) {
     const refs = { productIds: lines.map((l) => l.productId), variationIds: lines.map((l) => l.variationId) };
     if (parsed.data.status === "CONFIRMEE" || parsed.data.status === "EXPEDIEE") {
@@ -710,9 +864,9 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
     );
   }
 
-  // Delivered / cancelled here → tell a linked WooCommerce store so its
-  // order stops lagging (see pushOrderStatusToWooCommerce).
-  if (parsed.data.status === "LIVREE" || parsed.data.status === "ANNULEE") {
+  // Delivered here → tell a linked WooCommerce store so its order stops
+  // lagging (see pushOrderStatusToWooCommerce; ANNULEE was pushed above).
+  if (parsed.data.status === "LIVREE") {
     await pushOrderStatusToWooCommerce(order.id);
   }
 
@@ -856,13 +1010,15 @@ export async function cancelOrderAction(formData: FormData): Promise<ActionResul
   // docs/adr/0036, the source of the order no longer determines whether
   // ASODITECH pushes) — but only when one was actually released; a
   // post-ship cancellation moves no stock at all, nothing to push.
+  // Status first: WooCommerce restocks a cancelled order by itself, so the
+  // absolute sellable number pushed afterwards must be the last write.
+  await pushOrderStatusToWooCommerce(order.id);
   if (!wasFulfilled && orderHoldsReservation(existing.status)) {
     await pushStockAfterLocalChange({
       productIds: lines.map((l) => l.productId),
       variationIds: lines.map((l) => l.variationId),
     });
   }
-  await pushOrderStatusToWooCommerce(order.id);
   // Cancelling a delivered order (LIVREE only reaches ANNULEE indirectly,
   // but a cancel from any state must undo any earned commission).
   await reconcileOrderCommission(order.id, user.id);

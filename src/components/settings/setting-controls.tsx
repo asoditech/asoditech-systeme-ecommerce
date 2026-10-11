@@ -61,6 +61,7 @@ export function ToggleTile({
   save,
   onMessage,
   offMessage,
+  info,
 }: {
   anchor: string;
   section: ConfigSectionId;
@@ -76,6 +77,8 @@ export function ToggleTile({
   save: (next: boolean) => Promise<ActionResult<unknown>>;
   onMessage: string;
   offMessage: string;
+  /** « ⓘ » explanation next to the title (outside the label). */
+  info?: React.ReactNode;
 }) {
   const router = useRouter();
   const accent = SECTION_ACCENTS[section];
@@ -113,9 +116,12 @@ export function ToggleTile({
         <StateIndicator on={value} pending={isPending} />
       </div>
       <div className="relative mt-4 flex-1 space-y-1.5">
-        <label htmlFor={switchId} className="block text-[15px] leading-snug font-semibold tracking-tight">
-          {title}
-        </label>
+        <div className="flex items-start gap-1">
+          <label htmlFor={switchId} className="block text-[15px] leading-snug font-semibold tracking-tight">
+            {title}
+          </label>
+          {info}
+        </div>
         <p className="text-sm text-muted-foreground">{summary}</p>
         {detail && <p className="text-xs leading-relaxed text-muted-foreground/90">{detail}</p>}
       </div>
@@ -154,6 +160,7 @@ export function ValueTile({
   success,
   children,
   wide = false,
+  info,
 }: {
   anchor: string;
   section: ConfigSectionId;
@@ -167,6 +174,8 @@ export function ValueTile({
   success: string;
   children: React.ReactNode;
   wide?: boolean;
+  /** « ⓘ » explanation next to the title. */
+  info?: React.ReactNode;
 }) {
   const router = useRouter();
   const accent = SECTION_ACCENTS[section];
@@ -212,7 +221,10 @@ export function ValueTile({
         )}
       </div>
       <div className="mt-4 space-y-1">
-        <h4 className="text-[15px] leading-snug font-semibold tracking-tight">{title}</h4>
+        <div className="flex items-start gap-1">
+          <h4 className="text-[15px] leading-snug font-semibold tracking-tight">{title}</h4>
+          {info}
+        </div>
         <p className="text-sm text-muted-foreground">{summary}</p>
       </div>
 

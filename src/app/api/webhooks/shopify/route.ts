@@ -104,17 +104,28 @@ interface ResolvedShopifyIntegration {
  * across all tenants (`prismaBase`, unscoped by nature — there is no
  * tenant yet to scope by), and returns whichever one verifies.
  */
+/** "https://Shop.myshopify.com/" → "shop.myshopify.com" (stored config vs Shopify's header). */
+function bareShopHost(value: string): string {
+  return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+}
+
 async function resolveShopifyIntegrationBySignature(
   rawBody: string,
-  signatureHeader: string | null
+  signatureHeader: string | null,
+  shopDomainHeader: string | null
 ): Promise<ResolvedShopifyIntegration | "invalid_signature" | null> {
   const candidates = await prismaBase.integration.findMany({ where: { provider: "SHOPIFY" } });
   if (candidates.length === 0) return null;
+  // Shopify names the sending shop (X-Shopify-Shop-Domain). When present, only
+  // that shop's integration may claim the delivery — two tenants sharing one
+  // app's client secret must never receive each other's webhooks.
+  const sendingShop = shopDomainHeader ? bareShopHost(shopDomainHeader) : null;
 
   for (const candidate of candidates) {
     if (!candidate.credentialsEncrypted) continue;
     const config = (candidate.config as { shopDomain?: string } | null) ?? {};
     if (!config.shopDomain) continue;
+    if (sendingShop && bareShopHost(config.shopDomain) !== sendingShop) continue;
     let apiKey: string | undefined;
     let webhookSecret: string | undefined;
     try {
@@ -145,7 +156,7 @@ export async function POST(request: Request): Promise<Response> {
   const signatureHeader = request.headers.get("x-shopify-hmac-sha256");
   const topic = request.headers.get("x-shopify-topic") ?? "inconnu";
 
-  const resolved = await resolveShopifyIntegrationBySignature(rawBody, signatureHeader);
+  const resolved = await resolveShopifyIntegrationBySignature(rawBody, signatureHeader, request.headers.get("x-shopify-shop-domain"));
   if (resolved === null) {
     return new Response(null, { status: 404 });
   }
@@ -189,7 +200,10 @@ async function handleShopifyWebhook(
   const alreadySeen = await prisma.webhookEvent.findUnique({
     where: { integrationId_deliveryId: { integrationId: integration.id, deliveryId } },
   });
-  if (alreadySeen) {
+  // A delivery that FAILED here is processed again when the provider retries
+  // it (a retry may reuse the same delivery id); only a delivery already
+  // handled (or deliberately ignored) is short-circuited.
+  if (alreadySeen && alreadySeen.status !== "ECHEC") {
     return new Response(null, { status: 200 });
   }
 
@@ -276,7 +290,10 @@ async function handleShopifyWebhook(
         return new Response(null, { status: 200 });
       }
 
-      await importProduct(product, { type: "INTEGRATION" });
+      const imported = await importProduct(product, { type: "INTEGRATION" });
+      // importProduct reports a failed import instead of throwing — it must
+      // be recorded as ECHEC and answered 500 so Shopify retries it.
+      if (imported.outcome === "failed") throw new Error("product import failed");
       revalidateAfterImport("product");
       await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: productGid, status: "TRAITE" });
     } catch {

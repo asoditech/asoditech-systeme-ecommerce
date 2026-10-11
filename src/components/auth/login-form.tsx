@@ -19,18 +19,19 @@ import { useLoginTransition } from "@/components/preloader/login-transition-prov
 // straight back down before its intro is visible.
 const BEGIN_TRANSITION_DELAY_MS = 1000;
 
-// TODO: replace with ASODITECH's real WhatsApp number, phone number and
-// support email once provided — these are placeholders.
-const CONTACT = {
-  whatsapp: "212600000000",
-  phone: "+212600000000",
+// ASODITECH's public contacts on the login page. The WhatsApp and phone
+// numbers were placeholders (212600000000) that reached nobody, so they are
+// hidden until the real numbers are set here (null = button not shown).
+const CONTACT: { whatsapp: string | null; phone: string | null; email: string } = {
+  whatsapp: null,
+  phone: null,
   email: "contact@asoditech.com",
 };
 
 const CONTACT_LINKS = [
   {
     name: "WhatsApp",
-    href: `https://wa.me/${CONTACT.whatsapp}`,
+    href: CONTACT.whatsapp ? `https://wa.me/${CONTACT.whatsapp}` : null,
     external: true,
     icon: (
       <svg viewBox="0 0 32 32" className="size-4.5 fill-foreground">
@@ -40,7 +41,7 @@ const CONTACT_LINKS = [
   },
   {
     name: "Téléphone",
-    href: `tel:${CONTACT.phone}`,
+    href: CONTACT.phone ? `tel:${CONTACT.phone}` : null,
     external: false,
     icon: (
       <svg viewBox="0 0 24 24" className="size-4.5 fill-foreground">
@@ -122,7 +123,7 @@ export function LoginForm() {
       <div className="h-px w-full bg-black/10" />
 
       <div className="flex justify-center gap-3">
-        {CONTACT_LINKS.map((contact) => (
+        {CONTACT_LINKS.flatMap((contact) => (contact.href ? [{ ...contact, href: contact.href }] : [])).map((contact) => (
           <a
             key={contact.name}
             href={contact.href}

@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { TraceScanButton } from "@/components/traceability/trace-scan-button";
 import { inactiveUnitLabel } from "@/lib/traceability-scan";
+import { scanMissHint } from "@/lib/catalog/scan-input";
 import { requirePermission } from "@/lib/auth/guards";
 import { findTraceUnits, getUnitTraceability } from "@/lib/queries/traceability";
 import { formatCurrency, formatDateTime } from "@/lib/format";
@@ -54,7 +55,7 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
       </div>
 
       {!q && <EmptyState icon={ScanBarcode} title="Scannez ou saisissez un code-barres, une référence ou un nom." />}
-      {q && candidates.length === 0 && <EmptyState icon={ScanBarcode} title="Aucun article trouvé." />}
+      {q && candidates.length === 0 && <EmptyState icon={ScanBarcode} title="Aucun article trouvé." description={scanMissHint(q)?.message} />}
 
       {q && candidates.length > 1 && !trace && (
         <Card>

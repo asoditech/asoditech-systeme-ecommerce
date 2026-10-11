@@ -65,10 +65,12 @@ export function TrackingTable({ rows }: { rows: TrackingRow[] }) {
               <TableCell className="text-right tabular-nums">{formatCurrency(r.orderTotal, r.currency)}</TableCell>
               <TableCell>
                 {r.courierName || r.courierPhone ? (
-                  <>
+                  // The name is truncated to keep the row compact; the full stored
+                  // value (name + phone) stays readable on hover.
+                  <span className="block" title={[r.courierName, r.courierPhone].filter(Boolean).join(" · ")}>
                     {r.courierName && <span className="block max-w-[9rem] truncate">{r.courierName}</span>}
                     <PhoneActions phone={r.courierPhone} whatsapp size="sm" className="text-[11px] text-muted-foreground" />
-                  </>
+                  </span>
                 ) : (
                   <span className="text-muted-foreground">—</span>
                 )}

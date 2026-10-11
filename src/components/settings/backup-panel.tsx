@@ -22,6 +22,8 @@ import {
   restoreFromDriveAction,
 } from "@/actions/backup-google-drive";
 import type { BackupStatusView } from "@/lib/queries/backup";
+import { SettingInfo } from "@/components/settings/setting-info";
+import type { SettingId } from "@/lib/settings/settings-explanations";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} o`;
@@ -211,15 +213,16 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
       <section className="rounded-lg border p-4">
         <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
           <FileArchive className="size-4" /> État de la dernière sauvegarde
+          <SettingInfo setting="lastBackup" />
         </h2>
         {status.lastBackup ? (
           <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             <Row label="Date" value={formatDateTime(status.lastBackup.createdAt)} />
             <Row label="Générée par" value={status.lastBackup.createdByName ?? "—"} />
-            <Row label="Taille" value={formatBytes(status.lastBackup.sizeBytes)} />
-            <Row label="Enregistrements" value={String(status.lastBackup.totalRows)} />
-            <Row label="Version du schéma" value={status.lastBackup.schemaVersion} />
-            <Row label="Version de l'app" value={status.lastBackup.appVersion} />
+            <Row label="Taille" value={formatBytes(status.lastBackup.sizeBytes)} info="backupSize" />
+            <Row label="Enregistrements" value={String(status.lastBackup.totalRows)} info="backupRecords" />
+            <Row label="Version du schéma" value={status.lastBackup.schemaVersion} info="backupVersions" />
+            <Row label="Version de l'app" value={status.lastBackup.appVersion} info="backupVersions" />
           </dl>
         ) : (
           <p className="text-sm text-muted-foreground">Aucune sauvegarde générée pour ce compte.</p>
@@ -259,6 +262,7 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
       <section className="rounded-lg border p-4">
         <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold">
           <Upload className="size-4" /> Restaurer une sauvegarde
+          <SettingInfo setting="restoreBackup" />
         </h2>
         <p className="mb-3 text-xs text-muted-foreground">
           Un instantané de sécurité de vos données actuelles est créé automatiquement avant toute restauration. La
@@ -309,6 +313,7 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
         <section className="rounded-lg border p-4">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
             <ShieldAlert className="size-4" /> Instantanés de sécurité (avant restauration)
+            <SettingInfo setting="safetySnapshots" />
           </h2>
           <ul className="space-y-1.5 text-sm">
             {status.recentSafetySnapshots.map((s) => (
@@ -337,6 +342,7 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
         <section className="rounded-lg border p-4">
           <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold">
             <Cloud className="size-4" /> Google Drive
+            <SettingInfo setting="googleDrive" />
           </h2>
           <p className="mb-3 text-xs text-muted-foreground">
             Conservez une copie chiffrée (le même paquet <span className="font-mono">.asb</span>) dans le Google Drive de
@@ -518,10 +524,13 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, info }: { label: string; value: string; info?: SettingId }) {
   return (
     <div className="flex justify-between gap-4 sm:block">
-      <dt className="text-muted-foreground">{label}</dt>
+      <dt className="flex items-center gap-1 text-muted-foreground">
+        {label}
+        {info && <SettingInfo setting={info} label={label} />}
+      </dt>
       <dd className="font-medium">{value}</dd>
     </div>
   );

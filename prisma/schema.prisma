@@ -122,6 +122,7 @@ model Tenant {
   refunds                   Refund[]
   orderReturns              OrderReturn[]
   orderReturnLines          OrderReturnLine[]
+  returnReceptions          ReturnReception[]
   commissionAgents          CommissionAgent[]
   commissionEntries         CommissionEntry[]
   commissionStatements      CommissionStatement[]
@@ -453,6 +454,8 @@ model User {
   stocktakesClosed           StocktakeSession[]         @relation("StocktakeClosedBy")
   stocktakesCounted          StocktakeLine[]            @relation("StocktakeCountedBy")
   orderReturnsReceived       OrderReturn[]              @relation("OrderReturnReceivedBy")
+  returnReceptionsReceived   ReturnReception[]          @relation("ReturnReceptionReceivedBy")
+  returnReceptionsInspected  ReturnReception[]          @relation("ReturnReceptionInspectedBy")
   commissionAgent            CommissionAgent?
   commissionStatementsClosed CommissionStatement[]      @relation("CommissionStatementClosedBy")
   commissionStatementsPaid   CommissionStatement[]      @relation("CommissionStatementPaidBy")
@@ -486,6 +489,22 @@ model Session {
 
   @@index([userId])
   @@map("sessions")
+}
+
+// Authentication rate limiting (Batch 1A hardening — src/lib/security/rate-limit.ts).
+// Global and ephemeral like `Session`: no tenantId, no RLS — the buckets are
+// evaluated BEFORE any tenant is known (login, password reset). One row per
+// active bucket, never one per request: `key` is "<bucket>:" + an HMAC of the
+// normalized subject (email / IP / user id), so no plaintext email or IP is
+// ever stored. A row whose `windowEnd` has passed is dead (the next hit
+// restarts it) and is removed by the bounded sweep / the maintenance cleanup.
+model AuthRateLimit {
+  key       String   @id
+  count     Int
+  windowEnd DateTime @map("window_end") @db.Timestamptz(3)
+
+  @@index([windowEnd])
+  @@map("auth_rate_limits")
 }
 
 // ---------------------------------------------------------------------------
@@ -919,6 +938,7 @@ model Warehouse {
   transfersIn       StockTransfer[]        @relation("StockTransferDestination")
   stocktakeSessions StocktakeSession[]
   orderReturnLines  OrderReturnLine[]
+  returnReceptions  ReturnReception[]
   userAssignments   UserLocation[]
   // Which SalesChannels sell/fulfil from this location (docs/adr/0038).
   // A pure mapping — no quantity lives on it.
@@ -1719,6 +1739,7 @@ model Order {
   items                OrderItem[]
   refunds              Refund[]
   returns              OrderReturn[]
+  returnReceptions     ReturnReception[]
   shipments            Shipment[]
   movements            InventoryMovement[]
   commissionEntries    CommissionEntry[]
@@ -1889,6 +1910,10 @@ model OrderReturn {
   receivedBy User?               @relation("OrderReturnReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
   lines      OrderReturnLine[]
   movements  InventoryMovement[]
+  // P3: the parcel reception this event inspected, when it came from the
+  // returns workspace (/livraison/retours). Null for every return confirmed
+  // from the order page and for every pre-P3 return.
+  reception  ReturnReception?
 
   @@unique([orderId, idempotencyKey])
   @@index([orderId])
@@ -1930,6 +1955,70 @@ model OrderReturnLine {
   @@index([warehouseId])
   @@index([tenantId])
   @@map("order_return_lines")
+}
+
+// ---------------------------------------------------------------------------
+// Returns receiving workspace (P3 — /livraison/retours). A carrier-returned
+// parcel (Shipment.status RETOURNE) goes through TWO separate, persisted
+// stages:
+//   1. reception  — the parcel physically arrived at the order's ORIGINAL
+//      fulfilment warehouse. Writes this row (A_INSPECTER) and an audit
+//      event only: never a stock movement, never an Order/Shipment status.
+//   2. inspection — the operator records what was actually inside, unit
+//      condition chosen explicitly (sellable / damaged). Goes through the
+//      SAME physical-return transaction as the order page (src/lib/returns/
+//      physical-return.ts): one OrderReturn, its lines, the RETOUR/ENDOMMAGE
+//      movements and the audit — then flips this row to INSPECTE and links
+//      it, all in one transaction.
+// Units that were not in the parcel stay returnable (the per-item ceiling
+// is shipped − already returned); a later reception of the same shipment is
+// possible once this one is inspected. At most ONE reception per shipment
+// may be awaiting inspection — a partial unique index in the migration
+// (Prisma's DSL can't express it), same precedent as barcodes_one_primary_*.
+// DB CHECK: A_INSPECTER ⇔ no orderReturnId; INSPECTE ⇔ orderReturnId and
+// inspectedAt set.
+// ---------------------------------------------------------------------------
+
+enum ReturnReceptionStatus {
+  A_INSPECTER
+  INSPECTE
+}
+
+model ReturnReception {
+  id            String                @id @default(cuid())
+  tenantId      String                @default("default")
+  shipmentId    String
+  orderId       String
+  // The order's ORIGINAL fulfilment warehouse, resolved server-side — never
+  // chosen by the operator.
+  warehouseId   String
+  status        ReturnReceptionStatus @default(A_INSPECTER)
+  receivedById  String?
+  receivedAt    DateTime              @default(now())
+  inspectedById String?
+  inspectedAt   DateTime?
+  // The physical-return event the inspection produced. Unique: one
+  // reception is inspected at most once.
+  orderReturnId String?               @unique
+  note          String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  // A reception documents a real physical fact — Restrict, same rule as
+  // OrderReturn -> Order.
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  shipment    Shipment     @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  warehouse   Warehouse    @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  orderReturn OrderReturn? @relation(fields: [orderReturnId], references: [id], onDelete: Restrict)
+  receivedBy  User?        @relation("ReturnReceptionReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
+  inspectedBy User?        @relation("ReturnReceptionInspectedBy", fields: [inspectedById], references: [id], onDelete: SetNull)
+
+  @@index([shipmentId])
+  @@index([orderId])
+  @@index([warehouseId])
+  @@index([tenantId, status])
+  @@map("return_receptions")
 }
 
 // ---------------------------------------------------------------------------
@@ -2263,6 +2352,7 @@ model Shipment {
   provider    ShippingProvider  @relation(fields: [providerId], references: [id], onDelete: Restrict)
   updatedBy   User?             @relation("ShipmentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   manifest    DeliveryManifest? @relation(fields: [manifestId], references: [id], onDelete: SetNull)
+  returnReceptions ReturnReception[]
 
   // Postgres allows multiple NULLs in a unique index, so this never
   // restricts MANUEL/FLOTTE_INTERNE shipments (externalId always null).
@@ -2273,6 +2363,8 @@ model Shipment {
   @@index([status])
   @@index([manifestId])
   @@index([tenantId])
+  // P3 returns workspace: exact tracking-number lookup (scan) within a tenant.
+  @@index([tenantId, trackingNumber])
   @@map("shipments")
 }
 

@@ -10,6 +10,8 @@
  * alongside (`providerStatusRaw`) and never overwritten.
  */
 
+import { SHIPMENT_STATUS_LABELS, type BadgeVariant } from "@/lib/status-labels";
+
 export type NormalizedTrackingStatus =
   | "CREATED"
   | "PICKUP_PENDING"
@@ -37,25 +39,35 @@ export const NORMALIZED_TRACKING_LABELS: Record<NormalizedTrackingStatus, string
   UNKNOWN: "Statut inconnu",
 };
 
-/** Badge tone, aligned with the app's `StatusMeta.variant`. */
-export const NORMALIZED_TRACKING_VARIANT: Record<
-  NormalizedTrackingStatus,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  CREATED: "secondary",
-  PICKUP_PENDING: "secondary",
-  PICKED_UP: "default",
-  IN_TRANSIT: "default",
-  AT_DEPOT: "default",
-  OUT_FOR_DELIVERY: "default",
-  DELIVERED: "default",
-  RETURNED: "destructive",
-  FAILED: "destructive",
-  CANCELLED: "outline",
-  UNKNOWN: "outline",
+type LocalShipmentStatus = "EN_ATTENTE" | "EN_TRANSIT" | "LIVRE" | "ECHEC" | "RETOURNE" | "ANNULE";
+
+/** The local `ShipmentStatus` bucket each normalized status refines (display only). */
+const NORMALIZED_LOCAL_BUCKET: Record<Exclude<NormalizedTrackingStatus, "UNKNOWN">, LocalShipmentStatus> = {
+  CREATED: "EN_ATTENTE",
+  PICKUP_PENDING: "EN_ATTENTE",
+  PICKED_UP: "EN_TRANSIT",
+  IN_TRANSIT: "EN_TRANSIT",
+  AT_DEPOT: "EN_TRANSIT",
+  OUT_FOR_DELIVERY: "EN_TRANSIT",
+  DELIVERED: "LIVRE",
+  RETURNED: "RETOURNE",
+  FAILED: "ECHEC",
+  CANCELLED: "ANNULE",
 };
 
-type LocalShipmentStatus = "EN_ATTENTE" | "EN_TRANSIT" | "LIVRE" | "ECHEC" | "RETOURNE" | "ANNULE";
+/**
+ * Badge tone — taken from the app-wide `SHIPMENT_STATUS_LABELS` of the local
+ * bucket, so a parcel « Livré » in « Suivi » is the same semantic `success`
+ * green as « Livré » / « Livrée » everywhere else, and « En transit »-type
+ * steps share its `info` tone. One source of truth; display only — no
+ * status transition reads this.
+ */
+export const NORMALIZED_TRACKING_VARIANT: Record<NormalizedTrackingStatus, BadgeVariant> = {
+  ...(Object.fromEntries(
+    Object.entries(NORMALIZED_LOCAL_BUCKET).map(([status, bucket]) => [status, SHIPMENT_STATUS_LABELS[bucket].variant])
+  ) as Record<Exclude<NormalizedTrackingStatus, "UNKNOWN">, BadgeVariant>),
+  UNKNOWN: "outline",
+};
 
 /** Keyword refinements applied to a carrier's raw status while the local
  * status is still non-terminal (EN_ATTENTE / EN_TRANSIT). Order matters —

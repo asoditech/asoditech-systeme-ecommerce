@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
+import { ReportMetricInfo } from "@/components/reports/report-metric-info";
+import { ReportDefinitions } from "@/components/reports/report-definitions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,7 +11,7 @@ import { ReportFilterBar } from "@/components/reports/report-filter-bar";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
 import { requireChannelKind } from "@/lib/auth/channel-access";
-import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
+import { resolveTenantReportRange, rangeQuery } from "@/lib/reports/range";
 import {
   getProfitabilityReport,
   DELETED_PRODUCT_KEY,
@@ -24,6 +26,15 @@ export const metadata = { title: "Rapport de profitabilité — ASODITECH Gestio
 
 const money = (v: number | null) => (v === null ? "—" : formatCurrency(v));
 const pct = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)} %`);
+
+/**
+ * « Par campagne / source » is hidden for now: nothing records an order's
+ * campaign yet (Order.campaignId is never written — /marketing is hidden
+ * too), so that view could only show one « Sans campagne » row. The query,
+ * the CampaignTable and the drill-down route are kept; set this to `true`
+ * once campaign attribution exists.
+ */
+const CAMPAIGN_VIEW_AVAILABLE: boolean = false;
 
 /** `null` → the "sans produit / sans campagne" bucket's URL segment. */
 const productHref = (productId: string | null) => `/rapports/profitabilite/produit/${productId ?? DELETED_PRODUCT_KEY}`;
@@ -123,8 +134,8 @@ export default async function RapportProfitabilitePage({
   // Order-derived data: needs an ONLINE channel (docs/adr/0039).
   requireChannelKind(viewer, "ONLINE");
   const params = await searchParams;
-  const resolved = resolveReportRange(params);
-  const view = params.view === "campagne" ? "campagne" : "produit";
+  const resolved = await resolveTenantReportRange(params);
+  const view = CAMPAIGN_VIEW_AVAILABLE && params.view === "campagne" ? "campagne" : "produit";
   const [report, business] = await Promise.all([
     getProfitabilityReport(resolved.range),
     getReportBusinessInfo(),
@@ -139,7 +150,7 @@ export default async function RapportProfitabilitePage({
       <ReportDocumentHeader business={business} title="Rapport de profitabilité" periodLabel={resolved.label} />
       <PageHeader
         title="Profitabilité"
-        description={`Période : ${resolved.label} — CA, coût des produits (coût figé à la vente) et frais de livraison attribués, par produit et par campagne/source.`}
+        description={`Période : ${resolved.label} — CA, coût des produits (coût figé à la vente) et frais de livraison attribués, par produit${CAMPAIGN_VIEW_AVAILABLE ? " et par campagne/source" : ""}.`}
       />
       <ReportFilterBar
         basePath="/rapports/profitabilite"
@@ -149,13 +160,13 @@ export default async function RapportProfitabilitePage({
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <KpiCard label="CA" value={formatCurrency(totals.revenue)} tone="primary" />
-        <KpiCard label="Coût produits" value={totals.productCost !== null ? formatCurrency(totals.productCost) : null}
+        <KpiCard label="CA produits" explain={<ReportMetricInfo metric="profitRevenue" label="CA produits" className="-ml-1" />} value={formatCurrency(totals.revenue)} tone="primary" />
+        <KpiCard label="Coût produits" explain={<ReportMetricInfo metric="profitProductCost" label="Coût produits" className="-ml-1" />} value={totals.productCost !== null ? formatCurrency(totals.productCost) : null}
           unavailableReason="Coût manquant" tone="warning" />
-        <KpiCard label="Frais de livraison" value={formatCurrency(totals.deliveryCost)} tone="info" />
-        <KpiCard label="Profit" value={totals.profit !== null ? formatCurrency(totals.profit) : null}
+        <KpiCard label="Frais de livraison" explain={<ReportMetricInfo metric="profitDeliveryCost" label="Frais de livraison" className="-ml-1" />} value={formatCurrency(totals.deliveryCost)} tone="info" />
+        <KpiCard label="Profit" explain={<ReportMetricInfo metric="profitProfit" label="Profit" className="-ml-1" />} value={totals.profit !== null ? formatCurrency(totals.profit) : null}
           unavailableReason="Non calculable" tone="success" />
-        <KpiCard label="Marge" value={pct(totals.marginPct)} tone="success" />
+        <KpiCard label="Marge" explain={<ReportMetricInfo metric="profitMargin" label="Marge" className="-ml-1" />} value={pct(totals.marginPct)} tone="success" />
       </div>
 
       {!totals.dataComplete && (
@@ -166,23 +177,31 @@ export default async function RapportProfitabilitePage({
         </p>
       )}
 
-      <div className="mt-6 mb-4 flex gap-1.5 print:hidden">
-        <Button size="sm" variant={view === "produit" ? "default" : "outline"} render={<Link href={viewHref("produit")} />}>
-          Par produit
-        </Button>
-        <Button size="sm" variant={view === "campagne" ? "default" : "outline"} render={<Link href={viewHref("campagne")} />}>
-          Par campagne / source
-        </Button>
-      </div>
+      {CAMPAIGN_VIEW_AVAILABLE ? (
+        <div className="mt-6 mb-4 flex gap-1.5 print:hidden">
+          <Button size="sm" variant={view === "produit" ? "default" : "outline"} render={<Link href={viewHref("produit")} />}>
+            Par produit
+          </Button>
+          <Button size="sm" variant={view === "campagne" ? "default" : "outline"} render={<Link href={viewHref("campagne")} />}>
+            Par campagne / source
+          </Button>
+        </div>
+      ) : (
+        <div className="mt-6" />
+      )}
 
       <Card>
         <CardHeader>
-          <CardTitle>{view === "produit" ? "Par produit" : "Par campagne / source"}</CardTitle>
+          <CardTitle className="flex items-center gap-1.5">
+            {view === "produit" ? "Par produit" : "Par campagne / source"}
+            <ReportMetricInfo metric={view === "produit" ? "profitByProduct" : "profitByCampaign"} />
+          </CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           {view === "produit" ? <ProductTable rows={report.byProduct} /> : <CampaignTable rows={report.byCampaign} />}
         </CardContent>
       </Card>
+      <ReportDefinitions report="profitabilite" exclude={CAMPAIGN_VIEW_AVAILABLE ? [] : ["profitByCampaign"]} />
     </div>
   );
 }

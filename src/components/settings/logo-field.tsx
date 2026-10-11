@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SettingInfo } from "@/components/settings/setting-info";
 
 /**
  * Company-logo picker for the business settings form. No upload backend:
@@ -47,7 +48,12 @@ export function LogoField({ defaultValue, showLabel = true }: { defaultValue: st
 
   return (
     <div className="space-y-2 sm:col-span-2">
-      {showLabel && <Label>Logo</Label>}
+      {showLabel && (
+        <div className="flex items-center gap-1">
+          <Label>Logo</Label>
+          <SettingInfo setting="logo" />
+        </div>
+      )}
       <input ref={hiddenRef} type="hidden" name="logoUrl" value={value} />
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-md border bg-muted">

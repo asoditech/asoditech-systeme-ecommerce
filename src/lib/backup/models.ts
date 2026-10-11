@@ -79,6 +79,16 @@ export const BACKUP_MODELS: readonly BackupModel[] = [
   { model: "OrderConfirmationAttempt", accessor: "orderConfirmationAttempt", key: "order_confirmation_attempts", strategy: "replace" },
   { model: "Refund", accessor: "refund", key: "refunds", strategy: "replace" },
   { model: "Shipment", accessor: "shipment", key: "shipments", strategy: "replace" },
+  // Physical Online-order returns (docs/adr/0036) and P3 parcel receptions.
+  // Previously missing — so a backup silently omitted return history, and a
+  // restore of a tenant holding a return could not even wipe its orders
+  // (order_returns RESTRICTs them). OrderReturn points at Order/User,
+  // OrderReturnLine at OrderReturn/OrderItem/Warehouse, ReturnReception at
+  // Shipment/Order/Warehouse/OrderReturn/User — all earlier; InventoryMovement
+  // (later) points at OrderReturn.
+  { model: "OrderReturn", accessor: "orderReturn", key: "order_returns", strategy: "replace" },
+  { model: "OrderReturnLine", accessor: "orderReturnLine", key: "order_return_lines", strategy: "replace" },
+  { model: "ReturnReception", accessor: "returnReception", key: "return_receptions", strategy: "replace" },
   { model: "StockTransfer", accessor: "stockTransfer", key: "stock_transfers", strategy: "replace" },
   { model: "StockTransferLine", accessor: "stockTransferLine", key: "stock_transfer_lines", strategy: "replace" },
   { model: "StocktakeSession", accessor: "stocktakeSession", key: "stocktake_sessions", strategy: "replace" },

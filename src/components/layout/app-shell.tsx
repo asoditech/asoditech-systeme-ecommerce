@@ -59,8 +59,9 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
           <UserMenu name={user.name} role={USER_ROLE_LABELS[user.role]} />
         </div>
       </header>
-      {/* pb clears the fixed IntegrationsFooter (h-9) so nothing hides behind it */}
-      <main className="flex-1 overflow-y-auto p-4 pb-14 [scrollbar-gutter:stable] md:p-6 md:pb-16">
+      {/* pb clears the fixed IntegrationsFooter (h-9) AND the floating « Centre d'aide »
+          button (bottom-12/14 + ~44px) so the last row — e.g. pagination « Suivant » — stays clickable */}
+      <main className="flex-1 overflow-y-auto p-4 pb-24 [scrollbar-gutter:stable] md:p-6 md:pb-28">
         <div className="mx-auto w-full max-w-[1600px]">{children}</div>
       </main>
       <IntegrationsFooter />

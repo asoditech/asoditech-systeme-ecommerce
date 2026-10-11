@@ -7,8 +7,11 @@ import { testWhatsAppConnectionAction } from "@/actions/whatsapp";
 import { disconnectIntegrationAction } from "@/actions/integrations";
 import { Button } from "@/components/ui/button";
 
-/** « Activer » / « Tester la connexion » (reads the sending number from Meta, sends nothing) and « Désactiver ». */
-export function WhatsAppActions({ enabled, hasRow }: { enabled: boolean; hasRow: boolean }) {
+/**
+ * « Activer » / « Tester la connexion » (reads the sending number from Meta, sends nothing) and « Désactiver ».
+ * Without the central sender (`senderConfigured` false) « Activer » can only fail, so it is not offered.
+ */
+export function WhatsAppActions({ enabled, hasRow, senderConfigured }: { enabled: boolean; hasRow: boolean; senderConfigured: boolean }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -34,9 +37,11 @@ export function WhatsAppActions({ enabled, hasRow }: { enabled: boolean; hasRow:
 
   return (
     <>
-      <Button type="button" size="sm" variant={enabled ? "outline" : "default"} disabled={isPending} onClick={test}>
-        {enabled ? "Tester la connexion" : "Activer"}
-      </Button>
+      {senderConfigured && (
+        <Button type="button" size="sm" variant={enabled ? "outline" : "default"} disabled={isPending} onClick={test}>
+          {enabled ? "Tester la connexion" : "Activer"}
+        </Button>
+      )}
       {hasRow && (
         <Button type="button" size="sm" variant="ghost" disabled={isPending} onClick={disable}>
           Désactiver

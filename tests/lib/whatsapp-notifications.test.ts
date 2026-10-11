@@ -193,6 +193,18 @@ describe("delivery failures (bundled)", () => {
     expect(sent()).toHaveLength(8);
   });
 
+  it("a summary Meta refused does not use up the day: the next failure is sent", async () => {
+    const w = await world();
+    meta.sendTemplateMessage.mockImplementation(async () => ({ ok: false, error: "HTTP 400" }));
+    await notifyShipmentsFailed([shipment("s1")], null);
+    expect((await prismaBase.user.findUniqueOrThrow({ where: { id: w.owner.id } })).whatsappDeliveryFailureNotifiedAt).toBeNull();
+
+    meta.sendTemplateMessage.mockImplementation(async () => ({ ok: true as const, messageId: "wamid.test" }));
+    const before = sent().length;
+    await notifyShipmentsFailed([shipment("s2")], null);
+    expect(sent().length - before).toBe(4);
+  });
+
   it("a reprocessed failure (same shipment) sends nothing", async () => {
     await world();
     await prismaBase.user.updateMany({ data: { whatsappDeliveryFailureNotifiedAt: null } });

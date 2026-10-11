@@ -658,10 +658,12 @@ describe("updateOrderStatusAction — state machine", () => {
 
     // Simulate stock having been reduced out-of-band (damage, recount)
     // between order creation and shipment, below what this order needs.
+    // P2: done AFTER confirmation — a confirmation is itself refused when the
+    // stock does not cover it, so this is the window the shipping guard covers.
     const item = await prisma.inventoryItem.findFirstOrThrow({ where: { productId: product.id } });
+    await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
     await prisma.inventoryItem.update({ where: { id: item.id }, data: { quantityOnHand: 1 } });
 
-    await updateOrderStatusAction(formData({ id: orderId, status: "CONFIRMEE" }));
     await updateOrderStatusAction(formData({ id: orderId, status: "EN_PREPARATION" }));
     const result = await updateOrderStatusAction(formData({ id: orderId, status: "EXPEDIEE" }));
 

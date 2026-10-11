@@ -24,6 +24,21 @@ export function isWhatsAppConfigured(): boolean {
   return Boolean(env.WHATSAPP_ACCESS_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID);
 }
 
+/**
+ * Test mode (WHATSAPP_ALLOWED_RECIPIENTS): when the env var lists numbers,
+ * only those may receive a message — every other recipient is refused
+ * before any request to Meta. Compared on digits only. Unset or empty
+ * = no restriction.
+ */
+export function whatsAppRecipientAllowed(to: string): boolean {
+  const list = (env.WHATSAPP_ALLOWED_RECIPIENTS ?? "")
+    .split(",")
+    .map((n) => n.replace(/\D/g, ""))
+    .filter(Boolean);
+  if (list.length === 0) return true;
+  return list.includes(to.replace(/\D/g, ""));
+}
+
 function graphUrl(path: string): string {
   return `https://graph.facebook.com/${env.WHATSAPP_GRAPH_API_VERSION}/${path}`;
 }
@@ -51,6 +66,10 @@ export async function sendTemplate(
   if (!isWhatsAppConfigured()) {
     if (env.NODE_ENV !== "test") console.warn(`[whatsapp] NOT SENT — WhatsApp not configured (template ${templateName})`);
     return { ok: false, error: "not_configured" };
+  }
+  if (!whatsAppRecipientAllowed(to)) {
+    console.warn(`[whatsapp] NOT SENT — recipient not in WHATSAPP_ALLOWED_RECIPIENTS (template ${templateName})`);
+    return { ok: false, error: "recipient_not_allowed" };
   }
   try {
     const components: unknown[] = [{ type: "body", parameters: parameters.map((text) => ({ type: "text", text })) }];

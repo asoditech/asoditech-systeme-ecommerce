@@ -18,30 +18,49 @@ import {
 import { ORDER_STATUS_TRANSITIONS, type OrderStatusValue } from "@/lib/validation/order";
 import { ORDER_STATUS_LABELS, ORDER_PAYMENT_STATUS_LABELS } from "@/lib/status-labels";
 import { StatusBadge } from "@/components/status-badge";
+import { StockOverrideDialog } from "@/components/orders/stock-override-dialog";
+import { confirmationStockNotice, stockShortageOf, type ConfirmationStockFlags, type StockShortage } from "@/lib/stock-shortage";
 import type { OrderPaymentStatus } from "@prisma/client";
 
 export function OrderStatusControl({
   orderId,
   currentStatus,
   canEdit,
+  stockFlags,
 }: {
   orderId: string;
   currentStatus: OrderStatusValue;
   canEdit: boolean;
+  /** P2: stock situation at the fulfilment warehouse, shown before « → Confirmée ». */
+  stockFlags?: ConfirmationStockFlags | null;
 }) {
   const router = useRouter();
   const [pendingStatus, setPendingStatus] = React.useState<OrderStatusValue | null>(null);
   const [isPending, startTransition] = React.useTransition();
 
   const nextStatuses = ORDER_STATUS_TRANSITIONS[currentStatus];
+  // P2: a → « Confirmée » refused for stock opens the shortage / override dialog.
+  const [shortage, setShortage] = React.useState<StockShortage | null>(null);
 
-  function confirmChange() {
-    if (!pendingStatus) return;
+  function confirmChange(statusArg?: OrderStatusValue, override?: { token: string; reason: string }) {
+    const target = statusArg ?? pendingStatus;
+    if (!target) return;
+    setShortage(null);
     startTransition(async () => {
       const formData = new FormData();
       formData.set("id", orderId);
-      formData.set("status", pendingStatus);
+      formData.set("status", target);
+      if (override) {
+        formData.set("stockOverrideToken", override.token);
+        formData.set("stockOverrideReason", override.reason);
+      }
       const result = await updateOrderStatusAction(formData);
+      const refusedForStock = stockShortageOf(result);
+      if (refusedForStock) {
+        setPendingStatus(null);
+        setShortage(refusedForStock);
+        return;
+      }
       if (result.ok) {
         toast.success("Statut mis à jour.");
         router.refresh();
@@ -78,14 +97,30 @@ export function OrderStatusControl({
                 `Passer la commande de "${ORDER_STATUS_LABELS[currentStatus].label}" à "${ORDER_STATUS_LABELS[pendingStatus].label}" ?`}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {pendingStatus === "CONFIRMEE" &&
+            confirmationStockNotice(stockFlags).map((line) => (
+              <p
+                key={line}
+                className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400"
+              >
+                {line}
+              </p>
+            ))}
           <AlertDialogFooter>
             <AlertDialogCancel type="button">Annuler</AlertDialogCancel>
-            <AlertDialogAction type="button" onClick={confirmChange} disabled={isPending}>
+            <AlertDialogAction type="button" onClick={() => confirmChange()} disabled={isPending}>
               {isPending ? "En cours..." : "Confirmer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <StockOverrideDialog
+        key={shortage?.token ?? "none"}
+        shortage={shortage}
+        pending={isPending}
+        onCancel={() => setShortage(null)}
+        onOverride={(token, reason) => confirmChange("CONFIRMEE", { token, reason })}
+      />
     </>
   );
 }

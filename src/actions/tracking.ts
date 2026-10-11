@@ -6,6 +6,10 @@ import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
 import { refreshShipmentTracking } from "@/lib/integrations/delivery/tracking-service";
+import { pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
+import { notifyShipmentFailed, notifyShipmentsFailed } from "@/lib/notifications";
+import { shipmentNotificationContext } from "@/lib/shipment-notification-context";
+import type { ShipmentStatus } from "@prisma/client";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 
 /**
@@ -22,6 +26,19 @@ import { actionError, actionOk, type ActionResult } from "@/actions/types";
  */
 
 const TRACKING_PATH = "/livraison/suivi";
+
+/**
+ * Same follow-ups as « Rafraîchir les statuts » (src/actions/delivery.ts) when
+ * a Suivi refresh moved the shipment: a newly failed shipment is returned for
+ * the « échec de livraison » alert, a newly delivered one is pushed to a
+ * linked WooCommerce store.
+ */
+async function afterTrackingStatusChange(shipmentId: string, orderId: string, previous: ShipmentStatus) {
+  const current = await prisma.shipment.findUnique({ where: { id: shipmentId }, select: { status: true } });
+  if (!current || current.status === previous) return null;
+  if (current.status === "LIVRE") await pushOrderStatusToWooCommerce(orderId);
+  return current.status === "ECHEC" ? shipmentNotificationContext(shipmentId) : null;
+}
 
 /** Refresh ONE shipment's tracking. */
 export async function refreshTrackingAction(
@@ -43,6 +60,11 @@ export async function refreshTrackingAction(
     order: shipment.order,
     updatedById: user.id,
   });
+
+  if (outcome.ok && outcome.statusOutcome === "updated") {
+    const failed = await afterTrackingStatusChange(shipment.id, shipment.orderId, shipment.status);
+    if (failed) await notifyShipmentFailed(failed, user.id);
+  }
 
   await recordAuditEvent({
     actorType: "USER",
@@ -94,6 +116,7 @@ export async function refreshTrackingBatchAction(): Promise<
 
   let withEvents = 0;
   let failed = 0;
+  const failedShipments: NonNullable<Awaited<ReturnType<typeof shipmentNotificationContext>>>[] = [];
   for (const shipment of batch) {
     const outcome = await refreshShipmentTracking({
       shipment,
@@ -102,12 +125,19 @@ export async function refreshTrackingBatchAction(): Promise<
     });
     if (outcome.ok) {
       if (outcome.eventsFetched) withEvents++;
+      if (outcome.statusOutcome === "updated") {
+        // Notified after the loop, as one bundle — same as « Rafraîchir les statuts ».
+        const failedCtx = await afterTrackingStatusChange(shipment.id, shipment.orderId, shipment.status);
+        if (failedCtx) failedShipments.push(failedCtx);
+      }
     } else {
       failed++;
       // refreshShipmentTracking already stamped lastTrackingSyncAt on the
       // failure path, so this shipment won't be retried on the next loop.
     }
   }
+
+  await notifyShipmentsFailed(failedShipments, user.id);
 
   const remaining =
     batch.length < REFRESH_TRACKING_BATCH

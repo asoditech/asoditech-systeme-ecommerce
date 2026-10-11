@@ -3,6 +3,8 @@ import { Boxes, Download, Warehouse } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { DataTablePagination } from "@/components/data-table-pagination";
+import { redirect } from "next/navigation";
+import { PAGE_SIZE_OPTIONS, outOfRangeHref, parsePage, parsePageSize } from "@/lib/pagination";
 import { StockAdjustmentDialog } from "@/components/inventory/stock-adjustment-dialog";
 import { ProductImagePreview } from "@/components/products/product-image-preview";
 import { unitImageUrl } from "@/lib/catalog/unit-image";
@@ -48,11 +50,14 @@ export default async function StockPage({
     stockStatus?: string;
     sort?: string;
     page?: string;
+    pageSize?: string;
   }>;
 }) {
   const user = await requirePermission("inventory.view");
   const params = await searchParams;
-  const page = Number(params.page) || 1;
+  const page = parsePage(params.page);
+  // « Afficher 10 | 50 | 100 par page » — only an allowed size is accepted (default 10).
+  const pageSize = parsePageSize(params.pageSize);
 
   const [allWarehouses, categories] = await Promise.all([listWarehousesWithStats(), listCategories()]);
   // Location Access Management v1 (docs/adr/0037): OWNER/ADMIN keep seeing
@@ -72,15 +77,19 @@ export default async function StockPage({
   const sort: InventorySort =
     params.sort === "quantity-asc" || params.sort === "quantity-desc" ? params.sort : "recent";
 
-  const { items, total, pageSize } = await listInventoryItems({
+  const { items, total } = await listInventoryItems({
     q: params.q,
     warehouseId,
     categoryId,
     stockStatus,
     sort,
     page,
+    pageSize,
     allowedWarehouseIds: isGlobal ? null : warehouses.map((w) => w.id),
   });
+  // Past the last page (e.g. the filtered set shrank) → the last page, same filters.
+  const outOfRange = outOfRangeHref({ page, total, pageSize, basePath: "/stock", searchParams: params });
+  if (outOfRange) redirect(outOfRange);
   const canAdjust = userHasPermission(user, "inventory.adjust");
   // Purchase cost is finance.view data (docs/adr/0043): the column — and every
   // cost value — is rendered only for those users. Read from the rows already
@@ -156,7 +165,7 @@ export default async function StockPage({
           ]}
         />
         {hasActiveFilter ? (
-          <Button size="sm" variant="ghost" render={<Link href="/stock" />}>
+          <Button size="sm" variant="ghost" render={<Link href={params.pageSize ? `/stock?pageSize=${pageSize}` : "/stock"} />}>
             Réinitialiser
           </Button>
         ) : null}
@@ -189,7 +198,7 @@ export default async function StockPage({
               {items.map((i) => {
                 const product = i.product ?? i.variation?.product;
                 const threshold = product?.lowStockThreshold ?? 0;
-                const isLow = i.quantityOnHand <= threshold;
+                const isLow = availableStock(i) <= threshold; // same rule as the dashboard and the alerts
                 const isOut = availableStock(i) <= 0;
                 const label = i.variation
                   ? `${i.variation.product.name} (${Object.values(i.variation.attributes as Record<string, string>).join(", ")})`
@@ -267,6 +276,7 @@ export default async function StockPage({
             total={total}
             basePath="/stock"
             searchParams={paginationParams}
+            pageSizeOptions={PAGE_SIZE_OPTIONS}
           />
         </div>
       )}

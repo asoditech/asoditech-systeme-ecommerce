@@ -3,6 +3,10 @@ import { ArrowUpRight, ArrowDownRight, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { TONES, type Tone } from "@/lib/design/tone";
+import { MetricInfo } from "@/components/metric-info";
+import { AnalyticsMetricInfo } from "@/components/analytics/analytics-metric-info";
+import type { MetricKey } from "@/lib/metrics/glossary";
+import type { AnalyticsMetricId } from "@/lib/metrics/analytics-explanations";
 
 export type KpiTone = Tone;
 
@@ -30,6 +34,9 @@ export function KpiCard({
   trend,
   unavailableReason,
   tone = "primary",
+  info,
+  metric,
+  explain,
 }: {
   label: string;
   value: string | null;
@@ -38,6 +45,12 @@ export function KpiCard({
   trend?: { direction: "up" | "down" | "flat"; label: string };
   unavailableReason?: string;
   tone?: KpiTone;
+  /** « ⓘ » explanation of the metric (src/lib/metrics/glossary.ts). */
+  info?: MetricKey;
+  /** « ⓘ » explanation of an /analyses figure (src/lib/metrics/analytics-explanations.ts). */
+  metric?: AnalyticsMetricId;
+  /** Any other « ⓘ » (e.g. <ReportMetricInfo/> on /rapports). */
+  explain?: React.ReactNode;
 }) {
   const colors = TONES[tone];
   return (
@@ -50,6 +63,9 @@ export function KpiCard({
             </span>
           )}
           <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+          {info && <MetricInfo metric={info} className="-ml-1" />}
+          {metric && <AnalyticsMetricInfo metric={metric} label={label} className="-ml-1" />}
+          {explain}
         </div>
         {value === null ? (
           <>

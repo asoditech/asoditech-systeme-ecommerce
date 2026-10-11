@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { PlanFeatures, TieredFeatureKey } from "@/lib/entitlements/catalogue";
-import { FEATURE_KEY_LABELS, TIERED_FEATURE_KEYS } from "@/lib/entitlements/catalogue";
+import { ENFORCED_FEATURE_KEYS, FEATURE_KEY_LABELS, TIERED_FEATURE_KEYS } from "@/lib/entitlements/catalogue";
 import type { Plan } from "@prisma/client";
 
 const TIER_LABEL: Record<string, string> = { standard: "Standard", advanced: "Avancé" };
@@ -126,6 +126,10 @@ export function PlanEditForm({ plan, features }: { plan: SerializedPlan; feature
 
       <div className="space-y-3">
         <p className="text-sm font-medium">Niveau des fonctionnalités</p>
+        <p className="text-xs text-muted-foreground">
+          Indicatif : le niveau est affiché au client mais ne bloque encore aucune fonction (pas de restriction « avancé »
+          en place).
+        </p>
         <div className="grid gap-3 sm:grid-cols-3">
           {TIERED_FEATURE_KEYS.map((key) => (
             <div key={key} className="space-y-1.5">
@@ -146,10 +150,17 @@ export function PlanEditForm({ plan, features }: { plan: SerializedPlan; feature
 
       <div className="space-y-3">
         <p className="text-sm font-medium">Intégrations & modules</p>
+        <p className="text-xs text-muted-foreground">
+          Les modules marqués « indicatif » sont affichés au client comme inclus ou non, mais les désactiver ne bloque
+          pas encore leur accès.
+        </p>
         <div className="grid gap-3 sm:grid-cols-2">
           {(Object.keys(booleanFeatures) as (keyof typeof booleanFeatures)[]).map((key) => (
             <label key={key} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
-              {FEATURE_KEY_LABELS[key] ?? key}
+              <span>
+                {FEATURE_KEY_LABELS[key] ?? key}
+                {!ENFORCED_FEATURE_KEYS.includes(key) && <span className="ml-2 text-xs text-muted-foreground">indicatif</span>}
+              </span>
               <Switch
                 checked={booleanFeatures[key]}
                 onCheckedChange={(checked) => setBooleanFeatures((f) => ({ ...f, [key]: checked }))}

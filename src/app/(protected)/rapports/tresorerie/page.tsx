@@ -1,12 +1,14 @@
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
+import { ReportMetricInfo } from "@/components/reports/report-metric-info";
+import { ReportDefinitions } from "@/components/reports/report-definitions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
 import { requireChannelKind } from "@/lib/auth/channel-access";
-import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
+import { resolveTenantReportRange, rangeQuery } from "@/lib/reports/range";
 import { getCashflowReport } from "@/lib/queries/reports/cashflow";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { formatCurrency } from "@/lib/format";
@@ -24,7 +26,7 @@ export default async function RapportTresoreriePage({
   // Order-derived data: needs an ONLINE channel (docs/adr/0039).
   requireChannelKind(viewer, "ONLINE");
   const params = await searchParams;
-  const resolved = resolveReportRange(params);
+  const resolved = await resolveTenantReportRange(params);
   const [r, business] = await Promise.all([
     getCashflowReport(resolved.range),
     getReportBusinessInfo(),
@@ -42,19 +44,23 @@ export default async function RapportTresoreriePage({
       <ReportFilterBar basePath="/rapports/tresorerie" resolved={resolved} exportHref={exportHref} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Encaissé" value={formatCurrency(r.inflows.collected)} tone="success" />
-        <KpiCard label="À encaisser" value={formatCurrency(r.inflows.pending)} tone="warning"
-          hint="Commandes non encore payées (COD en attente)" />
-        <KpiCard label="Sorties (dépenses + livraison)" value={formatCurrency(r.outflows.total)} tone="danger" />
-        <KpiCard label="Trésorerie nette" value={formatCurrency(r.netCash)}
+        <KpiCard label="Encaissé" explain={<ReportMetricInfo metric="cashCollected" label="Encaissé" className="-ml-1" />} value={formatCurrency(r.inflows.collected)} tone="success" />
+        <KpiCard label="À encaisser" explain={<ReportMetricInfo metric="cashPending" label="À encaisser" className="-ml-1" />} value={formatCurrency(r.inflows.pending)} tone="warning"
+          hint={
+            r.inflows.pendingPartial > 0
+              ? `Commandes en cours non payées — dont ${formatCurrency(r.inflows.pendingPartial)} partiellement payées, comptées en entier`
+              : "Commandes en cours non encore payées (hors annulées, échecs, retours)"
+          } />
+        <KpiCard label="Sorties (dépenses + livraison)" explain={<ReportMetricInfo metric="cashOutflows" label="Sorties (dépenses + livraison)" className="-ml-1" />} value={formatCurrency(r.outflows.total)} tone="danger" />
+        <KpiCard label="Trésorerie nette" explain={<ReportMetricInfo metric="cashNet" label="Trésorerie nette" className="-ml-1" />} value={formatCurrency(r.netCash)}
           tone={r.netCash >= 0 ? "success" : "danger"} hint={`Projetée : ${formatCurrency(r.projectedNet)}`} />
-        <KpiCard label="Marge brute %" value={pct(r.grossMarginPct)} tone="primary" />
-        <KpiCard label="Remboursé" value={formatCurrency(r.inflows.refunded)} tone="warning" />
+        <KpiCard label="Marge brute %" explain={<ReportMetricInfo metric="cashGrossMargin" label="Marge brute %" className="-ml-1" />} value={pct(r.grossMarginPct)} tone="primary" />
+        <KpiCard label="Remboursé" explain={<ReportMetricInfo metric="cashRefunded" label="Remboursé" className="-ml-1" />} value={formatCurrency(r.inflows.refunded)} tone="warning" />
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>Encaissements par mode de paiement</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-1.5">Encaissements par mode de paiement<ReportMetricInfo metric="cashByMethod" /></CardTitle></CardHeader>
           <CardContent className="overflow-x-auto">
             <Table className="text-[13px]">
               <TableHeader><TableRow><TableHead>Mode</TableHead><TableHead className="text-right">Encaissé</TableHead><TableHead className="text-right">À encaisser</TableHead></TableRow></TableHeader>
@@ -72,7 +78,7 @@ export default async function RapportTresoreriePage({
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>Sorties par poste</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-1.5">Sorties par poste<ReportMetricInfo metric="cashOutflowsByCategory" /></CardTitle></CardHeader>
           <CardContent className="overflow-x-auto">
             <Table className="text-[13px]">
               <TableHeader><TableRow><TableHead>Poste</TableHead><TableHead className="text-right">Montant</TableHead></TableRow></TableHeader>
@@ -96,6 +102,7 @@ export default async function RapportTresoreriePage({
           </CardContent>
         </Card>
       </div>
+      <ReportDefinitions report="tresorerie" />
     </div>
   );
 }

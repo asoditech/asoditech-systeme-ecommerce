@@ -2,6 +2,8 @@ import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Sparkline } from "@/components/sparkline";
 import { TrendBadge } from "@/components/kpi-card";
+import { MetricInfo } from "@/components/metric-info";
+import type { MetricKey } from "@/lib/metrics/glossary";
 
 // Literal, statically-scannable class strings — Tailwind's build-time scanner
 // cannot see a dynamically interpolated `sm:grid-cols-${n}` class name, so
@@ -32,6 +34,8 @@ export function CommandHero({
   label,
   value,
   hint,
+  info,
+  explain,
   trend,
   sparklineData,
   stats,
@@ -40,10 +44,14 @@ export function CommandHero({
   label: string;
   value: string;
   hint?: string;
+  /** « ⓘ » explanation of the headline metric. */
+  info?: MetricKey;
+  /** Any other « ⓘ » for the headline (e.g. <ReportMetricInfo/> on /rapports). */
+  explain?: React.ReactNode;
   trend?: { direction: "up" | "down" | "flat"; label: string };
   /** Real values already fetched elsewhere on the page — omit for no sparkline. */
   sparklineData?: { value: number }[];
-  stats: { label: string; value: string; icon: LucideIcon }[];
+  stats: { label: string; value: string; icon: LucideIcon; explain?: React.ReactNode }[];
 }) {
   return (
     <div className="relative overflow-hidden rounded-2xl bg-card shadow-card ring-1 ring-border">
@@ -53,7 +61,11 @@ export function CommandHero({
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
             <p className="text-[11px] font-semibold tracking-wide text-accent-foreground uppercase">{eyebrow}</p>
-            <p className="mt-2 text-sm font-medium text-muted-foreground">{label}</p>
+            <p className="mt-2 flex items-center gap-1 text-sm font-medium text-muted-foreground">
+              {label}
+              {info && <MetricInfo metric={info} />}
+              {explain}
+            </p>
             <div className="mt-1 flex flex-wrap items-center gap-3">
               <p className="truncate text-3xl font-bold tracking-tight text-foreground tabular-nums sm:text-4xl">{value}</p>
               {trend && <TrendBadge trend={trend} />}
@@ -75,7 +87,10 @@ export function CommandHero({
                   <s.icon className="size-4" />
                 </span>
                 <div className="min-w-0">
-                  <p className="truncate text-xs text-muted-foreground">{s.label}</p>
+                  <p className="flex items-center gap-0.5 truncate text-xs text-muted-foreground">
+                    {s.label}
+                    {s.explain}
+                  </p>
                   <p className="truncate text-base font-semibold tabular-nums">{s.value}</p>
                 </div>
               </div>

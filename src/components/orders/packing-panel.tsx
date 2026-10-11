@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { CheckCircle2, PackageCheck, RotateCcw, ScanBarcode } from "lucide-react";
 import { checkPackingScanAction, validatePackingAction } from "@/actions/packing";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
+import { LOOKUP_SCAN_FORMATS } from "@/lib/barcode-scanner/support";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -43,26 +44,43 @@ export function PackingPanel({
   const counts = packingCounts(lines, keys, manualKeys);
   const complete = isPackingComplete(lines, counts);
 
+  // Scans are checked one after another against the keys accepted so far
+  // (a ref, not the last render's state): two fast scans never both pass
+  // against the same stale count.
+  const keysRef = useRef<string[]>([]);
+  const scanQueue = useRef<Promise<void>>(Promise.resolve());
+
   function scan(raw?: string) {
     const value = (raw ?? code).trim();
     if (!value) return;
+    // Empty the field at once: the scanner's next code must not be appended to this one.
+    setCode("");
+    const previous = scanQueue.current;
+    let release = () => {};
+    scanQueue.current = new Promise<void>((resolve) => (release = resolve));
     startTransition(async () => {
-      const r = await checkPackingScanAction({ orderId, code: value, scannedKeys: keys, manualKeys });
-      if (r.ok) {
-        setCodes((p) => [...p, value]);
-        setKeys((p) => [...p, r.data.key]);
-        setLastError(null);
-        toast.success(`${r.data.label} — ajouté.`);
-      } else {
-        setLastError(r.error);
-        toast.error(r.error);
+      await previous;
+      try {
+        const r = await checkPackingScanAction({ orderId, code: value, scannedKeys: keysRef.current, manualKeys });
+        if (r.ok) {
+          keysRef.current = [...keysRef.current, r.data.key];
+          setCodes((p) => [...p, value]);
+          setKeys(keysRef.current);
+          setLastError(null);
+          toast.success(`${r.data.label} — ajouté.`);
+        } else {
+          setLastError(r.error);
+          toast.error(r.error);
+        }
+      } finally {
+        release();
+        inputRef.current?.focus();
       }
-      setCode("");
-      inputRef.current?.focus();
     });
   }
 
   function reset() {
+    keysRef.current = [];
     setCodes([]);
     setKeys([]);
     setManualKeys([]);
@@ -106,7 +124,8 @@ export function PackingPanel({
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                scan();
+                // The field's own value: a code scanned before hydration is in the DOM, not yet in state.
+                scan(e.currentTarget.value);
               }
             }}
             placeholder="Scanner le code-barres ou saisir le SKU exact…"
@@ -116,7 +135,7 @@ export function PackingPanel({
             <ScanBarcode className="size-4" />
             Vérifier
           </Button>
-          <BarcodeScanButton onDetect={(c) => scan(c)} label="Caméra" />
+          <BarcodeScanButton formats={LOOKUP_SCAN_FORMATS} onDetect={(c) => scan(c)} label="Caméra" />
         </div>
         {lastError && <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{lastError}</p>}
 

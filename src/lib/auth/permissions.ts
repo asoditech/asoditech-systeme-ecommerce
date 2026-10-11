@@ -36,6 +36,13 @@ export const PERMISSIONS = [
   // Controlled fallback: validate packing lines manually (no / damaged code),
   // with a mandatory reason and an audit event. MANAGER and above by default.
   "orders.pack_manual",
+  // P2 — confirm an Online order despite a stock shortage at its fulfilment
+  // warehouse, with a mandatory reason and an `order.stock_override` audit.
+  // ALSO gated by a hard role check (OWNER / ADMIN / MANAGER only —
+  // src/lib/auth/stock-override.ts): a per-user DENY removes it from a
+  // MANAGER, a GRANT can never extend it to another role (refused by
+  // setUserPermissionOverridesAction, and inert anyway).
+  "orders.confirm_out_of_stock",
   // Physically remove a TEST order that never left the warehouse (never
   // shipped, internal, no carrier parcel / refund / return / commission) —
   // src/lib/orders/purge.ts. OWNER / ADMIN only (ALL_PERMISSIONS); no other
@@ -144,6 +151,7 @@ export const PERMISSION_CHANNEL_DOMAIN: Readonly<Partial<Record<Permission, Chan
   "orders.confirm": "ONLINE",
   "orders.pack": "ONLINE",
   "orders.pack_manual": "ONLINE",
+  "orders.confirm_out_of_stock": "ONLINE",
   "orders.purge": "ONLINE",
   "delivery.view": "ONLINE",
   "delivery.manage": "ONLINE",
@@ -181,6 +189,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     "orders.confirm",
     "orders.pack",
     "orders.pack_manual",
+    "orders.confirm_out_of_stock",
     "customers.view",
     "customers.create",
     "customers.edit",
@@ -278,6 +287,14 @@ export function hasPermission(role: UserRole, permission: Permission): boolean {
 export function roleHasPermission(role: UserRole, permission: Permission): boolean {
   return hasPermission(role, permission);
 }
+
+/**
+ * Permissions a per-user override may DENY but never GRANT (P2): the stock
+ * override is reserved to OWNER / ADMIN / MANAGER by a hard role check
+ * (src/lib/auth/stock-override.ts). Enforced by setUserPermissionOverridesAction;
+ * the overrides dialog only hides the « Autoriser » choice (UX).
+ */
+export const DENY_ONLY_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>(["orders.confirm_out_of_stock"]);
 
 /**
  * Effective-permission check for a resolved user (docs/adr/0039): role

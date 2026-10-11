@@ -13,12 +13,15 @@ export type AuditAction =
   | "user.login.success"
   | "user.login.failure"
   | "user.logout"
+  // Batch 1A hardening: the user ended every one of their own sessions.
+  | "user.sessions_revoked_all"
   | "user.created"
   | "user.role_changed"
   | "user.status_changed"
   | "user.deleted"
   | "user.locations_updated"
   | "order.confirmation_attempt"
+  | "order.stock_override"
   | "tenant.created"
   | "tenant.activated"
   | "tenant.suspended"
@@ -71,6 +74,10 @@ export type AuditAction =
   | "order.refund.created"
   | "order.refund.status_changed"
   | "order.return_confirmed"
+  // P3 returns workspace: a carrier-returned parcel physically arrived (no stock change).
+  | "order.return_received"
+  // P3: a reception awaiting inspection voided (empty / wrong parcel…) — no stock change.
+  | "order.return_reception_cancelled"
   | "inventory.adjusted"
   | "inventory.reconciled"
   | "inventory.location_cost_updated"

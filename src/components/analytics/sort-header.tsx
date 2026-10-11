@@ -12,6 +12,7 @@ export function SortHeader({
   active,
   dir,
   className,
+  info,
 }: {
   column: string;
   label: string;
@@ -20,6 +21,8 @@ export function SortHeader({
   active: boolean;
   dir: "asc" | "desc";
   className?: string;
+  /** Optional « ⓘ » next to the label (outside the sort link). */
+  info?: React.ReactNode;
 }) {
   const sp = new URLSearchParams(params);
   sp.set("sort", column);
@@ -31,6 +34,7 @@ export function SortHeader({
         {label}
         {active && <Icon className="size-3" />}
       </Link>
+      {info}
     </TableHead>
   );
 }

@@ -3,6 +3,8 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { getAgentCommissionTotals, monthBounds } from "@/lib/commissions";
 import type { OrderStatus } from "@prisma/client";
+import { currentMonthRange } from "@/lib/queries/finance";
+import { getBusinessTimeZone } from "@/lib/time/business-zone";
 
 /** The CommissionAgent id for a user, if they're registered as an agent — used to scope "Mes confirmations" to the current caller. */
 export async function getCommissionAgentIdForUser(userId: string): Promise<string | null> {
@@ -159,16 +161,21 @@ export interface CommissionDashboardSummary {
   currency: string;
 }
 
-/** Compact Dashboard tiles: this month's gross earned + aggregate remaining. */
+/**
+ * Compact Dashboard tiles: this month's gross earned + aggregate remaining.
+ * Same definitions as /analyses and /commissions (S6): « ce mois » is the
+ * business time zone's month (src/lib/time/zoned.ts), and « Reste à payer »
+ * sums EVERY agent — a deactivated agent is still owed what they earned.
+ * (Payout closing keeps its own calendar-month bounds, monthBounds.)
+ */
 export async function getCommissionDashboardSummary(): Promise<CommissionDashboardSummary> {
-  const now = new Date();
-  const { start, end } = monthBounds(now.getFullYear(), now.getMonth() + 1);
+  const month = currentMonthRange(await getBusinessTimeZone());
   const [earned, agents] = await Promise.all([
     prisma.commissionEntry.aggregate({
-      where: { type: "EARNED", createdAt: { gte: start, lt: end } },
+      where: { type: "EARNED", createdAt: { gte: month.from, lte: month.to } },
       _sum: { amount: true },
     }),
-    prisma.commissionAgent.findMany({ where: { isActive: true }, select: { id: true, currency: true } }),
+    prisma.commissionAgent.findMany({ orderBy: [{ isActive: "desc" }], select: { id: true, currency: true } }),
   ]);
   const totals = await Promise.all(agents.map((a) => getAgentCommissionTotals(a.id)));
   return {

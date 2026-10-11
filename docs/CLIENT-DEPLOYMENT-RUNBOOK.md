@@ -620,28 +620,30 @@ an integration.
 - **Disconnect/reconnect**: remove the two env vars to fall back to
   log-only; there is no in-app toggle.
 
-### 5.7 WhatsApp — click-to-chat only, NOT an API integration
+### 5.7 WhatsApp — staff alerts via Cloud API + customer click-to-chat links
 
-Despite `IntegrationProvider.WHATSAPP` existing as a schema enum value
-(`docs/adr/0004`), **there is no WhatsApp Business API integration built**
-— it is listed on the Integrations page as planned/unavailable, same as
-every other still-scaffolded provider (Meta Ads, Google Ads, TikTok Ads,
-Google Sheets, `AI_PROVIDER`): `connectIntegrationAction` only stores a
-site URL and encrypted API key with no adapter behind it.
+Two separate mechanisms (docs/adr/0058):
 
-What genuinely exists and works today is **`wa.me` click-to-chat link
-generation** (`src/lib/whatsapp.ts`), used in two places:
-- The order confirmation queue (`src/components/orders/confirmation-queue.tsx`)
-  — a "WhatsApp" button opens `https://wa.me/<customer number>?text=...`
-  with a pre-filled message, using the customer's own `whatsapp`/`phone`
-  field.
-- The support widget's contact section
-  (`src/components/support/support-contact-section.tsx`) — uses
-  `BusinessSettings.supportWhatsapp` (Réglages → Entreprise) if set.
-
-Nothing to configure beyond filling in `supportWhatsapp` in Réglages if
-the client wants that contact option shown; no credentials, no API, no
-webhook.
+1. **Staff alerts — WhatsApp Cloud API (automated).** One central
+   ASODITECH sender configured by server env vars `WHATSAPP_ACCESS_TOKEN`,
+   `WHATSAPP_PHONE_NUMBER_ID` (and optional `WHATSAPP_GRAPH_API_VERSION`).
+   Recipients are only the tenant's own team members who verified their
+   number and opted in (Paramètres → Notifications) — **never customers**.
+   Templates (`asoditech_stock_out`, `asoditech_delivery_failure_summary`,
+   `asoditech_integration_down`, `asoditech_verification_code`, language
+   `fr`) must be created and approved by hand in Meta. Per tenant, the
+   channel is switched on from Intégrations → WhatsApp Business
+   (« Activer », which only reads the sender from Meta — it sends nothing).
+   Without the env vars the card says the sender is not configured and
+   offers no « Activer ». There is no message log, delivery status, retry
+   or sandbox/allowlist mode: in any environment that has the env vars,
+   real messages go to real staff numbers.
+2. **Customer contact — `wa.me` click-to-chat links (manual).** Built by
+   `src/lib/whatsapp.ts` / `src/lib/phone-links.ts` (confirmation queue,
+   order, client and Suivi pages) and the support widget
+   (`BusinessSettings.supportWhatsapp`). A person opens WhatsApp and sends
+   the message themselves; nothing is sent automatically to customers and
+   nothing is logged.
 
 ### 5.8 AI Assistant — controlled tool layer, no LLM (`docs/adr/0009`)
 

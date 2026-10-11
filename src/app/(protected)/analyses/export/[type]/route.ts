@@ -9,6 +9,7 @@ import { getStoreOverview } from "@/lib/analytics/queries/store";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { csvDocument, csvDocumentResponse, type CsvSection } from "@/lib/reports/csv";
 import { CONFIRMATION_OUTCOME_LABELS } from "@/lib/status-labels";
+import { getBusinessTimeZone } from "@/lib/time/business-zone";
 
 /**
  * CSV exports of the analytics module — `/analyses/export/<type>` with the
@@ -58,7 +59,7 @@ export async function GET(request: Request, routeCtx: { params: Promise<{ type: 
   if (!allowed(access)) return new Response("Forbidden", { status: 403 });
 
   const url = new URL(request.url);
-  const { period, filters } = contextFor(user, access, Object.fromEntries(url.searchParams.entries()));
+  const { period, filters } = contextFor(user, access, Object.fromEntries(url.searchParams.entries()), await getBusinessTimeZone());
   const business = await getReportBusinessInfo();
   const meta = [`Période : ${period.label}`, `Généré le : ${new Date().toLocaleString("fr-FR")}`, "Définitions : voir la section « Définitions des indicateurs » de la page"];
   const send = (name: string, title: string, sections: CsvSection[]) =>
@@ -81,7 +82,8 @@ export async function GET(request: Request, routeCtx: { params: Promise<{ type: 
             ["Annulées", o.cancelled],
             ["Échecs", o.failed],
             ["Retournées", o.returned],
-            ["CA commandé", o.placedRevenue],
+            ["Chiffre d'affaires (net des remboursements)", o.netRevenue],
+            ["CA brut (avant remboursements)", o.placedRevenue],
             ["CA livré", o.deliveredRevenue],
             ["Panier moyen", o.averageOrderValue ?? ""],
             ["Unités vendues", o.unitsSold],
@@ -89,7 +91,7 @@ export async function GET(request: Request, routeCtx: { params: Promise<{ type: 
             ["Remboursé", o.refundedAmount],
           ],
         },
-        { heading: "Par jour / mois (date de commande)", headers: ["Période", "Commandes", "CA commandé", "CA livré"], rows: series.map((s) => [s.key, s.orders, s.revenue, s.deliveredRevenue]) },
+        { heading: "Par jour / mois (date de commande)", headers: ["Période", "Commandes", "Chiffre d'affaires (net)", "CA livré"], rows: series.map((s) => [s.key, s.orders, s.revenue, s.deliveredRevenue]) },
       ]);
     }
     case "confirmation": {
@@ -165,7 +167,7 @@ export async function GET(request: Request, routeCtx: { params: Promise<{ type: 
       if (funnel)
         sections.push({
           heading: "En ligne — entonnoir par origine (commandes passées)",
-          headers: ["Origine", "Commandes", "Confirmées", "Expédiées", "Livrées", "Retournées", "Annulées", "Échecs", "Taux conf. (%)", "Taux livr. (%)", "CA commandé"],
+          headers: ["Origine", "Commandes", "Confirmées", "Expédiées", "Livrées", "Retournées", "Annulées", "Échecs", "Taux conf. (%)", "Taux livr. (%)", "Chiffre d'affaires (net)"],
           rows: funnel.map((r) => [sourceLabel(r.key), r.orders, r.confirmed, r.shipped, r.delivered, r.returned, r.cancelled, r.failed, pct(r.confirmationRate), pct(r.deliveryRate), r.revenue]),
         });
       if (store) {

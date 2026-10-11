@@ -3,6 +3,8 @@ import "server-only";
 import type { Prisma, ProductStatus, RecordSource } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { productSearchWhere } from "@/lib/queries/products";
+import { getBusinessTimeZone } from "@/lib/time/business-zone";
+import { parseZonedDay } from "@/lib/time/zoned";
 import type { ExportPlatform, ExportProduct } from "@/lib/catalog/export/model";
 
 /**
@@ -29,10 +31,14 @@ export interface ExportFilters {
   notPublishedTo?: ExportPlatform;
 }
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const PROVIDER: Record<ExportPlatform, "WOOCOMMERCE" | "SHOPIFY"> = { woocommerce: "WOOCOMMERCE", shopify: "SHOPIFY" };
 
-export function exportFilterWhere(f: ExportFilters): Prisma.ProductWhereInput {
+/**
+ * `timeZone` is the tenant's business zone (getBusinessTimeZone): the
+ * « créé du / au » days are whole days THERE, both ends inclusive — not the
+ * server's (UTC on Vercel). Undefined keeps server-local days.
+ */
+export function exportFilterWhere(f: ExportFilters, timeZone?: string): Prisma.ProductWhereInput {
   const and: Prisma.ProductWhereInput[] = [];
   if (f.q?.trim()) and.push({ OR: productSearchWhere(f.q.trim()) });
   const status = f.status ?? "ACTIF";
@@ -50,8 +56,10 @@ export function exportFilterWhere(f: ExportFilters): Prisma.ProductWhereInput {
   };
   if (f.stock === "in") and.push(inStock);
   if (f.stock === "out") and.push({ NOT: inStock });
-  if (f.createdFrom && DAY.test(f.createdFrom)) and.push({ createdAt: { gte: new Date(`${f.createdFrom}T00:00:00`) } });
-  if (f.createdTo && DAY.test(f.createdTo)) and.push({ createdAt: { lte: new Date(`${f.createdTo}T23:59:59.999`) } });
+  const createdFrom = parseZonedDay(f.createdFrom, timeZone);
+  const createdTo = parseZonedDay(f.createdTo, timeZone, true);
+  if (createdFrom) and.push({ createdAt: { gte: createdFrom } });
+  if (createdTo) and.push({ createdAt: { lte: createdTo } });
   if (f.notPublishedTo) and.push({ publications: { none: { provider: PROVIDER[f.notPublishedTo] } } });
   return and.length ? { AND: and } : {};
 }
@@ -70,7 +78,7 @@ export interface ExportCandidate {
 
 /** The filtered list the user selects from (capped — narrow the filters beyond it). */
 export async function listExportCandidates(f: ExportFilters): Promise<{ rows: ExportCandidate[]; total: number }> {
-  const where = exportFilterWhere(f);
+  const where = exportFilterWhere(f, await getBusinessTimeZone());
   const [rows, total] = await Promise.all([
     prisma.product.findMany({
       where,

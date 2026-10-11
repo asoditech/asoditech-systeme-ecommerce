@@ -2,7 +2,11 @@ import "server-only";
 import { PACKING_CLEARED } from "@/lib/packing";
 
 import type { PrismaTransactionClient } from "@/lib/prisma";
-import { reserveStockForOrder } from "@/lib/inventory";
+import {
+  CONFIRMATION_STOCK_ITEM_SELECT,
+  reserveForConfirmation,
+  type PreparedStockOverride,
+} from "@/lib/stock-validation";
 
 /**
  * THE canonical Online-order confirmation — docs/adr/0045-canonical-online-confirmation.md.
@@ -70,16 +74,23 @@ export function isReopenable(order: { status: string; shippedAt: Date | null }):
 
 export async function confirmOnlineOrderInTx(
   tx: PrismaTransactionClient,
-  params: { orderId: string; confirmerUserId: string; note?: string | null }
-): Promise<{ creditedAgentId: string | null }> {
+  params: {
+    orderId: string;
+    confirmerUserId: string;
+    note?: string | null;
+    /** P2: an authorised, pre-validated stock override (src/lib/stock-validation.ts). */
+    stockOverride?: PreparedStockOverride | null;
+  }
+): Promise<{ creditedAgentId: string | null; stockOverrideUsed: boolean }> {
   const order = await tx.order.findUnique({
     where: { id: params.orderId },
     select: {
       id: true,
       status: true,
       confirmationAgentId: true,
+      fulfillmentWarehouseId: true,
       salesChannel: { select: { kind: true } },
-      items: { select: { productId: true, variationId: true, quantity: true } },
+      items: { select: CONFIRMATION_STOCK_ITEM_SELECT },
     },
   });
   if (!order) throw new OrderNotConfirmableError("Commande introuvable.");
@@ -107,7 +118,17 @@ export async function confirmOnlineOrderInTx(
     data: { orderId: order.id, agentUserId: params.confirmerUserId, outcome: "CONFIRME", note: params.note ?? null },
   });
 
-  await reserveStockForOrder(tx, order.id, order.items, params.confirmerUserId);
+  // P2: availability is enforced atomically WITH the reservation (per-row
+  // ceilings re-checked on the locked, post-update row); a shortage the
+  // override does not cover throws OrderStockShortageError / InsufficientStockError
+  // and rolls everything above back too.
+  const { overrideUsed } = await reserveForConfirmation(tx, {
+    orderId: order.id,
+    fulfillmentWarehouseId: order.fulfillmentWarehouseId,
+    lines: order.items,
+    confirmerUserId: params.confirmerUserId,
+    override: params.stockOverride ?? null,
+  });
 
   let creditedAgentId: string | null = null;
   if (!order.confirmationAgentId) {
@@ -124,5 +145,5 @@ export async function confirmOnlineOrderInTx(
     }
   }
 
-  return { creditedAgentId };
+  return { creditedAgentId, stockOverrideUsed: overrideUsed };
 }

@@ -15,7 +15,9 @@ import { buildParcelContentsSummary } from "@/lib/delivery";
 import { displayOrderNumber } from "@/lib/format";
 import type { StoredTrackingEvent } from "@/lib/integrations/delivery/tracking-service";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
-import { customerPhoneSearchKeys } from "@/lib/customers/identity";
+import { listSupersededShipments } from "@/lib/queries/delivery";
+import { MAX_ORDER_SEARCH_LENGTH, exactShipmentTrackingPriority, orderSearchConditions } from "@/lib/orders/search";
+import { paginateWithPriority } from "@/lib/priority-pagination";
 
 /**
  * Read layer for the « Suivi » module (docs/adr/0033-tracking-module.md).
@@ -35,6 +37,8 @@ export interface TrackingFilters {
   dateFrom?: Date;
   dateTo?: Date;
   page?: number;
+  /** Rows per page — the Suivi page passes the URL's 10/50/100; default 30. */
+  pageSize?: number;
 }
 
 export interface TrackingRow {
@@ -195,21 +199,25 @@ function mapRow(s: ShipmentWithRelations, includeCosts: boolean, orderNumberPref
   };
 }
 
-/** "CMD-000123" / "cmd 123" / "000123" / "123" → 123; anything else → null. */
-export function orderNumberFromQuery(q: string): number | null {
-  const m = q.trim().match(/^(?:[A-Za-z]{1,10}[-\s]?)?0*(\d{1,9})$/);
-  return m ? Number(m[1]) : null;
-}
-
 export async function listTrackingRows(
   filters: TrackingFilters,
   opts: { includeCosts: boolean }
 ): Promise<{ rows: TrackingRow[]; total: number; page: number; pageSize: number }> {
   const page = Math.max(1, filters.page ?? 1);
-  const q = filters.q?.trim();
+  const pageSize = filters.pageSize && filters.pageSize > 0 ? filters.pageSize : PAGE_SIZE;
+  const q = filters.q?.trim().slice(0, MAX_ORDER_SEARCH_LENGTH);
+  // Shared order search (src/lib/orders/search.ts) with the tenant's own
+  // order-number prefix; this shipment's tracking number and the city stay
+  // shipment-level / Suivi-specific.
+  const orderPrefix = q ? (await getReportBusinessInfo()).orderNumberPrefix : null;
+  // Same « current shipment » rule as /livraison (listShipments): a parcel
+  // replaced by a re-shipment is history — left out unless searching
+  // (a search always covers every attempt).
+  const supersededIds = q ? [] : (await listSupersededShipments()).map((s) => s.id);
 
   const where: Prisma.ShipmentWhereInput = {
     ...NOT_A_FAILED_API_ATTEMPT,
+    ...(supersededIds.length > 0 ? { id: { notIn: supersededIds } } : {}),
     ...(filters.providerId ? { providerId: filters.providerId } : {}),
     ...(filters.costSource ? { costSource: filters.costSource } : {}),
     ...(filters.status ? { status: { in: NORMALIZED_TO_LOCAL[filters.status] } } : {}),
@@ -228,38 +236,32 @@ export async function listTrackingRows(
       ? {
           OR: [
             { trackingNumber: { contains: q, mode: "insensitive" } },
-            { order: { is: { customer: { is: { fullName: { contains: q, mode: "insensitive" } } } } } },
-            { order: { is: { customer: { is: { phone: { contains: q, mode: "insensitive" } } } } } },
-            // Partial / formatted / international phone: "0611", "06 11 22", "+212 611…"
-            // — matched on the normalized customer phoneKey (search only).
-            ...customerPhoneSearchKeys(q).map((digits) => ({
-              order: { is: { customer: { is: { phoneKey: { contains: digits } } } } },
-            })),
-            { order: { is: { shippingName: { contains: q, mode: "insensitive" } } } },
-            { order: { is: { shippingPhone: { contains: q, mode: "insensitive" } } } },
             { order: { is: { shippingCity: { contains: q, mode: "insensitive" } } } },
-            { order: { is: { externalNumber: { contains: q.replace(/^#/, ""), mode: "insensitive" } } } },
-            // The displayed number ("CMD-000123", "000123", "123") or the internal one.
-            ...(orderNumberFromQuery(q) !== null
-              ? [
-                  { order: { is: { orderNumber: orderNumberFromQuery(q)! } } },
-                  { order: { is: { displayNumber: orderNumberFromQuery(q)! } } },
-                ]
-              : []),
+            ...orderSearchConditions(q, { prefix: orderPrefix }).map((condition) => ({ order: { is: condition } })),
           ],
         }
       : {}),
   };
 
-  const [shipments, total, business] = await Promise.all([
-    prisma.shipment.findMany({
+  // An exact tracking-number match ranks first, across pages; newest first
+  // inside each segment (id as a stable tie-break).
+  const [{ rows: shipments, total }, business] = await Promise.all([
+    paginateWithPriority({
       where,
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-      include: trackingInclude,
+      priority: exactShipmentTrackingPriority(q),
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      and: (a, b): Prisma.ShipmentWhereInput => ({ AND: [a, b] }),
+      count: (w) => prisma.shipment.count({ where: w }),
+      findMany: (w, skip, take) =>
+        prisma.shipment.findMany({
+          where: w,
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          skip,
+          take,
+          include: trackingInclude,
+        }),
     }),
-    prisma.shipment.count({ where }),
     getReportBusinessInfo(),
   ]);
 
@@ -267,19 +269,21 @@ export async function listTrackingRows(
     rows: shipments.map((s) => mapRow(s, opts.includeCosts, business.orderNumberPrefix)),
     total,
     page,
-    pageSize: PAGE_SIZE,
+    pageSize,
   };
 }
 
 /** KPI counts for the header cards — from the DB, with the same "failed API
- * attempt" exclusion as the list. */
+ * attempt" and replaced-parcel (listSupersededShipments) exclusions as the
+ * default list, so a re-shipped order counts once. */
 export async function getTrackingStats(): Promise<{
   total: number;
   byNormalized: Record<NormalizedTrackingStatus, number>;
 }> {
+  const supersededIds = (await listSupersededShipments()).map((s) => s.id);
   const grouped = await prisma.shipment.groupBy({
     by: ["status", "providerStatusRaw"],
-    where: NOT_A_FAILED_API_ATTEMPT,
+    where: { ...NOT_A_FAILED_API_ATTEMPT, ...(supersededIds.length > 0 ? { id: { notIn: supersededIds } } : {}) },
     _count: { _all: true },
   });
 

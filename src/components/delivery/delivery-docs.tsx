@@ -69,12 +69,15 @@ function FlowOverview() {
           <p className="font-medium text-foreground">3. Suivi &amp; retour d&apos;information</p>
           <ul className="ml-4 list-disc space-y-1">
             <li>
-              La société de livraison met à jour le statut du colis (ramassé, en transit, livré, retourné…). Vous
-              rafraîchissez ce statut depuis l&apos;expédition, ou il est mis à jour automatiquement.
+              La société de livraison met à jour le statut du colis (ramassé, en transit, livré, retourné…). Ce statut
+              n&apos;arrive pas tout seul : rafraîchissez-le depuis l&apos;expédition, « Rafraîchir les statuts » ou
+              l&apos;onglet Suivi.
             </li>
             <li>
-              Quand le colis passe <span className="text-foreground">livré</span> → la commande passe automatiquement
-              « Livrée » ici <span className="text-foreground">et</span> « Terminée » sur votre boutique WooCommerce.
+              Quand le colis passe <span className="text-foreground">en transit</span> ou{" "}
+              <span className="text-foreground">livré</span> → une commande encore « Confirmée » ou « En préparation »
+              passe d&apos;abord « Expédiée » (le stock est déduit une seule fois), puis « Livrée » ici{" "}
+              <span className="text-foreground">et</span> « Terminée » sur votre boutique WooCommerce.
               Une annulation ici est aussi répercutée sur la boutique.
             </li>
             <li>
@@ -90,7 +93,8 @@ function FlowOverview() {
             La <span className="text-foreground">boutique</span> est le canal de vente. <span className="text-foreground">Ce projet</span>{" "}
             est le poste de pilotage : c&apos;est ici qu&apos;on gère les commandes, le stock et les expéditions. La{" "}
             <span className="text-foreground">société de livraison</span> transporte les colis et renvoie leur statut.
-            Les changements importants circulent automatiquement dans les deux sens.
+            Les statuts des colis sont récupérés auprès du transporteur quand vous cliquez sur « Rafraîchir les statuts » ou
+            « Actualiser le suivi » — ils ne se mettent pas à jour tout seuls.
           </p>
         </div>
       </div>
@@ -156,9 +160,10 @@ function OzonExpressGuide() {
           <p className="font-medium text-foreground">5. Suivi &amp; statuts</p>
           <p>
             Le numéro de suivi et son lien apparaissent dans la colonne « Suivi » de l&apos;onglet « Expéditions ».
-            Quand OzonExpress marque un colis <span className="text-foreground">livré</span>, la commande passe
-            automatiquement à « Livrée » ici — et sur votre boutique WooCommerce à « Terminée ». Utilisez
-            «&nbsp;Rafraîchir le statut&nbsp;» sur une expédition pour forcer la mise à jour depuis OzonExpress.
+            Quand un rafraîchissement trouve un colis <span className="text-foreground">livré</span> chez OzonExpress,
+            la commande passe à « Livrée » ici (via « Expédiée » si elle ne l&apos;était pas encore) — et sur votre
+            boutique WooCommerce à « Terminée ». Le statut n&apos;est pas poussé par OzonExpress : utilisez
+            «&nbsp;Rafraîchir le statut&nbsp;» sur une expédition ou « Rafraîchir les statuts ».
           </p>
         </section>
 
@@ -278,7 +283,8 @@ function AramexGuide() {
           <p>
             Le numéro AWB et son lien de suivi apparaissent dans la colonne « Suivi » de l&apos;onglet « Expéditions ».
             «&nbsp;Rafraîchir le statut&nbsp;» interroge le suivi Aramex ; quand Aramex marque l&apos;envoi{" "}
-            <span className="text-foreground">livré</span>, la commande passe automatiquement à « Livrée » ici. Le
+            <span className="text-foreground">livré</span>, la commande passe à « Livrée » ici (via « Expédiée » si
+            elle ne l&apos;était pas encore). Le
             vocabulaire de statuts Aramex est encore indicatif tant qu&apos;un envoi réel n&apos;a pas été suivi de bout
             en bout.
           </p>

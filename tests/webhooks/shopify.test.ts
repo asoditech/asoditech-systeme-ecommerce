@@ -254,6 +254,30 @@ describe("POST /api/webhooks/shopify", () => {
     expect(event.tenantId).toBe(TENANT_B);
   });
 
+  it("two tenants sharing one app secret: the X-Shopify-Shop-Domain header decides — never the first matching row", async () => {
+    await seedIntegration(); // tenant A, same secret as below
+    const { tenantId: TENANT_B } = await seedTenantBIntegration(WEBHOOK_SECRET);
+
+    const gid = "gid://shopify/Product/9610";
+    const productB = await prismaBase.product.create({
+      data: { name: "B product", sku: "SH-B-2", price: 100, status: "ACTIF", source: "SHOPIFY", externalId: gid, tenantId: TENANT_B },
+    });
+
+    const body = JSON.stringify({ id: 9610 });
+    const response = await POST(
+      request(body, {
+        "x-shopify-hmac-sha256": sign(body, WEBHOOK_SECRET),
+        "x-shopify-topic": "products/delete",
+        "x-shopify-webhook-id": "d-shared-secret",
+        "x-shopify-shop-domain": "tenant-b.myshopify.com",
+      })
+    );
+    expect(response.status).toBe(200);
+    expect((await prismaBase.product.findUniqueOrThrow({ where: { id: productB.id } })).status).toBe("ARCHIVE");
+    const event = await prismaBase.webhookEvent.findFirstOrThrow({ where: { deliveryId: "d-shared-secret" } });
+    expect(event.tenantId).toBe(TENANT_B);
+  });
+
   it("a signature that matches no tenant's integration is rejected with 401, attributed to no specific integration", async () => {
     await seedIntegration();
     await seedTenantBIntegration("tenant-b-secret");

@@ -9,7 +9,11 @@
  * international shape with no leading 0 and no "+".
  */
 export function toMoroccanWhatsAppDigits(raw: string): string {
-  const digits = raw.replace(/\D+/g, "");
+  let digits = raw.replace(/\D+/g, "");
+  // "00" international prefix (00212…) — wa.me takes the number without it.
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  // "+212 06…": country code typed before the national trunk "0" — drop the 0.
+  if (/^2120[5-7]\d{8}$/.test(digits)) return "212" + digits.slice(4);
   if (digits.startsWith("212")) return digits;
   if (digits.startsWith("0") && digits.length === 10) return "212" + digits.slice(1);
   if (digits.length === 9) return "212" + digits;

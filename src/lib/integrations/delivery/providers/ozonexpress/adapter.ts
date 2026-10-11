@@ -242,8 +242,13 @@ export const ozonExpressAdapter: DeliveryProviderAdapter = {
 
   /**
    * « Suivi » module (docs/adr/0033) — the full event history from the
-   * same `tracking` call `fetchStatus` uses. OzonExpress exposes no
-   * courier / structured location, so those are `null`.
+   * same `tracking` call `fetchStatus` uses. OzonExpress returns no
+   * structured location, so that stays `null`. The courier (« livreur ») is
+   * only SOMETIMES available: `parseTrackingDetail` (mapper.ts,
+   * `courierFromTracking`) reads it when the response itself names one — a
+   * courier-named field, or a history COMMENT that says « livreur » — and
+   * returns `null` otherwise. The tracking service keeps a previously stored
+   * courier when a later response omits it.
    */
   async fetchTracking(
     input: FetchStatusAdapterInput,

@@ -13,7 +13,8 @@ import {
   type FakeCarrierState,
 } from "../helpers/fake-reference-carrier";
 import { resetDb } from "../helpers/db";
-import { createTestUser } from "../helpers/auth";
+import { createTestUser, loginAsTestUser } from "../helpers/auth";
+import { refreshTrackingAction } from "@/actions/tracking";
 
 let carrierState: FakeCarrierState;
 let userId: string;
@@ -110,6 +111,40 @@ describe("refreshShipmentTracking (« Suivi » module, docs/adr/0033)", () => {
     expect(fresh.courierPhone).toBe("0655555555");
   });
 
+  // P1: a later successful refresh that omits the courier must not wipe it;
+  // a NEW courier never inherits the previous courier's phone.
+  it("keeps the stored courier when a later successful response omits it; a new courier replaces name and phone together", async () => {
+    const { shipment, order } = await seedShipment();
+    carrierState.trackingCourier = { name: "Youssef", phone: "0655555555" };
+    await refreshShipmentTracking({ shipment, order, updatedById: userId });
+
+    carrierState.trackingCourier = undefined; // the carrier no longer names a courier
+    let fresh = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
+    await refreshShipmentTracking({ shipment: fresh, order, updatedById: userId });
+    fresh = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
+    expect(fresh.courierName).toBe("Youssef");
+    expect(fresh.courierPhone).toBe("0655555555");
+    expect(fresh.trackingSyncError).toBeNull();
+
+    carrierState.trackingCourier = { name: "Youssef", phone: null }; // same courier, phone omitted
+    await refreshShipmentTracking({ shipment: fresh, order, updatedById: userId });
+    fresh = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
+    expect(fresh.courierName).toBe("Youssef");
+    expect(fresh.courierPhone).toBe("0655555555");
+
+    carrierState.trackingCourier = { name: "Karim", phone: null }; // new courier, no phone
+    await refreshShipmentTracking({ shipment: fresh, order, updatedById: userId });
+    fresh = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
+    expect(fresh.courierName).toBe("Karim");
+    expect(fresh.courierPhone).toBeNull(); // never Youssef's number
+
+    carrierState.trackingCourier = { name: "Karim", phone: "0677777777" }; // same courier, phone now known
+    await refreshShipmentTracking({ shipment: fresh, order, updatedById: userId });
+    fresh = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
+    expect(fresh.courierName).toBe("Karim");
+    expect(fresh.courierPhone).toBe("0677777777");
+  });
+
   it("a tracking-call failure keeps the last-known status + events, only setting trackingSyncError", async () => {
     carrierState.trackingEvents = [
       { status: "in_transit", description: "En route", location: "Rabat", at: "2026-09-02T09:00:00.000Z" },
@@ -143,5 +178,44 @@ describe("refreshShipmentTracking (« Suivi » module, docs/adr/0033)", () => {
     });
     const outcome = await refreshShipmentTracking({ shipment, order, updatedById: userId });
     expect(outcome.ok).toBe(false);
+  });
+});
+
+describe("refreshTrackingAction — follow-ups when the Suivi refresh moves the shipment", () => {
+  beforeEach(async () => {
+    await resetDb();
+    registerReferenceDeliveryProvider();
+    carrierState = emptyFakeCarrierState();
+    installFakeReferenceCarrier(carrierState);
+  });
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await resetDb();
+  });
+
+  it("a newly failed shipment raises the « échec de livraison » alert (same as « Rafraîchir les statuts »)", async () => {
+    const actor = await loginAsTestUser({ role: "OWNER" });
+    const watcher = await createTestUser({ role: "ADMIN" });
+    userId = actor.id;
+    const { shipment } = await seedShipment();
+    carrierState.shipments.get("ref-track-1")!.status = "failed";
+
+    const fd = new FormData();
+    fd.set("shipmentId", shipment.id);
+    expect((await refreshTrackingAction(fd)).ok).toBe(true);
+
+    expect((await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } })).status).toBe("ECHEC");
+    const alerts = await prisma.notification.findMany({ where: { type: "ECHEC_LIVRAISON" }, select: { userId: true } });
+    expect(alerts.map((a) => a.userId)).toEqual([watcher.id]); // the actor is excluded, as everywhere else
+  });
+
+  it("no status change → no alert", async () => {
+    await loginAsTestUser({ role: "OWNER" });
+    await createTestUser({ role: "ADMIN" });
+    const { shipment } = await seedShipment();
+    const fd = new FormData();
+    fd.set("shipmentId", shipment.id);
+    expect((await refreshTrackingAction(fd)).ok).toBe(true);
+    expect(await prisma.notification.count({ where: { type: "ECHEC_LIVRAISON" } })).toBe(0);
   });
 });

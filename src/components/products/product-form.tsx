@@ -299,6 +299,10 @@ export function ProductForm({
                         autoComplete="off"
                         value={barcode}
                         onChange={(e) => setBarcode(e.target.value)}
+                        // A scanner ends the code with Enter — it must fill this field, not submit the product form.
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") e.preventDefault();
+                        }}
                         className="flex-1 font-mono"
                         aria-invalid={Boolean(state && !state.ok && state.fieldErrors?.barcode) || undefined}
                       />

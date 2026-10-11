@@ -22,6 +22,9 @@ export const DEFAULT_TENANT_ID = "default";
 export async function resetDb() {
   await prisma.$transaction(async (tx) => {
     await tx.auditEvent.deleteMany();
+    // Batch 1A: global auth rate-limit buckets — every test shares the mocked
+    // 127.0.0.1, so a leftover bucket would leak limits between tests.
+    await tx.authRateLimit.deleteMany();
     // Backup & Portability (docs/adr/0034): backup_runs has a RESTRICT fk to
     // tenants — a leftover row blocks the non-default tenant.deleteMany below.
     // Phase 2 adds the two Google Drive tables (same RESTRICT fk).
@@ -48,6 +51,9 @@ export async function resetDb() {
     await tx.marketingChannel.deleteMany();
     await tx.expense.deleteMany();
     await tx.expenseCategory.deleteMany();
+    // P3 returns workspace: return_receptions RESTRICTs its shipment, order,
+    // warehouse and order_return — gone before any of them.
+    await tx.returnReception.deleteMany();
     await tx.shipmentWebhookEvent.deleteMany();
     await tx.shipment.deleteMany();
     await tx.deliveryManifest.deleteMany();

@@ -11,6 +11,7 @@ const env = vi.hoisted(() => ({
   WHATSAPP_ACCESS_TOKEN: "dummy-token-not-real",
   WHATSAPP_PHONE_NUMBER_ID: "1234567890",
   WHATSAPP_GRAPH_API_VERSION: "v23.0",
+  WHATSAPP_ALLOWED_RECIPIENTS: undefined as string | undefined,
 }));
 vi.mock("@/lib/env", () => ({ env }));
 
@@ -20,6 +21,7 @@ import { deliveryFailureSummaryTemplate, stockOutTemplate, verificationCodeTempl
 const fetchMock = vi.fn();
 beforeEach(() => {
   env.NODE_ENV = "development";
+  env.WHATSAPP_ALLOWED_RECIPIENTS = undefined;
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -74,6 +76,27 @@ describe("sendTemplate", () => {
     expect(isWhatsAppConfigured()).toBe(false);
     expect((await sendTemplate("212612345678", "asoditech_stock_out", "fr", ["a", "b"])).ok).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("test mode — WHATSAPP_ALLOWED_RECIPIENTS", () => {
+  it("only listed numbers are sent to; any other recipient is refused before calling Meta, its number never logged", async () => {
+    env.WHATSAPP_ALLOWED_RECIPIENTS = "+212 600 000 001, 212600000002";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await sendTemplate("212612345678", "asoditech_stock_out", "fr", ["a", "b"])).toEqual({ ok: false, error: "recipient_not_allowed" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(warn.mock.calls.flat().join(" ")).not.toContain("212612345678");
+    warn.mockRestore();
+
+    fetchMock.mockResolvedValueOnce(json(200, { messages: [{ id: "wamid.ok" }] }));
+    expect(await sendTemplate("212600000001", "asoditech_stock_out", "fr", ["a", "b"])).toEqual({ ok: true, messageId: "wamid.ok" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("unset or blank: no restriction (unchanged behaviour)", async () => {
+    env.WHATSAPP_ALLOWED_RECIPIENTS = " , ";
+    fetchMock.mockResolvedValueOnce(json(200, { messages: [{ id: "wamid.any" }] }));
+    expect((await sendTemplate("212612345678", "asoditech_stock_out", "fr", ["a", "b"])).ok).toBe(true);
   });
 });
 

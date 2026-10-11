@@ -8,6 +8,9 @@ import {
   applyShipmentStatusTransition,
   buildParcelContentsSummary,
   ACTIVE_SHIPMENT_STATUSES,
+  orderGoodsCameBack,
+  RESHIP_AFTER_RETURN_MESSAGE,
+  shipmentSlotLockKey,
 } from "@/lib/delivery";
 import { DEFAULT_SHIPPING_COUNTRY } from "@/lib/format";
 import { shippableOrderProblem, shippableOrderWhere } from "@/lib/packing";
@@ -29,7 +32,9 @@ import type {
   DeliveryManifestDocument,
 } from "./types";
 import type { Shipment, ShippingProvider, Order, DeliveryManifest, Prisma } from "@prisma/client";
-import type { ShipmentStatusValue } from "@/lib/validation/delivery";
+import { canTransitionShipmentStatus, type ShipmentStatusValue } from "@/lib/validation/delivery";
+import { SHIPMENT_STATUS_LABELS } from "@/lib/status-labels";
+import { recordAuditEvent } from "@/lib/audit";
 
 export class DeliveryNotConfiguredError extends Error {}
 export class OrderAddressIncompleteError extends Error {}
@@ -40,7 +45,7 @@ export class OrderAddressIncompleteError extends Error {}
 export class ManifestSelectionError extends Error {}
 /**
  * Phase 30 hardening. Raised by reserveShipmentSlot when an ACTIVE
- * shipment already exists for (orderId, providerId) — see that function's
+ * shipment already exists for the order (any provider) — see that function's
  * own doc comment for why a plain pre-check `findFirst` isn't enough here.
  */
 export class DuplicateActiveShipmentError extends Error {}
@@ -72,11 +77,11 @@ export function friendlyDeliveryError(error: unknown): string {
  * created for one order, not just a duplicate local row.
  *
  * There's no plain DB unique constraint that expresses "at most one
- * ACTIVE shipment per (orderId, providerId)" — ECHEC/ANNULE/RETOURNE rows
- * for the same pair are legitimate (a retry after a failed attempt), so a
- * full unique index on (orderId, providerId) would incorrectly block
+ * ACTIVE shipment per order" — ECHEC/ANNULE/RETOURNE rows for the same
+ * order are legitimate history (a retry after a failed attempt, with the
+ * same or another carrier), so a full unique index would incorrectly block
  * that. Instead: a Postgres transaction-scoped advisory lock keyed on the
- * pair serializes concurrent callers, so the second one's check runs only
+ * order serializes concurrent callers (across every provider), so the second one's check runs only
  * after the first's create has committed (and the lock auto-releases at
  * transaction end — no separate unlock call, no risk of leaking a held
  * lock on an error).
@@ -107,13 +112,26 @@ export async function reserveShipmentSlot(
   >
 ): Promise<Shipment> {
   return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`shipment-slot:${orderId}:${providerId}`}))`;
+    // Keyed on the ORDER, not (order, provider): one parcel in flight per
+    // order whatever the carrier — a second carrier's parcel for the same
+    // order is the same physical goods shipped twice.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${shipmentSlotLockKey(orderId)}))`;
 
     const existingActive = await tx.shipment.findFirst({
-      where: { orderId, providerId, status: { in: ACTIVE_SHIPMENT_STATUSES } },
+      where: { orderId, status: { in: ACTIVE_SHIPMENT_STATUSES } },
+      select: { providerId: true, provider: { select: { name: true } } },
     });
+    // Goods of this order already came back: no new parcel on the same
+    // order (stock would be overstated) — see orderGoodsCameBack.
+    if (await orderGoodsCameBack(tx, orderId)) {
+      throw new DuplicateActiveShipmentError(RESHIP_AFTER_RETURN_MESSAGE);
+    }
     if (existingActive) {
-      throw new DuplicateActiveShipmentError("Une expédition est déjà en cours pour cette commande auprès de ce prestataire.");
+      throw new DuplicateActiveShipmentError(
+        existingActive.providerId === providerId
+          ? "Une expédition est déjà en cours pour cette commande auprès de ce prestataire."
+          : `Une expédition est déjà en cours pour cette commande chez « ${existingActive.provider.name} ». Annulez-la ou attendez son issue avant d'en créer une autre.`
+      );
     }
 
     return tx.shipment.create({
@@ -440,9 +458,34 @@ export async function createShipmentViaProvider(params: {
   // Self-heal: this order now has a real shipment — clear any earlier
   // failed creation attempts so they don't linger (they're hidden from
   // the list anyway, but a stale row is still noise in the DB / an audit).
-  await prisma.shipment.deleteMany({
-    where: { orderId: params.order.id, status: "ECHEC", externalId: null, id: { not: created.id } },
+  // Only API attempts: a MANUEL / FLOTTE_INTERNE ECHEC (no externalId by
+  // nature) is a real, deliberately-set failure with its frozen cost —
+  // shipment history, never cleared.
+  // Each removed attempt is audited (same `shipment.deleted` event as the
+  // manual « Supprimer » of a failed attempt) so its reason/cost survive.
+  const staleAttempts = await prisma.shipment.findMany({
+    where: { orderId: params.order.id, status: "ECHEC", externalId: null, provider: { type: "API" }, id: { not: created.id } },
+    select: { id: true, providerId: true, status: true, failedReason: true, cost: true },
   });
+  if (staleAttempts.length > 0) {
+    await prisma.shipment.deleteMany({ where: { id: { in: staleAttempts.map((s) => s.id) } } });
+    for (const attempt of staleAttempts) {
+      await recordAuditEvent({
+        actorType: "USER",
+        actorUserId: params.updatedById,
+        action: "shipment.deleted",
+        entityType: "Order",
+        entityId: params.order.id,
+        previousValue: {
+          shipmentId: attempt.id,
+          status: attempt.status,
+          failedReason: attempt.failedReason,
+          cost: attempt.cost?.toString() ?? null,
+        },
+        metadata: { providerId: attempt.providerId, failedReason: attempt.failedReason, via: "self_heal", replacedBy: created.id },
+      });
+    }
+  }
 
   return created;
 }
@@ -458,6 +501,16 @@ export async function cancelShipmentViaProvider(params: {
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!params.shipment.externalId) {
     return { ok: false, error: "Cette expédition n'a pas été créée via un connecteur API." };
+  }
+
+  // Checked BEFORE the carrier call: once the carrier has cancelled the
+  // parcel, a local transition that then fails (e.g. EN_TRANSIT → ANNULE
+  // isn't allowed) would leave a parcel dead at the carrier but live here.
+  if (!canTransitionShipmentStatus(params.shipment.status as ShipmentStatusValue, "ANNULE")) {
+    return {
+      ok: false,
+      error: `Cette expédition ne peut plus être annulée (statut actuel : ${SHIPMENT_STATUS_LABELS[params.shipment.status]?.label ?? params.shipment.status}). Rien n'a été envoyé au transporteur.`,
+    };
   }
 
   const { adapter, credentials, config } = await loadApiProvider(params.shipment.providerId);
@@ -481,9 +534,11 @@ export async function cancelShipmentViaProvider(params: {
     return {
       ok: false,
       error:
-        result.reason === "invalid_transition"
-          ? "Le transporteur a confirmé l'annulation, mais le statut local ne permet plus cette transition."
-          : "Cette expédition a été modifiée entre-temps. Rechargez la page et réessayez.",
+        result.reason === "order_blocked"
+          ? result.message
+          : result.reason === "invalid_transition"
+            ? "Le transporteur a confirmé l'annulation, mais le statut local ne permet plus cette transition."
+            : "Cette expédition a été modifiée entre-temps. Rechargez la page et réessayez.",
     };
   }
   return { ok: true };
@@ -574,7 +629,11 @@ export async function syncShipmentStatus(params: {
     return {
       outcome: "error",
       error:
-        result.reason === "conflict"
+        result.reason === "order_blocked"
+          ? `Le transporteur signale « ${fetched.rawStatus} », mais la commande ne peut pas passer « Expédiée » : ${result.message}`
+          : result.reason === "conflict_active"
+          ? `Le transporteur signale « ${fetched.rawStatus} » : ${result.message}`
+          : result.reason === "conflict"
           ? "Cette expédition a été modifiée entre-temps."
           : `Le transporteur signale un statut ("${fetched.rawStatus}") qui n'est pas une transition valide depuis l'état local actuel.`,
     };

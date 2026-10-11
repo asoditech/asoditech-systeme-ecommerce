@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { PERMISSION_CHANNEL_DOMAIN, type Permission } from "@/lib/auth/permissions";
+import { DENY_ONLY_PERMISSIONS, PERMISSION_CHANNEL_DOMAIN, type Permission } from "@/lib/auth/permissions";
 // PURE, no Prisma/server-only (see its own doc comment) — the exact same
 // function the server uses to compute the real effective-access set, so
 // this dialog's "Accès effectif" summary is never a second, drifting
@@ -368,7 +368,11 @@ export function UserAccessDialog({
                               {effective ? "effectif : oui" : "effectif : non"}
                             </Badge>
                             <div className="flex overflow-hidden rounded-md border text-xs">
-                              {(["inherit", "grant", "deny"] as const).map((opt) => (
+                              {(["inherit", "grant", "deny"] as const)
+                                // P2: a DENY-only permission (the stock override) can never be granted
+                                // individually — the server refuses it too; this only hides the choice.
+                                .filter((opt) => opt !== "grant" || base.has(p) || !DENY_ONLY_PERMISSIONS.has(p as Permission))
+                                .map((opt) => (
                                 <button
                                   key={opt}
                                   type="button"

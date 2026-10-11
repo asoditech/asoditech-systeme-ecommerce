@@ -30,12 +30,13 @@ import { Badge } from "@/components/ui/badge";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { getOrderDetail, getOrderAuditTimeline } from "@/lib/queries/orders";
+import { stockFlagsForOrders } from "@/lib/queries/order-confirmation";
 import { listShipmentProviderOptions, listActiveProvidersForCityGuidance } from "@/lib/queries/delivery";
 import { cityGuidanceFromProviders } from "@/lib/integrations/delivery/city-guidance";
 import { buildParcelContentsSummary } from "@/lib/delivery";
 import { LinkShipmentDialog } from "@/components/delivery/link-shipment-dialog";
+import { OrderDeliveryInfo } from "@/components/orders/order-delivery-info";
 import { EditShippingAddressDialog } from "@/components/orders/edit-shipping-address-dialog";
-import { OverrideShipmentCostDialog } from "@/components/delivery/override-shipment-cost-dialog";
 import { AssignAgentControl } from "@/components/commissions/assign-agent-control";
 import { OrderLifecycleStepper, type OrderCommissionStatus } from "@/components/orders/order-lifecycle-stepper";
 import { PackingPanel } from "@/components/orders/packing-panel";
@@ -59,12 +60,12 @@ import {
   returnStateLabel,
 } from "@/lib/format";
 import { humanizeAuditAction } from "@/lib/audit-labels";
-import { CONFIRMATION_OUTCOME_LABELS, SHIPMENT_COST_SOURCE_LABELS } from "@/lib/status-labels";
+import { auditEventDetails } from "@/lib/audit-details";
+import { CONFIRMATION_OUTCOME_LABELS } from "@/lib/status-labels";
 import {
   ORDER_STATUS_LABELS,
   ORDER_PAYMENT_STATUS_LABELS,
   PAYMENT_METHOD_LABELS,
-  SHIPMENT_STATUS_LABELS,
   REFUND_STATUS_LABELS,
 } from "@/lib/status-labels";
 import { canTransitionOrderStatus, type OrderStatusValue } from "@/lib/validation/order";
@@ -109,10 +110,28 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
 
   const timeline = await getOrderAuditTimeline(id);
   const canEdit = userHasPermission(user, "orders.edit");
+  // P2: stock warnings for the « → Confirmée » dialog — same rule as the
+  // confirmation check and the queue; only for an order still awaiting it.
+  const stockFlags =
+    canEdit && order.status === "NOUVELLE"
+      ? await stockFlagsForOrders([
+          {
+            id: order.id,
+            fulfillmentWarehouseId: order.fulfillmentWarehouseId,
+            items: order.items.map((i) => ({
+              productId: i.productId,
+              variationId: i.variationId,
+              quantity: i.quantity,
+              product: i.product ? { trackInventory: i.product.trackInventory } : null,
+            })),
+          },
+        ]).then((f) => ({ insufficient: f.insufficient.has(order.id), untracked: f.untracked.has(order.id) }))
+      : null;
   const canCancel = userHasPermission(user, "orders.cancel");
   const canRefund = userHasPermission(user, "orders.refund");
   const canReturnPhysical = userHasPermission(user, "orders.return");
   const canManageDelivery = userHasPermission(user, "delivery.manage");
+  const canViewDelivery = userHasPermission(user, "delivery.view");
   // Test-order purge (src/lib/orders/purge.ts): offered only to an orders.purge
   // holder (OWNER / ADMIN), and only when the server preview says it's eligible.
   const canPurge = userHasPermission(user, "orders.purge");
@@ -208,7 +227,12 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
             )}
             <StatusBadge status={order.status} labels={ORDER_STATUS_LABELS} />
             {returnState && <Badge variant="outline">{returnState}</Badge>}
-            <OrderStatusControl orderId={order.id} currentStatus={order.status as OrderStatusValue} canEdit={canEdit} />
+            <OrderStatusControl
+              orderId={order.id}
+              currentStatus={order.status as OrderStatusValue}
+              canEdit={canEdit}
+              stockFlags={stockFlags}
+            />
             {canCancel && canTransitionOrderStatus(order.status as OrderStatusValue, "ANNULEE") && (
               <CancelOrderButton orderId={order.id} />
             )}
@@ -425,70 +449,53 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
             </Card>
           )}
 
-          {(order.shipments.length > 0 || canManageDelivery) && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2"><Truck className="size-4 text-muted-foreground" />Livraison</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {order.shipments.length > 0 ? (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Prestataire</TableHead>
-                        <TableHead>Suivi</TableHead>
-                        <TableHead>Frais livraison</TableHead>
-                        <TableHead>Statut</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {order.shipments.map((s) => (
-                        <TableRow key={s.id}>
-                          <TableCell>{s.provider.name}</TableCell>
-                          <TableCell className="text-muted-foreground">{s.trackingNumber ?? "—"}</TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {s.cost !== null ? formatCurrency(s.cost.toString(), order.currency) : "— (inconnu)"}
-                            {s.costSource ? (
-                              <span className="block text-[11px] text-muted-foreground/70">
-                                {SHIPMENT_COST_SOURCE_LABELS[s.costSource] ?? s.costSource}
-                                {s.costFinalizedAt ? "" : " (estimation)"}
-                              </span>
-                            ) : null}
-                            {s.providerStatusRaw ? (
-                              <span className="block text-xs">Transporteur : {s.providerStatusRaw}</span>
-                            ) : null}
-                            {canManageFinance && (
-                              <span className="mt-1 block">
-                                <OverrideShipmentCostDialog shipmentId={s.id} currentCost={s.cost?.toString() ?? null} />
-                              </span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <StatusBadge status={s.status} labels={SHIPMENT_STATUS_LABELS} />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Aucune expédition enregistrée pour cette commande.</p>
-                )}
-                {codAmount !== null && (
-                  <p className="text-sm text-muted-foreground">
-                    À encaisser à la livraison (COD) :{" "}
-                    <span className="text-foreground">{formatCurrency(String(codAmount), order.currency)}</span>
-                  </p>
-                )}
-                {canManageDelivery && (
-                  <LinkShipmentDialog
-                    orderId={order.id}
-                    providers={deliveryProviders}
-                    defaultNotes={parcelContents || undefined}
-                  />
-                )}
-              </CardContent>
-            </Card>
-          )}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><Truck className="size-4 text-muted-foreground" />Informations de livraison</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <OrderDeliveryInfo
+                shipments={order.shipments.map((s) => ({
+                  id: s.id,
+                  status: s.status,
+                  providerStatusRaw: s.providerStatusRaw,
+                  providerName: s.provider.name,
+                  providerType: s.provider.type,
+                  trackingNumber: s.trackingNumber,
+                  trackingUrl: s.trackingUrl,
+                  externalId: s.externalId,
+                  courierName: s.courierName,
+                  courierPhone: s.courierPhone,
+                  failedReason: s.failedReason,
+                  trackingSyncError: s.trackingSyncError,
+                  trackingEvents: s.trackingEvents,
+                  createdAt: s.createdAt,
+                  shippedAt: s.shippedAt,
+                  deliveredAt: s.deliveredAt,
+                  lastSyncedAt: s.lastSyncedAt,
+                  lastTrackingSyncAt: s.lastTrackingSyncAt,
+                  cost: s.cost?.toString() ?? null,
+                  costSource: s.costSource,
+                  costFinalized: s.costFinalizedAt !== null,
+                }))}
+                currency={order.currency}
+                codAmount={codAmount}
+                // Delivery costs: finance permission only (as in « Suivi »).
+                canViewCosts={canViewFinance || canManageFinance}
+                canOverrideCost={canManageFinance}
+                canViewDelivery={canViewDelivery}
+                actions={
+                  canManageDelivery ? (
+                    <LinkShipmentDialog
+                      orderId={order.id}
+                      providers={deliveryProviders}
+                      defaultNotes={parcelContents || undefined}
+                    />
+                  ) : undefined
+                }
+              />
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>
@@ -505,6 +512,11 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                         <span className="font-medium">{e.actorUser?.name ?? "Système"}</span>{" "}
                         <span className="text-muted-foreground">— {humanizeAuditAction(e.action)}</span>
                       </p>
+                      {auditEventDetails(e).map((detail) => (
+                        <p key={detail} className="text-xs text-foreground/80">
+                          {detail}
+                        </p>
+                      ))}
                       <p className="text-xs text-muted-foreground">{formatDateTime(e.createdAt)}</p>
                     </li>
                   ))}

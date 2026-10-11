@@ -7,7 +7,7 @@ import { env } from "@/lib/env";
 import { requirePermissionForAction, requireUserForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
 import { notifyConnectionError } from "@/lib/notifications";
-import { checkWhatsAppSender, sendTemplateMessage } from "@/lib/whatsapp/client";
+import { checkWhatsAppSender, isWhatsAppConfigured, sendTemplateMessage } from "@/lib/whatsapp/client";
 import { isWhatsAppEnabledForTenant } from "@/lib/whatsapp/dispatch";
 import { normalizeStaffWhatsAppPhone } from "@/lib/whatsapp/phone";
 import { verificationCodeTemplate } from "@/lib/whatsapp/templates";
@@ -42,6 +42,9 @@ import { actionError, actionOk, type ActionResult } from "@/actions/types";
 
 export async function testWhatsAppConnectionAction(): Promise<ActionResult<{ displayPhoneNumber: string | null }>> {
   const user = await requirePermissionForAction("integrations.manage");
+  // No central sender on this server: a platform setup gap, not a tenant
+  // connection failure — no ERREUR row, no "integration down" alert to the team.
+  if (!isWhatsAppConfigured()) return actionError("Le numéro d'envoi ASODITECH n'est pas configuré sur ce serveur.");
   const result = await checkWhatsAppSender();
   const existing = await prisma.integration.findFirst({ where: { provider: "WHATSAPP" }, select: { id: true } });
 
@@ -172,6 +175,9 @@ export async function requestMyWhatsAppVerificationAction(): Promise<ActionResul
   const sent = await sendTemplateMessage(phone, verificationCodeTemplate(code));
   await auditOwn(user.id, sent.ok ? "verification_sent" : "verification_send_failed");
   revalidatePath("/parametres/notifications");
+  if (!sent.ok && sent.error === "recipient_not_allowed") {
+    return actionError("Mode test WhatsApp : ce numéro ne fait pas partie des destinataires autorisés. Aucun message n'a été envoyé.");
+  }
   if (!sent.ok) {
     return actionError(
       "L'envoi du code WhatsApp a échoué. Vérifiez que ce numéro utilise WhatsApp, puis réessayez. Si le problème persiste, contactez votre administrateur."

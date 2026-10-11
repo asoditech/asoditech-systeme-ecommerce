@@ -89,3 +89,35 @@ describe("listCategoriesWithStats", () => {
     expect(child.parentName).toBe("Vêtements");
   });
 });
+
+/**
+ * « Afficher 10 | 50 | 100 par page » — the list honours an explicit
+ * `pageSize`, keeps the 20 default for other callers, and pages are disjoint
+ * even when the business sort ties (the `id` tie-break).
+ */
+describe("listProducts — pageSize and stable pages", () => {
+  beforeEach(async () => await resetDb());
+  afterEach(async () => await resetDb());
+
+  it("uses the given page size, defaults to 20, and never repeats a row across pages", async () => {
+    for (let i = 0; i < 25; i++) {
+      // Same name and price: only the id tie-break orders them.
+      await prisma.product.create({ data: { name: "Même nom", sku: `P-${i}-${Math.random()}`, price: 10, status: "ACTIF" } });
+    }
+    const def = await listProducts({});
+    expect(def.pageSize).toBe(20);
+    expect(def.products).toHaveLength(20);
+
+    const p1 = await listProducts({ sort: "name", page: 1, pageSize: 10 });
+    const p2 = await listProducts({ sort: "name", page: 2, pageSize: 10 });
+    const p3 = await listProducts({ sort: "name", page: 3, pageSize: 10 });
+    expect(p1.pageSize).toBe(10);
+    expect(p1.total).toBe(25);
+    expect(p3.products).toHaveLength(5);
+    const ids = [...p1.products, ...p2.products, ...p3.products].map((p) => p.id);
+    expect(new Set(ids).size).toBe(25);
+
+    const big = await listProducts({ page: 1, pageSize: 50 });
+    expect(big.products).toHaveLength(25);
+  });
+});

@@ -4,6 +4,8 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { DataTablePagination } from "@/components/data-table-pagination";
+import { redirect } from "next/navigation";
+import { PAGE_SIZE_OPTIONS, outOfRangeHref, parsePage, parsePageSize } from "@/lib/pagination";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { ProductRowActions } from "@/components/products/product-row-actions";
 import { Button } from "@/components/ui/button";
@@ -47,11 +49,14 @@ export default async function ProduitsPage({
     type?: string;
     sort?: string;
     page?: string;
+    pageSize?: string;
   }>;
 }) {
   const user = await requirePermission("products.view");
   const params = await searchParams;
-  const page = Number(params.page) || 1;
+  const page = parsePage(params.page);
+  // « Afficher 10 | 50 | 100 par page » — only an allowed size is accepted (default 10).
+  const pageSize = parsePageSize(params.pageSize);
   // The purchase cost ("prix original" / coût d'achat) is financial data —
   // only roles with `finance.view` (OWNER / ADMIN / MANAGER / ACCOUNTANT)
   // may see it. The column is rendered server-side so its value never
@@ -79,14 +84,18 @@ export default async function ProduitsPage({
       ? params.sort
       : "recent";
 
-  const { products, total, pageSize } = await listProducts({
+  const { products, total } = await listProducts({
     q: params.q,
     status: statusFilter,
     categoryId: categoryFilter,
     type: typeFilter,
     sort: sortFilter,
     page,
+    pageSize,
   }, user);
+  // Past the last page (e.g. its last product was just removed) → the last page, same filters.
+  const outOfRange = outOfRangeHref({ page, total, pageSize, basePath: "/produits", searchParams: params });
+  if (outOfRange) redirect(outOfRange);
 
   const hasActiveFilter = Boolean(
     params.q || statusFilter || typeFilter || categoryFilter || params.sort
@@ -169,7 +178,7 @@ export default async function ProduitsPage({
             .map(([value, label]) => ({ value, label }))}
         />
         {hasActiveFilter ? (
-          <Button variant="ghost" size="sm" render={<Link href="/produits" />}>
+          <Button variant="ghost" size="sm" render={<Link href={params.pageSize ? `/produits?pageSize=${pageSize}` : "/produits"} />}>
             Réinitialiser
           </Button>
         ) : null}
@@ -323,6 +332,7 @@ export default async function ProduitsPage({
             total={total}
             basePath="/produits"
             searchParams={paginationParams}
+            pageSizeOptions={PAGE_SIZE_OPTIONS}
           />
         </div>
       )}

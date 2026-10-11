@@ -1,5 +1,7 @@
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
+import { ReportMetricInfo } from "@/components/reports/report-metric-info";
+import { ReportDefinitions } from "@/components/reports/report-definitions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
@@ -8,7 +10,7 @@ import { WarehousePickerLink } from "@/components/reports/warehouse-picker-link"
 import { requirePermission } from "@/lib/auth/guards";
 import { saleChannelWhere } from "@/lib/auth/channel-access";
 import { productCostVisibility } from "@/lib/auth/cost-visibility";
-import { resolveReportRange } from "@/lib/reports/range";
+import { resolveTenantReportRange } from "@/lib/reports/range";
 import { getStockValuationReport } from "@/lib/queries/reports/stock-valuation";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { listAccessibleActiveWarehouses, hasGlobalLocationAccess } from "@/lib/auth/location-access";
@@ -25,7 +27,7 @@ export default async function RapportStockPage({
 }) {
   const user = await requirePermission("analytics.view");
   const params = await searchParams;
-  const resolved = resolveReportRange({});
+  const resolved = await resolveTenantReportRange({});
   // Location Access Management v1 (docs/adr/0037): the picker only ever
   // offers warehouses this user is authorized for — a forged
   // `?warehouseId=` for one outside that set simply doesn't match here and
@@ -83,23 +85,23 @@ export default async function RapportStockPage({
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {canSeeCost && (
-          <KpiCard label="Valeur au coût" value={money(totals.valueAtCost)} unavailableReason="Coûts manquants" tone="primary"
+          <KpiCard label="Valeur au coût" explain={<ReportMetricInfo metric="stockValueAtCost" label="Valeur au coût" className="-ml-1" />} value={money(totals.valueAtCost)} unavailableReason="Coûts manquants" tone="primary"
             hint={
               totals.linesMissingCost > 0
                 ? `${totals.linesMissingCost} article(s) sans coût`
                 : "Coût d'achat de chaque emplacement, sinon coût global du produit"
             } />
         )}
-        <KpiCard label="Valeur au prix de vente" value={formatCurrency(totals.valueAtRetail)} tone="info" />
-        {canSeeCost && <KpiCard label="Marge potentielle" value={money(totals.potentialMargin)} tone="success" />}
-        <KpiCard label="Références en stock" value={String(totals.skuCount)} tone="violet"
+        <KpiCard label="Valeur au prix de vente" explain={<ReportMetricInfo metric="stockValueAtRetail" label="Valeur au prix de vente" className="-ml-1" />} value={formatCurrency(totals.valueAtRetail)} tone="info" />
+        {canSeeCost && <KpiCard label="Marge potentielle" explain={<ReportMetricInfo metric="stockPotentialMargin" label="Marge potentielle" className="-ml-1" />} value={money(totals.potentialMargin)} tone="success" />}
+        <KpiCard label="Références en stock" explain={<ReportMetricInfo metric="stockSkuCount" label="Références en stock" className="-ml-1" />} value={String(totals.skuCount)} tone="violet"
           hint={`${totals.unitsOnHand} unités`} />
-        <KpiCard label={`Articles dormants (${report.dormantDays} j)`} value={String(totals.dormantSkuCount)} tone="warning"
+        <KpiCard label={`Articles dormants (${report.dormantDays} j)`} explain={<ReportMetricInfo metric="stockDormant" label={`Articles dormants (${report.dormantDays} j)`} className="-ml-1" />} value={String(totals.dormantSkuCount)} tone="warning"
           hint={totals.dormantValueAtCost !== null ? `${formatCurrency(totals.dormantValueAtCost)} immobilisés` : undefined} />
       </div>
 
       <Card className="mt-6">
-        <CardHeader><CardTitle>Détail par article</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-1.5">Détail par article<ReportMetricInfo metric="stockDetail" /></CardTitle></CardHeader>
         <CardContent className="overflow-x-auto">
           <Table className="text-[13px]">
             <TableHeader>
@@ -135,6 +137,7 @@ export default async function RapportStockPage({
           </Table>
         </CardContent>
       </Card>
+      <ReportDefinitions report="stock" />
     </div>
   );
 }

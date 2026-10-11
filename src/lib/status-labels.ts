@@ -1,4 +1,4 @@
-type BadgeVariant = "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info";
+export type BadgeVariant = "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info";
 
 interface StatusMeta {
   label: string;

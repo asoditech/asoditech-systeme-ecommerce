@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma, prismaBase } from "@/lib/prisma";
 import { encryptSecret } from "@/lib/crypto";
 import { POST } from "@/app/api/webhooks/woocommerce/route";
@@ -28,6 +28,27 @@ async function seedIntegration(configOverrides: Record<string, unknown> = {}) {
     },
   });
 }
+
+/** The fake store's REST base (seedIntegration's siteUrl + the client's /wp-json/wc/v3). */
+const STORE_API = "https://example.com/wp-json/wc/v3";
+
+/**
+ * Answers the store's REST API locally for one test: the best-effort
+ * auto-pushes after a local confirm / cancel (stock, order status) never
+ * reach the network nor wait on the client's retry backoff, and the test can
+ * assert exactly what the store is told. Restored by `vi.restoreAllMocks()`
+ * in the describe's afterEach.
+ */
+function mockStoreApi(): { method: string; url: string; body: unknown }[] {
+  const pushed: { method: string; url: string; body: unknown }[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    pushed.push({ method: init?.method ?? "GET", url: String(input), body: init?.body ? JSON.parse(String(init.body)) : null });
+    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  });
+  return pushed;
+}
+
+const stockPush = (quantity: number) => ({ method: "PUT", url: `${STORE_API}/products/501`, body: { manage_stock: true, stock_quantity: quantity } });
 
 /** A second tenant with its own WOOCOMMERCE integration and its own
  * webhook secret — provider is no longer globally unique (Phase 3, docs/adr/0025). */
@@ -388,6 +409,22 @@ describe("POST /api/webhooks/woocommerce", () => {
     expect(events).toHaveLength(1);
   });
 
+  it("a delivery that FAILED is processed again when retried with the same delivery id, and its row takes the new outcome", async () => {
+    await seedIntegration();
+    const body = orderPayload();
+    const headers = { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "d-retry" };
+    const integration = await prisma.integration.findFirstOrThrow({ where: { provider: "WOOCOMMERCE" } });
+    await prisma.webhookEvent.create({
+      data: { integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId: "d-retry", topic: "order.created", status: "ECHEC" },
+    });
+
+    expect((await POST(request(body, headers))).status).toBe(200);
+
+    expect(await prisma.order.count({ where: { source: "WOOCOMMERCE", externalId: "7001" } })).toBe(1);
+    const events = await prisma.webhookEvent.findMany({ where: { deliveryId: "d-retry" } });
+    expect(events.map((e) => e.status)).toEqual(["TRAITE"]);
+  });
+
   it("handles concurrent duplicate deliveries without creating two orders or crashing (audit fix)", async () => {
     await seedIntegration();
     const body = orderPayload();
@@ -565,11 +602,13 @@ describe("root-cause regression: a NEW WooCommerce order survives its own order-
     mockCookieStore.clear();
   });
   afterEach(async () => {
+    vi.restoreAllMocks();
     await resetDb();
     mockCookieStore.clear();
   });
 
   it("NEW -> product.updated webhook (no-op) -> CONFIRM (reserves) -> CANCEL (releases) — physical stock never corrupted", async () => {
+    const pushed = mockStoreApi(); // offline: see mockStoreApi
     await seedIntegration();
     const warehouse = await prisma.warehouse.create({ data: { id: "wh-default", name: "Entrepôt principal", isDefault: true } });
     const product = await prisma.product.create({
@@ -604,6 +643,8 @@ describe("root-cause regression: a NEW WooCommerce order survives its own order-
     stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(stock).toMatchObject({ quantityOnHand: 20, quantityReserved: 0 }); // untouched — the fix
     expect(await prisma.inventoryMovement.count({ where: { inventoryItemId: item.id } })).toBe(0);
+    // Pulled from the store, never pushed back to it (no echo loop).
+    expect(pushed).toEqual([]);
 
     // 3. A human confirms the order inside ASODITECH — THIS is what reserves.
     await loginAsTestUser({ role: "MANAGER" });
@@ -614,6 +655,8 @@ describe("root-cause regression: a NEW WooCommerce order survives its own order-
     expect(stock).toMatchObject({ quantityOnHand: 20, quantityReserved: 6 }); // available = 14
     let movements = await prisma.inventoryMovement.findMany({ where: { inventoryItemId: item.id }, orderBy: { createdAt: "asc" } });
     expect(movements.map((m) => m.type)).toEqual(["RESERVATION"]);
+    // The store is told the sellable stock (on hand − reserved), never a corrupted number.
+    expect(pushed).toEqual([stockPush(14)]);
 
     // 4. Cancel before shipment — releases the reservation, physical untouched.
     const cancelResult = await cancelOrderAction(formData({ id: order.id, reason: "" }));
@@ -623,6 +666,14 @@ describe("root-cause regression: a NEW WooCommerce order survives its own order-
     expect(stock).toMatchObject({ quantityOnHand: 20, quantityReserved: 0 }); // available = 20 again
     movements = await prisma.inventoryMovement.findMany({ where: { inventoryItemId: item.id }, orderBy: { createdAt: "asc" } });
     expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "LIBERATION"]);
+    // Released stock and the cancellation reach the store — and nothing else.
+    expect(pushed.slice(1)).toHaveLength(2);
+    expect(pushed.slice(1)).toEqual(
+      expect.arrayContaining([
+        stockPush(20),
+        { method: "PUT", url: `${STORE_API}/orders/7001`, body: { status: "cancelled" } },
+      ])
+    );
   });
 
   it("is idempotent: a repeated product.updated delivery for the same order-driven decrement never progressively corrupts stock", async () => {
@@ -656,11 +707,16 @@ describe("root-cause regression: a NEW WooCommerce order survives its own order-
 // stayed stuck, and reopening + re-confirming doubled it. See
 // docs/adr/0030's addendum for the full root-cause writeup.
 describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION order back to ANNULEE releases the reservation", () => {
+  // Every test here confirms locally (→ a best-effort stock push to the fake
+  // store): answered offline, and asserted.
+  let pushed: ReturnType<typeof mockStoreApi>;
   beforeEach(async () => {
     await resetDb();
     mockCookieStore.clear();
+    pushed = mockStoreApi();
   });
   afterEach(async () => {
+    vi.restoreAllMocks();
     await resetDb();
     mockCookieStore.clear();
   });
@@ -690,6 +746,7 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
     const { item, order } = await seedConfirmedOrder();
     let stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 5 });
+    expect(pushed).toEqual([stockPush(10)]); // the local confirm told the store 15 − 5
 
     // WooCommerce's own status is still "cancelled" (or reported again via
     // a retried delivery) — confirming never pushed anything back to it.
@@ -706,6 +763,8 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
     expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 0 }); // released, not stuck at 5
     const movements = await prisma.inventoryMovement.findMany({ where: { inventoryItemId: item.id }, orderBy: { createdAt: "asc" } });
     expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "LIBERATION"]);
+    // The store's own cancellation is pulled, never echoed back (no status / stock push).
+    expect(pushed).toEqual([stockPush(10)]);
   });
 
   it("reopening and re-confirming after a webhook-driven cancellation reserves exactly 5, never 10", async () => {
@@ -721,6 +780,8 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
     expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 5 }); // exactly 5 — NOT 10
     const movements = await prisma.inventoryMovement.findMany({ where: { inventoryItemId: item.id }, orderBy: { createdAt: "asc" } });
     expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "LIBERATION", "RESERVATION"]);
+    // Each local confirm told the store 15 − 5 = 10 — never 5 (a doubled reservation); nothing else pushed.
+    expect(pushed).toEqual([stockPush(10), stockPush(10)]);
   });
 
   it("also releases from EN_PREPARATION, not just CONFIRMEE", async () => {
@@ -736,6 +797,7 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
     expect(afterOrder.status).toBe("ANNULEE");
     stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 0 });
+    expect(pushed).toEqual([stockPush(10)]); // only the confirm; EN_PREPARATION and the pulled cancel push nothing
   });
 
   it("does not touch a reservation for an order that stays NOUVELLE (nothing to release)", async () => {
@@ -759,5 +821,6 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
     const stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 0 });
     expect(await prisma.inventoryMovement.count({ where: { inventoryItemId: item.id } })).toBe(0); // nothing was ever reserved
+    expect(pushed).toEqual([]); // webhooks only (pull side) — nothing is ever pushed back to the store
   });
 });

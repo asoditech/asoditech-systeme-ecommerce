@@ -20,11 +20,14 @@ export function FilterSearchInput({
   placeholder,
   defaultValue,
   className,
+  ariaLabel,
 }: {
   paramKey?: string;
   placeholder?: string;
   defaultValue?: string;
   className?: string;
+  /** Accessible name — a placeholder alone isn't one. */
+  ariaLabel?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -53,6 +56,7 @@ export function FilterSearchInput({
         ref={ref}
         defaultValue={committed}
         placeholder={placeholder}
+        aria-label={ariaLabel}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();

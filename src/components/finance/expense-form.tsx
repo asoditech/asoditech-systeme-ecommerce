@@ -18,6 +18,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { zonedDayKey } from "@/lib/time/zoned";
 import type { ExpenseCategory } from "@prisma/client";
 import type { ActionResult, IdResult } from "@/actions/types";
 
@@ -62,7 +63,10 @@ export function ExpenseForm({
     undefined
   );
 
-  const today = new Date().toISOString().slice(0, 10);
+  // The browser's own calendar day (the dialog content only renders client-
+  // side, once opened) — not the UTC day, which is still « hier » in Morocco
+  // between 00:00 and 01:00.
+  const today = zonedDayKey(new Date());
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

@@ -8,6 +8,7 @@ import { prismaBase as prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { generateRawToken, hashToken } from "@/lib/auth/tokens";
 import { loadEffectiveAccess, loadLocationScope, type LocationScope } from "@/lib/auth/access-loader";
+import { getClientIp } from "@/lib/security/rate-limit";
 import type { EffectiveAccess } from "@/lib/auth/effective-access";
 import type { User } from "@prisma/client";
 
@@ -35,6 +36,9 @@ export async function createSession(userId: string): Promise<void> {
   const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
 
   const hdrs = await headers();
+  // The same trusted client-IP resolution as the rate limiter — never a
+  // client-forgeable first x-forwarded-for hop (src/lib/security/rate-limit.ts).
+  const ipAddress = await getClientIp();
 
   await prisma.session.create({
     data: {
@@ -42,7 +46,7 @@ export async function createSession(userId: string): Promise<void> {
       tokenHash,
       expiresAt,
       userAgent: hdrs.get("user-agent")?.slice(0, 255) ?? null,
-      ipAddress: hdrs.get("x-forwarded-for")?.split(",")[0]?.trim().slice(0, 64) ?? null,
+      ipAddress: ipAddress?.slice(0, 64) ?? null,
     },
   });
 
@@ -136,10 +140,14 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
   }
 
   if (Date.now() - session.lastUsedAt.getTime() > SESSION_REFRESH_THRESHOLD_MS) {
-    await prisma.session.update({
+    // updateMany, not update: « toutes les sessions » / a reset / a disable
+    // may have deleted this row since it was read — then nothing is touched
+    // and the request is treated as signed out (no P2025 crash).
+    const touched = await prisma.session.updateMany({
       where: { id: session.id },
       data: { lastUsedAt: new Date(), expiresAt: new Date(Date.now() + SESSION_DURATION_MS) },
     });
+    if (touched.count === 0) return null;
   }
 
   const { id, email, name, role, status, tenantId, isPlatformAdmin } = session.user;

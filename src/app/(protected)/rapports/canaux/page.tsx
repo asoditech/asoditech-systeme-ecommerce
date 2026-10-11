@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Globe, Store, Sigma } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
+import { ReportMetricInfo } from "@/components/reports/report-metric-info";
+import { ReportDefinitions } from "@/components/reports/report-definitions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,7 +12,7 @@ import { ReportDocumentHeader } from "@/components/reports/report-document-heade
 import { requirePermission } from "@/lib/auth/guards";
 import { requireCapability } from "@/lib/auth/capabilities";
 import { listAccessibleChannels } from "@/lib/auth/channel-access";
-import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
+import { resolveTenantReportRange, rangeQuery } from "@/lib/reports/range";
 import { getChannelReport } from "@/lib/queries/reports/channels";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { formatCurrency } from "@/lib/format";
@@ -37,7 +39,7 @@ export default async function RapportCanauxPage({
   const stores = await listAccessibleChannels(viewer, "OFFLINE");
   const salesChannelId = stores.some((s) => s.id === params.canal) ? params.canal : undefined;
 
-  const resolved = resolveReportRange(params);
+  const resolved = await resolveTenantReportRange(params);
   const [report, business] = await Promise.all([
     getChannelReport(viewer, resolved.range, { kind, salesChannelId }),
     getReportBusinessInfo(),
@@ -84,19 +86,19 @@ export default async function RapportCanauxPage({
 
       <div className="grid gap-4 sm:grid-cols-3">
         {report.online && (
-          <KpiCard label="En ligne — chiffre d'affaires" value={formatCurrency(report.online.revenue)} icon={Globe} tone="info" hint={`${report.online.ordersCount} commande(s) — définition inchangée`} />
+          <KpiCard label="En ligne — chiffre d'affaires" explain={<ReportMetricInfo metric="channelsOnline" label="En ligne — chiffre d'affaires" className="-ml-1" />} value={formatCurrency(report.online.revenue)} icon={Globe} tone="info" hint={`${report.online.ordersCount} commande(s) — définition inchangée`} />
         )}
         {report.offline && (
-          <KpiCard label="Magasin — ventes nettes" value={formatCurrency(report.offline.netSales)} icon={Store} tone="primary" hint={`${report.offline.salesCount} vente(s), ${report.offline.unitsSold} article(s)`} />
+          <KpiCard label="Magasin — ventes nettes" explain={<ReportMetricInfo metric="channelsStoreNet" label="Magasin — ventes nettes" className="-ml-1" />} value={formatCurrency(report.offline.netSales)} icon={Store} tone="primary" hint={`${report.offline.salesCount} vente(s), ${report.offline.unitsSold} article(s)`} />
         )}
-        {report.total && <KpiCard label="Total" value={formatCurrency(report.total.revenue)} icon={Sigma} tone="success" hint="En ligne + Magasin net" />}
+        {report.total && <KpiCard label="Total" explain={<ReportMetricInfo metric="channelsTotal" label="Total" className="-ml-1" />} value={formatCurrency(report.total.revenue)} icon={Sigma} tone="success" hint="En ligne + Magasin net" />}
       </div>
 
       {report.offline && (
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle className="text-[15px]">Magasin — détail</CardTitle>
+              <CardTitle className="flex items-center gap-1.5 text-[15px]">Magasin — détail<ReportMetricInfo metric="channelsStoreDetail" /></CardTitle>
             </CardHeader>
             <CardContent className="space-y-1 text-sm">
               <div className="flex justify-between"><span>Ventes brutes</span><span className="tabular-nums">{formatCurrency(report.offline.grossSales)}</span></div>
@@ -106,7 +108,7 @@ export default async function RapportCanauxPage({
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-[15px]">Par mode de paiement</CardTitle>
+              <CardTitle className="flex items-center gap-1.5 text-[15px]">Par mode de paiement<ReportMetricInfo metric="channelsByPayment" /></CardTitle>
             </CardHeader>
             <CardContent>
               <Table>
@@ -126,7 +128,7 @@ export default async function RapportCanauxPage({
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-[15px]">Par magasin</CardTitle>
+              <CardTitle className="flex items-center gap-1.5 text-[15px]">Par magasin<ReportMetricInfo metric="channelsByStore" /></CardTitle>
             </CardHeader>
             <CardContent>
               <Table>
@@ -141,7 +143,7 @@ export default async function RapportCanauxPage({
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-[15px]">Par emplacement</CardTitle>
+              <CardTitle className="flex items-center gap-1.5 text-[15px]">Par emplacement<ReportMetricInfo metric="channelsByLocation" /></CardTitle>
             </CardHeader>
             <CardContent>
               <Table>
@@ -163,6 +165,7 @@ export default async function RapportCanauxPage({
         date de vente, nettes des remboursements versés sur des retours de la période. <em>Total</em> : la somme des deux sources, sans
         double comptage — les deux moments de reconnaissance diffèrent, ce n&apos;est pas un résultat comptable.
       </p>
+      <ReportDefinitions report="canaux" />
     </div>
   );
 }

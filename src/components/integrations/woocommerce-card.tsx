@@ -8,6 +8,7 @@ import { SyncResourceRow } from "@/components/integrations/sync-resource-row";
 import { ForceNouvelleToggle } from "@/components/integrations/force-nouvelle-toggle";
 import { prisma } from "@/lib/prisma";
 import { formatDateTime } from "@/lib/format";
+import { webhookFailureMessage, webhookFailureSince } from "@/lib/integrations/shared/webhook-health";
 
 const RESOURCES = [
   { key: "CATEGORIES", icon: Tags, label: "Catégories", direction: "WooCommerce → Système" },
@@ -32,6 +33,16 @@ export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
         select: { receivedAt: true, topic: true },
       })
     : null;
+  const failureWhere = integration
+    ? { integrationId: integration.id, status: "ECHEC", receivedAt: { gte: webhookFailureSince() } }
+    : null;
+  const [failedWebhooks, lastFailedWebhook] = failureWhere
+    ? await Promise.all([
+        prisma.webhookEvent.count({ where: failureWhere }),
+        prisma.webhookEvent.findFirst({ where: failureWhere, orderBy: { receivedAt: "desc" }, select: { receivedAt: true, topic: true } }),
+      ])
+    : [0, null];
+  const webhookFailure = webhookFailureMessage(failedWebhooks, lastFailedWebhook, formatDateTime);
 
   const status = integration?.status ?? "DECONNECTE";
   const config = (integration?.config as { siteUrl?: string; forceNouvelleOnImport?: boolean } | null) ?? null;
@@ -77,6 +88,13 @@ export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
             {lastWebhook
               ? `Dernier webhook reçu : ${formatDateTime(lastWebhook.receivedAt)} (${lastWebhook.topic})`
               : "Aucun webhook reçu — les commandes n'arrivent en temps réel que si les webhooks sont enregistrés dans WooCommerce."}
+          </div>
+        )}
+
+        {webhookFailure && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+            <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+            <p>{webhookFailure}</p>
           </div>
         )}
 

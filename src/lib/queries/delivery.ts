@@ -3,9 +3,19 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import "@/lib/integrations/delivery/providers"; // populates the registry — see that module's own doc comment
 import { listDeliveryProviders, getDeliveryProvider } from "@/lib/integrations/delivery/registry";
-import { ACTIVE_SHIPMENT_STATUSES } from "@/lib/delivery";
+import { ACTIVE_SHIPMENT_STATUSES, deliveryOutcomeRate } from "@/lib/delivery";
 import { shippableOrderWhere } from "@/lib/packing";
 import { isPackingRequired } from "@/lib/packing-settings";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
+import {
+  MAX_ORDER_SEARCH_LENGTH,
+  exactOrderTrackingPriority,
+  exactShipmentTrackingPriority,
+  orderSearchConditions,
+  orderSearchWhere,
+} from "@/lib/orders/search";
+import { paginateWithPriority } from "@/lib/priority-pagination";
+import { countOutcomes, orderDeliveryOutcome } from "@/lib/metrics/formulas";
 import type { Prisma, ShipmentStatus, ShippingProviderType } from "@prisma/client";
 
 const PAGE_SIZE = 30;
@@ -71,6 +81,39 @@ export async function listActiveProvidersForCityGuidance() {
   });
 }
 
+/**
+ * Shipments REPLACED by a newer attempt on the same order — history, not
+ * work (an « Annulé » or failed parcel followed by a re-shipment). An order
+ * has at most one active parcel (reserveShipmentSlot), so the newest
+ * shipment of an order is its current one; a failed API creation attempt
+ * (never a real parcel, hidden from every list) never replaces anything.
+ * Raw SQL (a row compared with its siblings) inside `prisma.$transaction`
+ * so the tenant GUC is set, and filtered on it explicitly too.
+ */
+export async function listSupersededShipments(): Promise<{ id: string; orderId: string }[]> {
+  return prisma.$transaction(
+    (tx) => tx.$queryRaw<{ id: string; orderId: string }[]>`
+      SELECT s.id, s."orderId"
+      FROM "shipments" s
+      WHERE s."tenantId" = current_setting('app.tenant_id', true)
+        AND EXISTS (
+          SELECT 1
+          FROM "shipments" n
+          JOIN "shipping_providers" p ON p.id = n."providerId"
+          WHERE n."orderId" = s."orderId"
+            AND (n."createdAt" > s."createdAt" OR (n."createdAt" = s."createdAt" AND n.id > s.id))
+            AND NOT (n.status = 'ECHEC'::"ShipmentStatus" AND n."externalId" IS NULL AND p.type = 'API'::"ShippingProviderType")
+        )`
+  );
+}
+
+/** Ids to leave out of « current » views, and how many earlier attempts each order has. */
+function shipmentHistoryIndex(superseded: { id: string; orderId: string }[]) {
+  const previousAttemptsByOrder: Record<string, number> = {};
+  for (const s of superseded) previousAttemptsByOrder[s.orderId] = (previousAttemptsByOrder[s.orderId] ?? 0) + 1;
+  return { supersededIds: superseded.map((s) => s.id), previousAttemptsByOrder };
+}
+
 export async function listShipments(params: {
   status?: ShipmentStatus;
   providerId?: string;
@@ -78,9 +121,24 @@ export async function listShipments(params: {
   dateFrom?: Date;
   dateTo?: Date;
   page?: number;
+  /** Rows per page — /livraison passes the URL's 10/50/100; default 30. */
+  pageSize?: number;
+  /** The tenant's order-number prefix, when the caller already has it (avoids a second read). */
+  orderNumberPrefix?: string | null;
+  /** true = every attempt, replaced ones included (« Afficher l'historique »);
+   * default = one row per order, its current shipment (a search always
+   * covers every attempt). */
+  history?: boolean;
 }) {
   const page = Math.max(1, params.page ?? 1);
-  const q = params.search?.trim();
+  const pageSize = params.pageSize && params.pageSize > 0 ? params.pageSize : PAGE_SIZE;
+  const q = params.search?.trim().slice(0, MAX_ORDER_SEARCH_LENGTH);
+  const orderPrefix = q
+    ? params.orderNumberPrefix !== undefined
+      ? params.orderNumberPrefix
+      : (await getReportBusinessInfo()).orderNumberPrefix
+    : null;
+  const { supersededIds, previousAttemptsByOrder } = shipmentHistoryIndex(await listSupersededShipments());
   const where: Prisma.ShipmentWhereInput = {
     // An API-provider shipment that never got created at the carrier
     // (ECHEC + no externalId) is a failed *attempt*, not a shipment — it
@@ -88,15 +146,21 @@ export async function listShipments(params: {
     // (where the failure reason + fix actions live). A MANUEL provider's
     // ECHEC is a real, deliberately-set failure and is kept.
     NOT: { status: "ECHEC", externalId: null, provider: { type: "API" } },
+    // One row per order (its current shipment) unless the history is asked
+    // for — or a search is typed: an old parcel's tracking number must still
+    // be found (it then shows « Remplacée »).
+    ...(params.history || q || supersededIds.length === 0 ? {} : { id: { notIn: supersededIds } }),
     ...(params.status ? { status: params.status } : {}),
     ...(params.providerId ? { providerId: params.providerId } : {}),
+    // This shipment's own tracking number + the shared order search
+    // (src/lib/orders/search.ts) — same pattern as Suivi (listTrackingRows).
     ...(q
       ? {
           OR: [
             { trackingNumber: { contains: q, mode: "insensitive" } },
-            { order: { customer: { fullName: { contains: q, mode: "insensitive" } } } },
-            { order: { customer: { phone: { contains: q, mode: "insensitive" } } } },
-            ...(/^\d+$/.test(q) ? [{ order: { orderNumber: Number(q) } }] : []),
+            ...orderSearchConditions(q, { prefix: orderPrefix }).map(
+              (condition): Prisma.ShipmentWhereInput => ({ order: { is: condition } })
+            ),
           ],
         }
       : {}),
@@ -110,43 +174,77 @@ export async function listShipments(params: {
       : {}),
   };
 
-  const [shipments, total] = await Promise.all([
-    prisma.shipment.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-      include: { order: { include: { customer: true } }, provider: true },
-    }),
-    prisma.shipment.count({ where }),
-  ]);
+  // An exact tracking-number match ranks first, across pages; newest first
+  // inside each segment (id as a stable tie-break).
+  const { rows: shipments, total } = await paginateWithPriority({
+    where,
+    priority: exactShipmentTrackingPriority(q),
+    skip: (page - 1) * pageSize,
+    take: pageSize,
+    and: (a, b): Prisma.ShipmentWhereInput => ({ AND: [a, b] }),
+    count: (w) => prisma.shipment.count({ where: w }),
+    findMany: (w, skip, take) =>
+      prisma.shipment.findMany({
+        where: w,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip,
+        take,
+        include: { order: { include: { customer: true } }, provider: true },
+      }),
+  });
 
-  return { shipments, total, page, pageSize: PAGE_SIZE };
+  return {
+    shipments,
+    total,
+    page,
+    pageSize,
+    /** orderId → number of earlier (replaced) attempts — the « N tentatives » badge. */
+    previousAttemptsByOrder,
+    /** Replaced shipments on this page (history view) — labelled « Remplacée ». */
+    supersededIds: shipments.filter((s) => supersededIds.includes(s.id)).map((s) => s.id),
+  };
 }
 
+/**
+ * Delivery KPIs per ORDER (its current shipment — a replaced attempt is
+ * history and never counted twice), shipments created in the range. The
+ * rate is the final-outcome rate: delivered ÷ (delivered + failed +
+ * returned); parcels still on their way and cancelled ones have no
+ * delivery outcome and stay out of it (docs/analytics/metric-definitions.md).
+ */
 export async function getDeliveryStats(dateFrom?: Date, dateTo?: Date) {
+  const { supersededIds } = shipmentHistoryIndex(await listSupersededShipments());
   const dateFilter: Prisma.ShipmentWhereInput = {
     // Exclude failed creation attempts (see listShipments) — they are not
     // real shipments and must not inflate "Échecs" or drag down the
     // success rate.
     NOT: { status: "ECHEC", externalId: null, provider: { type: "API" } },
+    ...(supersededIds.length > 0 ? { id: { notIn: supersededIds } } : {}),
     ...(dateFrom || dateTo
       ? { createdAt: { ...(dateFrom ? { gte: dateFrom } : {}), ...(dateTo ? { lte: dateTo } : {}) } }
       : {}),
   };
 
-  const [total, delivered, failed, inTransit] = await Promise.all([
-    prisma.shipment.count({ where: dateFilter }),
-    prisma.shipment.count({ where: { ...dateFilter, status: "LIVRE" } }),
-    prisma.shipment.count({ where: { ...dateFilter, status: "ECHEC" } }),
-    prisma.shipment.count({ where: { ...dateFilter, status: "EN_TRANSIT" } }),
-  ]);
+  // Each current shipment is classified with its ORDER's status through the
+  // one shared rule (orderDeliveryOutcome): a Retour / Remboursée recorded
+  // on the order wins over the parcel's « Livré » — the same numbers as
+  // /rapports/livraison (src/lib/queries/reports/delivery.ts).
+  const rows = await prisma.shipment.findMany({
+    where: dateFilter,
+    select: { status: true, order: { select: { status: true } } },
+  });
+  const { delivered, failed, returned } = countOutcomes(
+    rows.map((s) => orderDeliveryOutcome(s.order?.status ?? "EXPEDIEE", s.status)),
+  );
+  const total = rows.length;
+  const inTransit = rows.filter((s) => s.status === "EN_TRANSIT").length;
   return {
     total,
     delivered,
     failed,
+    returned,
     inTransit,
-    successRate: total > 0 ? delivered / total : null,
+    successRate: deliveryOutcomeRate({ delivered, failed, returned }),
   };
 }
 
@@ -188,8 +286,11 @@ export async function listDeliveryManifests() {
  * the "À expédier" tab). Only a genuinely live shipment
  * (ACTIVE_SHIPMENT_STATUSES) with any provider excludes an order.
  */
-export async function listOrdersAwaitingShipment(params: { page?: number; search?: string } = {}) {
+export async function listOrdersAwaitingShipment(
+  params: { page?: number; search?: string; /** Rows per page (default 30). */ pageSize?: number } = {}
+) {
   const page = Math.max(1, params.page ?? 1);
+  const pageSize = params.pageSize && params.pageSize > 0 ? params.pageSize : PAGE_SIZE;
   const search = params.search?.trim();
 
   // Order eligibility (incl. « Vérification de l'emballage obligatoire ») is
@@ -197,44 +298,48 @@ export async function listOrdersAwaitingShipment(params: { page?: number; search
   const where: Prisma.OrderWhereInput = {
     ...shippableOrderWhere(await isPackingRequired()),
     shipments: { none: { status: { in: ACTIVE_SHIPMENT_STATUSES } } },
+    // Shared search (src/lib/orders/search.ts). These orders have no active
+    // shipment; a failed attempt's tracking number is still matched.
     ...(search
-      ? {
-          OR: [
-            { customer: { fullName: { contains: search, mode: "insensitive" } } },
-            { externalNumber: { contains: search, mode: "insensitive" } },
-            ...(/^\d+$/.test(search) ? [{ orderNumber: Number(search) }] : []),
-          ],
-        }
+      ? orderSearchWhere(search, { prefix: (await getReportBusinessInfo()).orderNumberPrefix, includeTrackingNumber: true })
       : {}),
   };
 
-  const [orders, total] = await Promise.all([
-    prisma.order.findMany({
-      where,
-      include: {
-        customer: true,
-        items: { select: { nameSnapshot: true, quantity: true, variation: { select: { attributes: true } } } },
-        // Most recent failed creation attempt, if any — surfaced in the
-        // « À expédier » row so the operator can fix the city/address and
-        // retry without hunting through the shipments list.
-        shipments: {
-          where: { status: "ECHEC", externalId: null },
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: { failedReason: true },
+  // An order with a shipment whose tracking number EXACTLY matches ranks first.
+  const { rows: orders, total } = await paginateWithPriority({
+    where,
+    priority: exactOrderTrackingPriority(search),
+    skip: (page - 1) * pageSize,
+    take: pageSize,
+    and: (a, b): Prisma.OrderWhereInput => ({ AND: [a, b] }),
+    count: (w) => prisma.order.count({ where: w }),
+    findMany: (w, skip, take) =>
+      prisma.order.findMany({
+        where: w,
+        include: {
+          customer: true,
+          items: { select: { nameSnapshot: true, quantity: true, variation: { select: { attributes: true } } } },
+          // Most recent failed creation attempt, if any — surfaced in the
+          // « À expédier » row so the operator can fix the city/address and
+          // retry without hunting through the shipments list.
+          shipments: {
+            where: { status: "ECHEC", externalId: null },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { failedReason: true },
+          },
         },
-      },
-      // Newest first — a freshly confirmed order must appear at the top,
-      // not fall off the end of the list behind a backlog of imported
-      // orders. `placedAt` for consistency with the rest of the app.
-      orderBy: { placedAt: "desc" },
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-    }),
-    prisma.order.count({ where }),
-  ]);
+        // Newest first — a freshly confirmed order must appear at the top,
+        // not fall off the end of the list behind a backlog of imported
+        // orders. `placedAt` for consistency with the rest of the app
+        // (id: stable tie-break across pages).
+        orderBy: [{ placedAt: "desc" }, { id: "desc" }],
+        skip,
+        take,
+      }),
+  });
 
-  return { orders, total, page, pageSize: PAGE_SIZE };
+  return { orders, total, page, pageSize };
 }
 
 /**

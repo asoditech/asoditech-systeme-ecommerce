@@ -110,9 +110,9 @@ describe("resolveReturnCodeAction — shared exact resolver", () => {
     expect(await scan("6100000000002")).toMatchObject({ resolved: true, unit: { variationId: cat.noir.id, label: "T-shirt — Noir" } });
     expect(await scan("ts-blanc")).toMatchObject({ resolved: true, unit: { variationId: cat.blanc.id } });
     expect(await scan("CAP-1")).toMatchObject({ resolved: true, unit: { productId: cat.cap.id } });
-    expect(await scan("UNKNOWN")).toEqual({ resolved: false, error: EXACT_CODE_MESSAGES.notFound });
+    expect(await scan("UNKNOWN")).toEqual({ resolved: false, error: `${EXACT_CODE_MESSAGES.notFound} Code reçu : « UNKNOWN ».` });
     expect(await scan("TS-PARENT")).toEqual({ resolved: false, error: EXACT_CODE_MESSAGES.ambiguous });
-    expect(await scan("Casquette")).toEqual({ resolved: false, error: EXACT_CODE_MESSAGES.notFound }); // no fuzzy
+    expect(await scan("Casquette")).toEqual({ resolved: false, error: `${EXACT_CODE_MESSAGES.notFound} Code reçu : « Casquette ».` }); // no fuzzy
   });
 
   it("needs the return permission of its scope", async () => {

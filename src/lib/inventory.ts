@@ -108,6 +108,17 @@ export interface ApplyStockMovementInput {
    * throw rolls the whole transaction (movement row included) back.
    */
   enforceAvailable?: boolean;
+  /**
+   * Opt-in ceiling on how far RESERVED may exceed ON-HAND on this row after
+   * the movement (P2 — stock validation at confirmation): after the
+   * row-locked UPDATE, refuse when `reserved − onHand > maxOvercommit`.
+   * `0` is exactly `enforceAvailable` (the reservation must be covered by
+   * physical stock); a positive value is the overcommit an authorised user
+   * explicitly accepted for this row. Checked on the POST-update row, so it
+   * covers every earlier reservation on the row — this transaction's own
+   * previous lines included — and is race-free under the row lock.
+   */
+  maxOvercommit?: number;
 }
 
 export type ApplyStockMovementResult =
@@ -178,6 +189,12 @@ export async function applyStockMovement(
     throw new InsufficientStockError(
       `Stock disponible insuffisant : ${updated.quantityReserved - updated.quantityOnHand} unité(s) manquante(s) ` +
         `(le reste est réservé pour des commandes confirmées).`
+    );
+  }
+  if (input.maxOvercommit !== undefined && updated.quantityReserved - updated.quantityOnHand > input.maxOvercommit) {
+    throw new InsufficientStockError(
+      `Stock disponible insuffisant : ${updated.quantityReserved - updated.quantityOnHand - input.maxOvercommit} unité(s) ` +
+        `au-delà de ce qui peut être réservé sur cet emplacement.`
     );
   }
 
@@ -300,6 +317,30 @@ interface StockLineRef {
 }
 
 /**
+ * Identity of the ONE InventoryItem row a line's movement targets, as
+ * `applyStockMovement` resolves it: `(warehouseId, variationId)` when the line
+ * has a variation (it wins, even when productId is also set), else
+ * `(warehouseId, productId)`. Same string for every line hitting that row.
+ */
+export function stockRowKey(warehouseId: string, line: { productId?: string | null; variationId?: string | null }): string {
+  return `${warehouseId}|${line.variationId ? `v:${line.variationId}` : `p:${line.productId}`}`;
+}
+
+/** Stable per-unit order (same key as in-store sales, src/actions/sales.ts) —
+ * every stock flow then locks shared rows in ONE order, avoiding lock-order
+ * deadlocks between concurrent multi-line operations. */
+function unitOrderKey(line: { productId?: string | null; variationId?: string | null }): string {
+  return line.variationId ? `v:${line.variationId}` : `p:${line.productId}`;
+}
+
+/**
+ * Per-row reservation ceiling for `reserveStockForOrder`: given the row a
+ * line hits, the maximum `reserved − onHand` allowed after its movement, or
+ * `undefined` for no check (today's non-blocking behaviour).
+ */
+export type ReservationCeiling = (rowKey: string) => number | undefined;
+
+/**
  * The warehouse an INTERNE order's stock movements target. Compatibility
  * rule for the pre-32a single-warehouse world (docs/adr/0019-inventory-foundation.md):
  *   1. the default warehouse, when the product/variation has an
@@ -359,7 +400,8 @@ async function applyOrderLines(
   type: InventoryMovementType,
   onHandPerUnit: number,
   reservedPerUnit: number,
-  reason?: string
+  reason?: string,
+  ceiling?: ReservationCeiling
 ) {
   // The order's chosen fulfilment warehouse, read once inside the caller's
   // transaction (Phase 32b). Null for pre-32b orders → compat fallback.
@@ -369,7 +411,7 @@ async function applyOrderLines(
   });
   const preferredWarehouseId = order?.fulfillmentWarehouseId ?? null;
 
-  for (const line of lines) {
+  for (const line of [...lines].sort((a, b) => unitOrderKey(a).localeCompare(unitOrderKey(b)))) {
     if (line.quantity <= 0) continue;
     // Orphaned line (product/variation deleted → OrderItem FK SetNull) —
     // silent no-op, exactly as the former applyMovement did.
@@ -387,13 +429,101 @@ async function applyOrderLines(
       orderId,
       performedById,
       reason,
+      maxOvercommit: ceiling ? ceiling(stockRowKey(warehouseId, line)) : undefined,
     });
   }
 }
 
-/** Order created — reserve stock without touching on-hand quantity. */
-export async function reserveStockForOrder(tx: Tx, orderId: string, lines: StockLineRef[], performedById: string | null) {
-  await applyOrderLines(tx, orderId, lines, performedById, "RESERVATION", 0, 1);
+/**
+ * Order confirmed — reserve stock without touching on-hand quantity.
+ * `opts.ceiling` (P2): per-row `maxOvercommit`; omitted = the historical
+ * non-blocking reservation.
+ */
+export async function reserveStockForOrder(
+  tx: Tx,
+  orderId: string,
+  lines: StockLineRef[],
+  performedById: string | null,
+  opts: { ceiling?: ReservationCeiling } = {}
+) {
+  await applyOrderLines(tx, orderId, lines, performedById, "RESERVATION", 0, 1, undefined, opts.ceiling);
+}
+
+/** How one stock row stands against what an order asks of it (P2). */
+export type StockRowState =
+  | { kind: "no_row"; rowKey: string; warehouseId: string | null; requested: number }
+  | {
+      kind: "tracked" | "tracking_disabled";
+      rowKey: string;
+      inventoryItemId: string;
+      warehouseId: string;
+      productId: string | null;
+      variationId: string | null;
+      /** Sum of every order line on this row (duplicate lines aggregated). */
+      requested: number;
+      onHand: number;
+      reserved: number;
+      available: number;
+      /** `max(0, reserved + requested − onHand)` — how far beyond physical stock reserving would go. */
+      overcommit: number;
+      /** tracked and `requested > available`. */
+      short: boolean;
+      /** reserved already exceeded on-hand before this order. */
+      overReserved: boolean;
+    };
+
+/**
+ * READ-ONLY: per stock row, the order's aggregated demand against the row's
+ * current stock — using exactly the warehouse/row resolution the reservation
+ * itself uses (`resolveOrderStockWarehouseId` + the same compound lookup as
+ * `applyStockMovement`). `trackInventory` comes from the product (a variation
+ * inherits its product's flag). Writes nothing.
+ */
+export async function orderLineStockStates(
+  db: Db,
+  lines: (StockLineRef & { trackInventory: boolean })[],
+  fulfillmentWarehouseId: string | null
+): Promise<StockRowState[]> {
+  const byRow = new Map<string, { warehouseId: string | null; line: StockLineRef; requested: number; tracked: boolean }>();
+  for (const line of lines) {
+    if (line.quantity <= 0 || (!line.productId && !line.variationId)) continue;
+    const warehouseId = await resolveOrderStockWarehouseId(db as Tx, line, fulfillmentWarehouseId);
+    const key = warehouseId ? stockRowKey(warehouseId, line) : `none|${unitOrderKey(line)}`;
+    const entry = byRow.get(key);
+    if (entry) entry.requested += line.quantity;
+    else byRow.set(key, { warehouseId, line, requested: line.quantity, tracked: line.trackInventory });
+  }
+
+  const states: StockRowState[] = [];
+  for (const [rowKey, e] of byRow) {
+    const item = !e.warehouseId
+      ? null
+      : e.line.variationId
+        ? await db.inventoryItem.findUnique({ where: { warehouseId_variationId: { warehouseId: e.warehouseId, variationId: e.line.variationId } } })
+        : await db.inventoryItem.findUnique({ where: { warehouseId_productId: { warehouseId: e.warehouseId, productId: e.line.productId! } } });
+    if (!item) {
+      states.push({ kind: "no_row", rowKey, warehouseId: e.warehouseId, requested: e.requested });
+      continue;
+    }
+    const available = availableStock(item);
+    const overcommit = Math.max(0, item.quantityReserved + e.requested - item.quantityOnHand);
+    states.push({
+      kind: e.tracked ? "tracked" : "tracking_disabled",
+      rowKey,
+      inventoryItemId: item.id,
+      warehouseId: item.warehouseId,
+      productId: item.productId,
+      variationId: item.variationId,
+      requested: e.requested,
+      onHand: item.quantityOnHand,
+      reserved: item.quantityReserved,
+      available,
+      overcommit,
+      short: e.tracked && e.requested > available,
+      overReserved: item.quantityReserved > item.quantityOnHand,
+    });
+  }
+  return states;
 }
 
 /** Order shipped — convert the reservation into an actual stock deduction. */

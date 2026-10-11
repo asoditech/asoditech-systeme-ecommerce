@@ -6,8 +6,10 @@ import { toast } from "sonner";
 import { Search, Trash2, Plus, PackagePlus } from "lucide-react";
 import { createReceptionAction, updateReceptionDraftAction, getLatestPurchasePriceAction, createSupplierAction } from "@/actions/purchases";
 import { lookupSellableUnitsAction } from "@/actions/catalog";
+import { scanCodeForMessage, withScanHint } from "@/lib/catalog/scan-input";
 import type { SellableUnit } from "@/lib/catalog/lookup";
 import { suggestReceptionReference } from "@/lib/purchases/reception-reference";
+import { zonedDayKey } from "@/lib/time/zoned";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -20,6 +22,7 @@ import { useDismissOnOutside } from "@/lib/use-dismiss-on-outside";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
+import { LOOKUP_SCAN_FORMATS } from "@/lib/barcode-scanner/support";
 import { ProductMetricRow } from "@/components/products/product-metric-row";
 import { formatCurrency, formatDate } from "@/lib/format";
 
@@ -51,6 +54,7 @@ export function ReceptionForm({
   canCreateSupplier = false,
   canCreateProduct = false,
   showPurchasePrices = true,
+  defaultDate,
   reception,
 }: {
   suppliers: { id: string; name: string }[];
@@ -66,6 +70,8 @@ export function ReceptionForm({
    * price is ever shown — no last-purchase hint, no totals, and a draft's
    * existing lines stay « inchangé » unless re-typed. */
   showPurchasePrices?: boolean;
+  /** « Aujourd'hui » in the business time zone (YYYY-MM-DD), computed by the page — a new reception's default date. */
+  defaultDate?: string;
   reception?: {
     id: string;
     supplierId: string;
@@ -116,7 +122,7 @@ export function ReceptionForm({
   );
   const [referenceTouched, setReferenceTouched] = useState(Boolean(reception));
   const [notes, setNotes] = useState(reception?.notes ?? "");
-  const [date, setDate] = useState(reception?.date ?? new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(reception?.date ?? defaultDate ?? zonedDayKey(new Date()));
   const [lines, setLines] = useState<Line[]>(reception?.lines ?? []);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SellableUnit[]>([]);
@@ -159,18 +165,32 @@ export function ReceptionForm({
   // (`lookupSellableUnitsAction`) a hardware scanner's Enter key or the
   // "Chercher" button already use, never a second implementation.
   async function search(code?: string) {
-    const q = code ?? query;
-    if (!q.trim()) return;
+    const q = (code ?? query).trim();
+    if (!q) return;
+    // Empty the field at once: a scanner's next code must never be appended
+    // to this one. A typed search that opens a pick list gets its text back.
+    setQuery("");
     setSearching(true);
-    const found = await lookupSellableUnitsAction({ query: q });
-    setSearching(false);
-    setHits(found);
+    let found: SellableUnit[];
+    try {
+      found = await lookupSellableUnitsAction({ query: q });
+    } catch {
+      toast.error("La recherche a échoué. Rechargez la page et réessayez.");
+      return;
+    } finally {
+      setSearching(false);
+    }
     // A scanner types the code then presses Enter: an exact barcode/SKU hit is added straight away.
     if (found.length === 1 && found[0].matchedBy !== "partial") {
       add(found[0]);
-      setQuery("");
       setHits([]);
-    } else if (found.length === 0) toast.error("Aucun article trouvé.");
+    } else if (found.length === 0) {
+      setHits([]);
+      toast.error(withScanHint(`Aucun article trouvé pour le code reçu « ${scanCodeForMessage(q)} ».`, q), { duration: 10_000 });
+    } else {
+      setQuery((current) => (current === "" ? q : current));
+      setHits(found);
+    }
   }
 
   // Initial list: clicking the EMPTY field (or ArrowDown) shows the first
@@ -418,7 +438,8 @@ export function ReceptionForm({
                 if (e.key === "Enter") {
                   e.preventDefault();
                   closeBrowse();
-                  void search();
+                  // The field's own value: a code scanned before hydration is in the DOM, not yet in state.
+                  void search(e.currentTarget.value);
                 } else if (e.key === "ArrowDown") {
                   void browse();
                 }
@@ -428,7 +449,7 @@ export function ReceptionForm({
               {!searching && <Search className="size-4" />}
               Chercher
             </Button>
-            <BarcodeScanButton onDetect={onCameraDetect} label="Caméra" />
+            <BarcodeScanButton formats={LOOKUP_SCAN_FORMATS} onDetect={onCameraDetect} label="Caméra" />
           </div>
           {hits.length > 0 && (
             <ul className="divide-y overflow-hidden rounded-lg border bg-card text-sm shadow-popover">

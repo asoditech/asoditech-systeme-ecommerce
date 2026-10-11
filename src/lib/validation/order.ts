@@ -105,6 +105,11 @@ export const createOrderSchema = z.object({
   // outside ASODITECH. The server then confirms the new order through the
   // canonical confirmation — the client never sends a status. Default: NOUVELLE.
   customerAlreadyConfirmed: z.boolean().default(false),
+  // P2: authorised stock override for that confirmation — the signed shortage
+  // token returned by a previous refusal, and the mandatory reason. Both are
+  // validated server-side (src/lib/stock-validation.ts); never trusted as-is.
+  stockOverrideToken: z.string().max(16_384).nullish(),
+  stockOverrideReason: z.string().max(2000).nullish(),
   shippingCost: z.coerce.number().min(0).default(0),
   discountTotal: z.coerce.number().min(0).default(0),
   currency: z.string().length(3).default("MAD"),

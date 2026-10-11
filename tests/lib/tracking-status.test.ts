@@ -5,6 +5,7 @@ import {
   NORMALIZED_TRACKING_LABELS,
   NORMALIZED_TRACKING_VARIANT,
 } from "@/lib/tracking/status";
+import { ORDER_STATUS_LABELS, SHIPMENT_STATUS_LABELS } from "@/lib/status-labels";
 
 describe("normalizeTrackingStatus (« Suivi » module, docs/adr/0033)", () => {
   it("maps terminal local statuses 1:1 and never lets raw text override them", () => {
@@ -39,6 +40,24 @@ describe("normalizeTrackingStatus (« Suivi » module, docs/adr/0033)", () => {
         expect(normalizeTrackingStatus(local, raw)).not.toBe("UNKNOWN");
       }
     }
+  });
+
+  // P1: one source of truth for colours — Suivi's normalized statuses take the
+  // app-wide SHIPMENT_STATUS_LABELS variant of their local bucket.
+  it("DELIVERED is the semantic success variant, aligned with « Livré » / « Livrée » elsewhere", () => {
+    expect(NORMALIZED_TRACKING_VARIANT.DELIVERED).toBe("success");
+    expect(NORMALIZED_TRACKING_VARIANT.DELIVERED).toBe(SHIPMENT_STATUS_LABELS.LIVRE.variant);
+    expect(NORMALIZED_TRACKING_VARIANT.DELIVERED).toBe(ORDER_STATUS_LABELS.LIVREE.variant);
+    for (const s of ["PICKED_UP", "IN_TRANSIT", "AT_DEPOT", "OUT_FOR_DELIVERY"] as const) {
+      expect(NORMALIZED_TRACKING_VARIANT[s]).toBe(SHIPMENT_STATUS_LABELS.EN_TRANSIT.variant);
+    }
+    for (const s of ["CREATED", "PICKUP_PENDING"] as const) {
+      expect(NORMALIZED_TRACKING_VARIANT[s]).toBe(SHIPMENT_STATUS_LABELS.EN_ATTENTE.variant);
+    }
+    expect(NORMALIZED_TRACKING_VARIANT.RETURNED).toBe(SHIPMENT_STATUS_LABELS.RETOURNE.variant);
+    expect(NORMALIZED_TRACKING_VARIANT.FAILED).toBe(SHIPMENT_STATUS_LABELS.ECHEC.variant);
+    expect(NORMALIZED_TRACKING_VARIANT.CANCELLED).toBe(SHIPMENT_STATUS_LABELS.ANNULE.variant);
+    expect(NORMALIZED_TRACKING_VARIANT.UNKNOWN).toBe("outline");
   });
 
   it("every normalized status has a French label and a badge variant", () => {

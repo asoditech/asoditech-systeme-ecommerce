@@ -5,6 +5,8 @@ import { userHasPermission } from "@/lib/auth/permissions";
 import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { listAccessibleActiveWarehouses } from "@/lib/auth/location-access";
 import { prisma } from "@/lib/prisma";
+import { getBusinessTimeZone } from "@/lib/time/business-zone";
+import { zonedDayKey } from "@/lib/time/zoned";
 
 export const metadata = { title: "Nouvelle réception — ASODITECH Gestion E-commerce" };
 
@@ -12,10 +14,11 @@ export default async function NouvelleReceptionPage() {
   const user = await requirePermission("purchases.create");
   // Purchase prices follow `purchases.view` (docs/adr/0052): without them the form never receives a stored price.
   const showPrices = productCostVisibility(user).purchasePrices;
-  const [suppliers, warehouses] = await Promise.all([
+  const [suppliers, warehouses, timeZone] = await Promise.all([
     prisma.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     // ADR 0037: only the locations this user is assigned to can receive stock.
     listAccessibleActiveWarehouses(user),
+    getBusinessTimeZone(),
   ]);
   return (
     <div>
@@ -27,6 +30,7 @@ export default async function NouvelleReceptionPage() {
           canCreateSupplier={userHasPermission(user, "suppliers.manage")}
           canCreateProduct={userHasPermission(user, "products.create")}
           showPurchasePrices={showPrices}
+          defaultDate={zonedDayKey(new Date(), timeZone)}
         />
       </div>
     </div>

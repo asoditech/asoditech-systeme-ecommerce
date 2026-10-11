@@ -43,6 +43,17 @@ export function canTransitionShipmentStatus(from: ShipmentStatusValue, to: Shipm
   return SHIPMENT_STATUS_TRANSITIONS[from].includes(to);
 }
 
+/**
+ * Whether « Annuler » (cancel AT the carrier) may be offered for a parcel:
+ * the connector must support it AND the local status must allow ANNULE —
+ * the carrier is called first, so offering it from e.g. EN_TRANSIT would
+ * cancel the parcel at the carrier while the local transition then fails.
+ * cancelShipmentViaProvider enforces the same rule server-side.
+ */
+export function canCancelCarrierShipment(status: ShipmentStatusValue, connectorSupportsCancel: boolean): boolean {
+  return connectorSupportsCancel && canTransitionShipmentStatus(status, "ANNULE");
+}
+
 export const createShipmentSchema = z.object({
   orderId: z.string().min(1),
   providerId: z.string().min(1, "Le prestataire de livraison est requis."),
@@ -52,11 +63,21 @@ export const createShipmentSchema = z.object({
   notes: z.string().trim().max(2000).nullish().or(z.literal("")),
 });
 
-export const updateShipmentStatusSchema = z.object({
-  id: z.string().min(1),
-  status: shipmentStatusSchema,
-  failedReason: z.string().trim().max(1000).nullish().or(z.literal("")),
-});
+export const SHIPMENT_FAILED_REASON_MIN = 3;
+
+export const updateShipmentStatusSchema = z
+  .object({
+    id: z.string().min(1),
+    status: shipmentStatusSchema,
+    failedReason: z.string().trim().max(1000).nullish().or(z.literal("")),
+  })
+  // A failure set by hand must say why — it is shown on the shipment, in
+  // the failure notification and in « À expédier ». (Carrier-reported
+  // failures go through the provider sync, not this schema.)
+  .refine((v) => v.status !== "ECHEC" || (v.failedReason ?? "").length >= SHIPMENT_FAILED_REASON_MIN, {
+    path: ["failedReason"],
+    message: "Indiquez la raison de l'échec (au moins 3 caractères).",
+  });
 
 /** A blank/empty money field → `null` ("not configured"), else a
  * non-negative number. Used by the provider pricing-rules form. */

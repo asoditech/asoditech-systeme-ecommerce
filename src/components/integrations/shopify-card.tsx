@@ -12,7 +12,7 @@ import { formatDateTime } from "@/lib/format";
 const RESOURCES = [
   { key: "EMPLACEMENTS", icon: Warehouse, label: "Emplacements", direction: "Shopify → Système" },
   { key: "PRODUITS", icon: Package, label: "Produits (dont variantes et stock)", direction: "Shopify → Système" },
-  { key: "COMMANDES", icon: ShoppingCart, label: "Commandes (dont clients)", direction: "Shopify → Système" },
+  { key: "COMMANDES", icon: ShoppingCart, label: "Commandes (dont clients)", direction: "Shopify → Système — les statuts (confirmée, expédiée, livrée, annulée) ne sont pas renvoyés à Shopify" },
   { key: "STOCK_ENVOI", icon: Boxes, label: "Stock", direction: "Système → Shopify" },
 ] as const;
 

@@ -4,7 +4,7 @@ import { requireChannelKind } from "@/lib/auth/channel-access";
 import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { listAccessibleActiveWarehouses, hasGlobalLocationAccess } from "@/lib/auth/location-access";
-import { resolveReportRange } from "@/lib/reports/range";
+import { resolveTenantReportRange } from "@/lib/reports/range";
 import { getChannelReport } from "@/lib/queries/reports/channels";
 import { csvDocument, csvDocumentResponse, type CsvSection } from "@/lib/reports/csv";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
@@ -58,7 +58,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
     from: url.searchParams.get("from") ?? undefined,
     to: url.searchParams.get("to") ?? undefined,
   };
-  const resolved = resolveReportRange(params);
+  const resolved = await resolveTenantReportRange(params);
   const stamp = resolved.key === "custom" ? `${params.from}_${params.to}` : resolved.key;
   const business = await getReportBusinessInfo();
   const generatedAt = new Date().toLocaleString("fr-FR");

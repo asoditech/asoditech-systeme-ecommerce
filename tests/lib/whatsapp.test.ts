@@ -15,6 +15,14 @@ describe("toMoroccanWhatsAppDigits", () => {
   it("strips spaces and separators", () => {
     expect(toMoroccanWhatsAppDigits("06 12 34 56 78")).toBe("212612345678");
   });
+  it("drops the 00 international prefix", () => {
+    expect(toMoroccanWhatsAppDigits("00212612345678")).toBe("212612345678");
+    expect(toMoroccanWhatsAppDigits("00 212 6 12 34 56 78")).toBe("212612345678");
+  });
+  it("drops the trunk 0 typed after the country code (+212 06…)", () => {
+    expect(toMoroccanWhatsAppDigits("+212 0612345678")).toBe("212612345678");
+    expect(toMoroccanWhatsAppDigits("2120712345678")).toBe("212712345678");
+  });
 });
 
 describe("buildCustomerWhatsAppUrl", () => {

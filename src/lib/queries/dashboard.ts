@@ -11,9 +11,12 @@ import {
   currentQuarterRange,
   currentYearRange,
   previousPeriodOfSameLength,
+  type PeriodRange,
 } from "@/lib/queries/finance";
 import { getLowStockCount, getLowStockCountForViewer } from "@/lib/queries/inventory";
 import { getDeliveryStats } from "@/lib/queries/delivery";
+import { getBusinessTimeZone } from "@/lib/time/business-zone";
+import { zonedInstant, zonedParts } from "@/lib/time/zoned";
 import type { Prisma, RecordSource } from "@prisma/client";
 
 export type DashboardPeriod = "jour" | "hier" | "mois" | "trimestre" | "annee";
@@ -48,16 +51,18 @@ export async function getDashboardData(
     customerScope?: Prisma.CustomerWhereInput;
   } = {}
 ) {
+  // Calendar periods of the business time zone (src/lib/time/zoned.ts).
+  const timeZone = await getBusinessTimeZone();
   const period =
     periodKey === "jour"
-      ? currentDayRange()
+      ? currentDayRange(timeZone)
       : periodKey === "hier"
-        ? yesterdayRange()
+        ? yesterdayRange(timeZone)
         : periodKey === "trimestre"
-          ? currentQuarterRange()
+          ? currentQuarterRange(timeZone)
           : periodKey === "annee"
-            ? currentYearRange()
-            : currentMonthRange();
+            ? currentYearRange(timeZone)
+            : currentMonthRange(timeZone);
   const previousPeriod = previousPeriodOfSameLength(period);
   const actionCutoff = new Date(Date.now() - ACTION_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
@@ -70,11 +75,13 @@ export async function getDashboardData(
     recentOrders,
     newCustomersThisPeriod,
     recentAuditEvents,
+    ordersPlaced,
   ] = await Promise.all([
     getFinanceSummary(period, source),
     getFinanceSummary(previousPeriod, source),
     opts.viewer ? getLowStockCountForViewer(opts.viewer) : getLowStockCount(),
-    getDeliveryStats(),
+    // Same period as every other dashboard figure (was all-time).
+    getDeliveryStats(period.from, period.to),
     prisma.order.findMany({
       where: {
         // UI refinement pass (2026-09): NOUVELLE only — "needs initial
@@ -99,9 +106,10 @@ export async function getDashboardData(
       take: 6,
       include: { customer: { select: { fullName: true } } },
     }),
-    prisma.customer.count({
-      where: { createdAt: { gte: period.from, lte: period.to }, ...(source ? { source } : {}), ...(opts.customerScope ?? {}) },
-    }),
+    // « Nouveaux clients » — the one rule of /rapports/clients: a buyer of
+    // the period whose FIRST-EVER order falls in it (never the date the
+    // customer record was created or imported).
+    countNewBuyers(period, source, opts.customerScope),
     // « Activité récente »: business / configuration / security activity only —
     // technical and routine events stay in the journal but never crowd the
     // dashboard (src/lib/audit-classification.ts).
@@ -111,6 +119,10 @@ export async function getDashboardData(
       take: 8,
       include: { actorUser: { select: { name: true } } },
     }),
+    // « Commandes » — every order placed in the period, any status (the same
+    // count as /analyses and /rapports/ventes); the revenue-order count stays
+    // in finance.ordersCount for the average basket.
+    prisma.order.count({ where: { placedAt: { gte: period.from, lte: period.to }, ...(source ? { source } : {}) } }),
   ]);
 
   return {
@@ -129,7 +141,30 @@ export async function getDashboardData(
     recentOrders,
     newCustomersThisPeriod,
     recentAuditEvents,
+    ordersPlaced,
   };
+}
+
+/** Buyers of the period (a revenue order in it) whose first-ever order is in the period. */
+async function countNewBuyers(period: PeriodRange, source: RecordSource | undefined, customerScope: Prisma.CustomerWhereInput | undefined) {
+  const scope: Prisma.OrderWhereInput = { ...(source ? { source } : {}), ...(customerScope ? { customer: customerScope } : {}) };
+  const firstInPeriod = await prisma.order.groupBy({
+    by: ["customerId"],
+    where: scope,
+    _min: { placedAt: true },
+    having: { placedAt: { _min: { gte: period.from, lte: period.to } } },
+  });
+  if (firstInPeriod.length === 0) return 0;
+  const buyers = await prisma.order.groupBy({
+    by: ["customerId"],
+    where: {
+      ...scope,
+      customerId: { in: firstInPeriod.map((f) => f.customerId) },
+      placedAt: { gte: period.from, lte: period.to },
+      status: { notIn: REVENUE_EXCLUDED_STATUSES },
+    },
+  });
+  return buyers.length;
 }
 
 export type RevenueTrendRange = "annee" | "annee-derniere";
@@ -148,18 +183,22 @@ interface TrendBucket {
 /**
  * Monthly revenue trend for the dashboard chart, for the current year or
  * the previous one — a `RecordSource` narrows it to one sales channel,
- * matching the dashboard's own source filter. Revenue is gross order total
- * of realised orders (not `REVENUE_EXCLUDED_STATUSES`, same rule as
- * profitability), by placedAt.
+ * matching the dashboard's own source filter. Revenue is the net
+ * « Chiffre d'affaires » (src/lib/metrics/formulas.ts): order totals of
+ * realised orders (not `REVENUE_EXCLUDED_STATUSES`) minus their completed
+ * refunds, by placedAt — the same figure as the headline above it.
  */
 export async function getRevenueTrend(
   range: RevenueTrendRange = "annee",
   source?: RecordSource
 ): Promise<TrendBucket[]> {
   const now = new Date();
-  const year = range === "annee-derniere" ? now.getFullYear() - 1 : now.getFullYear();
-  const from = new Date(year, 0, 1);
-  const to = range === "annee-derniere" ? new Date(year, 11, 31, 23, 59, 59) : now;
+  // Months of the business time zone (src/lib/time/zoned.ts).
+  const timeZone = await getBusinessTimeZone();
+  const thisYear = zonedParts(now, timeZone).year;
+  const year = range === "annee-derniere" ? thisYear - 1 : thisYear;
+  const from = zonedInstant(timeZone, year, 1, 1);
+  const to = range === "annee-derniere" ? new Date(zonedInstant(timeZone, year + 1, 1, 1).getTime() - 1) : now;
 
   const orders = await prisma.order.findMany({
     where: {
@@ -167,25 +206,27 @@ export async function getRevenueTrend(
       status: { notIn: REVENUE_EXCLUDED_STATUSES },
       ...(source ? { source } : {}),
     },
-    select: { placedAt: true, total: true },
+    select: { placedAt: true, total: true, refunds: { where: { status: "COMPLETE" }, select: { amount: true } } },
   });
 
   const buckets: TrendBucket[] = [];
   for (let month = 0; month < 12; month++) {
-    const d = new Date(year, month, 1);
-    if (d > to) break;
+    if (zonedInstant(timeZone, year, month + 1, 1) > to) break;
     buckets.push({
       key: `${year}-${month}`,
-      label: d.toLocaleDateString("fr-FR", { month: "short" }).replace(".", ""),
+      // Mid-month UTC noon: the month's name whatever the zone.
+      label: new Date(Date.UTC(year, month, 15, 12)).toLocaleDateString("fr-FR", { month: "short", timeZone: "UTC" }).replace(".", ""),
       revenue: 0,
     });
   }
 
   const byKey = new Map(buckets.map((b) => [b.key, b]));
   for (const o of orders) {
-    const key = `${o.placedAt.getFullYear()}-${o.placedAt.getMonth()}`;
+    const placed = zonedParts(o.placedAt, timeZone);
+    const key = `${placed.year}-${placed.month - 1}`;
     const bucket = byKey.get(key);
-    if (bucket) bucket.revenue += Number(o.total);
+    // Net, like the headline « Chiffre d'affaires » it sits under.
+    if (bucket) bucket.revenue += Number(o.total) - o.refunds.reduce((n, r) => n + Number(r.amount), 0);
   }
   return buckets;
 }

@@ -3,17 +3,29 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { PeriodRange } from "@/lib/queries/finance";
 import { shipmentIncursDeliveryCost } from "@/lib/profitability";
+import { listSupersededShipments } from "@/lib/queries/delivery";
+import { asPct, countOutcomes, deliveryOutcomeRate, orderDeliveryOutcome } from "@/lib/metrics/formulas";
+import type { OrderStatus, ShipmentStatus } from "@prisma/client";
 
 /**
  * Delivery performance — by carrier and by destination city, over the
- * shipments CREATED in the window (same anchor `getDeliveryStats` and the
- * period P&L's delivery-cost figure use).
+ * shipments CREATED in the window (`Shipment.createdAt` — the same anchor
+ * `getDeliveryStats` uses). Note: the period P&L's delivery-cost figure is
+ * anchored differently — the shipments of the orders PLACED in the period
+ * (`computePeriodProfitability`) — so its cost total can differ.
  *
  * `avgDeliveryDays` is measured `shippedAt → deliveredAt` over shipments
  * that reached LIVRE and carry both timestamps. COD figures come from the
  * linked order: `codCollected` counts a delivered shipment whose order
  * payment status is PAYE; `codPending` a delivered/in-transit shipment
  * still EN_ATTENTE — the classic "livré mais pas encore encaissé" gap.
+ *
+ * Counts, outcomes, the success rate and COD are per ORDER — its current
+ * shipment (a replaced attempt is history: listSupersededShipments) — so a
+ * failed-then-re-shipped order is one delivered order, never « 1 échec +
+ * 1 livraison », and its COD is counted once. Costs keep EVERY attempt:
+ * each one was really charged. The rate is the one « Taux de livraison
+ * réussie » (src/lib/metrics/formulas.ts).
  */
 
 export interface DeliveryPerfRow {
@@ -56,12 +68,11 @@ type ShipmentRow = {
   deliveredAt: Date | null;
   provider: { name: string } | null;
   order: { status: string; paymentStatus: string; total: unknown; shippingCity: string | null } | null;
+  /** false = replaced by a newer attempt on the same order (cost only). */
+  current: boolean;
 };
 
 function summarise(key: string, rows: ShipmentRow[]): DeliveryPerfRow {
-  let delivered = 0;
-  let failed = 0;
-  let returned = 0;
   let inTransit = 0;
   let deliveryCost = 0;
   let returnCost = 0;
@@ -71,6 +82,8 @@ function summarise(key: string, rows: ShipmentRow[]): DeliveryPerfRow {
   let daysSum = 0;
   let daysN = 0;
 
+  let total = 0;
+  const outcomes: ReturnType<typeof orderDeliveryOutcome>[] = [];
   for (const s of rows) {
     // Client feedback #3: a cancelled order's parcel never reached the
     // customer, and a cancelled shipment completed no delivery service —
@@ -83,10 +96,10 @@ function summarise(key: string, rows: ShipmentRow[]): DeliveryPerfRow {
       else if (s.costSource === "FAILURE_RULE") failureCost += amt;
       else deliveryCost += amt; // CARRIER_API, MANUAL_OVERRIDE, or null (estimate)
     }
-    if (s.status === "LIVRE") delivered += 1;
-    else if (s.status === "ECHEC") failed += 1;
-    else if (s.status === "RETOURNE") returned += 1;
-    else if (s.status === "EN_TRANSIT") inTransit += 1;
+    if (!s.current) continue; // a replaced attempt: its cost only
+    total += 1;
+    outcomes.push(orderDeliveryOutcome((s.order?.status ?? "EXPEDIEE") as OrderStatus, s.status as ShipmentStatus));
+    if (s.status === "EN_TRANSIT") inTransit += 1;
 
     if (s.status === "LIVRE" && s.shippedAt && s.deliveredAt) {
       daysSum += (s.deliveredAt.getTime() - s.shippedAt.getTime()) / 86_400_000;
@@ -100,14 +113,15 @@ function summarise(key: string, rows: ShipmentRow[]): DeliveryPerfRow {
     }
   }
 
+  const c = countOutcomes(outcomes);
   return {
     key,
-    total: rows.length,
-    delivered,
-    failed,
-    returned,
+    total,
+    delivered: c.delivered,
+    failed: c.failed,
+    returned: c.returned,
     inTransit,
-    successRate: rows.length > 0 ? round1((delivered / rows.length) * 100) : null,
+    successRate: asPct(deliveryOutcomeRate(c)),
     avgDeliveryDays: daysN > 0 ? round1(daysSum / daysN) : null,
     shippingCost: round2(deliveryCost + returnCost + failureCost),
     deliveryCost: round2(deliveryCost),
@@ -119,7 +133,8 @@ function summarise(key: string, rows: ShipmentRow[]): DeliveryPerfRow {
 }
 
 export async function getDeliveryPerformanceReport(range: PeriodRange): Promise<DeliveryPerformanceReport> {
-  const shipments = (await prisma.shipment.findMany({
+  const superseded = new Set((await listSupersededShipments()).map((s) => s.id));
+  const found = await prisma.shipment.findMany({
     where: {
       createdAt: { gte: range.from, lte: range.to },
       // Exclude failed API-creation attempts (docs/adr/0031) — a parcel
@@ -128,6 +143,7 @@ export async function getDeliveryPerformanceReport(range: PeriodRange): Promise<
       NOT: { status: "ECHEC", externalId: null, provider: { type: "API" } },
     },
     select: {
+      id: true,
       status: true,
       cost: true,
       costSource: true,
@@ -136,7 +152,8 @@ export async function getDeliveryPerformanceReport(range: PeriodRange): Promise<
       provider: { select: { name: true } },
       order: { select: { status: true, paymentStatus: true, total: true, shippingCity: true } },
     },
-  })) as ShipmentRow[];
+  });
+  const shipments: ShipmentRow[] = found.map(({ id, ...s }) => ({ ...s, current: !superseded.has(id) }));
 
   const byProviderMap = new Map<string, ShipmentRow[]>();
   const byCityMap = new Map<string, ShipmentRow[]>();

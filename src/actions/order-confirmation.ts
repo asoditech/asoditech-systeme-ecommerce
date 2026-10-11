@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
-import { InsufficientStockError } from "@/lib/inventory";
 import { confirmOnlineOrderInTx, OrderConfirmationConflictError, OrderNotConfirmableError } from "@/lib/order-confirmation";
+import { confirmationFailureResult, orderStockShortageResult, prepareStockOverride } from "@/lib/stock-validation";
 import { resolveNotifications } from "@/lib/notifications";
 import { pushStockAfterLocalChange, pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
 import { reconcileOrderCommission } from "@/lib/commissions";
@@ -67,13 +67,28 @@ export async function recordConfirmationAttemptAction(
 
   const terminal = outcome === "CONFIRME" ? "CONFIRMEE" : outcome === "ANNULE" ? "ANNULEE" : null;
 
+  // P2: an optional, authorised stock override — validated here, BEFORE the
+  // transaction (role + permission + reason + signed token bound to this
+  // order and this user). Never trusted from the browser beyond that.
+  const prepared =
+    outcome === "CONFIRME"
+      ? prepareStockOverride({
+          user,
+          bindingId: id,
+          token: formData.get("stockOverrideToken"),
+          reason: formData.get("stockOverrideReason"),
+          via: "queue",
+        })
+      : ({ ok: true, override: null } as const);
+  if (!prepared.ok) return actionError(prepared.error);
+
   try {
     await prisma.$transaction(async (tx) => {
       if (outcome === "CONFIRME") {
         // The one canonical confirmation (docs/adr/0045): attempt + confirmedAt
         // + reservation + default attribution (the caller's ACTIVE agent, only
         // when the order has none) — the same path a direct status change uses.
-        await confirmOnlineOrderInTx(tx, { orderId: id, confirmerUserId: user.id, note });
+        await confirmOnlineOrderInTx(tx, { orderId: id, confirmerUserId: user.id, note, stockOverride: prepared.override });
         return;
       }
 
@@ -106,9 +121,10 @@ export async function recordConfirmationAttemptAction(
     if (error instanceof OrderNotConfirmableError) {
       return actionError(error.message);
     }
-    if (error instanceof InsufficientStockError) {
-      return actionError(error.message);
-    }
+    // Stock shortage (built from a fresh read-only read, after the rollback)
+    // or a verified lock race — never an automatic retry.
+    const failure = await confirmationFailureResult(error, () => orderStockShortageResult(user, id));
+    if (failure) return failure;
     throw error;
   }
 

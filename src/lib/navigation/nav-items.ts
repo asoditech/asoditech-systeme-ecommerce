@@ -1,0 +1,153 @@
+/**
+ * The app's navigation — the ONE list of pages (sidebar, mobile drawer,
+ * global search « Pages », favorites). Plain module (no "use client") so
+ * server code (src/actions/search.ts) can filter it with the same rules.
+ */
+import { PERMISSION_CHANNEL_DOMAIN, type ChannelDomain, type Permission } from "@/lib/auth/permissions";
+import {
+  LayoutDashboard,
+  ShoppingCart,
+  PhoneCall,
+  Users,
+  Package,
+  Boxes,
+  Warehouse,
+  ArrowLeftRight,
+  ClipboardCheck,
+  Truck,
+  Radar,
+  Undo2,
+  LineChart,
+  FileBarChart,
+  Wallet,
+  Receipt,
+  HandCoins,
+  UserCog,
+  ScrollText,
+  Plug,
+  Bell,
+  Sparkles,
+  Settings,
+  BookOpen,
+  Store,
+  PackagePlus,
+  Building2,
+  ScanBarcode,
+  Tag,
+  PlusCircle,
+} from "lucide-react";
+
+export interface NavItem {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  /**
+   * Phase 2 (user-management UX v2): an array means "shown when the viewer
+   * holds AT LEAST ONE of these" — mirrors command-palette.tsx's QUICK_LINKS
+   * pattern, used for /operations/nouvelle (orders.create OR sales.create,
+   * since the page itself forks by channel access — never both required).
+   */
+  permission: Permission | Permission[];
+  /**
+   * Set for a page that aggregates one activity's data under a SHARED
+   * permission (analyses, finance): shown only when the viewer holds at
+   * least one permission of that activity. Effective permissions are already
+   * channel-scoped, so this is exactly "has a channel of that activity".
+   * Convenience only — the page itself re-checks server-side (docs/adr/0039).
+   */
+  domain?: ChannelDomain;
+}
+
+/** True when `permissions` covers a nav item's requirement, single or array (OR semantics). */
+export function hasNavPermission(permissions: ReadonlySet<Permission>, required: Permission | Permission[]): boolean {
+  return Array.isArray(required) ? required.some((p) => permissions.has(p)) : permissions.has(required);
+}
+
+/** True when the (effective, channel-scoped) permission set includes any permission of `domain`. */
+export function hasDomainAccess(permissions: ReadonlySet<Permission>, domain: ChannelDomain): boolean {
+  for (const p of permissions) if (PERMISSION_CHANNEL_DOMAIN[p] === domain) return true;
+  return false;
+}
+
+export interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+export const NAV_GROUPS: NavGroup[] = [
+  {
+    label: "Aperçu",
+    items: [
+      { href: "/tableau-de-bord", label: "Tableau de bord", icon: LayoutDashboard, permission: "dashboard.view" },
+      { href: "/documentation", label: "Documentation", icon: BookOpen, permission: "dashboard.view" },
+    ],
+  },
+  {
+    label: "Ventes",
+    items: [
+      // Phase 2 — discoverability for the already-working /operations/nouvelle
+      // fork (Online-only→/commandes/nouvelle, Offline-only→/ventes/nouvelle,
+      // both→chooser UI). The page itself owns that logic; this is only a link.
+      { href: "/operations/nouvelle", label: "Nouvelle opération", icon: PlusCircle, permission: ["orders.create", "sales.create"] },
+      { href: "/commandes", label: "Commandes", icon: ShoppingCart, permission: "orders.view" },
+      { href: "/ventes", label: "Ventes magasin", icon: Store, permission: "sales.view", domain: "OFFLINE" },
+      { href: "/confirmation", label: "Confirmation", icon: PhoneCall, permission: "orders.confirm" },
+      { href: "/clients", label: "Clients", icon: Users, permission: "customers.view" },
+      { href: "/livraison", label: "Livraison", icon: Truck, permission: "delivery.view" },
+      { href: "/livraison/suivi", label: "Suivi", icon: Radar, permission: "delivery.view" },
+      { href: "/livraison/retours", label: "Retours colis", icon: Undo2, permission: "orders.return" },
+    ],
+  },
+  {
+    label: "Catalogue",
+    items: [
+      { href: "/produits", label: "Produits", icon: Package, permission: "products.view" },
+      { href: "/catalogue/categories", label: "Catégories", icon: Tag, permission: "products.view" },
+      { href: "/stock", label: "Stock", icon: Boxes, permission: "inventory.view" },
+      { href: "/receptions", label: "Réceptions", icon: PackagePlus, permission: "purchases.view" },
+      { href: "/fournisseurs", label: "Fournisseurs", icon: Building2, permission: "suppliers.view" },
+      { href: "/tracabilite", label: "Traçabilité", icon: ScanBarcode, permission: "traceability.view" },
+      { href: "/transferts", label: "Transferts", icon: ArrowLeftRight, permission: "inventory.view" },
+      { href: "/inventaires", label: "Inventaires", icon: ClipboardCheck, permission: "inventory.view" },
+      { href: "/entrepots", label: "Emplacements", icon: Warehouse, permission: "inventory.view" },
+    ],
+  },
+  {
+    label: "Pilotage",
+    items: [
+      { href: "/rapports", label: "Rapports", icon: FileBarChart, permission: "analytics.view" },
+      // Online AND store analytics (docs/adr/0051) — like Rapports, no single
+      // channel domain; each /analyses section re-checks what it may read.
+      { href: "/analyses", label: "Analyses", icon: LineChart, permission: "analytics.view" },
+      { href: "/finance", label: "Finance", icon: Wallet, permission: "finance.view", domain: "ONLINE" },
+      { href: "/depenses", label: "Dépenses", icon: Receipt, permission: "finance.view" },
+      { href: "/commissions", label: "Commissions", icon: HandCoins, permission: "commissions.view" },
+      // Marketing is temporarily hidden from navigation (client feedback
+      // #9). The route, its `marketing.view` permission and the DB models
+      // are all intact — restore this entry to bring the section back.
+      // { href: "/marketing", label: "Marketing", icon: Megaphone, permission: "marketing.view" },
+    ],
+  },
+  {
+    label: "Système",
+    items: [
+      { href: "/integrations", label: "Intégrations", icon: Plug, permission: "integrations.view" },
+      { href: "/notifications", label: "Notifications", icon: Bell, permission: "dashboard.view" },
+      { href: "/assistant-ia", label: "Assistant IA", icon: Sparkles, permission: "ai.use" },
+      { href: "/utilisateurs", label: "Utilisateurs", icon: UserCog, permission: "users.view" },
+      { href: "/journal-audit", label: "Journal d'audit", icon: ScrollText, permission: "audit.view" },
+      { href: "/parametres", label: "Paramètres", icon: Settings, permission: "settings.view" },
+    ],
+  },
+];
+
+
+/** The groups and items this (effective, channel-scoped) permission set may see — the sidebar's own rule. */
+export function visibleNavGroups(permissions: ReadonlySet<Permission>): NavGroup[] {
+  return NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter(
+      (item) => hasNavPermission(permissions, item.permission) && (!item.domain || hasDomainAccess(permissions, item.domain))
+    ),
+  })).filter((group) => group.items.length > 0);
+}

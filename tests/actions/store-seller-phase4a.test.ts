@@ -476,15 +476,15 @@ describe("G5 — location-aware low-stock count", () => {
     expect(await getLowStockCountForViewer((await getCurrentUser())!)).toBe(0);
   });
 
-  it("OWNER / ADMIN → tenant-wide, identical to the pre-existing count", async () => {
+  it("OWNER / ADMIN → tenant-wide over ACTIVE locations (S6: same scope as « Stock physique »)", async () => {
     await seedLowStock();
     await loginAsTestUser({ role: "OWNER" });
     const tenantWide = await getLowStockCount();
-    expect(tenantWide).toBe(4);
+    expect(tenantWide).toBe(3); // A, B ×2 — the inactive location C is left out
     expect(await getLowStockCountForViewer((await getCurrentUser())!)).toBe(tenantWide);
     mockCookieStore.clear();
     await loginAsTestUser({ role: "ADMIN" });
-    expect(await getLowStockCountForViewer((await getCurrentUser())!)).toBe(4);
+    expect(await getLowStockCountForViewer((await getCurrentUser())!)).toBe(3);
   });
 
   it("tenant isolation: another tenant's low stock is never counted", async () => {
@@ -496,7 +496,7 @@ describe("G5 — location-aware low-stock count", () => {
     await prismaBase.inventoryItem.create({ data: { warehouseId: wB.id, productId: pB.id, quantityOnHand: 0, tenantId: TENANT_B } });
 
     await loginAsTestUser({ role: "ADMIN" });
-    expect(await getLowStockCountForViewer((await getCurrentUser())!)).toBe(4);
+    expect(await getLowStockCountForViewer((await getCurrentUser())!)).toBe(3);
     // a forged foreign warehouse id adds nothing either
     expect(await getLowStockCount({ warehouseIds: [wB.id] })).toBe(0);
   });
@@ -507,7 +507,7 @@ describe("G5 — location-aware low-stock count", () => {
     await grantLocationAccess(u.id, a.id);
     const viewer = (await getCurrentUser())!;
     expect((await getDashboardData("mois", undefined, { viewer })).lowStockCount).toBe(1);
-    // without a viewer the legacy tenant-wide behaviour is unchanged
-    expect((await getDashboardData("mois")).lowStockCount).toBe(4);
+    // without a viewer: tenant-wide, active locations only
+    expect((await getDashboardData("mois")).lowStockCount).toBe(3);
   });
 });

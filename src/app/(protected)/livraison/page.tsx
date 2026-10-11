@@ -15,6 +15,7 @@ import { RefreshStatusesButton } from "@/components/delivery/refresh-statuses-bu
 import { RetryShipmentButton } from "@/components/delivery/retry-shipment-button";
 import { BrandLogo, type BrandKey } from "@/components/brand-logo";
 import { AwaitingShipmentTable } from "@/components/delivery/awaiting-shipment-table";
+import { shipmentCodAmount } from "@/lib/shipment-confirmation";
 import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { DeliveryDocs } from "@/components/delivery/delivery-docs";
@@ -26,6 +27,8 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DataTablePagination } from "@/components/data-table-pagination";
+import { redirect } from "next/navigation";
+import { PAGE_SIZE_OPTIONS, buildListHref, clampPage, parsePage, parsePageSize } from "@/lib/pagination";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import {
@@ -39,14 +42,13 @@ import {
 import { deleteShippingProviderAction, deleteFailedShipmentAction } from "@/actions/delivery";
 import { formatCurrency, formatDateTime, displayOrderNumber, displayOrderRecipient, formatPercent } from "@/lib/format";
 import { SHIPMENT_STATUS_LABELS, SHIPPING_PROVIDER_TYPE_LABELS } from "@/lib/status-labels";
-import type { ShipmentStatusValue } from "@/lib/validation/delivery";
+import { canCancelCarrierShipment, type ShipmentStatusValue } from "@/lib/validation/delivery";
 import { resolveDateRangePreset, DATE_RANGE_PRESET_LABELS, type DateRangePreset } from "@/lib/date-range-presets";
 import { buildParcelContentsSummary } from "@/lib/delivery";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
+import { getBusinessTimeZone } from "@/lib/time/business-zone";
 
 export const metadata = { title: "Livraison — ASODITECH Gestion E-commerce" };
-
-const TERMINAL_SHIPMENT_STATUSES = ["LIVRE", "ANNULE", "RETOURNE"];
 
 /** Carrier connector key → its brand logo (public/brands/). */
 const PROVIDER_BRANDS: Partial<Record<string, BrandKey>> = {
@@ -64,19 +66,31 @@ export default async function LivraisonPage({
     dateFrom?: string;
     dateTo?: string;
     page?: string;
+    pageSize?: string;
     tab?: string;
     aexp?: string;
+    aexpPageSize?: string;
     aexpq?: string;
     sstatus?: string;
     sprovider?: string;
     sq?: string;
+    shist?: string;
   }>;
 }) {
   const user = await requirePermission("delivery.view");
   const canManage = userHasPermission(user, "delivery.manage");
   const params = await searchParams;
-  const page = Number(params.page) || 1;
-  const aexpPage = Number(params.aexp) || 1;
+  // Two independent tables, two cursors: « Expéditions » = page/pageSize,
+  // « À expédier » = aexp/aexpPageSize (10/50/100, default 10).
+  const page = parsePage(params.page);
+  const aexpPage = parsePage(params.aexp);
+  const shipmentsSize = parsePageSize(params.pageSize);
+  const awaitingSize = parsePageSize(params.aexpPageSize);
+  // The chosen sizes survive every filter change (the cursors reset to 1).
+  const sizeParams = {
+    pageSize: params.pageSize ? String(shipmentsSize) : undefined,
+    aexpPageSize: params.aexpPageSize ? String(awaitingSize) : undefined,
+  };
   const aexpSearch = params.aexpq?.trim() || undefined;
   const TABS = ["expeditions", "a-expedier", "prestataires", "documentation"];
   const activeTab = params.tab && TABS.includes(params.tab) ? params.tab : "expeditions";
@@ -86,10 +100,12 @@ export default async function LivraisonPage({
   // Filling a date input alone is enough — no need to also switch the
   // dropdown to "Période personnalisée".
   const preset: DateRangePreset = params.dateFrom || params.dateTo ? "custom" : rangeParam;
-  const { from: dateFrom, to: dateTo } = resolveDateRangePreset(preset, new Date(), {
-    from: params.dateFrom,
-    to: params.dateTo,
-  });
+  const { from: dateFrom, to: dateTo } = resolveDateRangePreset(
+    preset,
+    new Date(),
+    { from: params.dateFrom, to: params.dateTo },
+    await getBusinessTimeZone()
+  );
 
   const SHIPMENT_STATUSES = ["EN_ATTENTE", "EN_TRANSIT", "LIVRE", "ECHEC", "RETOURNE", "ANNULE"] as const;
   const shipmentStatusFilter = SHIPMENT_STATUSES.includes(params.sstatus as (typeof SHIPMENT_STATUSES)[number])
@@ -97,30 +113,62 @@ export default async function LivraisonPage({
     : undefined;
   const shipmentSearch = params.sq?.trim() || undefined;
   const shipmentFilterActive = Boolean(shipmentStatusFilter || params.sprovider || shipmentSearch);
+  // Default: one row per order (its current shipment); « shist=1 » adds the
+  // replaced attempts, labelled « Remplacée ».
+  const showHistory = params.shist === "1";
+  const historyToggleHref = (() => {
+    const sp = new URLSearchParams();
+    for (const [k, v] of Object.entries({ range: params.range, dateFrom: params.dateFrom, dateTo: params.dateTo, sstatus: params.sstatus, sprovider: params.sprovider, sq: params.sq, ...sizeParams })) {
+      if (v) sp.set(k, v);
+    }
+    if (!showHistory) sp.set("shist", "1");
+    const qs = sp.toString();
+    return qs ? `/livraison?${qs}` : "/livraison";
+  })();
 
+  // Read once: the shipment search reuses the tenant's order-number prefix.
+  const businessPromise = getReportBusinessInfo();
   const [stats, providers, shipmentsResult, awaitingResult, connectors, business] = await Promise.all([
     getDeliveryStats(dateFrom, dateTo),
     listShippingProviders(),
-    listShipments({
-      dateFrom,
-      dateTo,
-      page,
-      status: shipmentStatusFilter,
-      providerId: params.sprovider || undefined,
-      search: shipmentSearch,
-    }),
+    businessPromise.then((b) =>
+      listShipments({
+        dateFrom,
+        dateTo,
+        page,
+        pageSize: shipmentsSize,
+        status: shipmentStatusFilter,
+        providerId: params.sprovider || undefined,
+        search: shipmentSearch,
+        orderNumberPrefix: b.orderNumberPrefix,
+        history: showHistory,
+      })
+    ),
     canManage
-      ? listOrdersAwaitingShipment({ page: aexpPage, search: aexpSearch })
-      : Promise.resolve({ orders: [], total: 0, page: 1, pageSize: 30 }),
+      ? listOrdersAwaitingShipment({ page: aexpPage, search: aexpSearch, pageSize: awaitingSize })
+      : Promise.resolve({ orders: [], total: 0, page: 1, pageSize: awaitingSize }),
     listAvailableDeliveryConnectors(),
-    getReportBusinessInfo(),
+    businessPromise,
   ]);
-  const { shipments, total: shipmentsTotal, pageSize: shipmentsPageSize } = shipmentsResult;
+  const { shipments, total: shipmentsTotal, pageSize: shipmentsPageSize, previousAttemptsByOrder, supersededIds } = shipmentsResult;
+  const replaced = new Set(supersededIds);
   const {
     orders: awaitingShipment,
     total: awaitingTotal,
     pageSize: awaitingPageSize,
   } = awaitingResult;
+  // Either cursor past its last page (e.g. the last row of the last page was
+  // just shipped/deleted) → back to that table's last page, all else kept.
+  const shipmentsLast = clampPage(page, shipmentsTotal, shipmentsPageSize);
+  const awaitingLast = clampPage(aexpPage, awaitingTotal, awaitingPageSize);
+  if ((shipmentsTotal > 0 && page > shipmentsLast) || (awaitingTotal > 0 && aexpPage > awaitingLast)) {
+    redirect(
+      buildListHref("/livraison", params, {
+        ...(shipmentsTotal > 0 && page > shipmentsLast ? { page: shipmentsLast } : {}),
+        ...(awaitingTotal > 0 && aexpPage > awaitingLast ? { aexp: awaitingLast } : {}),
+      })
+    );
+  }
   const hasApiShipments = shipments.some((s) => s.externalId);
 
   // Deliberately narrowed before crossing into the Client Component below —
@@ -140,19 +188,34 @@ export default async function LivraisonPage({
       <PageHeader
         title="Livraison"
         description="Expéditions, prestataires et taux de livraison réussie."
-        actions={<LivraisonDateFilter initialRange={preset} initialFrom={params.dateFrom} initialTo={params.dateTo} />}
+        actions={<LivraisonDateFilter initialRange={preset} initialFrom={params.dateFrom} initialTo={params.dateTo} keepParams={sizeParams} />}
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Expéditions totales" value={String(stats.total)} icon={Truck} tone="primary" />
+        <KpiCard
+          label="Commandes expédiées"
+          value={String(stats.total)}
+          hint="Une par commande (sa dernière expédition) — les tentatives remplacées n'y sont pas recomptées."
+          icon={Truck}
+          tone="primary"
+          info="ordersShipped"
+        />
         <KpiCard label="Livrées" value={String(stats.delivered)} icon={PackageCheck} tone="success" />
-        <KpiCard label="Échecs" value={String(stats.failed)} icon={PackageX} tone="danger" />
+        <KpiCard
+          label="Échecs"
+          value={String(stats.failed)}
+          hint={stats.returned > 0 ? `+ ${stats.returned} retournée(s)` : undefined}
+          icon={PackageX}
+          tone="danger"
+        />
         <KpiCard
           label="Taux de livraison réussie"
           value={stats.successRate !== null ? formatPercent(stats.successRate) : null}
-          unavailableReason="Aucune expédition"
+          hint="Livrées ÷ (livrées + échecs + retours)"
+          unavailableReason="Aucune livraison terminée"
           icon={Percent}
           tone="info"
+          info="deliveryRate"
         />
       </div>
 
@@ -178,7 +241,8 @@ export default async function LivraisonPage({
             <div className="flex flex-wrap items-center gap-2">
               <FilterSearchInput
                 paramKey="sq"
-                placeholder="N° commande, client, n° de suivi…"
+                placeholder="N° commande, client, téléphone, n° de suivi…"
+                ariaLabel="Rechercher une expédition par n° de commande, client, téléphone ou n° de suivi"
                 defaultValue={params.sq}
                 className="w-64 max-w-full"
               />
@@ -200,6 +264,9 @@ export default async function LivraisonPage({
                   options={providers.map((p) => ({ value: p.id, label: p.name }))}
                 />
               )}
+              <Button variant="ghost" size="sm" render={<Link href={historyToggleHref} />} aria-pressed={showHistory}>
+                {showHistory ? "Masquer les tentatives remplacées" : "Afficher l'historique des tentatives"}
+              </Button>
             </div>
           )}
 
@@ -230,11 +297,25 @@ export default async function LivraisonPage({
                 </TableHeader>
                 <TableBody>
                   {shipments.map((s) => (
-                    <TableRow key={s.id}>
+                    <TableRow key={s.id} className={replaced.has(s.id) ? "opacity-60" : undefined}>
                       <TableCell className="font-medium">
                         <Link href={`/commandes/${s.orderId}`} className="hover:underline">
                           {displayOrderNumber(s.order, business.orderNumberPrefix)}
                         </Link>
+                        {replaced.has(s.id) ? (
+                          <Badge variant="outline" className="ml-1 text-[10px]" title="Une expédition plus récente a remplacé celle-ci pour la même commande.">
+                            Remplacée
+                          </Badge>
+                        ) : !showHistory && previousAttemptsByOrder[s.orderId] ? (
+                          <Link
+                            href={`/commandes/${s.orderId}`}
+                            className="mt-0.5 block text-[11px] font-normal text-muted-foreground hover:underline"
+                            title="Voir les expéditions précédentes de cette commande"
+                          >
+                            + {previousAttemptsByOrder[s.orderId]} tentative{previousAttemptsByOrder[s.orderId] > 1 ? "s" : ""} précédente
+                            {previousAttemptsByOrder[s.orderId] > 1 ? "s" : ""}
+                          </Link>
+                        ) : null}
                       </TableCell>
                       <TableCell>
                         <span className="block max-w-[8rem] truncate">{displayOrderRecipient(s.order)}</span>
@@ -274,7 +355,11 @@ export default async function LivraisonPage({
                       </TableCell>
                       <TableCell>
                         {canManage ? (
-                          <ShipmentStatusSelect shipmentId={s.id} currentStatus={s.status as ShipmentStatusValue} />
+                          <ShipmentStatusSelect
+                            shipmentId={s.id}
+                            currentStatus={s.status as ShipmentStatusValue}
+                            carrierParcel={s.provider.type === "API" && s.externalId !== null}
+                          />
                         ) : (
                           <StatusBadge status={s.status} labels={SHIPMENT_STATUS_LABELS} />
                         )}
@@ -298,10 +383,11 @@ export default async function LivraisonPage({
                           {s.externalId ? (
                             <ShipmentProviderControls
                               shipmentId={s.id}
-                              canCancel={
-                                !TERMINAL_SHIPMENT_STATUSES.includes(s.status) &&
+                              providerName={s.provider.name}
+                              canCancel={canCancelCarrierShipment(
+                                s.status as ShipmentStatusValue,
                                 providerCapabilities(s.provider).includes("CANCEL_SHIPMENT")
-                              }
+                              )}
                             />
                           ) : s.status === "ECHEC" ? (
                             <div className="space-y-1">
@@ -323,16 +409,18 @@ export default async function LivraisonPage({
                                 {s.provider.type === "API" && (
                                   <RetryShipmentButton orderId={s.orderId} providerId={s.provider.id} />
                                 )}
-                                <ConfirmActionButton
-                                  label="Supprimer"
-                                  variant="ghost"
-                                  title="Supprimer cette tentative d'expédition ?"
-                                  description="La ligne en échec est retirée. Aucun colis n'existe chez le transporteur. La commande reste inchangée et peut être ré-expédiée depuis « À expédier »."
-                                  hiddenFields={{ shipmentId: s.id }}
-                                  action={deleteFailedShipmentAction}
-                                  successMessage="Tentative supprimée."
-                                  destructive
-                                />
+                                {s.provider.type === "API" && (
+                                  <ConfirmActionButton
+                                    label="Supprimer"
+                                    variant="ghost"
+                                    title="Supprimer cette tentative d'expédition ?"
+                                    description="La ligne en échec est retirée. Aucun colis n'existe chez le transporteur. La commande reste inchangée et peut être ré-expédiée depuis « À expédier »."
+                                    hiddenFields={{ shipmentId: s.id }}
+                                    action={deleteFailedShipmentAction}
+                                    successMessage="Tentative supprimée."
+                                    destructive
+                                  />
+                                )}
                               </div>
                             </div>
                           ) : null}
@@ -347,6 +435,8 @@ export default async function LivraisonPage({
                 pageSize={shipmentsPageSize}
                 total={shipmentsTotal}
                 basePath="/livraison"
+                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                pageSizeParam="pageSize"
                 searchParams={{
                   range: params.range,
                   dateFrom: params.dateFrom,
@@ -354,6 +444,11 @@ export default async function LivraisonPage({
                   sstatus: params.sstatus,
                   sprovider: params.sprovider,
                   sq: params.sq,
+                  shist: params.shist,
+                  // The « À expédier » table's own cursor/search/size are kept.
+                  aexp: params.aexp,
+                  aexpq: params.aexpq,
+                  aexpPageSize: sizeParams.aexpPageSize,
                 }}
               />
             </div>
@@ -367,9 +462,12 @@ export default async function LivraisonPage({
             </p>
             <form className="flex flex-wrap gap-2" action="/livraison">
               <input type="hidden" name="tab" value="a-expedier" />
+              {sizeParams.aexpPageSize ? <input type="hidden" name="aexpPageSize" value={sizeParams.aexpPageSize} /> : null}
+              {sizeParams.pageSize ? <input type="hidden" name="pageSize" value={sizeParams.pageSize} /> : null}
               <Input
                 name="aexpq"
-                placeholder="N° de commande ou nom du client…"
+                placeholder="N° commande, client, téléphone, n° de suivi…"
+                aria-label="Rechercher une commande à expédier par n° de commande, client, téléphone ou n° de suivi"
                 defaultValue={params.aexpq}
                 className="max-w-64"
               />
@@ -377,7 +475,7 @@ export default async function LivraisonPage({
                 Rechercher
               </Button>
               {aexpSearch && (
-                <Button type="button" variant="ghost" render={<Link href="/livraison?tab=a-expedier" />}>
+                <Button type="button" variant="ghost" render={<Link href={buildListHref("/livraison", { tab: "a-expedier", ...sizeParams })} />}>
                   Réinitialiser
                 </Button>
               )}
@@ -406,6 +504,8 @@ export default async function LivraisonPage({
                     placedAt: o.placedAt.toISOString(),
                     parcelContents: buildParcelContentsSummary(o.items) || null,
                     failedReason: o.shipments[0]?.failedReason ?? null,
+                    codAmount: shipmentCodAmount(o.paymentMethod, o.total.toString()),
+                    lineCount: o.items.length,
                     address: {
                       shippingAddressLine1: o.shippingAddressLine1,
                       shippingAddressLine2: o.shippingAddressLine2,
@@ -424,7 +524,22 @@ export default async function LivraisonPage({
                   total={awaitingTotal}
                   basePath="/livraison"
                   pageParam="aexp"
-                  searchParams={{ tab: "a-expedier", aexpq: params.aexpq }}
+                  pageSizeOptions={PAGE_SIZE_OPTIONS}
+                  pageSizeParam="aexpPageSize"
+                  searchParams={{
+                    tab: "a-expedier",
+                    aexpq: params.aexpq,
+                    // The « Expéditions » table's filters/cursor/size are kept.
+                    range: params.range,
+                    dateFrom: params.dateFrom,
+                    dateTo: params.dateTo,
+                    sstatus: params.sstatus,
+                    sprovider: params.sprovider,
+                    sq: params.sq,
+                    shist: params.shist,
+                    page: params.page,
+                    pageSize: sizeParams.pageSize,
+                  }}
                 />
               </div>
             )}

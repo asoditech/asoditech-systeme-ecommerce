@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { UsageMetricCard } from "./usage-metric-card";
 import { UpgradeRequestButton } from "./upgrade-request-button";
+import { SettingInfo } from "./setting-info";
 import { formatCurrency, formatPeriodLabel } from "@/lib/format";
 import { FEATURE_KEY_LABELS, type PlanFeatures } from "@/lib/entitlements/catalogue";
 import type { TenantUsage } from "@/lib/entitlements/usage";
@@ -45,7 +46,10 @@ export function UsagePanel({
       <Card>
         <CardContent className="flex flex-col gap-4 pt-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm text-muted-foreground">Forfait actuel</p>
+            <p className="flex items-center gap-1 text-sm text-muted-foreground">
+              Forfait actuel
+              <SettingInfo setting="currentPlan" />
+            </p>
             <div className="mt-1 flex items-center gap-2">
               <h2 className="text-2xl font-semibold tracking-tight">{plan.name}</h2>
               {subscriptionStatus === "PAST_DUE" && <Badge variant="destructive">Paiement en retard</Badge>}
@@ -57,7 +61,10 @@ export function UsagePanel({
             </p>
           </div>
           <div className="text-left sm:text-right">
-            <p className="text-sm text-muted-foreground">Période en cours</p>
+            <p className="flex items-center gap-1 text-sm text-muted-foreground sm:justify-end">
+              Période en cours
+              <SettingInfo setting="usagePeriod" />
+            </p>
             <p className="font-medium capitalize">{formatPeriodLabel(usage.period)}</p>
           </div>
         </CardContent>
@@ -65,11 +72,14 @@ export function UsagePanel({
 
       {/* Utilisation */}
       <div>
-        <h3 className="mb-3 text-sm font-medium text-muted-foreground">Utilisation de votre abonnement</h3>
+        <h3 className="mb-3 flex items-center gap-1 text-sm font-medium text-muted-foreground">
+          Utilisation de votre abonnement
+          <SettingInfo setting="usageStatus" />
+        </h3>
         <div className="grid gap-4 sm:grid-cols-3">
-          <UsageMetricCard label="Commandes ce mois-ci" icon={ShoppingCart} used={usage.orders.used} limit={usage.orders.limit} status={usage.orders.status} unit="commandes" />
-          <UsageMetricCard label="Utilisateurs" icon={Users} used={usage.users.used} limit={usage.users.limit} status={usage.users.status} unit="utilisateurs" />
-          <UsageMetricCard label="Entrepôts" icon={Warehouse} used={usage.warehouses.used} limit={usage.warehouses.limit} status={usage.warehouses.status} unit="entrepôts" />
+          <UsageMetricCard label="Commandes ce mois-ci" icon={ShoppingCart} used={usage.orders.used} limit={usage.orders.limit} status={usage.orders.status} unit="commandes" info={<SettingInfo setting="usageOrders" />} />
+          <UsageMetricCard label="Utilisateurs" icon={Users} used={usage.users.used} limit={usage.users.limit} status={usage.users.status} unit="utilisateurs" info={<SettingInfo setting="usageUsers" />} />
+          <UsageMetricCard label="Entrepôts" icon={Warehouse} used={usage.warehouses.used} limit={usage.warehouses.limit} status={usage.warehouses.status} unit="entrepôts" info={<SettingInfo setting="usageWarehouses" />} />
         </div>
         {usage.storage === null && (
           <p className="mt-2 text-xs text-muted-foreground">Stockage de fichiers : non applicable sur ce forfait.</p>
@@ -81,7 +91,10 @@ export function UsagePanel({
         <Card className="border-primary/30 bg-primary/5">
           <CardContent className="flex flex-col gap-3 pt-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="font-medium">Votre activité augmente rapidement.</p>
+              <p className="flex items-center gap-1 font-medium">
+                Votre activité augmente rapidement.
+                <SettingInfo setting="upgradeRequest" label="Voir le forfait PRO" />
+              </p>
               <p className="mt-1 text-sm text-muted-foreground">
                 Vous avez utilisé {usage.orders.percent ?? 0}% de votre quota mensuel de commandes. Le forfait PRO vous
                 permet de gérer jusqu&apos;à environ 7 000 commandes par mois, avec 20 utilisateurs et 10 entrepôts.
@@ -94,7 +107,10 @@ export function UsagePanel({
 
       {/* Fonctionnalités incluses */}
       <div>
-        <h3 className="mb-3 text-sm font-medium text-muted-foreground">Fonctionnalités incluses</h3>
+        <h3 className="mb-3 flex items-center gap-1 text-sm font-medium text-muted-foreground">
+          Fonctionnalités incluses
+          <SettingInfo setting="planFeatures" />
+        </h3>
         <Card>
           <CardContent className="grid gap-2.5 pt-5 sm:grid-cols-2">
             {(Object.keys(FEATURE_KEY_LABELS) as (keyof typeof FEATURE_KEY_LABELS)[]).map((key) => {
@@ -117,8 +133,9 @@ export function UsagePanel({
       </div>
 
       {!isPro && canRequestUpgrade && mostSevere === "NORMAL" && (
-        <div>
+        <div className="flex items-center gap-1">
           <UpgradeRequestButton requestedPlanCode="PRO" label="Passer à PRO" />
+          <SettingInfo setting="upgradeRequest" />
         </div>
       )}
 

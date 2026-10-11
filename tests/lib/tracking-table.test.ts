@@ -79,6 +79,15 @@ describe("TrackingTable", () => {
     expect(none).toMatch(/<td[^>]*><span class="text-muted-foreground">—<\/span><\/td>/);
   });
 
+  // P1: the name cell is truncated for density — the full stored value stays readable on hover.
+  it("courier: the full name and phone are available as a title, even when the name is visually truncated", () => {
+    const longName = "Abderrahmane El Mansouri Benkirane";
+    const html = render([row({ courierName: longName, courierPhone: "0693993731" })]);
+    expect(html).toContain(`title="${longName} · 0693993731"`);
+    expect(html).toContain(`<span class="block max-w-[9rem] truncate">${longName}</span>`);
+    expect(render([row({ courierName: null, courierPhone: "0693993731" })])).toContain('title="0693993731"');
+  });
+
   it("« Produits » uses the shared ProductChips", () => {
     const html = render([
       row({
@@ -105,6 +114,12 @@ describe("TrackingTable", () => {
     expect(html).toContain(`title="En cours de livraison">${out}</span>`);
     expect(html).toContain("Pas de réponse + SMS");
     expect(html).toContain(">Livré</span>"); // no raw text → normalized label
+    // P1: « Livré » uses the semantic success (emerald) variant like everywhere else,
+    // not the in-transit tone.
+    const livre = html.match(/<span[^>]*class="([^"]*)"[^>]*>Livré<\/span>/);
+    expect(livre?.[1]).toContain("bg-emerald-500/10");
+    expect(livre?.[1]).not.toContain("bg-sky-500/10");
+    expect(livre?.[1]).not.toContain("bg-primary/12");
   });
 
   it("latest event: its own text only when it adds something; date always; sync error kept visible", () => {

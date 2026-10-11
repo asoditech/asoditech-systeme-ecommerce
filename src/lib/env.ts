@@ -64,6 +64,11 @@ const envSchema = z.object({
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d+$/, "WHATSAPP_PHONE_NUMBER_ID must be numeric").optional(),
   WHATSAPP_GRAPH_API_VERSION: z.string().regex(/^v\d+\.\d+$/, "WHATSAPP_GRAPH_API_VERSION must look like v23.0").default("v23.0"),
+  // Test mode: comma-separated phone numbers (digits, +, spaces allowed).
+  // When set, src/lib/whatsapp/client.ts sends ONLY to these numbers and
+  // refuses every other recipient without calling Meta. Unset = no
+  // restriction (current behaviour).
+  WHATSAPP_ALLOWED_RECIPIENTS: z.string().optional(),
 });
 
 function loadEnv() {

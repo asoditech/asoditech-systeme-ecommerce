@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { auditScopeWhere } from "@/lib/auth/audit-scope";
 import { actionsForCategory, type AuditCategory } from "@/lib/audit-labels";
 import type { CurrentUser } from "@/lib/auth/session";
+import { AUDIT_DETAIL_ACTIONS, auditEventDetails } from "@/lib/audit-details";
 
 export const AUDIT_JOURNAL_PAGE_SIZE = 30;
 
@@ -57,4 +58,21 @@ export async function listAuditJournal(
     prisma.auditEvent.count({ where }),
   ]);
   return { items, total, page, pageSize: AUDIT_JOURNAL_PAGE_SIZE };
+}
+
+/**
+ * The journal's per-action details (auditEventDetails) for one page of
+ * events. The journal itself never loads event payloads (they can hold
+ * historical product costs — access hardening Phase 4C), so only the events
+ * of the whitelisted actions are re-read here, and only to derive their
+ * whitelisted lines; nothing else of a payload leaves this function.
+ */
+export async function auditJournalDetails(items: { id: string; action: string }[]): Promise<Map<string, string[]>> {
+  const ids = items.filter((i) => AUDIT_DETAIL_ACTIONS.includes(i.action)).map((i) => i.id);
+  if (ids.length === 0) return new Map();
+  const rows = await prisma.auditEvent.findMany({
+    where: { id: { in: ids }, action: { in: [...AUDIT_DETAIL_ACTIONS] } },
+    select: { id: true, action: true, metadata: true, previousValue: true },
+  });
+  return new Map(rows.map((r) => [r.id, auditEventDetails(r)] as const).filter(([, d]) => d.length > 0));
 }

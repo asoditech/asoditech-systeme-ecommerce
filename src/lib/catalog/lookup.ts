@@ -3,6 +3,8 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
 import { variationIdsMatchingOptionValue } from "@/lib/catalog/variation-search";
+import { gtinEquivalents } from "@/lib/catalog/gs1";
+import { labelQrToken } from "@/lib/catalog/scan-input";
 
 /**
  * Sellable-unit lookup — docs/adr/0038-online-offline-unification.md.
@@ -181,13 +183,45 @@ export async function lookupSellableUnits(db: Db, rawQuery: string, opts: Lookup
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 50);
   const base = baseProductWhere(opts);
 
+  // 0. ASODITECH's own label QR (`https://…/scan/<token>`, labels.ts#scanUrl):
+  // what a 2D scanner or the camera reads when it catches the QR instead of
+  // the bars. Resolved by its token through the tenant-scoped client — a
+  // label of another tenant matches nothing. Exact, like a barcode: never
+  // falls through to a partial match.
+  const labelToken = labelQrToken(query);
+  if (labelToken) {
+    const [variation, owner] = await Promise.all([
+      db.productVariation.findFirst({ where: { qrToken: labelToken }, select: { id: true } }),
+      db.product.findFirst({ where: { qrToken: labelToken }, select: { id: true } }),
+    ]);
+    const productWhere: Prisma.ProductWhereInput | null = variation
+      ? { ...base, variations: { some: { id: variation.id } } }
+      : owner
+        ? { ...base, id: owner.id }
+        : null;
+    const product = productWhere ? await db.product.findFirst({ where: productWhere, include: productInclude }) : null;
+    return product ? unitsOf(product, "barcode", { onlyVariationId: variation?.id, onlyActive: opts.onlyActive }) : [];
+  }
+
   // 1. Barcode — exact. Resolves to exactly one unit by DB uniqueness.
   // `(tenantId, code)` is unique, and the tenant-scoped client adds the
   // tenant half, so a plain findFirst on `code` is an exact, unique lookup.
-  const barcode = await db.barcode.findFirst({
+  let barcode = await db.barcode.findFirst({
     where: { code: query },
     select: { productId: true, variationId: true },
   });
+  if (!barcode) {
+    // Same code spelled differently by the scanner: letter case (Caps Lock on
+    // a keyboard-wedge scanner) or the 12/13/14-digit forms of one GTIN
+    // (UPC-A vs EAN-13). Accepted only when it designates ONE stored barcode.
+    const equivalents = gtinEquivalents(query);
+    const alternatives = await db.barcode.findMany({
+      where: { OR: [{ code: { equals: query, mode: "insensitive" } }, ...(equivalents.length > 0 ? [{ code: { in: equivalents } }] : [])] },
+      select: { productId: true, variationId: true },
+      take: 2,
+    });
+    if (alternatives.length === 1) barcode = alternatives[0];
+  }
   if (barcode) {
     const productWhere: Prisma.ProductWhereInput = barcode.variationId
       ? { ...base, variations: { some: { id: barcode.variationId } } }
@@ -295,4 +329,40 @@ export function matchingVariationIds(
 ): Set<string> {
   const q = query.trim().toLowerCase();
   return new Set(variations.filter((v) => optionVariationIds.has(v.id) || (q !== "" && v.sku.toLowerCase().includes(q))).map((v) => v.id));
+}
+
+export type ExactMissReason = "unknown" | "inactive" | "not_on_channel";
+
+/**
+ * Why an EXACT code (label QR, barcode, SKU) found nothing on a filtered
+ * search (active only / one channel): the same lookup without those filters
+ * says whether the code is simply unknown, or designates an article this
+ * screen may not sell (archived / draft / disabled variation, or not enabled
+ * on the channel). Tenant-scoped like every lookup — another tenant's code
+ * is always "unknown". Never a partial match.
+ */
+export async function explainExactMiss(
+  db: Db,
+  rawQuery: string,
+  opts: { channelId?: string | null } = {}
+): Promise<{ reason: ExactMissReason; label?: string }> {
+  const query = rawQuery.trim();
+  if (!query) return { reason: "unknown" };
+  const units = (await lookupSellableUnits(db, query, { onlyActive: false, limit: 5 })).filter((u) => u.matchedBy !== "partial");
+  if (units.length === 0) return { reason: "unknown" };
+  const u = units[0];
+  const label = u.variantLabel ? `${u.name} — ${u.variantLabel}` : u.name;
+  if (u.status !== "ACTIF") return { reason: "inactive", label };
+  if (u.variationId) {
+    const v = await db.productVariation.findFirst({ where: { id: u.variationId }, select: { isActive: true } });
+    if (v && !v.isActive) return { reason: "inactive", label };
+  }
+  if (opts.channelId) {
+    const onChannel = await db.product.findFirst({
+      where: { id: u.productId, salesChannels: { some: { salesChannelId: opts.channelId } } },
+      select: { id: true },
+    });
+    if (!onChannel) return { reason: "not_on_channel", label };
+  }
+  return { reason: "unknown" };
 }

@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
+import { ReportMetricInfo } from "@/components/reports/report-metric-info";
+import { ReportDefinitions } from "@/components/reports/report-definitions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
-import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
+import { resolveTenantReportRange, rangeQuery } from "@/lib/reports/range";
 import { getReturnsReport, getOfflineReturnsReport } from "@/lib/queries/reports/returns";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { formatCurrency, formatDateTime, formatOrderNumber, displaySaleNumber } from "@/lib/format";
@@ -28,7 +30,7 @@ export default async function RapportRetoursPage({
   const canViewOffline = viewer.channels.offline;
   if (!canViewOnline && !canViewOffline) redirect("/acces-refuse");
   const params = await searchParams;
-  const resolved = resolveReportRange(params);
+  const resolved = await resolveTenantReportRange(params);
   const [report, offlineReport, business] = await Promise.all([
     canViewOnline ? getReturnsReport(resolved.range) : Promise.resolve(null),
     canViewOffline ? getOfflineReturnsReport(resolved.range, viewer) : Promise.resolve(null),
@@ -51,17 +53,17 @@ export default async function RapportRetoursPage({
         <>
           <h2 className="mb-2 mt-2 text-sm font-semibold text-muted-foreground">En ligne — commandes</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <KpiCard label="Retours enregistrés" value={String(t.returnEvents)} tone="primary"
+            <KpiCard label="Retours enregistrés" explain={<ReportMetricInfo metric="returnsEvents" label="Retours enregistrés" className="-ml-1" />} value={String(t.returnEvents)} tone="primary"
               hint={`${t.ordersReturned} commande${t.ordersReturned > 1 ? "s" : ""} concernée${t.ordersReturned > 1 ? "s" : ""}`} />
-            <KpiCard label="Unités revendables" value={String(t.unitsSellable)} tone="success"
+            <KpiCard label="Unités revendables" explain={<ReportMetricInfo metric="returnsSellable" label="Unités revendables" className="-ml-1" />} value={String(t.unitsSellable)} tone="success"
               hint="Recréditées au stock disponible" />
-            <KpiCard label="Unités endommagées" value={String(t.unitsDamaged)} tone="danger"
+            <KpiCard label="Unités endommagées" explain={<ReportMetricInfo metric="returnsDamaged" label="Unités endommagées" className="-ml-1" />} value={String(t.unitsDamaged)} tone="danger"
               hint="Jamais remises en vente" />
-            <KpiCard label="Total unités reçues" value={String(t.unitsTotal)} tone="info" />
+            <KpiCard label="Total unités reçues" explain={<ReportMetricInfo metric="returnsUnitsTotal" label="Total unités reçues" className="-ml-1" />} value={String(t.unitsTotal)} tone="info" />
           </div>
 
           <Card className="mt-6">
-            <CardHeader><CardTitle>Par produit</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="flex items-center gap-1.5">Par produit<ReportMetricInfo metric="returnsByProduct" /></CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <Table className="text-[13px]">
                 <TableHeader>
@@ -96,7 +98,7 @@ export default async function RapportRetoursPage({
           </Card>
 
           <Card className="mt-4">
-            <CardHeader><CardTitle>Par commande</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="flex items-center gap-1.5">Par commande<ReportMetricInfo metric="returnsByOrder" /></CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <Table className="text-[13px]">
                 <TableHeader>
@@ -144,17 +146,17 @@ export default async function RapportRetoursPage({
         <>
           <h2 className="mb-2 mt-8 text-sm font-semibold text-muted-foreground">Magasin — ventes</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <KpiCard label="Retours enregistrés" value={String(offlineReport.totals.returnEvents)} tone="primary"
+            <KpiCard label="Retours enregistrés" explain={<ReportMetricInfo metric="returnsEvents" label="Retours enregistrés" className="-ml-1" />} value={String(offlineReport.totals.returnEvents)} tone="primary"
               hint={`${offlineReport.totals.ordersReturned} vente${offlineReport.totals.ordersReturned > 1 ? "s" : ""} concernée${offlineReport.totals.ordersReturned > 1 ? "s" : ""}`} />
-            <KpiCard label="Unités revendables" value={String(offlineReport.totals.unitsSellable)} tone="success"
+            <KpiCard label="Unités revendables" explain={<ReportMetricInfo metric="returnsSellable" label="Unités revendables" className="-ml-1" />} value={String(offlineReport.totals.unitsSellable)} tone="success"
               hint="Recréditées au stock disponible" />
-            <KpiCard label="Unités endommagées" value={String(offlineReport.totals.unitsDamaged)} tone="danger"
+            <KpiCard label="Unités endommagées" explain={<ReportMetricInfo metric="returnsDamaged" label="Unités endommagées" className="-ml-1" />} value={String(offlineReport.totals.unitsDamaged)} tone="danger"
               hint="Jamais remises en vente" />
-            <KpiCard label="Total remboursé" value={formatCurrency(offlineReport.totals.refundTotal)} tone="warning" />
+            <KpiCard label="Total remboursé" explain={<ReportMetricInfo metric="returnsStoreRefund" label="Total remboursé" className="-ml-1" />} value={formatCurrency(offlineReport.totals.refundTotal)} tone="warning" />
           </div>
 
           <Card className="mt-6">
-            <CardHeader><CardTitle>Par produit</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="flex items-center gap-1.5">Par produit<ReportMetricInfo metric="returnsByProduct" /></CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <Table className="text-[13px]">
                 <TableHeader>
@@ -189,7 +191,7 @@ export default async function RapportRetoursPage({
           </Card>
 
           <Card className="mt-4">
-            <CardHeader><CardTitle>Par vente</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="flex items-center gap-1.5">Par vente<ReportMetricInfo metric="returnsBySale" /></CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <Table className="text-[13px]">
                 <TableHeader>
@@ -234,6 +236,7 @@ export default async function RapportRetoursPage({
           </Card>
         </>
       )}
+      <ReportDefinitions report="retours" />
     </div>
   );
 }

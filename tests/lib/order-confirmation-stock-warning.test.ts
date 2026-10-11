@@ -65,16 +65,22 @@ describe("flagInsufficientStock", () => {
     expect(flagged.has(order.id)).toBe(false);
   });
 
-  it("sums stock across every warehouse for the same product before comparing", async () => {
+  // P2 (deliberate change): the flag now uses ONLY the order's fulfilment
+  // warehouse — the same row the confirmation reserves on — never a sum over
+  // every warehouse (which used to hide a shortage the confirmation now refuses).
+  it("compares against the order's fulfilment warehouse only — never the sum of every warehouse", async () => {
     const w1 = await prisma.warehouse.create({ data: { name: "A", isDefault: true } });
     const w2 = await prisma.warehouse.create({ data: { name: "B" } });
     const product = await prisma.product.create({ data: { name: "P", sku: "SW-4", price: 100, status: "ACTIF" } });
     await prisma.inventoryItem.create({ data: { warehouseId: w1.id, productId: product.id, quantityOnHand: 2, quantityReserved: 0 } });
     await prisma.inventoryItem.create({ data: { warehouseId: w2.id, productId: product.id, quantityOnHand: 3, quantityReserved: 0 } });
-    const order = await seedOrder(product.id, 5); // exactly the combined total — not a shortfall
+    const order = await seedOrder(product.id, 5); // combined total is 5, but the default warehouse A holds only 2
 
-    const flagged = await flagInsufficientStock([order]);
-    expect(flagged.has(order.id)).toBe(false);
+    expect((await flagInsufficientStock([order])).has(order.id)).toBe(true);
+    // fulfilled from B (3 available) it is still short; with 3 it fits
+    const fromB = { ...order, fulfillmentWarehouseId: w2.id };
+    expect((await flagInsufficientStock([fromB])).has(order.id)).toBe(true);
+    expect((await flagInsufficientStock([{ ...fromB, items: [{ ...fromB.items[0]!, quantity: 3 }] }])).has(order.id)).toBe(false);
   });
 
   it("returns an empty set for an empty order list without querying anything unnecessary", async () => {

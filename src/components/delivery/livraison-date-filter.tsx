@@ -17,10 +17,14 @@ export function LivraisonDateFilter({
   initialRange,
   initialFrom,
   initialTo,
+  keepParams,
 }: {
   initialRange: DateRangePreset;
   initialFrom?: string;
   initialTo?: string;
+  /** Display preferences carried over a filter change (e.g. the tables'
+   * page sizes) — the page cursors themselves are reset to 1. */
+  keepParams?: Record<string, string | undefined>;
 }) {
   const router = useRouter();
   const [range, setRange] = useState<DateRangePreset>(initialRange);
@@ -29,8 +33,14 @@ export function LivraisonDateFilter({
 
   const isFiltered = range !== "all" || Boolean(from || to);
 
-  function apply() {
+  function baseParams() {
     const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(keepParams ?? {})) if (value) params.set(key, value);
+    return params;
+  }
+
+  function apply() {
+    const params = baseParams();
     if (range === "custom") {
       if (from) params.set("dateFrom", from);
       if (to) params.set("dateTo", to);
@@ -44,9 +54,11 @@ export function LivraisonDateFilter({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <label className="text-xs text-muted-foreground">Période</label>
+      <label className="text-xs text-muted-foreground" title="Date à laquelle l'expédition a été créée — pas la date de la commande.">
+        Expéditions créées
+      </label>
       <Select value={range} onValueChange={(v) => v && setRange(v as DateRangePreset)}>
-        <SelectTrigger className="w-52">
+        <SelectTrigger className="w-52" aria-label="Période de création des expéditions">
           <SelectValue>{(value: string) => DATE_RANGE_PRESET_LABELS[value as DateRangePreset] ?? value}</SelectValue>
         </SelectTrigger>
         <SelectContent>
@@ -61,9 +73,9 @@ export function LivraisonDateFilter({
       {range === "custom" && (
         <>
           <label className="ml-1 text-xs text-muted-foreground">Du</label>
-          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" />
+          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" aria-label="Expéditions créées à partir du" />
           <label className="ml-1 text-xs text-muted-foreground">Au</label>
-          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" />
+          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" aria-label="Expéditions créées jusqu'au" />
         </>
       )}
 
@@ -78,7 +90,8 @@ export function LivraisonDateFilter({
             setRange("all");
             setFrom("");
             setTo("");
-            router.push("/livraison");
+            const qs = baseParams().toString();
+            router.push(qs ? `/livraison?${qs}` : "/livraison");
           }}
         >
           Réinitialiser

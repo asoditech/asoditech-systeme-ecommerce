@@ -1,14 +1,49 @@
 import "server-only";
 
-import { prisma } from "@/lib/prisma";
+import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import type { OrderStatus, ShipmentCostSource } from "@prisma/client";
 import { canTransitionOrderStatus } from "@/lib/validation/order";
 import { canTransitionShipmentStatus, type ShipmentStatusValue } from "@/lib/validation/delivery";
 import { reconcileOrderCommission } from "@/lib/commissions";
+import { recordAuditEvent } from "@/lib/audit";
+import { fulfillStockForOrder, InsufficientStockError } from "@/lib/inventory";
+import { checkAndNotifyLowStock } from "@/lib/notifications";
+import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
+import { PACKING_NOT_VERIFIED_MESSAGE } from "@/lib/packing";
+import { isPackingRequired } from "@/lib/packing-settings";
+
+/** « Taux de livraison réussie » — the one definition lives in src/lib/metrics/formulas.ts. */
+export { deliveryOutcomeRate } from "@/lib/metrics/formulas";
 
 /** Thrown when a conditional status-transition update matches 0 rows. */
 export class ShipmentConflictError extends Error {}
+
+/**
+ * An order's stock is deducted ONCE (its first « Expédiée », docs/adr/0036)
+ * and its physical returns are capped at the ordered quantity — the model
+ * has no second fulfilment cycle. So once goods of an order came back (a
+ * recorded physical return, or a parcel the carrier marked « Retourné »
+ * whose reception would restock it), the SAME order can't ship again: the
+ * new parcel would leave without a deduction and the shelf would count
+ * units that are with the customer. A new order is the way to re-send.
+ */
+export const RESHIP_AFTER_RETURN_MESSAGE =
+  "Des articles de cette commande sont revenus (colis retourné ou retour enregistré) : un nouvel envoi doit faire l'objet d'une nouvelle commande.";
+
+export async function orderGoodsCameBack(db: typeof prisma | PrismaTransactionClient, orderId: string): Promise<boolean> {
+  const [returnedLines, returnedParcels] = await Promise.all([
+    db.orderReturnLine.count({
+      where: { orderReturn: { orderId }, OR: [{ quantitySellable: { gt: 0 } }, { quantityDamaged: { gt: 0 } }] },
+    }),
+    db.shipment.count({ where: { orderId, status: "RETOURNE" } }),
+  ]);
+  return returnedLines + returnedParcels > 0;
+}
+
+/** The order can't be advanced to « Expédiée » for this shipment (packing
+ * not verified, stock missing) — carries the French reason. */
+class ShipmentOrderBlockedError extends Error {}
 
 /**
  * Statuses in which a shipment's cost becomes financially final — see
@@ -130,8 +165,41 @@ export type ShipmentTransitionResult =
        * if it reached a financially final state — for the caller's audit
        * event. Absent when no finalisation happened. */
       finalizedCost?: { cost: number | null; costSource: ShipmentCostSource | null };
+      /** The order moved to LIVREE with this transition. */
+      orderDelivered?: boolean;
     }
-  | { ok: false; reason: "invalid_transition" | "conflict" };
+  | { ok: false; reason: "invalid_transition" | "conflict" }
+  /** A non-active row (ECHEC) would move again (« En transit » / « Livré »)
+   * while another parcel of the same order is still in flight: refused —
+   * at most one live parcel per order (see reserveShipmentSlot). */
+  | { ok: false; reason: "conflict_active"; message: string }
+  /** The parcel left / arrived but its order could not be marked
+   * « Expédiée » (packing not verified, stock missing): nothing changed. */
+  | { ok: false; reason: "order_blocked"; message: string };
+
+/** Shown when an old (failed) parcel is reported moving again while
+ * another parcel of the same order is still in flight. */
+export const ANOTHER_ACTIVE_SHIPMENT_MESSAGE =
+  "Une autre expédition est déjà en cours pour cette commande : ce colis ne peut pas repartir tant qu'elle n'est pas annulée ou terminée.";
+
+/** Postgres advisory-lock key serializing "is there an active parcel for
+ * this order?" checks — shared by reserveShipmentSlot and
+ * applyShipmentStatusTransition so both take the SAME lock. */
+export function shipmentSlotLockKey(orderId: string): string {
+  return `shipment-slot:${orderId}`;
+}
+
+/** Thrown inside the transition transaction — mapped to `conflict_active`. */
+class AnotherActiveShipmentError extends Error {}
+
+/**
+ * Order statuses from which a parcel reported « En transit » / « Livré »
+ * first advances the order to « Expédiée » (docs/adr/0006 audit addendum,
+ * 2026-10 revision). These are exactly the statuses a shipment may be
+ * created against (SHIPPABLE_ORDER_STATUSES): CONFIRMEE and ECHEC reach
+ * EXPEDIEE through EN_PREPARATION, as in the order state machine.
+ */
+const AUTO_SHIP_ORDER_STATUSES: OrderStatus[] = ["CONFIRMEE", "EN_PREPARATION", "ECHEC"];
 
 /**
  * The one place that transitions Shipment.status, shared by the manual
@@ -169,9 +237,52 @@ export async function applyShipmentStatusTransition(params: {
   if (params.newStatus === "LIVRE") timestamps.deliveredAt = new Date();
 
   let finalizedCost: { cost: number | null; costSource: ShipmentCostSource | null } | undefined;
+  const parcelMoving = params.newStatus === "EN_TRANSIT" || params.newStatus === "LIVRE";
+  const packingRequired = parcelMoving ? await isPackingRequired() : false;
+  const actor = params.updatedById
+    ? ({ actorType: "USER", actorUserId: params.updatedById } as const)
+    : ({ actorType: "SYSTEM", actorUserId: null } as const);
+  /** Set when this transition shipped the order's stock (post-commit effects). */
+  let stockRefs: { productIds: (string | null)[]; variationIds: (string | null)[] } | null = null;
+  let orderDelivered = false;
+
+  // A non-active row (ECHEC) moving again — « En transit », or « Livré »
+  // which also closes the order — must not coexist with another in-flight
+  // parcel of the same order (two live parcels for one order's goods).
+  const reactivating = parcelMoving && !ACTIVE_SHIPMENT_STATUSES.includes(params.currentStatus);
 
   try {
     await prisma.$transaction(async (tx) => {
+      // Same advisory lock as reserveShipmentSlot, taken BEFORE the order
+      // row lock: reserveShipmentSlot holds it while inserting a shipment
+      // (which takes a key-share lock on the order row), so the opposite
+      // order here could deadlock.
+      if (reactivating) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${shipmentSlotLockKey(params.orderId)}))`;
+        const otherActive = await tx.shipment.count({
+          where: { orderId: params.orderId, id: { not: params.shipmentId }, status: { in: ACTIVE_SHIPMENT_STATUSES } },
+        });
+        if (otherActive > 0) throw new AnotherActiveShipmentError();
+      }
+
+      // The order row is locked first (after the slot lock above, when
+      // taken) and its status re-read under the
+      // lock (never trusted from the caller's earlier read): this
+      // serializes against updateOrderStatusAction and a concurrent
+      // shipment transition, so « Expédiée »'s stock deduction runs at
+      // most once — the same shippedAt marker that action uses.
+      await tx.$queryRaw`SELECT id FROM "orders" WHERE id = ${params.orderId} FOR UPDATE`;
+      const order = await tx.order.findUniqueOrThrow({
+        where: { id: params.orderId },
+        select: {
+          status: true,
+          shippedAt: true,
+          packedAt: true,
+          items: { select: { productId: true, variationId: true, quantity: true } },
+        },
+      });
+      let orderStatus = order.status;
+
       // Cost finalisation (docs/adr/0032): the moment a shipment reaches a
       // financially final state, freeze its cost from the right source —
       // the carrier's own price for a delivery, the provider's own rule
@@ -224,30 +335,90 @@ export async function applyShipmentStatusTransition(params: {
         throw new ShipmentConflictError();
       }
 
+      // A parcel in transit or delivered means the goods physically left:
+      // an order still before « Expédiée » gets that transition now, with
+      // its one-time stock deduction (docs/adr/0036) — never a second time
+      // (shippedAt already set = already fulfilled, e.g. an ECHEC retry).
+      if (parcelMoving && AUTO_SHIP_ORDER_STATUSES.includes(orderStatus)) {
+        if (packingRequired && !order.packedAt) throw new ShipmentOrderBlockedError(PACKING_NOT_VERIFIED_MESSAGE);
+        if (order.shippedAt !== null && (await orderGoodsCameBack(tx, params.orderId))) {
+          throw new ShipmentOrderBlockedError(RESHIP_AFTER_RETURN_MESSAGE);
+        }
+        await tx.order.update({ where: { id: params.orderId }, data: { status: "EXPEDIEE", shippedAt: new Date() } });
+        if (order.shippedAt === null) {
+          try {
+            await fulfillStockForOrder(tx, params.orderId, order.items, params.updatedById);
+          } catch (error) {
+            if (error instanceof InsufficientStockError) throw new ShipmentOrderBlockedError(error.message);
+            throw error;
+          }
+          stockRefs = {
+            productIds: order.items.map((i) => i.productId),
+            variationIds: order.items.map((i) => i.variationId),
+          };
+        }
+        await recordAuditEvent(
+          {
+            ...actor,
+            action: "order.status_changed",
+            entityType: "Order",
+            entityId: params.orderId,
+            previousValue: { status: orderStatus },
+            newValue: { status: "EXPEDIEE" },
+            metadata: { via: "shipment", shipmentId: params.shipmentId, shipmentStatus: params.newStatus },
+          },
+          tx
+        );
+        orderStatus = "EXPEDIEE";
+      }
+
       // A shipment reaching LIVRE is the real-world signal that the order
       // was delivered — see docs/adr/0006-delivery-providers.md's audit
-      // addendum. Skipped silently (not an error) if the order isn't in
-      // EXPEDIEE for some reason; the shipment update is correct either way.
-      if (params.newStatus === "LIVRE" && canTransitionOrderStatus(params.currentOrderStatus, "LIVREE")) {
-        await tx.order.updateMany({
-          where: { id: params.orderId, status: params.currentOrderStatus },
-          data: { status: "LIVREE", deliveredAt: new Date() },
-        });
+      // addendum. Skipped (not an error) from a status that can't become
+      // LIVREE (RETOUR, ANNULEE…); the shipment update is correct either way.
+      if (params.newStatus === "LIVRE" && canTransitionOrderStatus(orderStatus, "LIVREE")) {
+        await tx.order.update({ where: { id: params.orderId }, data: { status: "LIVREE", deliveredAt: new Date() } });
+        await recordAuditEvent(
+          {
+            ...actor,
+            action: "order.status_changed",
+            entityType: "Order",
+            entityId: params.orderId,
+            previousValue: { status: orderStatus },
+            newValue: { status: "LIVREE" },
+            metadata: { via: "shipment", shipmentId: params.shipmentId, shipmentStatus: params.newStatus },
+          },
+          tx
+        );
+        orderDelivered = true;
       }
     });
   } catch (error) {
     if (error instanceof ShipmentConflictError) {
       return { ok: false, reason: "conflict" };
     }
+    if (error instanceof ShipmentOrderBlockedError) {
+      return { ok: false, reason: "order_blocked", message: error.message };
+    }
+    if (error instanceof AnotherActiveShipmentError) {
+      return { ok: false, reason: "conflict_active", message: ANOTHER_ACTIVE_SHIPMENT_MESSAGE };
+    }
     throw error;
+  }
+
+  // Same post-commit effects as updateOrderStatusAction's EXPEDIEE.
+  const shippedRefs = stockRefs as { productIds: (string | null)[]; variationIds: (string | null)[] } | null;
+  if (shippedRefs) {
+    await checkAndNotifyLowStock(shippedRefs);
+    await pushStockAfterLocalChange(shippedRefs);
   }
 
   // A carrier-confirmed delivery just moved the order to LIVREE (above) —
   // credit the confirmation-agent commission. Idempotent, best-effort,
   // outside the status transaction. See docs/adr/0022.
-  if (params.newStatus === "LIVRE") {
+  if (orderDelivered) {
     await reconcileOrderCommission(params.orderId, params.updatedById ?? null);
   }
 
-  return { ok: true, finalizedCost };
+  return { ok: true, finalizedCost, orderDelivered };
 }

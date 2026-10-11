@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
+import { ReportMetricInfo } from "@/components/reports/report-metric-info";
+import { ReportDefinitions } from "@/components/reports/report-definitions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
@@ -9,7 +11,8 @@ import { ClickableTableRow } from "@/components/clickable-table-row";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
 import { requirePermission } from "@/lib/auth/guards";
-import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
+import { requireChannelKind } from "@/lib/auth/channel-access";
+import { resolveTenantReportRange, rangeQuery } from "@/lib/reports/range";
 import { getProfitabilityReport, listOrdersForProduct, DELETED_PRODUCT_KEY } from "@/lib/queries/reports/profitability";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { formatCurrency, formatDate, formatOrderNumber } from "@/lib/format";
@@ -28,11 +31,15 @@ export default async function ProfitabiliteProduitDetailPage({
   params: Promise<{ productId: string }>;
   searchParams: Promise<{ period?: string; from?: string; to?: string; page?: string }>;
 }) {
-  await requirePermission("analytics.view");
+  const viewer = await requirePermission("analytics.view");
+  // Same guards as /rapports/profitabilite: margins and costs are finance
+  // data (docs/adr/0050), order-derived data needs an ONLINE channel (docs/adr/0039).
+  await requirePermission("finance.view");
+  requireChannelKind(viewer, "ONLINE");
   const { productId: rawId } = await params;
   const productId = rawId === DELETED_PRODUCT_KEY ? null : rawId;
   const sp = await searchParams;
-  const resolved = resolveReportRange(sp);
+  const resolved = await resolveTenantReportRange(sp);
   const page = Math.max(1, Number(sp.page) || 1);
 
   const report = await getProfitabilityReport(resolved.range);
@@ -58,15 +65,18 @@ export default async function ProfitabiliteProduitDetailPage({
       <ReportFilterBar basePath={`/rapports/profitabilite/produit/${rawId}`} resolved={resolved} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <KpiCard label="Quantité vendue" value={String(row.unitsSold)} tone="primary" />
-        <KpiCard label="CA" value={formatCurrency(row.revenue)} tone="primary" />
-        <KpiCard label="Coût produits" value={row.productCost !== null ? formatCurrency(row.productCost) : null}
+        <KpiCard label="Quantité vendue" explain={<ReportMetricInfo metric="profitUnitsSold" label="Quantité vendue" className="-ml-1" />} value={String(row.unitsSold)} tone="primary" />
+        <KpiCard label="CA produits" explain={<ReportMetricInfo metric="profitRevenue" label="CA produits" className="-ml-1" />} value={formatCurrency(row.revenue)} tone="primary" />
+        <KpiCard label="Coût produits" explain={<ReportMetricInfo metric="profitProductCost" label="Coût produits" className="-ml-1" />} value={row.productCost !== null ? formatCurrency(row.productCost) : null}
           unavailableReason="Coût manquant" tone="warning" />
-        <KpiCard label="Frais de livraison" value={formatCurrency(row.deliveryCost)} tone="info" />
-        <KpiCard label="Profit" value={row.profit !== null ? formatCurrency(row.profit) : null}
+        <KpiCard label="Frais de livraison" explain={<ReportMetricInfo metric="profitDeliveryCost" label="Frais de livraison" className="-ml-1" />} value={formatCurrency(row.deliveryCost)} tone="info" />
+        <KpiCard label="Profit" explain={<ReportMetricInfo metric="profitProfit" label="Profit" className="-ml-1" />} value={row.profit !== null ? formatCurrency(row.profit) : null}
           unavailableReason="Non calculable" tone="success" />
       </div>
-      <p className="mt-2 text-sm text-muted-foreground">Marge : {pct(row.marginPct)}</p>
+      <p className="mt-2 flex items-center gap-1 text-sm text-muted-foreground">
+        Marge : {pct(row.marginPct)}
+        <ReportMetricInfo metric="profitMargin" label="Marge" />
+      </p>
 
       {!row.dataComplete && (
         <p className="mt-3 text-sm text-amber-600 dark:text-amber-400">
@@ -75,7 +85,7 @@ export default async function ProfitabiliteProduitDetailPage({
       )}
 
       <Card className="mt-6">
-        <CardHeader><CardTitle>Commandes contributrices</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-1.5">Commandes contributrices<ReportMetricInfo metric="profitDetailOrders" /></CardTitle></CardHeader>
         <CardContent className="overflow-x-auto p-0">
           <Table className="text-[13px]">
             <TableHeader>
@@ -127,6 +137,7 @@ export default async function ProfitabiliteProduitDetailPage({
           ← Retour au rapport de profitabilité
         </Link>
       </p>
+      <ReportDefinitions report="profitabilite-produit" />
     </div>
   );
 }

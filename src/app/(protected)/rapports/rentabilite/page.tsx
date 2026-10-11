@@ -1,12 +1,14 @@
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
+import { ReportMetricInfo } from "@/components/reports/report-metric-info";
+import { ReportDefinitions } from "@/components/reports/report-definitions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
 import { requireChannelKind } from "@/lib/auth/channel-access";
-import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
+import { resolveTenantReportRange, rangeQuery } from "@/lib/reports/range";
 import { getProductProfitReport, type ProfitRow } from "@/lib/queries/reports/product-profit";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { formatCurrency } from "@/lib/format";
@@ -66,7 +68,7 @@ export default async function RapportRentabilitePage({
   // Order-derived data: needs an ONLINE channel (docs/adr/0039).
   requireChannelKind(viewer, "ONLINE");
   const params = await searchParams;
-  const resolved = resolveReportRange(params);
+  const resolved = await resolveTenantReportRange(params);
   const [report, business] = await Promise.all([
     getProductProfitReport(resolved.range),
     getReportBusinessInfo(),
@@ -85,12 +87,12 @@ export default async function RapportRentabilitePage({
       <ReportFilterBar basePath="/rapports/rentabilite" resolved={resolved} exportHref={exportHref} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Chiffre d'affaires" value={formatCurrency(totals.revenue)} tone="primary" />
-        <KpiCard label="Coût des marchandises" value={totals.cogs !== null ? formatCurrency(totals.cogs) : null}
+        <KpiCard label="CA produits" explain={<ReportMetricInfo metric="marginProductRevenue" label="CA produits" className="-ml-1" />} value={formatCurrency(totals.revenue)} tone="primary" hint="Hors frais de livraison" />
+        <KpiCard label="Coût des marchandises" explain={<ReportMetricInfo metric="marginCogs" label="Coût des marchandises" className="-ml-1" />} value={totals.cogs !== null ? formatCurrency(totals.cogs) : null}
           unavailableReason="Coût manquant" tone="warning" />
-        <KpiCard label="Marge brute" value={totals.grossProfit !== null ? formatCurrency(totals.grossProfit) : null}
+        <KpiCard label="Marge brute" explain={<ReportMetricInfo metric="marginGross" label="Marge brute" className="-ml-1" />} value={totals.grossProfit !== null ? formatCurrency(totals.grossProfit) : null}
           unavailableReason="Non calculable" tone="success" />
-        <KpiCard label="Marge %" value={pct(totals.marginPct)} tone="success" />
+        <KpiCard label="Marge %" explain={<ReportMetricInfo metric="marginPct" label="Marge %" className="-ml-1" />} value={pct(totals.marginPct)} tone="success" />
       </div>
 
       {!totals.cogsComplete && (
@@ -101,14 +103,15 @@ export default async function RapportRentabilitePage({
       )}
 
       <Card className="mt-6">
-        <CardHeader><CardTitle>Par catégorie</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-1.5">Par catégorie<ReportMetricInfo metric="marginByCategory" /></CardTitle></CardHeader>
         <CardContent className="overflow-x-auto"><ProfitTable rows={report.categories} label="Catégorie" /></CardContent>
       </Card>
 
       <Card className="mt-4">
-        <CardHeader><CardTitle>Par produit</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-1.5">Par produit<ReportMetricInfo metric="marginByProduct" /></CardTitle></CardHeader>
         <CardContent className="overflow-x-auto"><ProfitTable rows={report.products} label="Produit" /></CardContent>
       </Card>
+      <ReportDefinitions report="rentabilite" />
     </div>
   );
 }

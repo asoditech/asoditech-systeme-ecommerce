@@ -4,6 +4,7 @@ import { AnalyticsNav } from "@/components/analytics/analytics-nav";
 import { AnalyticsFilterBar, type AnalyticsFilterControl } from "@/components/analytics/analytics-filter-bar";
 import { ProductPerformanceTable, CategoryPerformanceTable } from "@/components/analytics/product-performance-table";
 import { MetricDefinitions } from "@/components/analytics/metric-definitions";
+import { AnalyticsMetricInfo } from "@/components/analytics/analytics-metric-info";
 import { analyticsContext } from "@/lib/analytics/context";
 import { analyticsQuery, SOURCE_KEYS, sortRows, sourceLabel } from "@/lib/analytics/filters";
 import { getOnlineProductPerformance, getStoreProductPerformance, type ProductRow } from "@/lib/analytics/queries/products";
@@ -72,7 +73,10 @@ export default async function ProductAnalyticsPage({ searchParams }: { searchPar
           {online.categories.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>En ligne — par catégorie</CardTitle>
+                <CardTitle className="flex items-center gap-1.5">
+                En ligne — par catégorie
+                <AnalyticsMetricInfo metric="productCategories" />
+              </CardTitle>
               </CardHeader>
               <CardContent>
                 <CategoryPerformanceTable rows={online.categories} parentLabel="Commandes" />
@@ -102,7 +106,10 @@ export default async function ProductAnalyticsPage({ searchParams }: { searchPar
           {store.categories.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Magasin — par catégorie</CardTitle>
+                <CardTitle className="flex items-center gap-1.5">
+                Magasin — par catégorie
+                <AnalyticsMetricInfo metric="productCategories" />
+              </CardTitle>
               </CardHeader>
               <CardContent>
                 <CategoryPerformanceTable rows={store.categories} parentLabel="Ventes" />

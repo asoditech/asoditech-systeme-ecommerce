@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -16,7 +16,19 @@ import {
   type OrderShippingAddress,
 } from "@/components/delivery/create-shipment-dialog";
 import { CityMappingDialog } from "@/components/delivery/city-mapping-dialog";
+import { ShipmentConfirmationSummary } from "@/components/delivery/shipment-confirmation-summary";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { formatCurrency, formatDate, displayOrderNumber } from "@/lib/format";
+import { bulkShipmentSummary, createConfirmGate } from "@/lib/shipment-confirmation";
 
 export interface AwaitingOrderRow {
   id: string;
@@ -33,6 +45,10 @@ export interface AwaitingOrderRow {
    * any — shown inline so the operator can fix + retry. */
   failedReason?: string | null;
   address: OrderShippingAddress;
+  /** COD the carrier will collect (`shipmentCodAmount`); null = prepaid. */
+  codAmount: number | null;
+  /** Number of order lines — shown in the creation confirmation. */
+  lineCount: number;
 }
 
 const BATCH = 6;
@@ -58,6 +74,28 @@ export function AwaitingShipmentTable({
     apiProviders.length === 1 ? apiProviders[0].id : undefined
   );
   const [running, setRunning] = useState(false);
+  // Bulk creation is confirmed first (carrier, count, total COD): the
+  // selection is staged here and only sent to the server — the carrier —
+  // on « Confirmer », at most once per confirmation.
+  const gate = useRef(createConfirmGate<{ orderIds: string[]; providerId: string }>()).current;
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const bulkProviderName = apiProviders.find((p) => p.id === bulkProviderId)?.name ?? "";
+  const selectedOrders = orders.filter((o) => selected.has(o.id));
+  const bulkSummary = bulkShipmentSummary(bulkProviderName, selectedOrders);
+
+  function requestBulk() {
+    if (running || selected.size === 0 || !bulkProviderId) return;
+    gate.request({ orderIds: [...selected], providerId: bulkProviderId });
+    setConfirmOpen(true);
+  }
+  function confirmBulk() {
+    setConfirmOpen(false);
+    gate.confirm((payload) => void runBulk(payload.orderIds, payload.providerId));
+  }
+  function cancelBulk() {
+    gate.cancel();
+    setConfirmOpen(false);
+  }
 
   const allSelected = orders.length > 0 && selected.size === orders.length;
 
@@ -73,16 +111,16 @@ export function AwaitingShipmentTable({
     setSelected(allSelected ? new Set() : new Set(orders.map((o) => o.id)));
   }
 
-  async function runBulk() {
-    if (running || selected.size === 0 || !bulkProviderId) return;
+  async function runBulk(orderIds: string[], providerId: string) {
+    if (running || orderIds.length === 0 || !providerId) return;
     setRunning(true);
-    let remaining = [...selected];
+    let remaining = [...orderIds];
     let created = 0;
     const failures: string[] = [];
     try {
       while (remaining.length > 0) {
         const fd = new FormData();
-        fd.set("providerId", bulkProviderId);
+        fd.set("providerId", providerId);
         fd.set("orderIds", remaining.join(","));
         const res = await createShipmentsBulkAction(fd);
         if (!res.ok) {
@@ -137,7 +175,7 @@ export function AwaitingShipmentTable({
             type="button"
             size="sm"
             disabled={running || selected.size === 0 || !bulkProviderId}
-            onClick={runBulk}
+            onClick={requestBulk}
           >
             <Truck className={running ? "size-4 animate-pulse" : "size-4"} />
             {running ? "Création…" : `Créer les expéditions (${selected.size})`}
@@ -153,6 +191,38 @@ export function AwaitingShipmentTable({
           <span className="text-xs text-muted-foreground">
             Traité par lots de {BATCH}. Une ville non reconnue ? Ajoutez une correspondance ci-dessus.
           </span>
+          <AlertDialog open={confirmOpen} onOpenChange={(next) => (next ? setConfirmOpen(true) : cancelBulk())}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  Créer {bulkSummary.shipmentCount} colis chez {bulkSummary.providerName || "le transporteur"} ?
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  Chaque colis sera enregistré immédiatement chez le transporteur. Vérifiez la sélection avant de confirmer.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <ShipmentConfirmationSummary
+                rows={[
+                  { label: "Transporteur", value: bulkSummary.providerName || "—" },
+                  { label: "Expéditions", value: String(bulkSummary.shipmentCount) },
+                  ...(bulkSummary.codTotals.length === 0
+                    ? [{ label: "Total à encaisser (COD)", money: { amount: null, currency: "MAD" } }]
+                    : bulkSummary.codTotals.map((t) => ({
+                        label: `Total à encaisser (COD${bulkSummary.codTotals.length > 1 ? `, ${t.currency}` : ""})`,
+                        money: { amount: t.amount, currency: t.currency },
+                      }))),
+                ]}
+              />
+              <AlertDialogFooter>
+                <AlertDialogCancel type="button" onClick={cancelBulk}>
+                  Annuler
+                </AlertDialogCancel>
+                <AlertDialogAction type="button" disabled={running} onClick={confirmBulk}>
+                  Confirmer la création
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       )}
 
@@ -202,6 +272,13 @@ export function AwaitingShipmentTable({
                     providers={providers}
                     defaultNotes={o.parcelContents || undefined}
                     orderAddress={o.address}
+                    orderSummary={{
+                      recipientName: o.customerName,
+                      city: o.address.shippingCity,
+                      codAmount: o.codAmount,
+                      currency: o.currency,
+                      lineCount: o.lineCount,
+                    }}
                   />
                 </TableCell>
               </TableRow>

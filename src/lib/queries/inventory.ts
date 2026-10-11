@@ -30,7 +30,15 @@ const INVENTORY_EXPORT_INCLUDE = {
 } satisfies Prisma.InventoryItemInclude;
 
 /**
- * Low-stock is `quantityOnHand <= Product.lowStockThreshold`, but the
+ * « Stock faible » — the ONE definition (S6, same as the low-stock alerts in
+ * src/lib/notifications.ts): AVAILABLE stock (physique − réservé) at or
+ * below the product's threshold. Rows of an inactive location are left out
+ * of the dashboard count, like « Stock physique ».
+ */
+const LOW_STOCK_CONDITION = Prisma.sql`(ii."quantityOnHand" - ii."quantityReserved") <= COALESCE(p."lowStockThreshold", vp."lowStockThreshold", 0)`;
+
+/**
+ * Low-stock compares available stock with `Product.lowStockThreshold`, but the
  * threshold lives on `Product` and the quantity on `InventoryItem` (and a
  * variation row's threshold comes from its parent product), so this is a
  * column-to-column comparison across a join that Prisma's query builder
@@ -50,8 +58,9 @@ function lowStockFrom(tenantId: string, q?: string): Prisma.Sql {
     LEFT JOIN products p ON p.id = ii."productId"
     LEFT JOIN product_variations pv ON pv.id = ii."variationId"
     LEFT JOIN products vp ON vp.id = pv."productId"
+    JOIN warehouses w ON w.id = ii."warehouseId" AND w."isActive"
     WHERE ii."tenantId" = ${tenantId}
-    AND ii."quantityOnHand" <= COALESCE(p."lowStockThreshold", vp."lowStockThreshold", 0)
+    AND ${LOW_STOCK_CONDITION}
     ${qFilter}
   `;
 }
@@ -64,7 +73,9 @@ export type InventorySort = "recent" | "quantity-asc" | "quantity-desc";
  * a plain on-hand-vs-reserved comparison the query builder also can't do
  * column-to-column) — one raw WHERE clause shared by "low" and "out",
  * with the warehouse/category/search filters layered on top of whichever
- * stock-status condition applies.
+ * stock-status condition applies. Rows of an INACTIVE location are left out
+ * (same join as `lowStockFrom`), so the « Stock faible » list agrees with the
+ * dashboard count and the low-stock alerts.
  */
 function stockStatusFrom(
   tenantId: string,
@@ -91,12 +102,13 @@ function stockStatusFrom(
   const statusFilter =
     status === "out"
       ? Prisma.sql`AND (ii."quantityOnHand" - ii."quantityReserved") <= 0`
-      : Prisma.sql`AND ii."quantityOnHand" <= COALESCE(p."lowStockThreshold", vp."lowStockThreshold", 0)`;
+      : Prisma.sql`AND ${LOW_STOCK_CONDITION}`;
   return Prisma.sql`
     FROM inventory_items ii
     LEFT JOIN products p ON p.id = ii."productId"
     LEFT JOIN product_variations pv ON pv.id = ii."variationId"
     LEFT JOIN products vp ON vp.id = pv."productId"
+    JOIN warehouses w ON w.id = ii."warehouseId" AND w."isActive"
     WHERE ii."tenantId" = ${tenantId}
     ${statusFilter}
     ${qFilter}
@@ -156,13 +168,16 @@ export async function listInventoryItems(params: {
   stockStatus?: StockStatusFilter;
   sort?: InventorySort;
   page?: number;
+  /** Rows per page — the /stock page passes the URL's 10/50/100; other callers keep the 25 default. */
+  pageSize?: number;
   /** Location Access Management v1 (docs/adr/0037) — the caller's own
    * authorized warehouse set, or `null`/omitted for an unrestricted (OWNER/
    * ADMIN) viewer. Always resolved by the CALLER (page/route), never here. */
   allowedWarehouseIds?: string[] | null;
 }) {
   const page = Math.max(1, params.page ?? 1);
-  const skip = (page - 1) * PAGE_SIZE;
+  const pageSize = params.pageSize && params.pageSize > 0 ? params.pageSize : PAGE_SIZE;
+  const skip = (page - 1) * pageSize;
   const q = params.q?.trim() || undefined;
   const stockStatus = params.stockStatus ?? "all";
 
@@ -183,7 +198,9 @@ export async function listInventoryItems(params: {
     // that GUC set first, on top of the app-level predicate above.
     const [idRows, countRows] = (await runRawBatchWithTenant(tenantId, [
       prisma.$queryRaw<{ id: string }[]>(
-        Prisma.sql`SELECT ii.id ${from} ${sortClause(params.sort)} OFFSET ${skip} LIMIT ${PAGE_SIZE}`
+        // `ii.id` = unique tie-break only (equal quantities/dates), so offset
+        // pages never repeat or skip a row.
+        Prisma.sql`SELECT ii.id ${from} ${sortClause(params.sort)}, ii.id ASC OFFSET ${skip} LIMIT ${pageSize}`
       ),
       prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`SELECT COUNT(*)::bigint AS count ${from}`),
     ])) as [{ id: string }[], { count: bigint }[]];
@@ -193,7 +210,7 @@ export async function listInventoryItems(params: {
     // The raw query already carries the intended order — re-sort the
     // hydrated rows to match it rather than trusting findMany's own order.
     const items = ids.map((id) => byId.get(id)).filter((r): r is (typeof rows)[number] => Boolean(r));
-    return { items, total: Number(countRows[0]?.count ?? 0), page, pageSize: PAGE_SIZE };
+    return { items, total: Number(countRows[0]?.count ?? 0), page, pageSize };
   }
 
   const where = buildInventoryWhere({
@@ -214,14 +231,15 @@ export async function listInventoryItems(params: {
     prisma.inventoryItem.findMany({
       where,
       include: INVENTORY_INCLUDE,
-      orderBy,
+      // `id`: unique tie-break only — same business order, stable pages.
+      orderBy: [orderBy, { id: "asc" }],
       skip,
-      take: PAGE_SIZE,
+      take: pageSize,
     }),
     prisma.inventoryItem.count({ where }),
   ]);
 
-  return { items, total, page, pageSize: PAGE_SIZE };
+  return { items, total, page, pageSize };
 }
 
 export type StockStatusLabel = "Rupture" | "Stock faible" | "OK";
@@ -299,7 +317,7 @@ export async function listInventoryItemsForExport(params: {
     const category = i.product?.category ?? i.variation?.product.category ?? null;
     const threshold = product?.lowStockThreshold ?? 0;
     const available = availableStock(i);
-    const status: StockStatusLabel = available <= 0 ? "Rupture" : i.quantityOnHand <= threshold ? "Stock faible" : "OK";
+    const status: StockStatusLabel = available <= 0 ? "Rupture" : available <= threshold ? "Stock faible" : "OK";
     const barcode = i.product?.barcodes[0]?.code ?? i.variation?.barcodes[0]?.code ?? null;
     return {
       productName: product?.name ?? "—",

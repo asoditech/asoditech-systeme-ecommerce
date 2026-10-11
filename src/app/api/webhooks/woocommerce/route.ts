@@ -143,7 +143,10 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
   const alreadySeen = await prisma.webhookEvent.findUnique({
     where: { integrationId_deliveryId: { integrationId: integration.id, deliveryId } },
   });
-  if (alreadySeen) {
+  // A delivery that FAILED here is processed again when the provider retries
+  // it (a retry may reuse the same delivery id); only a delivery already
+  // handled (or deliberately ignored) is short-circuited.
+  if (alreadySeen && alreadySeen.status !== "ECHEC") {
     return new Response(null, { status: 200 });
   }
 
@@ -253,7 +256,10 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
     }
 
     try {
-      await importProduct(loaded.client, parsed.data, { type: "INTEGRATION" });
+      const imported = await importProduct(loaded.client, parsed.data, { type: "INTEGRATION" });
+      // importProduct reports a failed import instead of throwing — it must
+      // be recorded as ECHEC and answered 500 so WooCommerce retries it.
+      if (imported.outcome === "failed") throw new Error("product import failed");
       revalidateAfterImport("product");
       await recordWebhookEventOnce({
         integrationId: integration.id,

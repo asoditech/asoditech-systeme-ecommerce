@@ -157,6 +157,16 @@ describe("own number, verification, opt-in", () => {
     expect((await requestMyWhatsAppVerificationAction()).ok).toBe(false);
     expect((await own(me.id)).whatsappVerifiedAt).toBeNull();
   });
+
+  it("WhatsApp test mode refusing the number says so (nothing was sent)", async () => {
+    await enableTenant();
+    const me = await loginAsTestUser({ role: "WAREHOUSE" });
+    await saveMyWhatsAppNumberAction(fd({ phone: "0612345678" }));
+    meta.sendTemplateMessage.mockResolvedValueOnce({ ok: false, error: "recipient_not_allowed" } as never);
+    const result = await requestMyWhatsAppVerificationAction();
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining("Mode test WhatsApp") });
+    expect((await own(me.id)).whatsappVerifiedAt).toBeNull();
+  });
 });
 
 describe("tenant switch (« Activer » / « Tester la connexion »)", () => {
@@ -180,5 +190,19 @@ describe("tenant switch (« Activer » / « Tester la connexion »)", () => {
   it("requires integrations.manage", async () => {
     await loginAsTestUser({ role: "WAREHOUSE" });
     await expect(testWhatsAppConnectionAction()).rejects.toThrow(/Non autorisé/);
+  });
+
+  it("no central sender configured: fails without an ERREUR row and without an integration-error alert", async () => {
+    await loginAsTestUser({ role: "OWNER" });
+    await createTestUser({ role: "ADMIN" });
+    meta.configured = false;
+    try {
+      expect((await testWhatsAppConnectionAction()).ok).toBe(false);
+      expect(meta.checkWhatsAppSender).not.toHaveBeenCalled();
+      expect(await prisma.integration.findFirst({ where: { provider: "WHATSAPP" } })).toBeNull();
+      expect(await prismaBase.notification.count({ where: { type: "ERREUR_INTEGRATION" } })).toBe(0);
+    } finally {
+      meta.configured = true;
+    }
   });
 });

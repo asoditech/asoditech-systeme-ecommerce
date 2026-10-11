@@ -225,13 +225,13 @@ describe("AI low-stock tool location scope", () => {
     expect(await ask()).toMatch(/^Aucun produit/);
   });
 
-  it("OWNER and ADMIN stay tenant-wide", async () => {
+  it("OWNER and ADMIN stay tenant-wide (active locations — S6: same scope as « Stock physique »)", async () => {
     await seedLowStock();
     await loginAsTestUser({ role: "OWNER" });
-    expect(await ask()).toMatch(/^4 produit\(s\)/);
+    expect(await ask()).toMatch(/^3 produit\(s\)/); // A, B ×2 — the inactive location C is left out
     mockCookieStore.clear();
     await loginAsTestUser({ role: "ADMIN" });
-    expect(await ask()).toMatch(/^4 produit\(s\)/);
+    expect(await ask()).toMatch(/^3 produit\(s\)/);
   });
 
   it("the tool's permission is unchanged: no inventory.view → refused", async () => {

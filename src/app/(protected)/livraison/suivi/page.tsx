@@ -4,6 +4,8 @@ import { EmptyState } from "@/components/empty-state";
 import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { DataTablePagination } from "@/components/data-table-pagination";
+import { redirect } from "next/navigation";
+import { PAGE_SIZE_OPTIONS, outOfRangeHref, parsePage, parsePageSize } from "@/lib/pagination";
 import { Button } from "@/components/ui/button";
 import { TrackingTable } from "@/components/tracking/tracking-table";
 import { RefreshTrackingButton } from "@/components/tracking/refresh-tracking-button";
@@ -26,6 +28,7 @@ import {
   DATE_RANGE_PRESET_LABELS,
   type DateRangePreset,
 } from "@/lib/date-range-presets";
+import { getBusinessTimeZone } from "@/lib/time/business-zone";
 
 export const metadata = { title: "Suivi des expéditions — ASODITECH Gestion E-commerce" };
 
@@ -46,6 +49,7 @@ export default async function SuiviPage({
     costSource?: string;
     range?: string;
     page?: string;
+    pageSize?: string;
   }>;
 }) {
   const user = await requirePermission("delivery.view");
@@ -53,7 +57,9 @@ export default async function SuiviPage({
   const includeCosts = userHasPermission(user, "finance.view");
   const params = await searchParams;
 
-  const page = Number(params.page) || 1;
+  const page = parsePage(params.page);
+  // « Afficher 10 | 50 | 100 par page » — only an allowed size is accepted (default 10).
+  const pageSize = parsePageSize(params.pageSize);
   const statusFilter = NORMALIZED_STATUSES.includes(params.status as NormalizedTrackingStatus)
     ? (params.status as NormalizedTrackingStatus)
     : undefined;
@@ -64,7 +70,7 @@ export default async function SuiviPage({
     params.range && RANGE_PRESETS.includes(params.range as DateRangePreset)
       ? (params.range as DateRangePreset)
       : "all";
-  const { from: dateFrom, to: dateTo } = resolveDateRangePreset(rangePreset, new Date(), {});
+  const { from: dateFrom, to: dateTo } = resolveDateRangePreset(rangePreset, new Date(), {}, await getBusinessTimeZone());
 
   const filters: TrackingFilters = {
     q: params.q?.trim() || undefined,
@@ -75,17 +81,21 @@ export default async function SuiviPage({
     dateFrom,
     dateTo,
     page,
+    pageSize,
   };
   const filterActive = Boolean(
     filters.q || filters.status || filters.providerId || filters.city || filters.costSource || params.range
   );
 
-  const [{ rows, total, pageSize }, stats, cities, providers] = await Promise.all([
+  const [{ rows, total }, stats, cities, providers] = await Promise.all([
     listTrackingRows(filters, { includeCosts }),
     getTrackingStats(),
     listTrackingCities(),
     listTrackingProviders(),
   ]);
+  // Past the last page (e.g. the filtered set shrank) → the last page, same filters.
+  const outOfRange = outOfRangeHref({ page, total, pageSize, basePath: "/livraison/suivi", searchParams: params });
+  if (outOfRange) redirect(outOfRange);
 
   const inTransit =
     stats.byNormalized.PICKED_UP +
@@ -94,13 +104,15 @@ export default async function SuiviPage({
     stats.byNormalized.OUT_FOR_DELIVERY;
   const pending = stats.byNormalized.CREATED + stats.byNormalized.PICKUP_PENDING;
 
+  // Status shortcuts are filters: page 1, but the chosen page size is kept.
+  const sizeSuffix = params.pageSize ? `&pageSize=${pageSize}` : "";
   // Compact statistics strip — same counts and links as before, one short row.
   const statItems = [
     { label: "Suivies", value: stats.total, icon: Truck, href: null, tone: "text-primary" },
-    { label: "En transit", value: inTransit, icon: Radar, href: "/livraison/suivi?status=IN_TRANSIT", tone: "text-sky-600 dark:text-sky-400" },
-    { label: "En attente de ramassage", value: pending, icon: PackageCheck, href: "/livraison/suivi?status=CREATED", tone: "text-amber-600 dark:text-amber-400" },
-    { label: "Livrées", value: stats.byNormalized.DELIVERED, icon: PackageCheck, href: "/livraison/suivi?status=DELIVERED", tone: "text-emerald-600 dark:text-emerald-400" },
-    { label: "Retours / échecs", value: stats.byNormalized.RETURNED + stats.byNormalized.FAILED, icon: PackageX, href: "/livraison/suivi?status=RETURNED", tone: "text-destructive" },
+    { label: "En transit", value: inTransit, icon: Radar, href: `/livraison/suivi?status=IN_TRANSIT${sizeSuffix}`, tone: "text-sky-600 dark:text-sky-400" },
+    { label: "En attente de ramassage", value: pending, icon: PackageCheck, href: `/livraison/suivi?status=CREATED${sizeSuffix}`, tone: "text-amber-600 dark:text-amber-400" },
+    { label: "Livrées", value: stats.byNormalized.DELIVERED, icon: PackageCheck, href: `/livraison/suivi?status=DELIVERED${sizeSuffix}`, tone: "text-emerald-600 dark:text-emerald-400" },
+    { label: "Retours / échecs", value: stats.byNormalized.RETURNED + stats.byNormalized.FAILED, icon: PackageX, href: `/livraison/suivi?status=RETURNED${sizeSuffix}`, tone: "text-destructive" },
   ];
 
   return (
@@ -142,6 +154,7 @@ export default async function SuiviPage({
         <FilterSearchInput
           paramKey="q"
           placeholder="N° commande, client, téléphone, n° de suivi, ville…"
+          ariaLabel="Rechercher un colis par n° de commande, client, téléphone, n° de suivi ou ville"
           defaultValue={params.q}
           className="w-72 max-w-full"
         />
@@ -186,13 +199,13 @@ export default async function SuiviPage({
         <FilterSelect
           paramKey="range"
           value={params.range}
-          allLabel="Toute la période"
-          ariaLabel="Filtrer par période"
+          allLabel="Créées : toute la période"
+          ariaLabel="Filtrer par date de création de l'expédition"
           className="w-44"
           options={RANGE_PRESETS.map((p) => ({ value: p, label: DATE_RANGE_PRESET_LABELS[p] }))}
         />
         {filterActive && (
-          <Button variant="ghost" size="sm" render={<Link href="/livraison/suivi" />}>
+          <Button variant="ghost" size="sm" render={<Link href={params.pageSize ? `/livraison/suivi?pageSize=${pageSize}` : "/livraison/suivi"} />}>
             Réinitialiser
           </Button>
         )}
@@ -217,6 +230,7 @@ export default async function SuiviPage({
             pageSize={pageSize}
             total={total}
             basePath="/livraison/suivi"
+            pageSizeOptions={PAGE_SIZE_OPTIONS}
             searchParams={{
               q: params.q,
               status: params.status,

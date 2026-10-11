@@ -23,6 +23,8 @@ import {
   type ExpenseSort,
 } from "@/lib/queries/finance";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { getBusinessTimeZone } from "@/lib/time/business-zone";
+import { zonedMonthDayKeys } from "@/lib/time/zoned";
 
 export const metadata = { title: "Dépenses & charges — ASODITECH Gestion E-commerce" };
 
@@ -56,17 +58,17 @@ export default async function DepensesPage({
   const canManage = userHasPermission(user, "finance.manage");
   const page = Number(params.page) || 1;
 
+  const timeZone = await getBusinessTimeZone();
   const periodEntry = PERIODS.find((p) => p.key === params.periode) ?? PERIODS[0];
-  const period: PeriodRange = periodEntry.range();
+  const period: PeriodRange = periodEntry.range(timeZone);
 
   const categories = await listExpenseCategories();
   const categoryFilter = categories.find((c) => c.id === params.categoryId)?.id;
   const sortFilter: ExpenseSort =
     params.sort === "amount-desc" || params.sort === "amount-asc" ? params.sort : "recent";
 
-  const now = new Date();
-  const monthFrom = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString("en-CA");
-  const monthTo = new Date(now.getFullYear(), now.getMonth() + 1, 0).toLocaleDateString("en-CA");
+  // The current month of the business time zone (not the server's).
+  const { first: monthFrom, last: monthTo } = zonedMonthDayKeys(new Date(), timeZone);
   const isThisMonth = params.dateFrom === monthFrom && params.dateTo === monthTo;
 
   const [summary, { expenses, total, pageSize }] = await Promise.all([

@@ -5,6 +5,7 @@ import { AnalyticsNav } from "@/components/analytics/analytics-nav";
 import { AnalyticsFilterBar, type AnalyticsFilterControl } from "@/components/analytics/analytics-filter-bar";
 import { BreakdownBarList } from "@/components/analytics/breakdown-bar-list";
 import { MetricDefinitions } from "@/components/analytics/metric-definitions";
+import { AnalyticsMetricInfo } from "@/components/analytics/analytics-metric-info";
 import { analyticsContext } from "@/lib/analytics/context";
 import { analyticsQuery, SOURCE_KEYS, sourceLabel } from "@/lib/analytics/filters";
 import { formatPct } from "@/lib/analytics/format";
@@ -53,7 +54,10 @@ export default async function SourcesAnalyticsPage({ searchParams }: { searchPar
         <div className="grid gap-6 lg:grid-cols-3">
           <Card>
             <CardHeader>
-              <CardTitle>Commandes en ligne par origine</CardTitle>
+              <CardTitle className="flex items-center gap-1.5">
+                Commandes en ligne par origine
+                <AnalyticsMetricInfo metric="ordersByOrigin" />
+              </CardTitle>
             </CardHeader>
             <CardContent>
               {funnel.length === 0 ? (
@@ -67,7 +71,10 @@ export default async function SourcesAnalyticsPage({ searchParams }: { searchPar
           </Card>
           <Card className="lg:col-span-2">
             <CardHeader>
-              <CardTitle>Entonnoir par origine (commandes passées sur la période)</CardTitle>
+              <CardTitle className="flex items-center gap-1.5">
+                Entonnoir par origine (commandes passées sur la période)
+                <AnalyticsMetricInfo metric="originFunnel" />
+              </CardTitle>
             </CardHeader>
             <CardContent>
               {funnel.length === 0 ? (
@@ -85,7 +92,7 @@ export default async function SourcesAnalyticsPage({ searchParams }: { searchPar
                       <TableHead className="text-right">Annulées</TableHead>
                       <TableHead className="text-right">Taux conf.</TableHead>
                       <TableHead className="text-right">Taux livr.</TableHead>
-                      <TableHead className="text-right">CA commandé</TableHead>
+                      <TableHead className="text-right">Chiffre d&apos;affaires</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -114,12 +121,15 @@ export default async function SourcesAnalyticsPage({ searchParams }: { searchPar
       {store && (
         <div className="grid gap-6 lg:grid-cols-2">
           {[
-            { title: "Ventes en magasin par magasin", rows: store.report.byChannel.map((c) => ({ key: c.channelId, name: c.name, gross: c.gross, count: c.count })) },
-            { title: "Ventes en magasin par emplacement", rows: store.report.byLocation.map((w) => ({ key: w.warehouseId, name: w.name, gross: w.gross, count: w.count })) },
+            { title: "Ventes en magasin par magasin", metric: "storeByStore" as const, rows: store.report.byChannel.map((c) => ({ key: c.channelId, name: c.name, gross: c.gross, count: c.count })) },
+            { title: "Ventes en magasin par emplacement", metric: "storeByLocation" as const, rows: store.report.byLocation.map((w) => ({ key: w.warehouseId, name: w.name, gross: w.gross, count: w.count })) },
           ].map((block) => (
             <Card key={block.title}>
               <CardHeader>
-                <CardTitle>{block.title}</CardTitle>
+                <CardTitle className="flex items-center gap-1.5">
+                  {block.title}
+                  <AnalyticsMetricInfo metric={block.metric} />
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 {block.rows.length === 0 ? (

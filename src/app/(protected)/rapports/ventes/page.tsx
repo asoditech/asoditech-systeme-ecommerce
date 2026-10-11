@@ -2,6 +2,8 @@ import { PageHeader } from "@/components/page-header";
 import { CommandHero } from "@/components/dashboard/command-hero";
 import { ShoppingCart, ShoppingBag, Package, PhoneCall, Truck, RotateCcw } from "lucide-react";
 import { KpiCard } from "@/components/kpi-card";
+import { ReportMetricInfo } from "@/components/reports/report-metric-info";
+import { ReportDefinitions } from "@/components/reports/report-definitions";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,7 +12,7 @@ import { ReportDocumentHeader } from "@/components/reports/report-document-heade
 import { SalesChart } from "@/components/reports/sales-chart";
 import { requirePermission } from "@/lib/auth/guards";
 import { requireChannelKind } from "@/lib/auth/channel-access";
-import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
+import { resolveTenantReportRange, rangeQuery } from "@/lib/reports/range";
 import { trendFromDelta } from "@/lib/reports/trend";
 import { getSalesReport } from "@/lib/queries/reports/sales";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
@@ -30,7 +32,7 @@ export default async function RapportVentesPage({
   // Order-derived data: needs an ONLINE channel (docs/adr/0039).
   requireChannelKind(viewer, "ONLINE");
   const params = await searchParams;
-  const resolved = resolveReportRange(params);
+  const resolved = await resolveTenantReportRange(params);
   const [report, business] = await Promise.all([
     getSalesReport(resolved.range, resolved.previous),
     getReportBusinessInfo(),
@@ -56,32 +58,34 @@ export default async function RapportVentesPage({
       <CommandHero
         eyebrow={`Résultat · ${resolved.label}`}
         label="Chiffre d'affaires"
+        explain={<ReportMetricInfo metric="salesRevenue" label="Chiffre d'affaires" />}
         value={formatCurrency(current.revenue)}
         hint={`${formatCurrency(previous.revenue)} sur la période précédente`}
         trend={trendFromDelta(deltas.revenue)}
         sparklineData={report.series.map((d) => ({ value: d.revenue }))}
         stats={[
-          { label: "Commandes", value: String(current.ordersCount), icon: ShoppingCart },
+          { label: "Commandes", value: String(current.ordersCount), icon: ShoppingCart, explain: <ReportMetricInfo metric="salesOrders" label="Commandes" /> },
           {
             label: "Panier moyen",
             value: current.avgOrderValue !== null ? formatCurrency(current.avgOrderValue) : "—",
             icon: ShoppingBag,
+            explain: <ReportMetricInfo metric="salesAverageBasket" label="Panier moyen" />,
           },
-          { label: "Articles vendus", value: String(current.unitsSold), icon: Package },
+          { label: "Articles vendus", value: String(current.unitsSold), icon: Package, explain: <ReportMetricInfo metric="salesUnits" label="Articles vendus" /> },
         ]}
       />
 
       <div className="mt-4 grid gap-4 sm:grid-cols-3">
-        <KpiCard label="Taux de confirmation" value={pct(current.confirmationRate)} tone="info" icon={PhoneCall}
+        <KpiCard label="Taux de confirmation" explain={<ReportMetricInfo metric="salesConfirmationRate" label="Taux de confirmation" className="-ml-1" />} value={pct(current.confirmationRate)} tone="info" icon={PhoneCall}
           trend={trendFromDelta(deltas.confirmationRate)} />
-        <KpiCard label="Taux de livraison" value={pct(current.deliveryRate)} tone="success" icon={Truck}
+        <KpiCard label="Taux de livraison réussie" explain={<ReportMetricInfo metric="salesDeliveryRate" label="Taux de livraison réussie" className="-ml-1" />} value={pct(current.deliveryRate)} tone="success" icon={Truck}
           trend={trendFromDelta(deltas.deliveryRate)} />
-        <KpiCard label="Taux de retour" value={pct(current.returnRate)} tone="warning" icon={RotateCcw}
+        <KpiCard label="Taux de retour" explain={<ReportMetricInfo metric="salesReturnRate" label="Taux de retour" className="-ml-1" />} value={pct(current.returnRate)} tone="warning" icon={RotateCcw} hint="Retournées ÷ commandes expédiées ayant un résultat"
           trend={trendFromDelta(deltas.returnRate, { invert: true })} />
       </div>
 
       <Card className="mt-6">
-        <CardHeader><CardTitle>{seriesTitle}</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-1.5">{seriesTitle}<ReportMetricInfo metric="salesSeries" /></CardTitle></CardHeader>
         <CardContent>
           <SalesChart data={report.series} />
         </CardContent>
@@ -89,7 +93,7 @@ export default async function RapportVentesPage({
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>Par statut de commande</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-1.5">Par statut de commande<ReportMetricInfo metric="salesByStatus" /></CardTitle></CardHeader>
           <CardContent>
             <Table className="text-[13px]">
               <TableHeader><TableRow><TableHead>Statut</TableHead><TableHead className="text-right">Commandes</TableHead><TableHead className="text-right">Montant</TableHead></TableRow></TableHeader>
@@ -107,7 +111,7 @@ export default async function RapportVentesPage({
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>Par canal</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-1.5">Par canal<ReportMetricInfo metric="salesByChannel" /></CardTitle></CardHeader>
           <CardContent>
             <Table className="text-[13px]">
               <TableHeader><TableRow><TableHead>Canal</TableHead><TableHead className="text-right">Commandes</TableHead><TableHead className="text-right">CA</TableHead></TableRow></TableHeader>
@@ -126,7 +130,7 @@ export default async function RapportVentesPage({
       </div>
 
       <Card className="mt-4">
-        <CardHeader><CardTitle>Détail chiffré</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-1.5">Détail chiffré<ReportMetricInfo metric="salesDetail" /></CardTitle></CardHeader>
         <CardContent className="overflow-x-auto">
           <Table className="text-[13px]">
             <TableHeader><TableRow><TableHead>{report.granularity === "month" ? "Mois" : "Jour"}</TableHead><TableHead className="text-right">Commandes</TableHead><TableHead className="text-right">CA</TableHead></TableRow></TableHeader>
@@ -142,6 +146,7 @@ export default async function RapportVentesPage({
           </Table>
         </CardContent>
       </Card>
+      <ReportDefinitions report="ventes" />
     </div>
   );
 }

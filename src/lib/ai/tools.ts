@@ -10,6 +10,7 @@ import { hasPermission, type Permission } from "@/lib/auth/permissions";
 import { formatCurrency, displayOrderNumber } from "@/lib/format";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import type { UserRole } from "@prisma/client";
+import { getBusinessTimeZone } from "@/lib/time/business-zone";
 
 /**
  * Controlled tool layer for the AI assistant — see docs/adr/0009-ai-tool-layer.md.
@@ -60,12 +61,12 @@ export type AiToolViewer = { id: string; role: UserRole };
 // ---------------------------------------------------------------------------
 
 export async function toolRevenueThisMonth(): Promise<string> {
-  const summary = await getFinanceSummary(currentMonthRange());
+  const summary = await getFinanceSummary(currentMonthRange(await getBusinessTimeZone()));
   return `Le chiffre d'affaires de ce mois-ci est de ${formatCurrency(summary.revenue)}, sur ${summary.ordersCount} commande(s).`;
 }
 
 export async function toolRevenueToday(): Promise<string> {
-  const summary = await getFinanceSummary(currentDayRange());
+  const summary = await getFinanceSummary(currentDayRange(await getBusinessTimeZone()));
   if (summary.ordersCount === 0) {
     return "Aucune commande comptabilisée aujourd'hui pour le moment.";
   }
@@ -73,7 +74,7 @@ export async function toolRevenueToday(): Promise<string> {
 }
 
 export async function toolNetProfitThisMonth(): Promise<string> {
-  const summary = await getFinanceSummary(currentMonthRange());
+  const summary = await getFinanceSummary(currentMonthRange(await getBusinessTimeZone()));
   if (summary.netProfit === null) {
     return "Le bénéfice net n'est pas calculable ce mois-ci : le coût d'achat de certains produits vendus n'est pas renseigné.";
   }
@@ -81,7 +82,7 @@ export async function toolNetProfitThisMonth(): Promise<string> {
 }
 
 export async function toolNetProfitToday(): Promise<string> {
-  const summary = await getFinanceSummary(currentDayRange());
+  const summary = await getFinanceSummary(currentDayRange(await getBusinessTimeZone()));
   if (summary.ordersCount === 0) {
     return "Aucune commande comptabilisée aujourd'hui — le bénéfice du jour est de 0 pour le moment.";
   }
@@ -92,7 +93,7 @@ export async function toolNetProfitToday(): Promise<string> {
 }
 
 export async function toolMarketingSpendThisMonth(): Promise<string> {
-  const { from, to } = currentMonthRange();
+  const { from, to } = currentMonthRange(await getBusinessTimeZone());
   const category = await prisma.expenseCategory.findFirst({ where: { name: "Publicité" } });
   if (!category) {
     return "Aucune catégorie de dépense « Publicité » n'est configurée.";
@@ -109,7 +110,7 @@ export async function toolMarketingSpendThisMonth(): Promise<string> {
 }
 
 export async function toolDeliverySpendThisMonth(): Promise<string> {
-  const summary = await getFinanceSummary(currentMonthRange());
+  const summary = await getFinanceSummary(currentMonthRange(await getBusinessTimeZone()));
   const amount = summary.deliveryCostTotal;
   if (!amount) {
     return "Aucun coût de livraison n'a encore été enregistré ce mois-ci.";
@@ -122,7 +123,7 @@ export async function toolDeliverySpendThisMonth(): Promise<string> {
 // ---------------------------------------------------------------------------
 
 export async function toolOrdersToday(): Promise<string> {
-  const { from, to } = currentDayRange();
+  const { from, to } = currentDayRange(await getBusinessTimeZone());
   const count = await prisma.order.count({ where: { placedAt: { gte: from, lte: to } } });
   if (count === 0) {
     return "Aucune commande n'a été passée aujourd'hui pour le moment.";
@@ -170,7 +171,7 @@ export async function toolDeliveryPerformance(): Promise<string> {
 }
 
 export async function toolReturnsThisMonth(): Promise<string> {
-  const { from, to } = currentMonthRange();
+  const { from, to } = currentMonthRange(await getBusinessTimeZone());
   const count = await prisma.shipment.count({
     where: { status: "RETOURNE", createdAt: { gte: from, lte: to } },
   });
@@ -204,7 +205,7 @@ export async function toolBestSellingProduct(): Promise<string> {
 }
 
 export async function toolTopProductsToday(): Promise<string> {
-  const { from, to } = currentDayRange();
+  const { from, to } = currentDayRange(await getBusinessTimeZone());
   const grouped = await prisma.orderItem.groupBy({
     by: ["productId"],
     where: {

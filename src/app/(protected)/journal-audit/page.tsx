@@ -17,7 +17,7 @@ import {
   AUDIT_CATEGORY_LABELS,
   type AuditCategory,
 } from "@/lib/audit-labels";
-import { listAuditJournal } from "@/lib/queries/audit";
+import { auditJournalDetails, listAuditJournal } from "@/lib/queries/audit";
 
 export const metadata = { title: "Journal d'audit — ASODITECH Gestion E-commerce" };
 
@@ -38,6 +38,8 @@ export default async function JournalAuditPage({
   // (Phase 4C, docs/adr/0044) both live in the query — server-side, for the
   // count and every page of the log.
   const { items: pageItems, total, pageSize } = await listAuditJournal(user, { q: params.q, category, page });
+  // Whitelisted details only (reception cancellations, automatic status moves) — never a payload.
+  const details = await auditJournalDetails(pageItems);
 
   const hasActiveFilter = Boolean(params.q || category);
 
@@ -100,6 +102,11 @@ export default async function JournalAuditPage({
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{humanizeAuditAction(e.action)}</Badge>
+                      {(details.get(e.id) ?? []).map((detail) => (
+                        <p key={detail} className="mt-1 max-w-xs text-xs text-muted-foreground">
+                          {detail}
+                        </p>
+                      ))}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {href ? (

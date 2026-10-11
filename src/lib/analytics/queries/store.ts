@@ -47,9 +47,9 @@ export async function getStoreOverview(viewer: Viewer, period: AnalyticsPeriod, 
     }),
   ]);
   const offline = report.offline ?? { grossSales: 0, refunds: 0, netSales: 0, salesCount: 0, unitsSold: 0, byChannel: [], byLocation: [], byPayment: [] };
-  const buckets = new Map(bucketKeys(period.range, period.granularity).map((k) => [k, { revenue: 0, orders: 0 }]));
+  const buckets = new Map(bucketKeys(period.range, period.granularity, period.timeZone).map((k) => [k, { revenue: 0, orders: 0 }]));
   for (const s of sales) {
-    const b = buckets.get(bucketKey(s.soldAt, period.granularity));
+    const b = buckets.get(bucketKey(s.soldAt, period.granularity, period.timeZone));
     if (!b) continue;
     b.orders += 1;
     b.revenue += Number(s.total.toString());

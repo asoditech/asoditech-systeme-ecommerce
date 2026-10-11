@@ -37,6 +37,7 @@ export function UsageMetricCard({
   limit,
   status,
   unit,
+  info,
 }: {
   label: string;
   icon?: LucideIcon;
@@ -45,6 +46,8 @@ export function UsageMetricCard({
   status: UsageStatus;
   /** e.g. "commandes", "utilisateurs", "entrepôts" — used in the sentence below the numbers. */
   unit: string;
+  /** « ⓘ » explanation next to the label. */
+  info?: React.ReactNode;
 }) {
   const percent = limit !== null && limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : null;
 
@@ -55,6 +58,7 @@ export function UsageMetricCard({
           <div className="flex items-center gap-2">
             {Icon && <Icon className="size-4 text-muted-foreground" />}
             <p className="text-sm font-medium text-muted-foreground">{label}</p>
+            {info}
           </div>
           <span aria-hidden="true">{STATUS_EMOJI[status]}</span>
         </div>

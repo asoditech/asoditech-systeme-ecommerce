@@ -77,3 +77,25 @@ describe("WhatsApp verification card", () => {
     expect(html).not.toContain('id="whatsapp-code"');
   });
 });
+
+vi.mock("@/actions/whatsapp", () => ({ testWhatsAppConnectionAction: vi.fn() }));
+vi.mock("@/actions/integrations", () => ({ disconnectIntegrationAction: vi.fn() }));
+
+import { WhatsAppActions } from "@/components/integrations/whatsapp-actions";
+
+describe("WhatsApp integration card actions", () => {
+  const actions = (props: Parameters<typeof WhatsAppActions>[0]) => renderToStaticMarkup(createElement(WhatsAppActions, props));
+
+  it("no central sender on the server: « Activer » is not offered (it could only fail and raise a false alert)", () => {
+    const html = actions({ enabled: false, hasRow: false, senderConfigured: false });
+    expect(html).not.toContain("Activer");
+    expect(html).not.toContain("Tester la connexion");
+  });
+
+  it("sender configured: « Activer » when off, « Tester la connexion » + « Désactiver » when on", () => {
+    expect(actions({ enabled: false, hasRow: false, senderConfigured: true })).toContain("Activer");
+    const on = actions({ enabled: true, hasRow: true, senderConfigured: true });
+    expect(on).toContain("Tester la connexion");
+    expect(on).toContain("Désactiver");
+  });
+});

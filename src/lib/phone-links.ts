@@ -34,6 +34,8 @@ export function phoneWhatsAppHref(raw: string | null | undefined): string | null
   else if (digits.startsWith("212") && digits.length === 12) international = digits;
   else if (/^0[5-7]\d{8}$/.test(digits)) international = "212" + digits.slice(1);
   if (!international) return null;
+  // "+212 06…": country code typed before the national trunk "0" — drop the 0.
+  if (/^2120[5-7]\d{8}$/.test(international)) international = "212" + international.slice(4);
   // buildWhatsAppUrl re-validates the E.164 length (8–15 digits).
   return buildWhatsAppUrl(international);
 }

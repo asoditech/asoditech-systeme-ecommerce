@@ -37,6 +37,14 @@ export const FEATURE_KEYS = [
 
 export type FeatureKey = (typeof FEATURE_KEYS)[number];
 
+/** The only feature keys actually checked in code today
+ * (`requireEntitlement` in src/actions/orders.ts and warehouses.ts). Every
+ * other key — and every tier — is shown to the client but blocks nothing
+ * (docs/adr/0035 §3: deliberate, no gating decision taken yet). The plan
+ * editor marks the others as display-only from this list;
+ * tests/lib/entitlement-enforcement.test.ts keeps it in sync with the code. */
+export const ENFORCED_FEATURE_KEYS: readonly FeatureKey[] = ["orders", "warehouses"];
+
 /** French display label per feature — the client-facing usage page and
  * the platform plan editor both show these; only the features worth
  * showing as a distinct checklist item are listed (the trivially-always-on

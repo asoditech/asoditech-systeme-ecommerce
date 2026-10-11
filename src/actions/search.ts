@@ -9,11 +9,18 @@ import { userHasPermission } from "@/lib/auth/permissions";
 import { displayOrderNumber, displaySaleNumber } from "@/lib/format";
 import { saleChannelWhere } from "@/lib/auth/channel-access";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
+import { findQuickSearchOrders, findQuickSearchShipments } from "@/lib/queries/order-quick-search";
+import { normalizeTrackingStatus, normalizedTrackingLabel } from "@/lib/tracking/status";
 import { productQuickActions, type QuickSearchAction } from "@/lib/catalog/quick-actions";
+import { visibleNavGroups } from "@/lib/navigation/nav-items";
+import { visibleReports } from "@/lib/navigation/reports";
+import { matchPages, type PageDestination } from "@/lib/navigation/page-search";
+import { findReturnParcels, RETURN_PARCEL_STATE_LABELS } from "@/lib/queries/return-receiving";
+import { canReadWarehouse } from "@/lib/auth/location-access";
 
 export interface QuickSearchResult {
   id: string;
-  type: "customer" | "product" | "order" | "sale" | "supplier";
+  type: "customer" | "product" | "order" | "sale" | "supplier" | "return" | "shipment" | "page";
   title: string;
   subtitle: string;
   href: string;
@@ -88,22 +95,37 @@ export async function quickSearchAction(query: string): Promise<QuickSearchResul
   }
 
   if (userHasPermission(user, "orders.view")) {
-    const numericQuery = Number(trimmed.replace(/\D/g, ""));
-    const orders = Number.isFinite(numericQuery) && numericQuery > 0
-      ? await prisma.order.findMany({
-          where: { orderNumber: numericQuery },
-          include: { customer: true },
-          take: 5,
-        })
-      : [];
-    const business = orders.length > 0 ? await getReportBusinessInfo() : null;
+    // Visible order number (tenant prefix), external store number, tracking
+    // number (exact first) — src/lib/queries/order-quick-search.ts.
+    const { orderNumberPrefix } = await getReportBusinessInfo();
+    const orders = await findQuickSearchOrders(trimmed, orderNumberPrefix);
     results.push(
       ...orders.map((o) => ({
         id: o.id,
         type: "order" as const,
-        title: displayOrderNumber(o, business?.orderNumberPrefix),
-        subtitle: o.customer.fullName,
+        title: displayOrderNumber(o, orderNumberPrefix),
+        // The matched tracking number is shown, so the row says why it's here.
+        subtitle: o.matchedTrackingNumber ? `${o.customerName} · Suivi ${o.matchedTrackingNumber}` : o.customerName,
         href: `/commandes/${o.id}`,
+      }))
+    );
+  }
+
+  // Shipments (« Expéditions ») by tracking number — the permission of
+  // /livraison and /livraison/suivi (`delivery.view`, an ONLINE-domain
+  // permission: an Offline-only user never holds it, docs/adr/0039). A parcel
+  // whose order is already listed above is not repeated. Carrier + status
+  // only — never a cost or an amount.
+  if (userHasPermission(user, "delivery.view")) {
+    const listedOrderIds = results.filter((r) => r.type === "order").map((r) => r.id);
+    const shipments = await findQuickSearchShipments(trimmed, listedOrderIds);
+    results.push(
+      ...shipments.map((s) => ({
+        id: s.id,
+        type: "shipment" as const,
+        title: s.trackingNumber,
+        subtitle: `${s.providerName} · ${normalizedTrackingLabel(normalizeTrackingStatus(s.status, s.providerStatusRaw))}`,
+        href: `/livraison/suivi?q=${encodeURIComponent(s.trackingNumber)}`,
       }))
     );
   }
@@ -135,6 +157,25 @@ export async function quickSearchAction(query: string): Promise<QuickSearchResul
     );
   }
 
+  // Returned parcels (« Retours colis ») by exact tracking / order number —
+  // the workspace's own lookup, the same permission and location rule.
+  if (userHasPermission(user, "orders.return")) {
+    const parcels = (await findReturnParcels(trimmed)).filter(
+      (p) => (p.eligible || p.pendingReception || p.inspectedCount > 0) && (user.locations.global || (p.warehouseId !== null && canReadWarehouse(user, p.warehouseId)))
+    );
+    results.push(
+      ...parcels.slice(0, 5).map((p) => ({
+        id: p.shipmentId,
+        type: "return" as const,
+        title: `Colis retourné ${p.trackingNumber ?? p.orderLabel}`,
+        subtitle: `${p.orderLabel} · ${RETURN_PARCEL_STATE_LABELS[p.state]}`,
+        href: p.pendingReception
+          ? `/livraison/retours/inspection/${p.pendingReception.id}`
+          : `/livraison/retours?q=${encodeURIComponent(p.trackingNumber ?? p.orderLabel)}`,
+      }))
+    );
+  }
+
   if (userHasPermission(user, "suppliers.view")) {
     const suppliers = await prisma.supplier.findMany({
       where: { OR: [{ name: { contains: trimmed, mode: "insensitive" } }, { phone: { contains: trimmed } }] },
@@ -151,5 +192,22 @@ export async function quickSearchAction(query: string): Promise<QuickSearchResul
     );
   }
 
+  results.push(...searchPages(user, trimmed));
   return results;
+}
+
+/**
+ * « Pages » — the sidebar destinations and the reports this user may open,
+ * by the SAME rules as the sidebar (visibleNavGroups) and /rapports
+ * (visibleReports). Never a page the user can't open; each page re-checks
+ * on the server anyway.
+ */
+function searchPages(user: Awaited<ReturnType<typeof requireUserForAction>>, query: string): QuickSearchResult[] {
+  const pages: PageDestination[] = visibleNavGroups(user.permissions).flatMap((g) => g.items.map((i) => ({ href: i.href, label: i.label, group: g.label })));
+  if (userHasPermission(user, "analytics.view")) {
+    for (const r of visibleReports(user)) {
+      if (!pages.some((p) => p.href === r.href)) pages.push({ href: r.href, label: r.title, group: "Rapports" });
+    }
+  }
+  return matchPages(pages, query).map((p) => ({ id: p.href, type: "page" as const, title: p.label, subtitle: p.group, href: p.href }));
 }

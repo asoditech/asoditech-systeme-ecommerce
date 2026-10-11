@@ -12,6 +12,8 @@ import {
 import { cn } from "@/lib/utils";
 import { SECTION_ACCENTS } from "@/components/settings/config/section-meta";
 import { ConfigSearch } from "@/components/settings/config/config-search";
+import { SettingInfo } from "@/components/settings/setting-info";
+import type { SettingId } from "@/lib/settings/settings-explanations";
 import {
   CONFIG_SECTIONS,
   sectionHref,
@@ -66,23 +68,26 @@ export function ConfigHero({
   section: ConfigSectionId;
 }) {
   const initials = companyName.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") || "?";
-  const stats: { icon: LucideIcon; value: string; label: string; tone: string }[] = [
+  const stats: { icon: LucideIcon; value: string; label: string; tone: string; info: SettingId }[] = [
     {
       icon: CheckCircle2,
       value: `${health.sectionsOk}/${health.sections}`,
       label: "sections en ordre",
+      info: "sectionsInOrder",
       tone: health.sectionsOk === health.sections ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400" : "bg-muted text-foreground",
     },
     {
       icon: AlertTriangle,
       value: String(health.attention),
       label: health.attention === 1 ? "point à vérifier" : "points à vérifier",
+      info: "pointsToCheck",
       tone: health.attention > 0 ? "bg-amber-500/12 text-amber-600 dark:text-amber-400" : "bg-muted text-muted-foreground",
     },
     {
       icon: ToggleRight,
       value: `${health.switchesOn}/${health.switchesTotal}`,
       label: "fonctions activées",
+      info: "featuresOn",
       tone: "bg-primary/12 text-primary",
     },
   ];
@@ -107,7 +112,10 @@ export function ConfigHero({
             <div className="min-w-0">
               <p className="text-[11px] font-semibold tracking-wide text-accent-foreground uppercase">Centre de contrôle</p>
               <h2 className="truncate text-xl font-bold tracking-tight sm:text-2xl">{companyName.trim() || "Votre entreprise"}</h2>
-              <p className="text-sm text-muted-foreground">Pilotez le fonctionnement de votre activité · identité complète à {completion} %</p>
+              <p className="flex items-center gap-1 text-sm text-muted-foreground">
+                Pilotez le fonctionnement de votre activité · identité complète à {completion} %
+                <SettingInfo setting="identityCompletion" />
+              </p>
             </div>
           </div>
           <ConfigSearch index={index} currentSection={section} />
@@ -121,6 +129,7 @@ export function ConfigHero({
               <p className="min-w-0 text-sm">
                 <span className="font-bold tabular-nums">{s.value}</span> <span className="text-muted-foreground">{s.label}</span>
               </p>
+              <SettingInfo setting={s.info} label={s.label} className="ml-auto" />
             </li>
           ))}
         </ul>
@@ -298,7 +307,7 @@ export function SectionHeader({
 }
 
 /** A switch shown read-only (the user may see it but not change it). */
-export function ReadOnlyStateTile({ icon: Icon, title, on, note }: { icon: LucideIcon; title: string; on: boolean; note: string }) {
+export function ReadOnlyStateTile({ icon: Icon, title, on, note, info }: { icon: LucideIcon; title: string; on: boolean; note: string; info?: React.ReactNode }) {
   return (
     <article className="flex flex-col rounded-2xl border border-dashed bg-card/60 p-5">
       <div className="flex items-start justify-between gap-3">
@@ -310,7 +319,10 @@ export function ReadOnlyStateTile({ icon: Icon, title, on, note }: { icon: Lucid
           {on ? "Activé" : "Désactivé"}
         </span>
       </div>
-      <h4 className="mt-4 text-[15px] font-semibold tracking-tight">{title}</h4>
+      <div className="mt-4 flex items-start gap-1">
+        <h4 className="text-[15px] font-semibold tracking-tight">{title}</h4>
+        {info}
+      </div>
       <p className="mt-auto flex items-center gap-1.5 pt-3 text-xs text-muted-foreground">
         <Lock className="size-3.5" />
         {note}
@@ -320,13 +332,28 @@ export function ReadOnlyStateTile({ icon: Icon, title, on, note }: { icon: Lucid
 }
 
 /** A setting the user can't use here (mode off, missing permission, nothing connected). */
-export function UnavailableTile({ icon: Icon, title, message, action }: { icon: LucideIcon; title: string; message: string; action?: { href: string; label: string } }) {
+export function UnavailableTile({
+  icon: Icon,
+  title,
+  message,
+  action,
+  info,
+}: {
+  icon: LucideIcon;
+  title: string;
+  message: string;
+  action?: { href: string; label: string };
+  info?: React.ReactNode;
+}) {
   return (
     <article className="flex flex-col items-start rounded-2xl border border-dashed bg-muted/20 p-5">
       <span className="flex size-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
         <Icon className="size-5" />
       </span>
-      <h4 className="mt-4 text-[15px] font-semibold tracking-tight">{title}</h4>
+      <div className="mt-4 flex items-start gap-1">
+        <h4 className="text-[15px] font-semibold tracking-tight">{title}</h4>
+        {info}
+      </div>
       <p className="mt-1 text-sm text-muted-foreground">{message}</p>
       {action && (
         <Link href={action.href} className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">

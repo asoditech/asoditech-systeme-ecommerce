@@ -43,9 +43,16 @@ export function BarcodeScanButton({
   onDetect,
   label = "Scanner",
   mode = "single",
+  formats = RELEVANT_BARCODE_FORMATS,
 }: {
   onDetect: (code: string) => void;
   label?: string;
+  /**
+   * Formats the camera looks for. Default: the linear ones (barcode ENTRY
+   * fields). Lookup screens pass LOOKUP_SCAN_FORMATS (+ QR) so the
+   * ASODITECH label's QR resolves to its article.
+   */
+  formats?: readonly string[];
   /** "continuous": stays open for several codes until « Terminer ». Default "single" (closes on the first code). */
   mode?: ScanMode;
 }) {
@@ -61,6 +68,7 @@ export function BarcodeScanButton({
   // Latest callback without restarting the camera when the parent re-renders
   // (callers pass inline functions).
   const onDetectRef = useRef(onDetect);
+  const formatsKey = formats.join(",");
   useEffect(() => {
     onDetectRef.current = onDetect;
   }, [onDetect]);
@@ -84,7 +92,7 @@ export function BarcodeScanButton({
       // (iPhone/iPad, Firefox…) — src/lib/barcode-scanner/decoder.ts.
       createDetector: async () =>
         (
-          await createBarcodeDecoder(RELEVANT_BARCODE_FORMATS, {
+          await createBarcodeDecoder(formatsKey.split(","), {
             nativeCtor: window.BarcodeDetector as NativeDetectorCtor | undefined,
             loadWasmDetector: loadZXingDetector,
           })
@@ -117,7 +125,7 @@ export function BarcodeScanButton({
       session.stop();
       sessionRef.current = null;
     };
-  }, [open, mode]);
+  }, [open, mode, formatsKey]);
 
   async function scanNow() {
     const result = await sessionRef.current?.scanNow();

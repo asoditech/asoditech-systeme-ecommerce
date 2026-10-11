@@ -18,9 +18,11 @@ import { isWhatsAppConfigured } from "@/lib/whatsapp/client";
  */
 export async function WhatsAppCard({ canManage }: { canManage: boolean }) {
   const integration = await prisma.integration.findFirst({ where: { provider: "WHATSAPP" } });
-  const status = integration?.status ?? "DECONNECTE";
-  const config = (integration?.config as { displayPhoneNumber?: string | null } | null) ?? null;
   const configured = isWhatsAppConfigured();
+  // Without the central sender nothing can be sent: never show « Activé » or a
+  // stale connection error for it — the « pas configuré » note below explains.
+  const status = configured ? (integration?.status ?? "DECONNECTE") : "DECONNECTE";
+  const config = (integration?.config as { displayPhoneNumber?: string | null } | null) ?? null;
 
   return (
     <Card className="overflow-hidden">
@@ -66,7 +68,13 @@ export async function WhatsAppCard({ canManage }: { canManage: boolean }) {
       </CardContent>
 
       <CardFooter className="flex flex-wrap items-center gap-2">
-        {canManage && <WhatsAppActions enabled={status === "CONNECTE"} hasRow={Boolean(integration) && status !== "DECONNECTE"} />}
+        {canManage && (
+          <WhatsAppActions
+            enabled={status === "CONNECTE"}
+            senderConfigured={configured}
+            hasRow={Boolean(integration) && status !== "DECONNECTE"}
+          />
+        )}
         <Button size="sm" variant="ghost" className="ml-auto" render={<Link href="/parametres/notifications" />}>
           <BellRing className="size-3.5" />
           Mes notifications WhatsApp

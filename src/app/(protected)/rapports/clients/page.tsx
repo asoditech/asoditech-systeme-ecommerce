@@ -1,12 +1,14 @@
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
+import { ReportMetricInfo } from "@/components/reports/report-metric-info";
+import { ReportDefinitions } from "@/components/reports/report-definitions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
 import { requireChannelKind } from "@/lib/auth/channel-access";
-import { resolveReportRange, rangeQuery } from "@/lib/reports/range";
+import { resolveTenantReportRange, rangeQuery } from "@/lib/reports/range";
 import { getCustomerReport } from "@/lib/queries/reports/customers";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { formatCurrency } from "@/lib/format";
@@ -25,7 +27,7 @@ export default async function RapportClientsPage({
   // Order-derived data: needs an ONLINE channel (docs/adr/0039).
   requireChannelKind(viewer, "ONLINE");
   const params = await searchParams;
-  const resolved = resolveReportRange(params);
+  const resolved = await resolveTenantReportRange(params);
   const [report, business] = await Promise.all([
     getCustomerReport(resolved.range),
     getReportBusinessInfo(),
@@ -44,19 +46,19 @@ export default async function RapportClientsPage({
       <ReportFilterBar basePath="/rapports/clients" resolved={resolved} exportHref={exportHref} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Clients acheteurs" value={String(t.distinctBuyers)} tone="primary" />
-        <KpiCard label="Nouveaux clients" value={String(t.newCustomers)} tone="info"
+        <KpiCard label="Clients acheteurs" explain={<ReportMetricInfo metric="customersBuyers" label="Clients acheteurs" className="-ml-1" />} value={String(t.distinctBuyers)} tone="primary" />
+        <KpiCard label="Nouveaux clients" explain={<ReportMetricInfo metric="customersNew" label="Nouveaux clients" className="-ml-1" />} value={String(t.newCustomers)} tone="info"
           hint={`${money(t.revenueFromNew)} de CA`} />
-        <KpiCard label="Clients récurrents" value={String(t.returningCustomers)} tone="success"
+        <KpiCard label="Clients récurrents" explain={<ReportMetricInfo metric="customersReturning" label="Clients récurrents" className="-ml-1" />} value={String(t.returningCustomers)} tone="success"
           hint={`${money(t.revenueFromReturning)} de CA`} />
-        <KpiCard label="Taux de réachat" value={pct(t.repeatRatePct)} tone="violet" />
-        <KpiCard label="Commandes / client" value={t.avgOrdersPerBuyer !== null ? t.avgOrdersPerBuyer.toFixed(1) : null} tone="primary" />
-        <KpiCard label="CA / client" value={money(t.avgRevenuePerBuyer)} tone="primary" />
+        <KpiCard label="Taux de réachat" explain={<ReportMetricInfo metric="customersRepeatRate" label="Taux de réachat" className="-ml-1" />} value={pct(t.repeatRatePct)} tone="violet" />
+        <KpiCard label="Commandes / client" explain={<ReportMetricInfo metric="customersOrdersPerBuyer" label="Commandes / client" className="-ml-1" />} value={t.avgOrdersPerBuyer !== null ? t.avgOrdersPerBuyer.toFixed(1) : null} tone="primary" />
+        <KpiCard label="CA / client" explain={<ReportMetricInfo metric="customersRevenuePerBuyer" label="CA / client" className="-ml-1" />} value={money(t.avgRevenuePerBuyer)} tone="primary" />
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>Meilleurs clients</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-1.5">Meilleurs clients<ReportMetricInfo metric="customersTop" /></CardTitle></CardHeader>
           <CardContent className="overflow-x-auto">
             <Table className="text-[13px]">
               <TableHeader><TableRow><TableHead>Client</TableHead><TableHead>Ville</TableHead><TableHead className="text-right">Cmd</TableHead><TableHead className="text-right">CA</TableHead></TableRow></TableHeader>
@@ -78,7 +80,7 @@ export default async function RapportClientsPage({
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>Par ville</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-1.5">Par ville<ReportMetricInfo metric="customersByCity" /></CardTitle></CardHeader>
           <CardContent className="overflow-x-auto">
             <Table className="text-[13px]">
               <TableHeader><TableRow><TableHead>Ville</TableHead><TableHead className="text-right">Acheteurs</TableHead><TableHead className="text-right">Cmd</TableHead><TableHead className="text-right">CA</TableHead></TableRow></TableHeader>
@@ -96,6 +98,7 @@ export default async function RapportClientsPage({
           </CardContent>
         </Card>
       </div>
+      <ReportDefinitions report="clients" />
     </div>
   );
 }

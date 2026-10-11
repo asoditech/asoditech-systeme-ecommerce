@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { CheckCircle2, ScanBarcode, TriangleAlert } from "lucide-react";
 import { resolveReturnCodeAction } from "@/actions/returns";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
+import { LOOKUP_SCAN_FORMATS } from "@/lib/barcode-scanner/support";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { ReturnScanResult, ScannedUnit } from "@/lib/returns/scan";
@@ -33,6 +34,8 @@ export function ReturnScanField({
   function resolve(raw: string) {
     const value = raw.trim();
     if (!value) return;
+    // Empty the field at once: the scanner's next code must not be appended to this one.
+    setCode("");
     startTransition(async () => {
       const r = await resolveReturnCodeAction({ code: value, scope });
       if (!r.ok) {
@@ -41,7 +44,6 @@ export function ReturnScanField({
         const applied = onUnitRef.current(r.data);
         setFeedback(applied.ok ? { ok: true, text: `${applied.label} — revendable ${applied.sellable}.` } : { ok: false, text: applied.error });
       }
-      setCode("");
     });
   }
 
@@ -54,7 +56,7 @@ export function ReturnScanField({
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              resolve(code);
+              resolve(e.currentTarget.value);
             }
           }}
           placeholder="Code-barres ou SKU exact de l'article retourné…"
@@ -64,7 +66,7 @@ export function ReturnScanField({
           <ScanBarcode className="size-4" />
           Ajouter
         </Button>
-        <BarcodeScanButton onDetect={resolve} label="Scanner" />
+        <BarcodeScanButton formats={LOOKUP_SCAN_FORMATS} onDetect={resolve} label="Scanner" />
       </div>
       {feedback && (
         <p

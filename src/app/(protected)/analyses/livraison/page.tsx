@@ -8,6 +8,7 @@ import { BreakdownBarList } from "@/components/analytics/breakdown-bar-list";
 import { SeriesChart } from "@/components/analytics/series-chart";
 import { SortHeader } from "@/components/analytics/sort-header";
 import { MetricDefinitions } from "@/components/analytics/metric-definitions";
+import { AnalyticsMetricInfo } from "@/components/analytics/analytics-metric-info";
 import { Truck, PackageCheck, TriangleAlert, Undo2, Timer, Clock, Hourglass, Percent } from "lucide-react";
 import { analyticsContext } from "@/lib/analytics/context";
 import { analyticsQuery, SOURCE_KEYS, sortRows, sourceLabel } from "@/lib/analytics/filters";
@@ -59,22 +60,25 @@ export default async function DeliveryAnalyticsPage({ searchParams }: { searchPa
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Expédiées" value={String(o.shipped)} icon={Truck} hint={`${o.inProgress} encore en cours`} />
-        <KpiCard label="Livrées" value={String(o.delivered)} icon={PackageCheck} tone="success" />
-        <KpiCard label="Échecs" value={String(o.failed)} icon={TriangleAlert} tone="danger" />
-        <KpiCard label="Retournées" value={String(o.returned)} icon={Undo2} tone="danger" />
-        <KpiCard label="Taux de livraison" value={o.deliveryRate === null ? null : formatPct(o.deliveryRate)} unavailableReason="Aucune expédition" icon={Percent} tone="success" />
-        <KpiCard label="Taux d'échec" value={o.failureRate === null ? null : formatPct(o.failureRate)} unavailableReason="Aucune expédition" icon={Percent} tone="danger" />
-        <KpiCard label="Taux de retour" value={o.returnRate === null ? null : formatPct(o.returnRate)} unavailableReason="Aucune expédition" icon={Percent} tone="warning" />
-        <KpiCard label="Confirmée → expédiée" value={d.confirmedToShipped.sample ? formatHours(d.confirmedToShipped.avgHours) : null} unavailableReason="Aucune donnée" icon={Timer} hint={d.confirmedToShipped.sample ? `moyenne sur ${d.confirmedToShipped.sample}` : undefined} />
-        <KpiCard label="Expédiée → livrée" value={d.shippedToDelivered.sample ? formatHours(d.shippedToDelivered.avgHours) : null} unavailableReason="Aucune livraison datée" icon={Clock} hint={d.shippedToDelivered.sample ? `moyenne sur ${d.shippedToDelivered.sample}` : undefined} />
-        <KpiCard label="Confirmée → livrée" value={d.confirmedToDelivered.sample ? formatHours(d.confirmedToDelivered.avgHours) : null} unavailableReason="Aucune livraison datée" icon={Hourglass} hint={d.confirmedToDelivered.sample ? `moyenne sur ${d.confirmedToDelivered.sample}` : undefined} />
+        <KpiCard label="Expédiées" metric="shippedOrders" value={String(o.shipped)} icon={Truck} hint={`${o.inProgress} encore en cours`} />
+        <KpiCard label="Livrées" metric="deliveryDelivered" value={String(o.delivered)} icon={PackageCheck} tone="success" />
+        <KpiCard label="Échecs" metric="deliveryFailed" value={String(o.failed)} icon={TriangleAlert} tone="danger" />
+        <KpiCard label="Retournées" metric="deliveryReturned" value={String(o.returned)} icon={Undo2} tone="danger" />
+        <KpiCard label="Taux de livraison" metric="deliveryTabRate" value={o.deliveryRate === null ? null : formatPct(o.deliveryRate)} unavailableReason="Aucune expédition" icon={Percent} tone="success" />
+        <KpiCard label="Taux d'échec" metric="failureRate" value={o.failureRate === null ? null : formatPct(o.failureRate)} unavailableReason="Aucune expédition" icon={Percent} tone="danger" />
+        <KpiCard label="Taux de retour" metric="returnRate" value={o.returnRate === null ? null : formatPct(o.returnRate)} unavailableReason="Aucune expédition" icon={Percent} tone="warning" />
+        <KpiCard label="Confirmée → expédiée" metric="confirmedToShipped" value={d.confirmedToShipped.sample ? formatHours(d.confirmedToShipped.avgHours) : null} unavailableReason="Aucune donnée" icon={Timer} hint={d.confirmedToShipped.sample ? `moyenne sur ${d.confirmedToShipped.sample}` : undefined} />
+        <KpiCard label="Expédiée → livrée" metric="shippedToDelivered" value={d.shippedToDelivered.sample ? formatHours(d.shippedToDelivered.avgHours) : null} unavailableReason="Aucune livraison datée" icon={Clock} hint={d.shippedToDelivered.sample ? `moyenne sur ${d.shippedToDelivered.sample}` : undefined} />
+        <KpiCard label="Confirmée → livrée" metric="confirmedToDelivered" value={d.confirmedToDelivered.sample ? formatHours(d.confirmedToDelivered.avgHours) : null} unavailableReason="Aucune livraison datée" icon={Hourglass} hint={d.confirmedToDelivered.sample ? `moyenne sur ${d.confirmedToDelivered.sample}` : undefined} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Expéditions et issues — par date d&apos;expédition</CardTitle>
+            <CardTitle className="flex items-center gap-1.5">
+                Expéditions et issues — par date d&apos;expédition
+                <AnalyticsMetricInfo metric="deliverySeries" />
+              </CardTitle>
           </CardHeader>
           <CardContent>
             <SeriesChart
@@ -90,7 +94,10 @@ export default async function DeliveryAnalyticsPage({ searchParams }: { searchPa
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Issue des expéditions</CardTitle>
+            <CardTitle className="flex items-center gap-1.5">
+                Issue des expéditions
+                <AnalyticsMetricInfo metric="deliveryOutcomeBreakdown" />
+              </CardTitle>
           </CardHeader>
           <CardContent>
             {o.shipped === 0 ? (
@@ -101,7 +108,12 @@ export default async function DeliveryAnalyticsPage({ searchParams }: { searchPa
                   { key: "delivered", count: o.delivered, label: <span className="text-sm font-medium">Livrées</span>, barColor: "bg-emerald-500" },
                   { key: "failed", count: o.failed, label: <span className="text-sm font-medium">Échecs</span>, barColor: "bg-rose-500" },
                   { key: "returned", count: o.returned, label: <span className="text-sm font-medium">Retournées</span>, barColor: "bg-amber-500" },
-                  { key: "inProgress", count: o.inProgress, label: <span className="text-sm font-medium">En cours</span>, barColor: "bg-slate-400" },
+                  { key: "inProgress", count: o.inProgress, label: (
+                      <span className="inline-flex items-center gap-0.5 text-sm font-medium">
+                        En cours
+                        <AnalyticsMetricInfo metric="deliveryInProgress" label="En cours" />
+                      </span>
+                    ), barColor: "bg-slate-400" },
                 ]}
               />
             )}
@@ -111,7 +123,10 @@ export default async function DeliveryAnalyticsPage({ searchParams }: { searchPa
 
       <Card>
         <CardHeader>
-          <CardTitle>Par transporteur</CardTitle>
+          <CardTitle className="flex items-center gap-1.5">
+                Par transporteur
+                <AnalyticsMetricInfo metric="deliveryByProvider" />
+              </CardTitle>
         </CardHeader>
         <CardContent>
           {providers.length === 0 ? (
@@ -149,7 +164,10 @@ export default async function DeliveryAnalyticsPage({ searchParams }: { searchPa
 
       <Card>
         <CardHeader>
-          <CardTitle>Par origine</CardTitle>
+          <CardTitle className="flex items-center gap-1.5">
+                Par origine
+                <AnalyticsMetricInfo metric="deliveryBySource" />
+              </CardTitle>
         </CardHeader>
         <CardContent>
           {d.bySource.length === 0 ? (

@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { SettingInfo } from "@/components/settings/setting-info";
 import { cn } from "@/lib/utils";
 
 type Status = "unavailable" | "no_number" | "pending" | "active" | "disabled";
@@ -97,6 +98,7 @@ export function WhatsAppNotificationsCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <CardTitle className="text-base">Alertes WhatsApp</CardTitle>
+            <SettingInfo setting="whatsappAlerts" />
             <Badge variant="outline" className={cn("font-medium", s.tone)}>
               {s.label}
             </Badge>
@@ -131,7 +133,10 @@ export function WhatsAppNotificationsCard({
 
         {/* Numéro WhatsApp */}
         <div className="space-y-1.5">
-          <Label htmlFor="whatsapp-phone">Numéro WhatsApp</Label>
+          <div className="flex items-center gap-1">
+            <Label htmlFor="whatsapp-phone">Numéro WhatsApp</Label>
+            <SettingInfo setting="whatsappNumber" />
+          </div>
           {editing ? (
             <form
               className="flex flex-col gap-2 sm:flex-row"
@@ -192,7 +197,10 @@ export function WhatsAppNotificationsCard({
         {maskedPhone && !verified && !editing && (
           <div className="space-y-3 rounded-lg border border-dashed border-border px-3 py-3">
             <div>
-              <p className="text-sm font-medium">Vérification</p>
+              <p className="flex items-center gap-1 text-sm font-medium">
+                Vérification
+                <SettingInfo setting="whatsappVerification" />
+              </p>
               {channelAvailable ? (
                 <p className="text-xs text-muted-foreground">
                   Un code à 6 chiffres vous est envoyé <strong>dans WhatsApp</strong>, par le numéro WhatsApp
@@ -248,7 +256,10 @@ export function WhatsAppNotificationsCard({
         {/* Opt-in */}
         <div className="flex items-start justify-between gap-3 rounded-lg border border-border/70 px-3 py-2.5">
           <div>
-            <p className="text-sm font-medium">{optedIn ? "Notifications activées" : "Notifications désactivées"}</p>
+            <p className="flex items-center gap-1 text-sm font-medium">
+              {optedIn ? "Notifications activées" : "Notifications désactivées"}
+              <SettingInfo setting="whatsappOptIn" label={optedIn ? "Notifications activées" : "Notifications désactivées"} />
+            </p>
             <p className="text-xs text-muted-foreground">
               {verified
                 ? "Recevoir les alertes critiques sur WhatsApp. Désactivable à tout moment."

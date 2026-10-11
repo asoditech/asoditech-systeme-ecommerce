@@ -1,6 +1,7 @@
 import "server-only";
 
 import { lookupSellableUnits, type SellableUnit } from "@/lib/catalog/lookup";
+import { scanCodeForMessage, withScanHint } from "@/lib/catalog/scan-input";
 import type { prisma, PrismaTransactionClient } from "@/lib/prisma";
 
 /**
@@ -30,7 +31,12 @@ export async function resolveExactCode(db: Db, code: string): Promise<ExactCodeR
   const units = (await lookupSellableUnits(db, trimmed, { onlyActive: false, limit: 5 })).filter(
     (u) => u.matchedBy === "barcode" || u.matchedBy === "sku"
   );
-  if (units.length === 0) return { ok: false, reason: "not_found", error: EXACT_CODE_MESSAGES.notFound };
+  if (units.length === 0) {
+    // The code WAS received: show it, plus why it may not be the intended one
+    // (keyboard layout, scanner prefix, web QR… — src/lib/catalog/scan-input.ts).
+    const error = withScanHint(`${EXACT_CODE_MESSAGES.notFound} Code reçu : « ${scanCodeForMessage(trimmed)} ».`, trimmed);
+    return { ok: false, reason: "not_found", error };
+  }
   if (units.length > 1) return { ok: false, reason: "ambiguous", error: EXACT_CODE_MESSAGES.ambiguous };
   return { ok: true, unit: units[0] };
 }

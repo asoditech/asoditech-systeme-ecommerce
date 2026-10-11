@@ -1,6 +1,11 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { getReportBusinessInfo } from "@/lib/queries/business-info";
+import { exactOrderTrackingPriority, orderSearchWhere } from "@/lib/orders/search";
+import { paginateWithPriority } from "@/lib/priority-pagination";
+import { getBusinessTimeZone } from "@/lib/time/business-zone";
+import { parseZonedDay } from "@/lib/time/zoned";
 import type { Prisma, OrderStatus, OrderPaymentStatus } from "@prisma/client";
 
 const PAGE_SIZE = 25;
@@ -16,14 +21,8 @@ export interface OrderListFilters {
   minTotal?: string;
   maxTotal?: string;
   page?: number;
-}
-
-/** Parse a value from a query string into a Date, or undefined if it is
- * missing or not a real date — never let `new Date("all")` reach Prisma. */
-function parseDate(value: string | undefined, endOfDay = false): Date | undefined {
-  if (!value) return undefined;
-  const d = new Date(endOfDay ? `${value}T23:59:59` : value);
-  return Number.isNaN(d.getTime()) ? undefined : d;
+  /** Rows per page — the list page passes the URL's 10/50/100; other callers keep the 25 default. */
+  pageSize?: number;
 }
 
 /** Parse a numeric filter, or undefined if missing / not a finite number. */
@@ -35,24 +34,27 @@ function parseNumber(value: string | undefined): number | undefined {
 
 export async function listOrders(filters: OrderListFilters) {
   const page = Math.max(1, filters.page ?? 1);
-  const dateFrom = parseDate(filters.dateFrom);
-  const dateTo = parseDate(filters.dateTo, true);
+  const pageSize = filters.pageSize && filters.pageSize > 0 ? filters.pageSize : PAGE_SIZE;
+  // « Du / Au » are whole days of the business time zone, both inclusive
+  // (parseZonedDay never lets `new Date("all")` reach Prisma).
+  const timeZone = filters.dateFrom || filters.dateTo ? await getBusinessTimeZone() : undefined;
+  const dateFrom = parseZonedDay(filters.dateFrom, timeZone);
+  const dateTo = parseZonedDay(filters.dateTo, timeZone, true);
   const minTotal = parseNumber(filters.minTotal);
   const maxTotal = parseNumber(filters.maxTotal);
+  // Shared search (src/lib/orders/search.ts): the displayed per-tenant number
+  // with the tenant's prefix, external number, tracking number, recipient and
+  // phone — not only the internal number. The prefix is read only when searching.
+  const q = filters.q?.trim();
+  const search = q
+    ? orderSearchWhere(q, { prefix: (await getReportBusinessInfo()).orderNumberPrefix, includeTrackingNumber: true })
+    : {};
   const where: Prisma.OrderWhereInput = {
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.paymentStatus ? { paymentStatus: filters.paymentStatus } : {}),
     ...(filters.customerId ? { customerId: filters.customerId } : {}),
     ...(filters.confirmationAgentId ? { confirmationAgentId: filters.confirmationAgentId } : {}),
-    ...(filters.q
-      ? {
-          OR: [
-            { customer: { fullName: { contains: filters.q, mode: "insensitive" } } },
-            { customer: { phone: { contains: filters.q, mode: "insensitive" } } },
-            ...(Number.isFinite(Number(filters.q)) ? [{ orderNumber: Number(filters.q) }] : []),
-          ],
-        }
-      : {}),
+    ...search,
     ...(dateFrom || dateTo
       ? {
           // The customer-facing order date, not the sync import time.
@@ -72,17 +74,26 @@ export async function listOrders(filters: OrderListFilters) {
       : {}),
   };
 
-  const [orders, total] = await Promise.all([
-    prisma.order.findMany({
-      where,
+  // An order with a shipment (current or past) whose tracking number EXACTLY
+  // matches the search ranks first, across pages.
+  const { rows: orders, total } = await paginateWithPriority({
+    where,
+    priority: exactOrderTrackingPriority(q),
+    skip: (page - 1) * pageSize,
+    take: pageSize,
+    and: (a, b): Prisma.OrderWhereInput => ({ AND: [a, b] }),
+    count: (w) => prisma.order.count({ where: w }),
+    findMany: (w, skip, take) => prisma.order.findMany({
+      where: w,
       // Newest order first — `placedAt` is the customer-facing order date
       // (WooCommerce/Shopify `date_created`, or `now()` for a manual
       // order), which is also the visible "Date" column and the date
       // filter, so the list stays in step with what it shows. `createdAt`
-      // (local insert time) only breaks ties on a bulk import.
-      orderBy: [{ placedAt: "desc" }, { createdAt: "desc" }],
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
+      // (local insert time) only breaks ties on a bulk import; `id` keeps
+      // the order stable across pages.
+      orderBy: [{ placedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+      skip,
+      take,
       include: {
         customer: true,
         _count: { select: { items: true, returns: true } },
@@ -99,10 +110,9 @@ export async function listOrders(filters: OrderListFilters) {
         returns: { select: { lines: { select: { quantitySellable: true, quantityDamaged: true } } } },
       },
     }),
-    prisma.order.count({ where }),
-  ]);
+  });
 
-  return { orders, total, page, pageSize: PAGE_SIZE };
+  return { orders, total, page, pageSize };
 }
 
 export async function getOrderDetail(id: string) {

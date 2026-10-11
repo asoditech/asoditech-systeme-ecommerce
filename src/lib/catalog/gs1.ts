@@ -29,3 +29,27 @@ export function gs1CheckDigitWarning(code: string | null | undefined): string | 
   if (expected === Number(c.at(-1))) return null;
   return `Ce code ressemble à un EAN/UPC/GTIN mais son chiffre de contrôle ne correspond pas (attendu : ${expected}). Vérifiez la saisie — vous pouvez quand même l'enregistrer.`;
 }
+
+/**
+ * The other spellings of the SAME GTIN a scanner may send: a UPC-A
+ * "012345678905" is the EAN-13 "0012345678905" and the GTIN-14
+ * "00012345678905" — scanners (and the camera decoder) report 12 or 13
+ * digits depending on their settings. Only for a 12/13/14-digit code with a
+ * VALID check digit (an internal numeric code is never reinterpreted); the
+ * code itself is not included. Used only as a lookup fallback after the
+ * exact code found nothing — stored barcodes are never rewritten.
+ */
+export function gtinEquivalents(code: string | null | undefined): string[] {
+  const c = (code ?? "").trim();
+  if (!/^\d+$/.test(c) || ![12, 13, 14].includes(c.length)) return [];
+  if (gs1CheckDigit(c.slice(0, -1)) !== Number(c.at(-1))) return [];
+  const gtin14 = c.padStart(14, "0");
+  const out: string[] = [];
+  for (const len of [12, 13, 14]) {
+    const zeros = 14 - len;
+    if (gtin14.slice(0, zeros) !== "0".repeat(zeros)) continue;
+    const variant = gtin14.slice(zeros);
+    if (variant !== c) out.push(variant);
+  }
+  return out;
+}

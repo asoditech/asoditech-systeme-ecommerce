@@ -23,3 +23,34 @@ export function isUniqueConstraintError(error: unknown): boolean {
 export function isForeignKeyConstraintError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003";
 }
+
+/**
+ * A Postgres deadlock (40P01) that aborted the current transaction. Matches
+ * ONLY the two shapes observed with this Prisma version (6.19.2) against
+ * Postgres — not P2034, which is not what Prisma raises here:
+ *  - a MODEL query (`tx.inventoryItem.update`, the path applyStockMovement
+ *    uses): `PrismaClientUnknownRequestError`, no `code`, the Postgres code in
+ *    the message (`code: "40P01"` / "deadlock detected");
+ *  - a raw query: `PrismaClientKnownRequestError` P2010 with `meta.code: "40P01"`.
+ * The transaction has already been rolled back when this is seen. Callers map
+ * it to a "retry" message — never an automatic retry.
+ */
+export function isDeadlockError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+    return /40P01|deadlock detected/i.test(error.message);
+  }
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2010") {
+    return (error.meta as { code?: unknown } | undefined)?.code === "40P01";
+  }
+  return false;
+}
+
+/**
+ * An interactive transaction that expired (Prisma's default 5 s timeout),
+ * e.g. while waiting on a row lock held by another operation: observed as
+ * `PrismaClientKnownRequestError` P2028 ("Transaction already closed: … expired
+ * transaction"). Prisma has rolled it back.
+ */
+export function isTransactionTimeoutError(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2028";
+}

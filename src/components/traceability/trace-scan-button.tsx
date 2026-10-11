@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { toast } from "sonner";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
+import { LOOKUP_SCAN_FORMATS } from "@/lib/barcode-scanner/support";
 import { traceabilitySearchHref } from "@/lib/traceability-scan";
 
 /**
@@ -17,6 +18,7 @@ export function TraceScanButton() {
   return (
     <BarcodeScanButton
       label="Scanner"
+      formats={LOOKUP_SCAN_FORMATS}
       onDetect={(code) => {
         const href = traceabilitySearchHref(code);
         if (!href) return;

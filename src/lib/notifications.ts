@@ -6,7 +6,7 @@ import { loadEffectiveAccessMany } from "@/lib/auth/access-loader";
 import { isGlobalRole } from "@/lib/auth/effective-access";
 import { canReadWarehouse } from "@/lib/auth/location-access";
 import { formatCurrency, formatOrderNumber, displayOrderNumber } from "@/lib/format";
-import { availableStockTotal } from "@/lib/inventory";
+import { availableStock, availableStockTotal } from "@/lib/inventory";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { sendNotificationEmails } from "@/lib/email";
 import { deliveryFailureEmail, integrationErrorEmail, outOfStockEmail, type NotificationEmail } from "@/lib/notification-email";
@@ -430,6 +430,11 @@ export async function notifyWorkflowMismatch(order: {
  * After a business action that may have reduced on-hand stock, checks the
  * affected products/variations and notifies for any now at or below its
  * `lowStockThreshold` (RUPTURE_STOCK at ≤ 0, STOCK_FAIBLE otherwise).
+ * « Stock faible » is the ONE definition (docs/analytics/metric-definitions.md,
+ * `LOW_STOCK_CONDITION` in src/lib/queries/inventory.ts): AVAILABLE stock
+ * (physique − réservé, `availableStock`) per row, rows of an inactive
+ * location left out — so an alert fires exactly for the rows the dashboard
+ * count and the /stock « Stock faible » / « Rupture » filters list.
  * Deduped per item per type per day. Best-effort; never throws.
  *
  * Deliberately never excludes the acting user (unlike every other
@@ -453,12 +458,13 @@ export async function checkAndNotifyLowStock(
     ].filter((c): c is NonNullable<typeof c> => c !== null);
 
     const items = await prisma.inventoryItem.findMany({
-      where: { OR: orClauses },
+      where: { OR: orClauses, warehouse: { isActive: true } },
       select: {
         id: true,
         warehouseId: true,
         warehouse: { select: { name: true } },
         quantityOnHand: true,
+        quantityReserved: true,
         product: { select: { name: true, sku: true, lowStockThreshold: true, trackInventory: true } },
         variation: {
           select: { sku: true, product: { select: { name: true, lowStockThreshold: true, trackInventory: true } } },
@@ -471,7 +477,8 @@ export async function checkAndNotifyLowStock(
       const tracked = item.product?.trackInventory ?? item.variation?.product.trackInventory ?? false;
       if (!tracked) continue;
       const threshold = item.product?.lowStockThreshold ?? item.variation?.product.lowStockThreshold ?? 0;
-      if (item.quantityOnHand > threshold) {
+      const available = availableStock(item);
+      if (available > threshold) {
         // Stock recovered — clear any standing low-stock / rupture alert
         // for this item so it doesn't sit stale in everyone's bell.
         await resolveNotifications({
@@ -484,14 +491,14 @@ export async function checkAndNotifyLowStock(
 
       const name = item.product?.name ?? item.variation?.product.name ?? "Produit";
       const sku = item.product?.sku ?? item.variation?.sku ?? "";
-      const isRupture = item.quantityOnHand <= 0;
+      const isRupture = available <= 0;
 
       await notify({
         type: isRupture ? "RUPTURE_STOCK" : "STOCK_FAIBLE",
         title: isRupture ? `Rupture de stock : ${name}` : `Stock faible : ${name}`,
         message: isRupture
           ? `${name} (${sku}) est en rupture de stock.`
-          : `${name} (${sku}) — ${item.quantityOnHand} unité(s) restante(s) (seuil : ${threshold}).`,
+          : `${name} (${sku}) — ${available} unité(s) disponible(s) (seuil : ${threshold}).`,
         entityType: "InventoryItem",
         entityId: item.id,
         dedupeKey: `${isRupture ? "rupture_stock" : "stock_faible"}:${item.id}:${today}`,

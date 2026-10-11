@@ -5,6 +5,8 @@ import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { DataTablePagination } from "@/components/data-table-pagination";
+import { redirect } from "next/navigation";
+import { PAGE_SIZE_OPTIONS, outOfRangeHref, parsePage, parsePageSize } from "@/lib/pagination";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { StopPropagationLink } from "@/components/stop-propagation-link";
 import { Button } from "@/components/ui/button";
@@ -34,6 +36,8 @@ import {
 } from "@/lib/format";
 import { ORDER_STATUS_LABELS, ORDER_PAYMENT_STATUS_LABELS } from "@/lib/status-labels";
 import type { OrderStatus, OrderPaymentStatus } from "@prisma/client";
+import { getBusinessTimeZone } from "@/lib/time/business-zone";
+import { zonedMonthDayKeys } from "@/lib/time/zoned";
 
 export const metadata = { title: "Commandes — ASODITECH Gestion E-commerce" };
 
@@ -48,12 +52,15 @@ export default async function CommandesPage({
     dateTo?: string;
     all?: string;
     page?: string;
+    pageSize?: string;
     confirmationAgent?: string;
   }>;
 }) {
   const user = await requirePermission("orders.view");
   const params = await searchParams;
-  const page = Number(params.page) || 1;
+  const page = parsePage(params.page);
+  // « Afficher 10 | 50 | 100 par page » — only an allowed size is accepted (default 10).
+  const pageSize = parsePageSize(params.pageSize);
   const canSync =
     userHasPermission(user, "integrations.manage") && (await getConnectedCommercePlatforms()).length > 0;
   const canViewCommissions = userHasPermission(user, "commissions.view");
@@ -71,9 +78,8 @@ export default async function CommandesPage({
       ? (params.paymentStatus as OrderPaymentStatus)
       : undefined;
 
-  const now = new Date();
-  const monthFrom = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString("en-CA");
-  const monthTo = new Date(now.getFullYear(), now.getMonth() + 1, 0).toLocaleDateString("en-CA");
+  // The current month of the business time zone (not the server's).
+  const { first: monthFrom, last: monthTo } = zonedMonthDayKeys(new Date(), await getBusinessTimeZone());
 
   // `all=1` is the explicit escape hatch out of the default month scope
   // (see "Toutes les commandes" below) — without it, no date filter means
@@ -82,7 +88,7 @@ export default async function CommandesPage({
   const effectiveDateFrom = params.dateFrom || (isAll ? undefined : monthFrom);
   const effectiveDateTo = params.dateTo || (isAll ? undefined : monthTo);
 
-  const [{ orders, total, pageSize }, business] = await Promise.all([
+  const [{ orders, total }, business] = await Promise.all([
     listOrders({
       q: params.q,
       status: statusFilter,
@@ -91,9 +97,13 @@ export default async function CommandesPage({
       dateTo: effectiveDateTo,
       confirmationAgentId: params.confirmationAgent,
       page,
+      pageSize,
     }),
     getReportBusinessInfo(),
   ]);
+  // Past the last page (e.g. its last order was just purged) → the last page, same filters.
+  const outOfRange = outOfRangeHref({ page, total, pageSize, basePath: "/commandes", searchParams: params });
+  if (outOfRange) redirect(outOfRange);
   const confirmationAgentName = params.confirmationAgent
     ? orders.find((o) => o.confirmationAgent)?.confirmationAgent?.user.name ?? "cet agent"
     : null;
@@ -120,6 +130,7 @@ export default async function CommandesPage({
     if (statusFilter) sp.set("status", statusFilter);
     if (paymentStatusFilter) sp.set("paymentStatus", paymentStatusFilter);
     if (params.confirmationAgent) sp.set("confirmationAgent", params.confirmationAgent);
+    if (params.pageSize) sp.set("pageSize", String(pageSize));
     if (opts.all) {
       sp.set("all", "1");
     } else if (opts.dateFrom && opts.dateTo) {
@@ -139,6 +150,7 @@ export default async function CommandesPage({
     if (params.dateFrom) sp.set("dateFrom", params.dateFrom);
     if (params.dateTo) sp.set("dateTo", params.dateTo);
     if (isAll) sp.set("all", "1");
+    if (params.pageSize) sp.set("pageSize", String(pageSize));
     const qs = sp.toString();
     return qs ? `/commandes?${qs}` : "/commandes";
   }
@@ -164,7 +176,12 @@ export default async function CommandesPage({
       <DisconnectedSourceBanner entity="order" />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <FilterSearchInput placeholder="N° commande, client..." defaultValue={params.q} className="w-56" />
+        <FilterSearchInput
+          placeholder="N° commande, client, téléphone, n° de suivi…"
+          ariaLabel="Rechercher une commande par n° de commande, client, téléphone ou n° de suivi"
+          defaultValue={params.q}
+          className="w-64 max-w-full"
+        />
         <FilterSelect
           paramKey="status"
           value={statusFilter}
@@ -185,8 +202,12 @@ export default async function CommandesPage({
           {statusFilter ? <input type="hidden" name="status" value={statusFilter} /> : null}
           {paymentStatusFilter ? <input type="hidden" name="paymentStatus" value={paymentStatusFilter} /> : null}
           {params.q ? <input type="hidden" name="q" value={params.q} /> : null}
-          <Input type="date" name="dateFrom" defaultValue={effectiveDateFrom} className="w-40" aria-label="Date de début" />
-          <Input type="date" name="dateTo" defaultValue={effectiveDateTo} className="w-40" aria-label="Date de fin" />
+          {params.pageSize ? <input type="hidden" name="pageSize" value={pageSize} /> : null}
+          <span className="text-xs text-muted-foreground" title="Date à laquelle la commande a été passée — pas la date d'expédition.">
+            Commandes passées
+          </span>
+          <Input type="date" name="dateFrom" defaultValue={effectiveDateFrom} className="w-40" aria-label="Commandes passées à partir du" />
+          <Input type="date" name="dateTo" defaultValue={effectiveDateTo} className="w-40" aria-label="Commandes passées jusqu'au" />
           <Button type="submit" size="sm" variant="outline">
             Filtrer
           </Button>
@@ -203,7 +224,7 @@ export default async function CommandesPage({
           </SegmentedControlItem>
         </SegmentedControl>
         {hasActiveFilter ? (
-          <Button size="sm" variant="ghost" render={<Link href="/commandes" />}>
+          <Button size="sm" variant="ghost" render={<Link href={params.pageSize ? `/commandes?pageSize=${pageSize}` : "/commandes"} />}>
             Réinitialiser
           </Button>
         ) : null}
@@ -341,6 +362,7 @@ export default async function CommandesPage({
             pageSize={pageSize}
             total={total}
             basePath="/commandes"
+            pageSizeOptions={PAGE_SIZE_OPTIONS}
             searchParams={{
               q: params.q,
               status: statusFilter,

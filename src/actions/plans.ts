@@ -238,6 +238,9 @@ export async function updatePlanAction(formData: FormData): Promise<ActionResult
  * `settings.manage` (OWNER/ADMIN) — an upgrade is a business decision,
  * not something every role should be able to trigger.
  */
+/** ASODITECH's own inbox for plan upgrade requests (the Resend-verified address — see src/actions/support.ts). */
+const ASODITECH_UPGRADE_EMAIL = "asoditech@gmail.com";
+
 export async function requestPlanUpgradeAction(formData: FormData): Promise<ActionResult<IdResult>> {
   const user = await requirePermissionForAction("settings.manage");
 
@@ -279,10 +282,13 @@ export async function requestPlanUpgradeAction(formData: FormData): Promise<Acti
     console.error("notifySupportTicket failed (non-fatal):", error);
   }
 
-  const settings = await prisma.businessSettings.findFirst({ select: { supportEmail: true, companyName: true } });
+  const settings = await prisma.businessSettings.findFirst({ select: { companyName: true } });
   try {
     await sendSupportTicketEmail({
-      to: settings?.supportEmail?.trim() || "asoditech@gmail.com",
+      // Always ASODITECH (the plan provider) — never the tenant's own support
+      // address from Paramètres → Support, which only sent the request back
+      // to the requesting company itself.
+      to: ASODITECH_UPGRADE_EMAIL,
       companyName: settings?.companyName?.trim() || "ASODITECH",
       categoryLabel: "Demande de mise à niveau",
       description,
