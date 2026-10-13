@@ -97,11 +97,16 @@ export type OrderStatusMapping =
   | { ok: true; status: OrderStatus }
   | { ok: false; reason: string };
 
+/** A status that is neither mapped nor a deliberately-excluded draft/trash one (e.g. a plugin's custom status). */
+export function isUnsupportedOrderStatus(wcStatus: string): boolean {
+  return !UNSUPPORTED_ORDER_STATUSES.has(wcStatus) && !Object.hasOwn(ORDER_STATUS_MAP, wcStatus);
+}
+
 export function mapOrderStatus(wcStatus: string): OrderStatusMapping {
   if (UNSUPPORTED_ORDER_STATUSES.has(wcStatus)) {
     return { ok: false, reason: `Statut WooCommerce non importable : ${wcStatus}.` };
   }
-  const mapped = ORDER_STATUS_MAP[wcStatus];
+  const mapped = Object.hasOwn(ORDER_STATUS_MAP, wcStatus) ? ORDER_STATUS_MAP[wcStatus] : undefined;
   if (!mapped) {
     return { ok: false, reason: `Statut de commande WooCommerce non pris en charge : ${wcStatus}.` };
   }

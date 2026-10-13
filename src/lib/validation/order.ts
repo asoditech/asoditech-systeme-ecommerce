@@ -16,8 +16,11 @@ export type OrderStatusValue = z.infer<typeof orderStatusSchema>;
 /**
  * Explicit, code-enforced state machine — see docs/adr/0002-domain-model.md
  * and docs/adr/0030 (stock reservation moved to CONFIRMEE).
- * REMBOURSEE is terminal. A shipment carrier failure moves EXPEDIEE ->
- * ECHEC, which staff can retry back to EN_PREPARATION. `ANNULEE ->
+ * REMBOURSEE is terminal. EXPEDIEE -> ECHEC is a STAFF decision (a
+ * carrier « Échec » / refused parcel never changes the order by itself — it
+ * may still be re-delivered, docs/adr/0006); staff can retry ECHEC back to
+ * EN_PREPARATION. A parcel marked « Retourné » moves EXPEDIEE/LIVREE ->
+ * RETOUR automatically (applyShipmentStatusTransition). `ANNULEE ->
  * NOUVELLE` exists ONLY as the "undo a wrong cancellation" path
  * (reopenOrderAction) and only when the order was never shipped — no
  * stock action, since a NOUVELLE order holds no reservation.

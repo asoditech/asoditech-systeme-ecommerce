@@ -58,6 +58,7 @@ export type ConfigSettings = Pick<
   | "allowSellerPriceOverride"
   | "defaultShippingProviderId"
   | "packingVerificationRequired"
+  | "autoPaymentFromStore"
   | "transferPurchaseCostOverrideEnabled"
 >;
 
@@ -125,6 +126,7 @@ export function sectionSwitches(ctx: ConfigContext, id: ConfigWorkspaceId): Swit
       return [
         ...(ctx.imports.woocommerce !== null ? [{ label: "WooCommerce en « Nouvelle »", on: ctx.imports.woocommerce }] : []),
         ...(ctx.imports.shopify !== null ? [{ label: "Shopify en « Nouvelle »", on: ctx.imports.shopify }] : []),
+        ...(ctx.imports.woocommerce !== null || ctx.imports.shopify !== null ? [{ label: "Paiement confirmé par la boutique", on: s.autoPaymentFromStore }] : []),
       ];
     case "expedition":
       return [{ label: "Vérification de l'emballage", on: s.packingVerificationRequired }];

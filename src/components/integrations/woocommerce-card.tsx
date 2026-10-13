@@ -6,6 +6,9 @@ import { WooCommerceActions } from "@/components/integrations/woocommerce-action
 import { ConnectionStatusPill } from "@/components/integrations/connection-status-pill";
 import { SyncResourceRow } from "@/components/integrations/sync-resource-row";
 import { ForceNouvelleToggle } from "@/components/integrations/force-nouvelle-toggle";
+import { ImportHistoryToggle } from "@/components/integrations/import-history-toggle";
+import { WooCommerceStoreSettings } from "@/components/integrations/woocommerce-store-settings";
+import { inventoryOwnerOf, remoteDeletionModeOf } from "@/lib/integrations/woocommerce/store-settings";
 import { prisma } from "@/lib/prisma";
 import { formatDateTime } from "@/lib/format";
 import { webhookFailureMessage, webhookFailureSince } from "@/lib/integrations/shared/webhook-health";
@@ -45,7 +48,7 @@ export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
   const webhookFailure = webhookFailureMessage(failedWebhooks, lastFailedWebhook, formatDateTime);
 
   const status = integration?.status ?? "DECONNECTE";
-  const config = (integration?.config as { siteUrl?: string; forceNouvelleOnImport?: boolean } | null) ?? null;
+  const config = (integration?.config as { siteUrl?: string; forceNouvelleOnImport?: boolean; importHistoricalOrders?: boolean; historyCutoffAt?: unknown } | null) ?? null;
   const hasCredentials = Boolean(integration?.credentialsEncrypted);
 
   return (
@@ -111,7 +114,15 @@ export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
         </div>
 
         {canManage && hasCredentials && (
-          <ForceNouvelleToggle provider="WOOCOMMERCE" checked={config?.forceNouvelleOnImport !== false} />
+          <>
+            <ForceNouvelleToggle provider="WOOCOMMERCE" checked={config?.forceNouvelleOnImport !== false} />
+            <ImportHistoryToggle
+              provider="WOOCOMMERCE"
+              checked={config?.importHistoricalOrders !== false}
+              cutoff={typeof config?.historyCutoffAt === "string" ? config.historyCutoffAt : null}
+            />
+            <WooCommerceStoreSettings remoteDeletionMode={remoteDeletionModeOf(config)} inventoryOwner={inventoryOwnerOf(config)} />
+          </>
         )}
       </CardContent>
 

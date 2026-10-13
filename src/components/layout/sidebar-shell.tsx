@@ -7,6 +7,7 @@ import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { BrandMark } from "@/components/brand-mark";
 import { cn } from "@/lib/utils";
 import type { Permission } from "@/lib/auth/permissions";
+import type { SidebarVariant } from "@/lib/navigation/sidebar-variant";
 
 const COOKIE_NAME = "sidebar-collapsed";
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
@@ -36,11 +37,16 @@ const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
  */
 export function SidebarShell({
   permissions,
+  favorites = [],
   defaultCollapsed = false,
+  variant = "classic",
   children,
 }: {
   permissions: Set<Permission>;
+  favorites?: string[];
   defaultCollapsed?: boolean;
+  /** Sidebar presentation experiment (src/lib/navigation/sidebar-variant.ts), read server-side from its cookie. */
+  variant?: SidebarVariant;
   children: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
@@ -91,7 +97,7 @@ export function SidebarShell({
           </Link>
         </div>
         <div className="sidebar-scroll flex-1 overflow-y-auto">
-          <SidebarNav permissions={permissions} collapsed={collapsed && !previewing} />
+          <SidebarNav permissions={permissions} favorites={favorites} collapsed={collapsed && !previewing} variant={variant} />
         </div>
         <button
           type="button"

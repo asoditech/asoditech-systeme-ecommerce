@@ -1,5 +1,6 @@
 import "server-only";
 
+import { missingCostProductWhere } from "@/lib/catalog/missing-cost";
 import { prisma } from "@/lib/prisma";
 import { REVENUE_EXCLUDED_STATUSES } from "@/lib/profitability";
 import { warehouseReadWhere } from "@/lib/auth/location-access";
@@ -22,6 +23,8 @@ export interface ProductListFilters {
   status?: ProductStatus;
   source?: RecordSource;
   type?: ProductTypeFilter;
+  /** « Coût d'achat manquant » only (src/lib/catalog/missing-cost.ts). */
+  missingCost?: boolean;
   sort?: ProductSort;
   page?: number;
   /** Rows per page — the list page passes the URL's 10/50/100; other callers keep the 20 default. */
@@ -78,6 +81,8 @@ export async function listProducts(params: ProductListFilters, viewer?: Pick<Cur
       : params.type === "simple"
         ? { variations: { none: {} } }
         : {}),
+    // AND, not a spread: the search above already owns the top-level OR.
+    ...(params.missingCost ? { AND: [missingCostProductWhere()] } : {}),
   };
 
   // "recent" (the default) = newest-created first. `platformCreatedAt` is

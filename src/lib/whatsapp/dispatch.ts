@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { isWhatsAppConfigured, sendTemplateMessage } from "@/lib/whatsapp/client";
 import { normalizeStaffWhatsAppPhone } from "@/lib/whatsapp/phone";
 import type { WhatsAppTemplateMessage } from "@/lib/whatsapp/templates";
+import { isWhatsAppAlertMuted } from "@/lib/whatsapp/alert-types";
 
 /**
  * WhatsApp delivery of a critical notification — docs/adr/0058.
@@ -15,7 +16,9 @@ import type { WhatsAppTemplateMessage } from "@/lib/whatsapp/templates";
  * NARROWS that set; it never adds a recipient:
  *   - the tenant enabled WhatsApp (Integration WHATSAPP = CONNECTE) and the
  *     central sender is configured;
- *   - the user verified their own number and explicitly opted in.
+ *   - the user verified their own number and explicitly opted in;
+ *   - the user did not mute this alert type for WhatsApp
+ *     (`User.whatsappMutedAlerts`, Paramètres → Notifications).
  * Best-effort: never throws, runs after the business transaction commits.
  */
 
@@ -68,22 +71,24 @@ async function releaseDailyDeliveryFailure(userId: string, claimedAt: Date): Pro
 }
 
 export async function sendWhatsAppToUsers(
-  items: { userId: string; message: WhatsAppTemplateMessage }[],
+  items: { userId: string; message: WhatsAppTemplateMessage; alertType?: string }[],
   options: { oncePerDay?: "delivery_failure" } = {}
 ): Promise<void> {
   try {
     if (items.length === 0) return;
     const users = await prisma.user.findMany({
       where: { id: { in: items.map((i) => i.userId) }, status: "ACTIVE" },
-      select: { id: true, whatsappPhone: true, whatsappVerifiedAt: true, whatsappOptInAt: true },
+      select: { id: true, whatsappPhone: true, whatsappVerifiedAt: true, whatsappOptInAt: true, whatsappMutedAlerts: true },
     });
     const ready = new Map(users.filter(isWhatsAppRecipientReady).map((u) => [u.id, normalizeStaffWhatsAppPhone(u.whatsappPhone)!]));
+    const muted = new Map(users.map((u) => [u.id, u.whatsappMutedAlerts]));
     if (ready.size === 0) return;
     if (!(await isWhatsAppEnabledForTenant())) return;
 
     for (const item of items) {
       const to = ready.get(item.userId);
       if (!to) continue;
+      if (isWhatsAppAlertMuted(muted.get(item.userId), item.alertType)) continue;
       let claimedAt: Date | null = null;
       if (options.oncePerDay === "delivery_failure") {
         claimedAt = await claimDailyDeliveryFailure(item.userId);

@@ -30,7 +30,7 @@ describe("every registered setting is wired, every wired id exists", () => {
   it("each registry entry is referenced by a settings component", () => {
     const unwired = SETTING_IDS.filter((id) => !sources.includes(`"${id}"`));
     expect(unwired).toEqual([]);
-    expect(SETTING_IDS.length).toBe(57);
+    expect(SETTING_IDS.length).toBe(58);
   });
 
   it("each <SettingInfo setting=…> / info=… id is a registry id", () => {

@@ -24,7 +24,7 @@ import {
 } from "./types";
 
 const ORDER_FIELDS = `
-  id name createdAt displayFinancialStatus displayFulfillmentStatus
+  id name createdAt updatedAt displayFinancialStatus displayFulfillmentStatus
   cancelledAt cancelReason
   customer { id email firstName lastName phone }
   email phone note paymentGatewayNames
@@ -260,7 +260,10 @@ export class ShopifyClient {
    * WooCommerce's equivalent `startPage` param and `syncOrders` for why.
    * Each yielded page carries the cursor to resume *after* it, so a
    * caller that stops partway through can persist exactly where to pick
-   * back up.
+   * back up. Newest first (`reverse: true`, 2026-10-12) — the same order
+   * as WooCommerce's REST default, which the resume cursor and the
+   * optional history cutoff rely on (before, Shopify paged oldest first,
+   * so a « Synchroniser » click reached today's orders last).
    */
   async *listAllOrders(
     startCursor?: string | null
@@ -270,7 +273,7 @@ export class ShopifyClient {
       const result: z.infer<typeof shopifyOrdersPageSchema> = await this.request(
         shopifyOrdersPageSchema,
         `query Orders($cursor: String) {
-           orders(first: ${PAGE_SIZE}, after: $cursor, sortKey: CREATED_AT) {
+           orders(first: ${PAGE_SIZE}, after: $cursor, sortKey: CREATED_AT, reverse: true) {
              nodes { ${ORDER_FIELDS} }
              pageInfo { hasNextPage endCursor }
            }

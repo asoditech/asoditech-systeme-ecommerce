@@ -3,8 +3,10 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { loadWooCommerceClient } from "@/lib/integrations/woocommerce/client-loader";
 import { pushStockForWooCommerceOwner } from "@/lib/integrations/woocommerce/sync";
+import { inventoryOwnerOf } from "@/lib/integrations/woocommerce/store-settings";
 import { loadShopifyClient } from "@/lib/integrations/shopify/client-loader";
 import { pushStockForShopifyOwner } from "@/lib/integrations/shopify/sync";
+import { isShopifyIntegrationEnabled } from "@/lib/integrations/shopify/feature-flag";
 
 export interface StockChangeRefs {
   productIds?: (string | null | undefined)[];
@@ -88,17 +90,22 @@ export async function pushStockAfterLocalChange(refs: StockChangeRefs): Promise<
     if (wooOwners.length > 0) {
       const loaded = await loadWooCommerceClient();
       if (loaded) {
+        // « Qui gère le stock ? » = the store → nothing is pushed (stock-push.ts).
+        const inventoryOwner = inventoryOwnerOf(loaded.integration.config);
         for (const owner of wooOwners) {
-          await pushStockForWooCommerceOwner(loaded.client, owner);
+          await pushStockForWooCommerceOwner(loaded.client, owner, { inventoryOwner });
         }
       }
     }
 
-    if (shopifyOwners.length > 0) {
+    // Shopify: never written to while its kill switch is off (feature-flag.ts),
+    // and never when its « Qui gère le stock ? » is the store.
+    if (shopifyOwners.length > 0 && isShopifyIntegrationEnabled()) {
       const loaded = await loadShopifyClient();
       if (loaded) {
+        const inventoryOwner = inventoryOwnerOf(loaded.integration.config);
         for (const owner of shopifyOwners) {
-          await pushStockForShopifyOwner(loaded.client, owner);
+          await pushStockForShopifyOwner(loaded.client, owner, { inventoryOwner });
         }
       }
     }

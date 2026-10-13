@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { requirePermissionForAction, requireUserForAction } from "@/lib/auth/guards";
+import { isWhatsAppAlertType, nextMutedAlerts } from "@/lib/whatsapp/alert-types";
 import { recordAuditEvent } from "@/lib/audit";
 import { notifyConnectionError } from "@/lib/notifications";
 import { checkWhatsAppSender, isWhatsAppConfigured, sendTemplateMessage } from "@/lib/whatsapp/client";
@@ -234,4 +235,20 @@ export async function setMyWhatsAppOptInAction(enabled: boolean): Promise<Action
   await auditOwn(user.id, enabled ? "opt_in" : "opt_out");
   revalidatePath("/parametres/notifications");
   return actionOk(undefined);
+}
+
+/**
+ * Mutes / unmutes ONE WhatsApp alert type for the session user only (own
+ * row, never a user id from the client). In-app and email are unaffected;
+ * an unknown type is refused.
+ */
+export async function setMyWhatsAppAlertMutedAction(type: string, muted: boolean): Promise<ActionResult<{ muted: string[] }>> {
+  const user = await requireUserForAction();
+  if (!isWhatsAppAlertType(type)) return actionError("Type d'alerte inconnu.");
+  const own = await prisma.user.findUniqueOrThrow({ where: { id: user.id }, select: { whatsappMutedAlerts: true } });
+  const next = nextMutedAlerts(own.whatsappMutedAlerts, type, muted);
+  await prisma.user.update({ where: { id: user.id }, data: { whatsappMutedAlerts: next } });
+  await auditOwn(user.id, `${muted ? "alert_muted" : "alert_unmuted"}:${type}`);
+  revalidatePath("/parametres/notifications");
+  return actionOk({ muted: next });
 }

@@ -126,6 +126,9 @@ describe("Shopify stock push — unchanged by Phase 32b (I5)", () => {
 
     const batches: { inventoryItemId: string; locationId: string; quantity: number }[][] = [];
     const client = {
+      async *listAllLocations() {
+        yield []; // no location reported deactivated
+      },
       async setInventoryQuantities(entries: { inventoryItemId: string; locationId: string; quantity: number }[]) {
         batches.push(entries);
       },

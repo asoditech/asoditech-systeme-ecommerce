@@ -163,7 +163,8 @@ export async function reserveForConfirmation(
     orderId: string;
     fulfillmentWarehouseId: string | null;
     lines: ConfirmationStockLine[];
-    confirmerUserId: string;
+    /** Null for a store-driven confirmation (order sync), which never carries an override. */
+    confirmerUserId: string | null;
     override?: PreparedStockOverride | null;
   }
 ): Promise<{ overrideUsed: boolean }> {
@@ -188,7 +189,7 @@ export async function reserveForConfirmation(
     overridden.push(s);
   }
 
-  if (overridden.length > 0 && params.override) {
+  if (overridden.length > 0 && params.override && params.confirmerUserId) {
     await recordAuditEvent(
       {
         actorType: "USER",

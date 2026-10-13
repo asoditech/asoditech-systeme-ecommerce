@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { SYNC_ALREADY_RUNNING_MESSAGE, claimSyncLease, patchIntegrationConfig, releaseSyncLease } from "@/lib/integrations/shared/integration-config";
 import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
 import { InvalidShopDomainError } from "@/lib/integrations/shopify/ssrf";
@@ -10,6 +11,7 @@ import { loadShopifyClient as loadShopifyClientOrNull } from "@/lib/integrations
 import { isShopifyIntegrationEnabled, SHOPIFY_DISABLED_MESSAGE } from "@/lib/integrations/shopify/feature-flag";
 import { syncLocations, syncProducts, syncOrders, pushStockToShopify } from "@/lib/integrations/shopify/sync";
 import type { SyncSummary } from "@/lib/integrations/shopify/sync";
+import { inventoryOwnerOf, inventoryOwnerSchema, type InventoryOwner } from "@/lib/integrations/woocommerce/store-settings";
 import { notifyConnectionError, notifySyncFailure } from "@/lib/notifications";
 import { getTenantUsage } from "@/lib/entitlements/usage";
 import { checkAndNotifyUsageThreshold } from "@/lib/entitlements/alerts";
@@ -213,9 +215,19 @@ export async function syncShopifyOrdersAction(): Promise<ActionResult<{ summary:
   // backfill completes over several runs, which the client re-invokes
   // automatically while summary.hasMore is true. See
   // docs/adr/0011-shopify-integration.md.
-  const result = await runSync(user, integration.id, "COMMANDES", "IMPORT", () =>
-    syncOrders(client, { type: "USER", userId: user.id }, integration.id)
-  );
+  // One orders import at a time per store (double click, two tabs, two
+  // users): the second is refused instead of racing the first.
+  if (!(await claimSyncLease(integration.id, "orders"))) {
+    return actionError(SYNC_ALREADY_RUNNING_MESSAGE);
+  }
+  let result: ActionResult<{ summary: SyncSummary }>;
+  try {
+    result = await runSync(user, integration.id, "COMMANDES", "IMPORT", () =>
+      syncOrders(client, { type: "USER", userId: user.id }, integration.id)
+    );
+  } finally {
+    await releaseSyncLease(integration.id, "orders");
+  }
   // Soft, informational only (docs/adr/0035) — a bulk import never fails
   // or is throttled because of a plan's order limit; checked once per
   // sync run rather than per imported order to stay cheap.
@@ -235,7 +247,53 @@ export async function pushShopifyStockAction(): Promise<ActionResult<{ summary: 
     return actionError(friendlyError(error));
   }
 
-  return runSync(user, integration.id, "STOCK_ENVOI", "EXPORT", () => pushStockToShopify(client));
+  return runSync(user, integration.id, "STOCK_ENVOI", "EXPORT", () =>
+    pushStockToShopify(client, { inventoryOwner: inventoryOwnerOf(integration.config) })
+  );
+}
+
+/**
+ * « Qui gère le stock des produits importés ? » for the Shopify connection —
+ * the same per-connection choice as WooCommerce's (`Integration.config.inventoryOwner`,
+ * missing/invalid = `ASODITECH`, store-settings.ts). `STORE`: the import creates
+ * no stock row and ASODITECH pushes no stock to Shopify; an existing product's
+ * « Suivre le stock » follows Shopify. `ASODITECH`: it stays the user's choice.
+ * Switching never deletes, zeroes or rewrites stock, and starts no import or push.
+ */
+export async function setShopifyInventoryOwnerAction(owner: unknown): Promise<ActionResult<{ owner: InventoryOwner }>> {
+  const user = await requirePermissionForAction("integrations.manage");
+  if (!isShopifyIntegrationEnabled()) return actionError(SHOPIFY_DISABLED_MESSAGE);
+  const parsed = inventoryOwnerSchema.safeParse(owner);
+  if (!parsed.success) return actionError("Choix invalide.");
+
+  const integration = await prisma.integration.findFirst({ where: { provider: "SHOPIFY" } });
+  if (!integration) {
+    return actionError("Configurez d'abord la connexion Shopify.");
+  }
+
+  const previous = inventoryOwnerOf(integration.config);
+  await patchIntegrationConfig(integration.id, { inventoryOwner: parsed.data });
+  // Read-only count, for the record: the rows themselves are left untouched.
+  const linkedStockRows = await prisma.inventoryItem.count({
+    where: {
+      OR: [
+        { product: { source: "SHOPIFY", externalId: { not: null } } },
+        { variation: { source: "SHOPIFY", externalId: { not: null } } },
+      ],
+    },
+  });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "integration.updated",
+    entityType: "Integration",
+    entityId: integration.id,
+    metadata: { provider: "SHOPIFY", change: "inventory_owner", previous, owner: parsed.data, linkedStockRows },
+  });
+
+  revalidatePath("/integrations");
+  return actionOk({ owner: parsed.data });
 }
 
 /**
@@ -251,11 +309,7 @@ export async function setShopifyForceNouvelleOnImportAction(enabled: boolean): P
     return actionError("Configurez d'abord la connexion Shopify.");
   }
 
-  const config = (integration.config as Record<string, unknown> | null) ?? {};
-  await prisma.integration.update({
-    where: { id: integration.id },
-    data: { config: { ...config, forceNouvelleOnImport: enabled } },
-  });
+  await patchIntegrationConfig(integration.id, { forceNouvelleOnImport: enabled });
 
   await recordAuditEvent({
     actorType: "USER",
@@ -264,6 +318,39 @@ export async function setShopifyForceNouvelleOnImportAction(enabled: boolean): P
     entityType: "Integration",
     entityId: integration.id,
     metadata: { provider: "SHOPIFY", change: "force_nouvelle_on_import", enabled },
+  });
+
+  revalidatePath("/integrations");
+  return actionOk({ enabled });
+}
+
+/**
+ * « Importer l'historique des commandes » (per connection, stored on
+ * `Integration.config`, default ON = unchanged). OFF sets the cutoff to now:
+ * the bulk « Synchroniser les commandes » then ignores orders placed before
+ * it, while newer orders (bulk sync and webhooks) keep being imported.
+ * Orders already imported are never removed. Turning it back ON clears the
+ * cutoff — the next syncs import the history again.
+ */
+export async function setShopifyImportHistoricalOrdersAction(enabled: boolean): Promise<ActionResult<{ enabled: boolean }>> {
+  const user = await requirePermissionForAction("integrations.manage");
+  if (!isShopifyIntegrationEnabled()) return actionError(SHOPIFY_DISABLED_MESSAGE);
+
+  const integration = await prisma.integration.findFirst({ where: { provider: "SHOPIFY" } });
+  if (!integration) {
+    return actionError("Configurez d'abord la connexion Shopify.");
+  }
+
+  const cutoff = enabled ? null : new Date().toISOString();
+  await patchIntegrationConfig(integration.id, { importHistoricalOrders: enabled, historyCutoffAt: cutoff });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "integration.updated",
+    entityType: "Integration",
+    entityId: integration.id,
+    metadata: { provider: "SHOPIFY", change: "import_historical_orders", enabled, historyCutoffAt: cutoff },
   });
 
   revalidatePath("/integrations");

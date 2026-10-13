@@ -189,6 +189,16 @@ export async function deleteTenantData(tenantId: string): Promise<DeleteTenantRe
         const existing = await tx.tenant.findUnique({ where: { id: tenantId }, select: { id: true, slug: true } });
         if (!existing) throw new TenantNotFoundError(tenantId);
 
+        // Backstop against a change landing between the check above and the
+        // commit (subscription moved off TRIALING, a platform admin added):
+        // lock the tenant row (a new user's FK check waits on it) and its
+        // subscription row (a status change waits on it), then apply the
+        // same rule again on this transaction's own view.
+        await tx.$queryRaw`SELECT id FROM "tenants" WHERE id = ${tenantId} FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM "tenant_subscriptions" WHERE "tenantId" = ${tenantId} FOR UPDATE`;
+        const lateRefusal = await purgeRefusal(tenantId, tx as unknown as Pick<typeof prismaBase, "tenant" | "tenantSubscription" | "user">);
+        if (lateRefusal) throw new TenantNotPurgeableError(lateRefusal);
+
         const deletedCounts: Record<string, number> = {};
         let totalDeleted = 0;
 

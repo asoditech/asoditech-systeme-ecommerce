@@ -2,7 +2,9 @@ import "server-only";
 
 import { z } from "zod";
 import {
+  apiErrorForResponse,
   authErrorForCode,
+  notFoundErrorForBody,
   errorForStatus,
   WooCommerceMalformedResponseError,
   WooCommerceTimeoutError,
@@ -32,6 +34,9 @@ const PER_PAGE = 50;
  * a business limit; a store with more than this many items needs a
  * dedicated background/queued sync design this phase doesn't build. */
 const MAX_PAGES = 200;
+/** Only the start of an error body is ever read — a WooCommerce error is a
+ * small `{ code, message, data }` object; anything longer is not one. */
+const MAX_ERROR_BODY_CHARS = 8_000;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -112,7 +117,10 @@ export class WooCommerceClient {
    * at WooCommerce's machine-readable `code` slug (safe closed vocabulary,
    * never interpolated — see errors.ts) to tell "key rejected" apart from
    * "credentials never reached WooCommerce" (a stripped Authorization
-   * header). Reads a `clone()` so the caller can still consume the body.
+   * header). Any other 4xx except 404/429 is WooCommerce rejecting the
+   * request itself (duplicate SKU, image it could not download…): its
+   * bounded `{ code, message }` is kept in a WooCommerceApiError instead of
+   * being discarded. Reads a `clone()` so the caller can still consume the body.
    */
   private async errorForResponse(response: Response): Promise<Error> {
     if (response.status === 401 || response.status === 403) {
@@ -124,6 +132,25 @@ export class WooCommerceClient {
         // no or non-JSON body — authErrorForCode handles `undefined`
       }
       return authErrorForCode(response.status, code);
+    }
+    if (response.status >= 400 && response.status < 500 && response.status !== 404 && response.status !== 429) {
+      let body: unknown;
+      try {
+        body = JSON.parse((await response.clone().text()).slice(0, MAX_ERROR_BODY_CHARS));
+      } catch {
+        // empty, truncated or non-JSON body — the status alone still reaches the caller
+      }
+      return apiErrorForResponse(response.status, body);
+    }
+    if (response.status === 404) {
+      // Same message as before; only WooCommerce's slug is kept (remote-deletion check).
+      let body: unknown;
+      try {
+        body = JSON.parse((await response.clone().text()).slice(0, MAX_ERROR_BODY_CHARS));
+      } catch {
+        // HTML page, empty body… — no slug, the 404 stays ambiguous
+      }
+      return notFoundErrorForBody(body);
     }
     return errorForStatus(response.status);
   }

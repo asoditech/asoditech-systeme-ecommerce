@@ -5,14 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SoundToggle } from "@/components/notifications/sound-toggle";
 import type { AlertRule, Channel, WhatsAppStatus } from "@/lib/notification-settings";
+import type { WhatsAppAlertType } from "@/lib/whatsapp/alert-types";
+import { WhatsAppAlertMuteToggle } from "@/components/settings/whatsapp-alert-mute-toggle";
 import { cn } from "@/lib/utils";
 import { SettingInfo } from "@/components/settings/setting-info";
 
 /**
  * Paramètres → Notifications building blocks (docs/adr/0058 "Final
  * responsibility split"). Informational except where a control maps to a
- * real backend behaviour: the sound switch (this browser only) and the
- * WhatsApp opt-in (WhatsAppNotificationsCard). No fake switches.
+ * real backend behaviour: the sound switch (this browser only), the
+ * WhatsApp opt-in (WhatsAppNotificationsCard) and the per-alert WhatsApp
+ * mute (User.whatsappMutedAlerts, read by the dispatcher). No fake switches.
  */
 
 function SectionIcon({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -93,11 +96,13 @@ export function AlertPreferencesCard({
   alerts,
   emailAvailable,
   whatsappStatus,
+  whatsappMuted = [],
   locationScope,
 }: {
   alerts: AlertRule[];
   emailAvailable: boolean;
   whatsappStatus: WhatsAppStatus;
+  whatsappMuted?: readonly WhatsAppAlertType[];
   locationScope: { global: boolean; count: number };
 }) {
   const live: Record<Channel, boolean> = { inApp: true, email: emailAvailable, whatsapp: whatsappStatus === "active" };
@@ -143,6 +148,17 @@ export function AlertPreferencesCard({
                   {(["inApp", "email", "whatsapp"] as const).map((c) => {
                     const supported = a.channels.includes(c);
                     const on = supported && live[c];
+                    // A live WhatsApp channel on an alert that has one: a real per-alert switch.
+                    if (c === "whatsapp" && on && a.whatsappType) {
+                      return (
+                        <WhatsAppAlertMuteToggle
+                          key={c}
+                          type={a.whatsappType}
+                          muted={whatsappMuted.includes(a.whatsappType)}
+                          label={a.label}
+                        />
+                      );
+                    }
                     return (
                       <span
                         key={c}
@@ -169,6 +185,11 @@ export function AlertPreferencesCard({
         <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
           <Check className="size-3 text-emerald-700" /> envoyé à vous · <Minus className="size-3" /> non envoyé (canal inactif ou non
           proposé pour cette alerte)
+          {whatsappStatus === "active" ? " · cliquez sur « WhatsApp » pour couper ou réactiver une alerte sur WhatsApp uniquement" : ""}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          WhatsApp : alertes internes à l&apos;équipe, envoyées automatiquement par l&apos;API WhatsApp Cloud. Les messages aux
+          clients restent des liens wa.me ouverts à la main — rien n&apos;est envoyé aux clients automatiquement.
         </p>
       </CardContent>
     </Card>

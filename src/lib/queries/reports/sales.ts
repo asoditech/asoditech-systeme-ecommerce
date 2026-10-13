@@ -5,7 +5,7 @@ import { displayOrderChannel } from "@/lib/format";
 import { REVENUE_EXCLUDED_STATUSES } from "@/lib/profitability";
 import type { PeriodRange } from "@/lib/queries/finance";
 import { deltaPct } from "@/lib/reports/range";
-import type { OrderStatus, OrderPaymentStatus } from "@prisma/client";
+import type { OrderStatus, OrderPaymentStatus, Prisma } from "@prisma/client";
 import { bucketKey, bucketKeys } from "@/lib/analytics/period";
 import { getBusinessTimeZone } from "@/lib/time/business-zone";
 import { asPct, averageBasket, confirmationRatePct, countOutcomes, deliveryOutcomeRate, netRevenue, orderDeliveryOutcome } from "@/lib/metrics/formulas";
@@ -63,9 +63,9 @@ const MONTH_LABELS = [
 
 type OrderRow = Awaited<ReturnType<typeof fetchOrders>>[number];
 
-function fetchOrders(range: PeriodRange) {
+function fetchOrders(range: PeriodRange, scope: Prisma.OrderWhereInput) {
   return prisma.order.findMany({
-    where: { placedAt: { gte: range.from, lte: range.to } },
+    where: { AND: [{ placedAt: { gte: range.from, lte: range.to } }, scope] },
     select: {
       status: true,
       paymentStatus: true,
@@ -125,8 +125,9 @@ function kpiFrom(orders: OrderRow[]): SalesKpi {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
-export async function getSalesReport(range: PeriodRange, previous: PeriodRange): Promise<SalesReport> {
-  const [orders, prevOrders] = await Promise.all([fetchOrders(range), fetchOrders(previous)]);
+/** `scope` narrows every figure (KPIs, previous period, series, breakdowns) — e.g. one online channel (`reportOrderScope`). */
+export async function getSalesReport(range: PeriodRange, previous: PeriodRange, scope: Prisma.OrderWhereInput = {}): Promise<SalesReport> {
+  const [orders, prevOrders] = await Promise.all([fetchOrders(range, scope), fetchOrders(previous, scope)]);
 
   const current = kpiFrom(orders);
   const prev = kpiFrom(prevOrders);

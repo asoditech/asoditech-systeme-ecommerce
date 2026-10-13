@@ -11,6 +11,7 @@ import {
   FAKE_CONSUMER_SECRET,
   emptyFakeStore,
   installFakeWooCommerceServer,
+  wooErrorBody,
 } from "../helpers/fake-woocommerce";
 import { FAKE_SHOP_DOMAIN, FAKE_ACCESS_TOKEN, emptyFakeShopifyStore, installFakeShopifyServer } from "../helpers/fake-shopify";
 
@@ -235,6 +236,159 @@ describe("publishProductAction — WooCommerce (Batch 13)", () => {
 
     await prismaBase.product.delete({ where: { id: foreignProduct.id } }).catch(() => {});
     await prismaBase.tenant.delete({ where: { id: TENANT_B } }).catch(() => {});
+  });
+});
+
+// Phase 1 — a WooCommerce 4xx used to collapse into « réponse inattendue »
+// with its error code discarded. These go through the real action + client
+// against the fake store, with the rejection injected at a given step.
+describe("publishProductAction — WooCommerce rejection diagnostics", () => {
+  let warn: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(async () => {
+    await resetDb();
+    mockCookieStore.clear();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  /** Every request the fake store received, as `METHOD /path`. */
+  const storeCalls = () =>
+    (globalThis.fetch as unknown as { mock: { calls: [string | URL, RequestInit | undefined][] } }).mock.calls.map(
+      ([input, init]) => `${init?.method ?? "GET"} ${new URL(input.toString()).pathname.replace("/wp-json/wc/v3", "")}`
+    );
+  const publicationCount = (productId: string) => prisma.productPublication.count({ where: { productId } });
+  const publishedAudits = () => prisma.auditEvent.count({ where: { action: "product.published" } });
+  const expectNoSecrets = (text: string) => {
+    for (const secret of [FAKE_CONSUMER_KEY, FAKE_CONSUMER_SECRET, "Basic ", "Authorization"]) expect(text).not.toContain(secret);
+  };
+
+  it("duplicate SKU on the parent: concise French message, product step, not retried, nothing recorded", async () => {
+    await loginAsTestUser({ role: "OWNER" });
+    const product = await seedProduct();
+    const state = await connectWooCommerce();
+    state.productCreateError = { status: 400, body: wooErrorBody("product_invalid_sku", "Invalid or duplicated SKU.") };
+
+    const result = await publishProductAction({ productId: product.id, provider: "WOOCOMMERCE" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("Publication impossible. WooCommerce a refusé le produit : SKU déjà utilisé sur la boutique.");
+    expect(storeCalls().filter((c) => c === "POST /products")).toHaveLength(1); // a 400 is never retried
+    expect(await publicationCount(product.id)).toBe(0);
+    expect(await publishedAudits()).toBe(0);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][1]).toMatchObject({
+      stage: "product",
+      errorType: "API_ERROR",
+      httpStatus: 400,
+      remoteCode: "product_invalid_sku",
+      productId: product.id,
+    });
+  });
+
+  it("image the store cannot download: actionable message; no remote text, markup or credentials leak", async () => {
+    await loginAsTestUser({ role: "OWNER" });
+    const product = await seedProduct();
+    const state = await connectWooCommerce();
+    state.productCreateError = {
+      status: 400,
+      body: wooErrorBody(
+        "woocommerce_product_image_upload_error",
+        "<strong>Erreur</strong> : impossible de télécharger https://cdn.example.net/private/photo.jpg — 403 Forbidden"
+      ),
+    };
+
+    const result = await publishProductAction({ productId: product.id, provider: "WOOCOMMERCE" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe(
+      "Publication impossible. WooCommerce a refusé le produit : Image inaccessible pour la boutique. Vérifiez que l’URL est publique et que l’image peut être téléchargée par WooCommerce."
+    );
+    expect(result.error).not.toMatch(/<strong>|cdn\.example\.net|Forbidden|\{/);
+    expectNoSecrets(result.error);
+    const logged = JSON.stringify(warn.mock.calls);
+    expectNoSecrets(logged);
+    expect(logged).not.toMatch(/cdn\.example\.net|Forbidden|T-Shirt Publishable/);
+    expect(await publicationCount(product.id)).toBe(0);
+  });
+
+  it("variation rejected after the parent was created: names the variation and the parent's remote id; no publication, no delete", async () => {
+    await loginAsTestUser({ role: "OWNER" });
+    const product = await seedProduct();
+    const s = await prisma.productVariation.create({
+      data: { productId: product.id, sku: `${product.sku}-S`, attributes: { Taille: "S" }, isActive: true },
+    });
+    const m = await prisma.productVariation.create({
+      data: { productId: product.id, sku: `${product.sku}-M`, attributes: { Taille: "M" }, isActive: true },
+    });
+    const state = await connectWooCommerce();
+    state.variationCreateError = { status: 400, body: wooErrorBody("product_invalid_sku", "Invalid or duplicated SKU."), onCall: 2 };
+
+    const result = await publishProductAction({ productId: product.id, provider: "WOOCOMMERCE" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+
+    // The parent was created (id 80001) and the first variation went through.
+    expect(state.productCreates).toHaveLength(1);
+    expect(state.variationCreates).toHaveLength(1);
+    const failed = state.variationCreates[0].body.sku === s.sku ? m : s;
+    const size = failed.id === s.id ? "S" : "M";
+
+    expect(result.error).toBe(
+      `Publication impossible. WooCommerce a refusé la variation « ${failed.sku} » (Taille : ${size}) : SKU déjà utilisé sur la boutique. ` +
+        "Le produit parent a déjà été créé sur WooCommerce (ID 80001) : vérifiez le catalogue WooCommerce avant de réessayer la publication."
+    );
+    expect(await publicationCount(product.id)).toBe(0);
+    expect(await publishedAudits()).toBe(0);
+    expect(storeCalls().some((c) => c.startsWith("DELETE"))).toBe(false);
+    expect(storeCalls().filter((c) => c === "POST /products")).toHaveLength(1); // parent never re-created
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][1]).toMatchObject({
+      stage: "variation",
+      httpStatus: 400,
+      remoteCode: "product_invalid_sku",
+      productId: product.id,
+      variationId: failed.id,
+      remoteParentId: 80001,
+    });
+  });
+
+  it("unknown, malformed or empty error bodies: bounded fallback with the status, and the slug only when it is a real one", async () => {
+    await loginAsTestUser({ role: "OWNER" });
+    const product = await seedProduct();
+    const state = await connectWooCommerce();
+    const publish = async () => {
+      const r = await publishProductAction({ productId: product.id, provider: "WOOCOMMERCE" });
+      expect(r.ok).toBe(false);
+      return r.ok ? "" : r.error;
+    };
+
+    state.productCreateError = { status: 400, body: wooErrorBody("woocommerce_rest_invalid_product_type", "x".repeat(5000)) };
+    expect(await publish()).toBe(
+      "Publication impossible. WooCommerce a refusé le produit : La boutique WooCommerce a refusé la requête (HTTP 400, code « woocommerce_rest_invalid_product_type »)."
+    );
+
+    state.productCreateError = { status: 400, body: "<html><body>Bad Request — ModSecurity</body></html>" };
+    expect(await publish()).toBe(
+      "Publication impossible. WooCommerce a refusé le produit : La boutique WooCommerce a refusé la requête (HTTP 400)."
+    );
+
+    state.productCreateError = { status: 422, body: "" };
+    expect(await publish()).toMatch(/\(HTTP 422\)\.$/);
+
+    state.productCreateError = { status: 400, body: JSON.stringify({ code: "<script>alert(1)</script> not a slug", message: "m" }) };
+    const unsafe = await publish();
+    expect(unsafe).toMatch(/\(HTTP 400\)\.$/);
+    expect(unsafe).not.toMatch(/script/);
+
+    expect(await publicationCount(product.id)).toBe(0);
   });
 });
 

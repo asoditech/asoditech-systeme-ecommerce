@@ -181,6 +181,19 @@ describe("channel report — Online / Offline / Total from the underlying source
     const res = await exportReport(new Request("http://x/rapports/export/canaux"), { params: Promise.resolve({ type: "canaux" }) });
     expect(res.status).toBe(403);
   });
+
+  it("the CSV payment-method rows use the same labels as the page (« Espèces », never the raw ESPECES)", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const w = await seedWorld();
+    await sell(w.chA.id, w.whA.id, w.product.id, 3, "ESPECES");
+    await sell(w.chA.id, w.whA.id, w.product.id, 2, "CARTE");
+
+    const csv = await (await exportReport(new Request("http://x/rapports/export/canaux"), { params: Promise.resolve({ type: "canaux" }) })).text();
+    expect(csv).toContain("Magasin — par mode de paiement");
+    expect(csv).toContain("Espèces");
+    expect(csv).toContain("Carte bancaire");
+    expect(csv).not.toMatch(/\bESPECES\b|\bCARTE\b/);
+  });
 });
 
 // Batch 15 — the returns report now covers BOTH domains: Online

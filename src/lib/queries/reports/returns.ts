@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { PeriodRange } from "@/lib/queries/finance";
 import { displayOrderRecipient } from "@/lib/format";
@@ -58,9 +59,9 @@ export interface ReturnsReport {
   byOrder: ReturnsByOrderRow[];
 }
 
-export async function getReturnsReport(range: PeriodRange): Promise<ReturnsReport> {
+export async function getReturnsReport(range: PeriodRange, scope: Prisma.OrderWhereInput = {}): Promise<ReturnsReport> {
   const returns = await prisma.orderReturn.findMany({
-    where: { receivedAt: { gte: range.from, lte: range.to } },
+    where: { receivedAt: { gte: range.from, lte: range.to }, ...(Object.keys(scope).length ? { order: scope } : {}) },
     orderBy: { receivedAt: "desc" },
     include: {
       order: {

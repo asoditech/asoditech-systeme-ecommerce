@@ -49,6 +49,7 @@ export default async function NotificationSettingsPage() {
             alerts={settings.alerts}
             emailAvailable={settings.email.available}
             whatsappStatus={settings.whatsapp.status}
+            whatsappMuted={settings.whatsappMuted}
             locationScope={settings.locationScope}
           />
           <AccountSecurityCard />

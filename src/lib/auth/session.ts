@@ -85,7 +85,7 @@ export async function destroyAllSessionsForTenant(tenantId: string): Promise<voi
  * `channels` = which business channels the user may act on and read. Every
  * guard and UI visibility check reads these — never `role` directly.
  */
-export type CurrentUser = Pick<User, "id" | "email" | "name" | "role" | "status" | "tenantId" | "isPlatformAdmin"> &
+export type CurrentUser = Pick<User, "id" | "email" | "name" | "role" | "status" | "tenantId" | "isPlatformAdmin" | "navFavorites"> &
   EffectiveAccess & {
     /** Location read scope (docs/adr/0050): global for OWNER/ADMIN, else exactly the user's UserLocation rows. */
     locations: LocationScope;
@@ -150,7 +150,7 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
     if (touched.count === 0) return null;
   }
 
-  const { id, email, name, role, status, tenantId, isPlatformAdmin } = session.user;
+  const { id, email, name, role, status, tenantId, isPlatformAdmin, navFavorites } = session.user;
   const [access, locations] = await Promise.all([
     loadEffectiveAccess({
       id,
@@ -160,7 +160,7 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
     }),
     loadLocationScope({ id, role }),
   ]);
-  return { id, email, name, role, status, tenantId, isPlatformAdmin, ...access, locations };
+  return { id, email, name, role, status, tenantId, isPlatformAdmin, navFavorites, ...access, locations };
 });
 
 export { SESSION_COOKIE };

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Boxes, Download, Warehouse } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { redirect } from "next/navigation";
@@ -124,6 +125,7 @@ export default async function StockPage({
         }
       />
 
+      <MissingCostBanner user={user} />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <FilterSearchInput placeholder="Produit ou SKU..." defaultValue={params.q} className="w-56" />
         <FilterSelect

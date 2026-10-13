@@ -64,3 +64,37 @@ addendum.
   generation, automatic tracking updates, webhook-driven status sync).
 - **Delivery zone / rate configuration** beyond the free-form `config`
   JSON field.
+
+## Addendum 2026-10-12 — « Retourné » now moves the order to « Retour »
+
+Supersedes the "deliberately not extended to `RETOURNE`" sentence above, for
+`RETOURNE` only. A returned parcel has exactly one meaning for its order — the
+goods are coming back — and leaving the order `EXPEDIEE` made the returns
+workspace, the order list and the reports disagree.
+
+`applyShipmentStatusTransition` (src/lib/delivery.ts), the single writer of
+`Shipment.status` (manual « Modifier le statut », carrier sync, Suivi
+refresh), now also moves the order to `RETOUR` when the parcel becomes
+`RETOURNE`, in the same transaction, when ALL hold:
+
+- the order's own table allows it (`EXPEDIEE → RETOUR`, `LIVREE → RETOUR`);
+  any other status (`ECHEC` set by staff, `ANNULEE`, `RETOUR`, `REMBOURSEE`)
+  is left unchanged;
+- no OTHER parcel of the order is live (`EN_ATTENTE` / `EN_TRANSIT`) or
+  `LIVRE` — an old leg coming back is not the order's outcome;
+- the conditional update on the status read under the order row lock
+  matches (a replayed carrier event is already refused by the shipment's own
+  conditional update; nothing is applied twice).
+
+What it does NOT do: no stock movement (`RETOUR` is a workflow label —
+docs/adr/0036; units come back exactly once through reception → inspection
+in /livraison/retours or the order's physical-return dialog, which own the
+per-item ceiling), no payment change, no carrier call. Post-commit: the
+existing « Commande retournée » alert (deduped per order) and the commission
+reconcile (reverses a commission earned on `LIVREE`), as the manual RETOUR
+already did. Audited as `order.status_changed` with
+`metadata.reason = "shipment_returned"`.
+
+`ECHEC` (failed / refused) is unchanged: the parcel may still be re-delivered
+or cancelled — staff judgment. Tests: `tests/actions/shipment-order-sync.test.ts`
+(« C1 » block).

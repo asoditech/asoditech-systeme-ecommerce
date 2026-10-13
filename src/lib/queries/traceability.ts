@@ -44,6 +44,59 @@ export type MovementDocument =
   | { kind: "order"; label: string; href: string; extra: null }
   | { kind: "order_return"; label: string; href: string; extra: null };
 
+/**
+ * Why a movement row shows no cost — never a guessed number:
+ *  - `recorded`: the movement carries its own unit cost (reception, received
+ *    transfer with a destination cost, store sale snapshot);
+ *  - `not_recorded`: this movement type / this row never stored a cost (online
+ *    order reservation/fulfilment, returns, adjustments, stocktakes, legacy…);
+ *  - `hidden`: a cost exists but the viewer may not see it (non-reception cost
+ *    without `finance.view`).
+ */
+export type MovementCostState = "recorded" | "not_recorded" | "hidden";
+
+/**
+ * The unit's CURRENT reference purchase cost (what a new sale would snapshot):
+ * variation cost → product cost, plus each visible location's own cost when
+ * set (src/lib/catalog/location-cost.ts). Not a historical value — shown
+ * beside the history, never written into a movement row.
+ */
+export interface ReferenceCost {
+  /** null = no purchase cost anywhere on the product / variation. */
+  global: number | null;
+  globalSource: "variation" | "product" | null;
+  locations: { warehouseId: string; warehouseName: string; cost: number }[];
+}
+
+export function referenceCostOf(
+  variation: { cost: unknown } | null,
+  product: { cost: unknown },
+  items: { warehouse: { id: string; name: string }; currentUnitCost: unknown }[]
+): ReferenceCost {
+  const v = variation?.cost ?? null;
+  const p = product.cost ?? null;
+  return {
+    global: v !== null ? Number(v) : p !== null ? Number(p) : null,
+    globalSource: v !== null ? "variation" : p !== null ? "product" : null,
+    locations: items
+      .filter((i) => i.currentUnitCost !== null && i.currentUnitCost !== undefined)
+      .map((i) => ({ warehouseId: i.warehouse.id, warehouseName: i.warehouse.name, cost: Number(i.currentUnitCost) })),
+  };
+}
+
+export function movementCostState(
+  rawCost: unknown,
+  type: string,
+  visibility: { cost: boolean; purchasePrices: boolean }
+): { unitCost: number | null; costState: MovementCostState } {
+  if (rawCost === null || rawCost === undefined) return { unitCost: null, costState: "not_recorded" };
+  // A RECEPTION movement's unit cost is the purchase price paid —
+  // `purchases.view` (docs/adr/0052); any other movement's cost stays
+  // `finance.view` (docs/adr/0043, 0048). null — never sent — otherwise.
+  if (visibility.cost || (type === "RECEPTION" && visibility.purchasePrices)) return { unitCost: Number(rawCost), costState: "recorded" };
+  return { unitCost: null, costState: "hidden" };
+}
+
 export async function getUnitTraceability(viewer: Viewer, ref: { productId: string; variationId: string | null }) {
   const visibility = productCostVisibility(viewer);
   // Only the viewer's own locations (docs/adr/0050): stock rows, and through
@@ -108,6 +161,9 @@ export async function getUnitTraceability(viewer: Viewer, ref: { productId: stri
       status: product.status,
       barcodes: (variation ? variation.barcodes : product.barcodes).map((b) => ({ code: b.code, isPrimary: b.isPrimary })),
     },
+    // Product / variation / location cost = `finance.view` (ADR 0042/0052): null otherwise.
+    referenceCost: visibility.cost ? referenceCostOf(variation, product, items) : null,
+    productHref: `/produits/${product.id}`,
     stock: items.map((i) => ({
       warehouseId: i.warehouse.id,
       warehouseName: i.warehouse.name,
@@ -126,10 +182,7 @@ export async function getUnitTraceability(viewer: Viewer, ref: { productId: stri
       /** null = a pre-cut-over movement: no signed delta was recorded. */
       onHandDelta: m.onHandDelta,
       onHandAfter: m.onHandAfter,
-      // A RECEPTION movement's unit cost is the purchase price paid —
-      // `purchases.view` (docs/adr/0052); any other movement's cost stays
-      // `finance.view` (docs/adr/0043, 0048). null — never sent — otherwise.
-      unitCost: m.unitCost && (visibility.cost || (m.type === "RECEPTION" && visibility.purchasePrices)) ? Number(m.unitCost) : null,
+      ...movementCostState(m.unitCost, m.type, visibility),
       location: m.warehouse.name,
       actor: m.performedBy?.name ?? m.performedByName ?? null,
       reason: m.reason,

@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { REVENUE_EXCLUDED_STATUSES } from "@/lib/profitability";
 import type { PeriodRange } from "@/lib/queries/finance";
@@ -42,9 +43,10 @@ export interface CustomerReport {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
-export async function getCustomerReport(range: PeriodRange): Promise<CustomerReport> {
+/** `scope` narrows the period's orders (e.g. one online channel). « Nouveau » still means the buyer's first order anywhere. */
+export async function getCustomerReport(range: PeriodRange, scope: Prisma.OrderWhereInput = {}): Promise<CustomerReport> {
   const windowOrders = await prisma.order.findMany({
-    where: { placedAt: { gte: range.from, lte: range.to }, status: { notIn: REVENUE_EXCLUDED_STATUSES } },
+    where: { AND: [{ placedAt: { gte: range.from, lte: range.to }, status: { notIn: REVENUE_EXCLUDED_STATUSES } }, scope] },
     select: {
       customerId: true,
       total: true,

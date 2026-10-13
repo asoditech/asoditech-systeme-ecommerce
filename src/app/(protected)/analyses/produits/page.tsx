@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/page-header";
+import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AnalyticsNav } from "@/components/analytics/analytics-nav";
 import { AnalyticsFilterBar, type AnalyticsFilterControl } from "@/components/analytics/analytics-filter-bar";
@@ -9,6 +10,7 @@ import { analyticsContext } from "@/lib/analytics/context";
 import { analyticsQuery, SOURCE_KEYS, sortRows, sourceLabel } from "@/lib/analytics/filters";
 import { getOnlineProductPerformance, getStoreProductPerformance, type ProductRow } from "@/lib/analytics/queries/products";
 import { getStoreFilterOptions } from "@/lib/analytics/queries/store";
+import { getOnlineFilterOptions } from "@/lib/analytics/queries/online";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/format";
 
@@ -31,15 +33,20 @@ export default async function ProductAnalyticsPage({ searchParams }: { searchPar
   const ctx = await analyticsContext(await searchParams, "products");
   const { access, period, filters, user } = ctx;
   const withFinance = access.finance;
-  const [online, store, categories, storeOptions] = await Promise.all([
+  const [online, store, categories, storeOptions, onlineOptions] = await Promise.all([
     access.online ? getOnlineProductPerformance(period.range, filters, { withFinance }) : null,
     access.store ? getStoreProductPerformance(user, period.range, filters, { withFinance }) : null,
     prisma.category.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
     access.store ? getStoreFilterOptions(user) : null,
+    access.online ? getOnlineFilterOptions() : null,
   ]);
 
   const controls: AnalyticsFilterControl[] = [{ paramKey: "categorie", value: filters.categoryId, allLabel: "Toutes les catégories", options: categories.map((c) => ({ value: c.id, label: c.name })) }];
   if (access.online) controls.unshift({ paramKey: "source", value: filters.source, allLabel: "Toutes les origines", options: SOURCE_KEYS.map((k) => ({ value: k, label: sourceLabel(k) })) });
+  // Same rule as the overview: the online-channel filter only when the tenant
+  // has more than one online channel (orderFilterWhere already applies it).
+  if (onlineOptions && onlineOptions.onlineChannels.length > 1)
+    controls.splice(1, 0, { paramKey: "canal", value: filters.onlineChannelId, allLabel: "Tous les canaux en ligne", options: onlineOptions.onlineChannels.map((c) => ({ value: c.id, label: c.name })) });
   if (storeOptions) {
     controls.push({ paramKey: "magasin", value: filters.storeChannelId, allLabel: "Tous mes magasins", options: storeOptions.storeChannels.map((c) => ({ value: c.id, label: c.name })) });
     controls.push({ paramKey: "emplacement", value: filters.warehouseId, allLabel: "Tous mes emplacements", options: storeOptions.warehouses.map((w) => ({ value: w.id, label: w.name })) });
@@ -51,6 +58,7 @@ export default async function ProductAnalyticsPage({ searchParams }: { searchPar
     <div className="space-y-6">
       <PageHeader title="Analyses — Produits" description={`Unités, commandes, chiffre d'affaires et retours par produit et variation — ${period.label}.`} />
       <AnalyticsNav access={access} active="products" query={ctx.periodQuery} />
+      <MissingCostBanner user={user} />
       <AnalyticsFilterBar basePath="/analyses/produits" period={period} filterParams={ctx.filterParams} controls={controls} exportHref={`/analyses/export/produits?${analyticsQuery(period, filters)}`} />
 
       {online && (

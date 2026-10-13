@@ -335,6 +335,29 @@ export const SETTINGS_EXPLANATIONS = {
     ),
   },
 
+  autoPaymentFromStore: {
+    labels: ["Paiement confirmé par la boutique"],
+    screens: ["configuration"],
+    source: "src/actions/settings.ts — updateAutoPaymentFromStoreAction ; src/lib/orders/store-payment.ts — applyStorePaymentConfirmation",
+    access: MANAGE,
+    text: bi(
+      {
+        definition: "Met à jour le statut de paiement d'une commande importée quand la boutique (WooCommerce ou Shopify) la signale payée.",
+        calculation: "Activé : à la synchronisation ou au webhook, une commande importée « En attente » dont la boutique indique un paiement (WooCommerce : date de paiement renseignée ; Shopify : statut financier « Payé ») passe « Payé », avec une entrée dans l'historique. Désactivé (par défaut) : le paiement se change à la main.",
+        scope: "Commandes importées de WooCommerce / Shopify uniquement ; jamais les commandes créées dans ASODITECH.",
+        example: "Commande WooCommerce payée par carte : la boutique enregistre la date de paiement → la commande passe « Payé » à la prochaine synchronisation.",
+        caveats: "Une livraison « Livré » par le transporteur ne marque jamais une commande payée : elle ne prouve pas que l'argent a été encaissé. Un statut « Payé », « Remboursé » ou « Échec » déjà posé n'est jamais modifié.",
+      },
+      {
+        definition: "يحدّث حالة الدفع لطلب مستورد عندما يشير المتجر (WooCommerce أو Shopify) إلى أنه مدفوع.",
+        calculation: "مفعّل: عند المزامنة أو الـ webhook، ينتقل الطلب المستورد « En attente » الذي يشير المتجر إلى دفعه (WooCommerce: تاريخ الدفع مسجّل؛ Shopify: الحالة المالية « مدفوع ») إلى « Payé »، مع تسجيل في السجل. غير مفعّل (افتراضيًا): يُغيَّر الدفع يدويًا.",
+        scope: "الطلبات المستوردة من WooCommerce / Shopify فقط؛ ليس الطلبات المنشأة في ASODITECH.",
+        example: "طلب WooCommerce مدفوع بالبطاقة: يسجّل المتجر تاريخ الدفع ← يصبح الطلب « Payé » في المزامنة التالية.",
+        caveats: "التسليم « Livré » من شركة النقل لا يجعل الطلب مدفوعًا أبدًا: لا يثبت تحصيل المبلغ. لا تُغيَّر أبدًا حالة « Payé » أو « Remboursé » أو « Échec » موجودة.",
+      }
+    ),
+  },
+
   // ------------------------------------------------------------ Expédition
   packingVerification: {
     labels: ["Vérification avant expédition"],
@@ -621,14 +644,14 @@ export const SETTINGS_EXPLANATIONS = {
     access: VIEW,
     text: bi(
       {
-        definition: "Votre forfait, son prix mensuel et l'état de l'abonnement.",
+        definition: "Votre forfait et l'état de l'abonnement.",
         calculation: "Lecture seule : le forfait et ses limites sont fixés par l'équipe ASODITECH. Badges possibles : « Essai », « Paiement en retard », « Résilié ».",
-        example: "BUSINESS — 299 MAD / mois (montant fictif).",
+        example: "BUSINESS avec le badge « Essai » : le forfait est en période d'essai.",
       },
       {
-        definition: "باقتك وثمنها الشهري وحالة الاشتراك.",
+        definition: "باقتك وحالة الاشتراك.",
         calculation: "للقراءة فقط: يحدّد فريق ASODITECH الباقة وحدودها. الشارات الممكنة: « Essai » و« Paiement en retard » و« Résilié ».",
-        example: "BUSINESS — 299 MAD في الشهر (مبلغ وهمي).",
+        example: "BUSINESS مع الشارة « Essai »: الباقة في فترة التجربة.",
       }
     ),
   },

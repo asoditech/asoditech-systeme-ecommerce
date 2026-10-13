@@ -149,9 +149,9 @@ describe("the alert list shown to a user = the alerts the engine actually delive
     }
   });
 
-  it("only the three supported critical alerts offer WhatsApp; email also covers the plan limit", () => {
+  it("only the alerts with an approved WhatsApp template offer WhatsApp (sync failures since 2026-10-12); email also covers the plan limit", () => {
     const whatsapp = ALERT_RULES.filter((r) => r.channels.includes("whatsapp")).map((r) => r.key).sort();
-    expect(whatsapp).toEqual(["echec_livraison", "erreur_integration", "rupture"]);
+    expect(whatsapp).toEqual(["echec_livraison", "erreur_integration", "rupture", "synchronisation"]);
     const email = ALERT_RULES.filter((r) => r.channels.includes("email")).map((r) => r.key).sort();
     expect(email).toEqual(["echec_livraison", "erreur_integration", "limite_forfait", "rupture"]);
   });

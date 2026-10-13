@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
 import { KpiCard } from "@/components/kpi-card";
 import { ReportMetricInfo } from "@/components/reports/report-metric-info";
 import { ReportDefinitions } from "@/components/reports/report-definitions";
@@ -8,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
+import { ReportOnlineChannelFilter } from "@/components/reports/report-online-channel-filter";
+import { resolveReportOnlineChannel, reportOrderScope } from "@/lib/reports/online-channel";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
 import { requireChannelKind } from "@/lib/auth/channel-access";
@@ -126,7 +129,7 @@ function CampaignTable({ rows }: { rows: CampaignProfitabilityRow[] }) {
 export default async function RapportProfitabilitePage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; from?: string; to?: string; view?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string; canal?: string; view?: string }>;
 }) {
   const viewer = await requirePermission("analytics.view");
   // Margins, cost of goods and profit are finance data (docs/adr/0050).
@@ -135,15 +138,18 @@ export default async function RapportProfitabilitePage({
   requireChannelKind(viewer, "ONLINE");
   const params = await searchParams;
   const resolved = await resolveTenantReportRange(params);
+  // « Canal en ligne » (only the viewer's own channels; see resolveReportOnlineChannel).
+  const channelFilter = await resolveReportOnlineChannel(viewer, params.canal);
+  const scope = reportOrderScope(channelFilter.salesChannelId);
   const view = CAMPAIGN_VIEW_AVAILABLE && params.view === "campagne" ? "campagne" : "produit";
   const [report, business] = await Promise.all([
-    getProfitabilityReport(resolved.range),
+    getProfitabilityReport(resolved.range, scope),
     getReportBusinessInfo(),
   ]);
   const { totals } = report;
 
-  const exportHref = `/rapports/export/profitabilite?${rangeQuery(resolved)}`;
-  const viewHref = (v: "produit" | "campagne") => `/rapports/profitabilite?${rangeQuery(resolved, { view: v })}`;
+  const exportHref = `/rapports/export/profitabilite?${rangeQuery(resolved, { canal: channelFilter.salesChannelId })}`;
+  const viewHref = (v: "produit" | "campagne") => `/rapports/profitabilite?${rangeQuery(resolved, { view: v, canal: channelFilter.salesChannelId })}`;
 
   return (
     <div>
@@ -152,11 +158,13 @@ export default async function RapportProfitabilitePage({
         title="Profitabilité"
         description={`Période : ${resolved.label} — CA, coût des produits (coût figé à la vente) et frais de livraison attribués, par produit${CAMPAIGN_VIEW_AVAILABLE ? " et par campagne/source" : ""}.`}
       />
+      <MissingCostBanner user={viewer} />
       <ReportFilterBar
         basePath="/rapports/profitabilite"
         resolved={resolved}
         exportHref={exportHref}
-        extraParams={{ view }}
+        extraParams={{ view, canal: channelFilter.salesChannelId }}
+        extra={<ReportOnlineChannelFilter channels={channelFilter.channels} value={channelFilter.salesChannelId} />}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">

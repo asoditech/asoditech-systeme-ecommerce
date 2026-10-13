@@ -14,6 +14,8 @@
  *   npx dotenv -e .env -- tsx scripts/backfill-tenant-baseline.ts
  *   npx dotenv -e .env -- tsx scripts/backfill-tenant-baseline.ts --dry-run
  */
+// First: lets tsx load the server-only app modules (see the file).
+import "./server-only-cli";
 import { prismaBase } from "@/lib/prisma";
 import { runUnscoped } from "@/lib/tenant/context";
 import { provisionTenantBaseline } from "@/lib/tenant/provision";

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { DisconnectedSourceBanner } from "@/components/integrations/disconnected-source-banner";
+import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
 import { ProductImagePreview } from "@/components/products/product-image-preview";
 import { ProductThumb } from "@/components/products/product-thumb";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +48,7 @@ export default async function ProduitsPage({
     status?: string;
     categoryId?: string;
     type?: string;
+    cout?: string;
     sort?: string;
     page?: string;
     pageSize?: string;
@@ -79,6 +81,9 @@ export default async function ProduitsPage({
       ? (params.type as ProductTypeFilter)
       : undefined;
   const categoryFilter = categories.find((c) => c.id === params.categoryId)?.id;
+  // « Coût d'achat manquant » — finance data, so only for a viewer who may
+  // see costs (ignored otherwise, never a hint about cost to anyone else).
+  const missingCostFilter = canViewCost && params.cout === "manquant";
   const sortFilter: ProductSort =
     params.sort === "name" || params.sort === "price-asc" || params.sort === "price-desc"
       ? params.sort
@@ -89,6 +94,7 @@ export default async function ProduitsPage({
     status: statusFilter,
     categoryId: categoryFilter,
     type: typeFilter,
+    missingCost: missingCostFilter,
     sort: sortFilter,
     page,
     pageSize,
@@ -98,13 +104,14 @@ export default async function ProduitsPage({
   if (outOfRange) redirect(outOfRange);
 
   const hasActiveFilter = Boolean(
-    params.q || statusFilter || typeFilter || categoryFilter || params.sort
+    params.q || statusFilter || typeFilter || categoryFilter || missingCostFilter || params.sort
   );
   const paginationParams = {
     q: params.q,
     status: statusFilter,
     categoryId: categoryFilter,
     type: typeFilter,
+    cout: missingCostFilter ? "manquant" : undefined,
     sort: params.sort,
   };
 
@@ -140,6 +147,7 @@ export default async function ProduitsPage({
       />
 
       <DisconnectedSourceBanner entity="product" />
+      <MissingCostBanner user={user} showLink={!missingCostFilter} />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <FilterSearchInput placeholder="Nom ou SKU..." defaultValue={params.q} className="w-56" />
@@ -167,6 +175,16 @@ export default async function ProduitsPage({
           className="w-40"
           options={Object.entries(PRODUCT_TYPE_LABELS).map(([value, label]) => ({ value, label }))}
         />
+        {canViewCost && (
+          <FilterSelect
+            paramKey="cout"
+            value={missingCostFilter ? "manquant" : undefined}
+            allLabel="Tous les coûts"
+            ariaLabel="Coût d'achat"
+            className="w-48"
+            options={[{ value: "manquant", label: "Coût d'achat manquant" }]}
+          />
+        )}
         <FilterSelect
           paramKey="sort"
           value={params.sort && SORT_LABELS[params.sort as ProductSort] ? params.sort : undefined}

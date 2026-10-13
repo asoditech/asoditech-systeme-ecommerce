@@ -10,6 +10,7 @@ import { CostingMethodForm } from "@/components/settings/costing-method-form";
 import {
   DefaultShippingProviderForm,
   ImportAsNouvelleTile,
+  AutoPaymentFromStoreForm,
   PackingVerificationForm,
   SellerPriceOverrideForm,
   TransferCostOverrideForm,
@@ -183,6 +184,8 @@ function Workspace({ id, props }: { id: ConfigWorkspaceId; props: ConfigurationV
                 />
               )
             )}
+            {/* The whole view is settings.manage-only (parametres/page.tsx). */}
+            {connected.length > 0 && <AutoPaymentFromStoreForm enabled={settings.autoPaymentFromStore} />}
             {connected.length === 0 && (
               <UnavailableTile
                 icon={Plug}

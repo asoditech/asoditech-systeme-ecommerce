@@ -89,9 +89,9 @@ export interface ProfitabilityReport {
   byCampaign: CampaignProfitabilityRow[];
 }
 
-function fetchOrders(range: PeriodRange) {
+function fetchOrders(range: PeriodRange, scope: Prisma.OrderWhereInput) {
   return prisma.order.findMany({
-    where: { placedAt: { gte: range.from, lte: range.to } },
+    where: { AND: [{ placedAt: { gte: range.from, lte: range.to } }, scope] },
     select: {
       id: true,
       status: true,
@@ -132,8 +132,8 @@ interface Acc {
 }
 const newAcc = (): Acc => ({ units: 0, revenue: D(0), cost: D(0), delivery: D(0), missing: 0, orderIds: new Set() });
 
-export async function getProfitabilityReport(range: PeriodRange): Promise<ProfitabilityReport> {
-  const orders = await fetchOrders(range);
+export async function getProfitabilityReport(range: PeriodRange, scope: Prisma.OrderWhereInput = {}): Promise<ProfitabilityReport> {
+  const orders = await fetchOrders(range, scope);
 
   const byProduct = new Map<string, Acc & { productId: string | null; name: string }>();
   const byCampaign = new Map<string, Acc & { campaignId: string | null; name: string }>();

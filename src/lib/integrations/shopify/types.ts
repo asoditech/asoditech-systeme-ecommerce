@@ -112,6 +112,8 @@ export const shopifyOrderSchema = z.object({
   displayFinancialStatus: z.string().nullish(),
   displayFulfillmentStatus: z.string().nullish(),
   cancelledAt: z.string().nullish(),
+  // Last modification on Shopify — event ordering (shared/order-sync-rules.ts).
+  updatedAt: z.string().nullish(),
   cancelReason: z.string().nullish(),
   customer: z
     .object({

@@ -29,7 +29,7 @@ export interface FakeVariation {
   sku: string;
   regular_price: string;
   price?: string;
-  manage_stock: boolean;
+  manage_stock: boolean | "parent";
   stock_quantity: number | null;
   attributes: { name: string; option: string }[];
 }
@@ -98,6 +98,23 @@ export interface FakeStoreState {
   productCreates: Record<string, unknown>[];
   /** Every `POST /products/{id}/variations` received. */
   variationCreates: { productId: number; body: Record<string, unknown> }[];
+  /** Optional injected rejection of `POST /products` (publication diagnostics
+   * tests). `body` is sent verbatim, so malformed/empty bodies can be tested. */
+  productCreateError?: FakeErrorResponse;
+  /** Optional injected rejection of the Nth (1-based, default 1) `POST /products/{id}/variations`. */
+  variationCreateError?: FakeErrorResponse & { onCall?: number };
+  /** Optional injected answer to `GET /products/{id}` (remote-deletion tests): an HTTP error, a client timeout or a network failure. */
+  productGetErrors?: Record<number, FakeErrorResponse | "timeout" | "network">;
+}
+
+export interface FakeErrorResponse {
+  status: number;
+  body: string;
+}
+
+/** A WooCommerce-shaped REST error body (`{ code, message, data: { status } }`). */
+export function wooErrorBody(code: string, message: string, status = 400): string {
+  return JSON.stringify({ code, message, data: { status } });
 }
 
 function paginate<T>(items: T[], page: number, perPage: number): { items: T[]; totalPages: number } {
@@ -115,6 +132,7 @@ function jsonResponse(body: unknown, totalPages = 1, status = 200) {
 
 /** Installs the fake fetch. Call in beforeEach; call vi.unstubAllGlobals() in afterEach. */
 export function installFakeWooCommerceServer(state: FakeStoreState) {
+  let variationCreateAttempts = 0;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: string | URL, init?: RequestInit) => {
@@ -132,6 +150,11 @@ export function installFakeWooCommerceServer(state: FakeStoreState) {
 
       const variationCreateMatch = path.match(/^\/products\/(\d+)\/variations$/);
       if (variationCreateMatch && method === "POST") {
+        variationCreateAttempts++;
+        const injected = state.variationCreateError;
+        if (injected && variationCreateAttempts === (injected.onCall ?? 1)) {
+          return new Response(injected.body, { status: injected.status, headers: { "content-type": "application/json" } });
+        }
         const productId = Number(variationCreateMatch[1]);
         const body = init?.body ? JSON.parse(init.body as string) : {};
         state.variationCreates.push({ productId, body });
@@ -177,6 +200,10 @@ export function installFakeWooCommerceServer(state: FakeStoreState) {
         return jsonResponse({ id: Number(productMatch[1]) });
       }
       if (productMatch && method === "GET") {
+        const injected = state.productGetErrors?.[Number(productMatch[1])];
+        if (injected === "timeout") throw new DOMException("The operation was aborted.", "AbortError");
+        if (injected === "network") throw new TypeError("fetch failed");
+        if (injected) return new Response(injected.body, { status: injected.status, headers: { "content-type": "application/json" } });
         const product = state.products.find((p) => p.id === Number(productMatch[1]));
         return product ? jsonResponse(product) : jsonResponse({ message: "not found" }, 1, 404);
       }
@@ -187,6 +214,10 @@ export function installFakeWooCommerceServer(state: FakeStoreState) {
       }
 
       if (path === "/products" && method === "POST") {
+        if (state.productCreateError) {
+          const { status, body } = state.productCreateError;
+          return new Response(body, { status, headers: { "content-type": "application/json" } });
+        }
         const body = init?.body ? JSON.parse(init.body as string) : {};
         state.productCreates.push(body);
         const id = 80000 + state.productCreates.length;

@@ -88,25 +88,35 @@ function normalizeOptional(value: string | null | undefined): string | null {
   return value && value.trim().length > 0 ? value.trim() : null;
 }
 
+/**
+ * Customer picker of the « Nouvelle commande » form. An EMPTY query returns
+ * the 8 most recently updated customers this user may see (the list shown
+ * as soon as the picker opens); 1 character returns nothing; 2+ searches
+ * name / phone. Always tenant-scoped (prisma tenant extension + RLS) and
+ * narrowed by customerVisibilityWhere — same rule as the search.
+ */
 export async function searchCustomersForOrderAction(query: string) {
   const user = await requirePermissionForAction("orders.create");
   const q = query.trim();
-  if (q.length < 2) return [];
+  if (q.length === 1) return [];
   return prisma.customer.findMany({
     where: {
       AND: [
         customerVisibilityWhere(user),
-        {
-          OR: [
-            { fullName: { contains: q, mode: "insensitive" } },
-            { phone: { contains: q, mode: "insensitive" } },
-            ...customerPhoneSearchKeys(q).map((digits) => ({ phoneKey: { contains: digits } })),
-          ],
-        },
+        q.length === 0
+          ? {}
+          : {
+              OR: [
+                { fullName: { contains: q, mode: "insensitive" } },
+                { phone: { contains: q, mode: "insensitive" } },
+                ...customerPhoneSearchKeys(q).map((digits) => ({ phoneKey: { contains: digits } })),
+              ],
+            },
       ],
     },
     // The default saved address prefills THIS order's delivery fields on selection.
     include: { addresses: { where: { isDefault: true }, take: 1, select: { addressLine1: true, city: true, phone: true } } },
+    orderBy: q.length === 0 ? [{ updatedAt: "desc" }, { id: "asc" }] : undefined,
     take: 8,
   });
 }

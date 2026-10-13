@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
+import { notifyWebhookFailure } from "@/lib/notifications";
 import type { IntegrationProvider } from "@prisma/client";
 
 /**
@@ -17,6 +18,10 @@ import type { IntegrationProvider } from "@prisma/client";
  * the WooCommerce webhook route, which had the identical latent race).
  * A failed delivery (ECHEC) is reprocessed when retried, and its row then
  * takes the retry's outcome.
+ *
+ * An ECHEC also alerts the store's managers (notifyWebhookFailure: in-app +
+ * WhatsApp, at most once per integration per day) — before 2026-10-12 a
+ * failing webhook was only visible on the integrations card.
  */
 export async function recordWebhookEventOnce(data: {
   integrationId: string;
@@ -26,6 +31,14 @@ export async function recordWebhookEventOnce(data: {
   resourceId?: string;
   status: "TRAITE" | "IGNORE" | "ECHEC";
 }): Promise<"recorded" | "already_recorded"> {
+  if (data.status === "ECHEC" && (data.provider === "WOOCOMMERCE" || data.provider === "SHOPIFY")) {
+    // Best-effort (notify never throws) and deduplicated per day.
+    await notifyWebhookFailure({
+      integrationId: data.integrationId,
+      provider: data.provider === "WOOCOMMERCE" ? "WooCommerce" : "Shopify",
+      topic: data.topic,
+    });
+  }
   try {
     await prisma.webhookEvent.create({ data });
     return "recorded";

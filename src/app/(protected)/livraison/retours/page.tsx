@@ -5,8 +5,8 @@ import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ReceiveParcelButton, ReturnParcelStateBadge, ReturnsScanLot } from "@/components/returns/returns-workspace";
+import { ReturnsScanLot } from "@/components/returns/returns-workspace";
+import { ReturnParcelsTable } from "@/components/returns/return-parcels-table";
 import { requirePermission } from "@/lib/auth/guards";
 import { formatDateTime } from "@/lib/format";
 import {
@@ -23,7 +23,8 @@ const STATES = Object.keys(RETURN_PARCEL_STATE_LABELS) as ReturnParcelState[];
  * P3 — returns receiving workspace. Lists ONLY parcels the carrier reports
  * « Retourné » (Shipment.status RETOURNE), within the user's locations, by
  * physical stage: to receive → received / to inspect → inspected. Nothing on
- * this page calls a carrier or changes an order / shipment status.
+ * this page calls a carrier or changes an order / shipment status (the order
+ * already moved to RETOUR with its parcel — docs/adr/0006, 2026-10-12).
  */
 export default async function RetoursColisPage({
   searchParams,
@@ -38,6 +39,16 @@ export default async function RetoursColisPage({
   const filterActive = Boolean(q || state);
 
   const { rows, total, pageSize, counts } = await listReturnParcels(user, { q, state, page });
+  const receptionText = Object.fromEntries(
+    rows.map((p) => [
+      p.shipmentId,
+      p.pendingReception
+        ? `${formatDateTime(p.pendingReception.receivedAt)}${p.pendingReception.receivedByName ? ` · ${p.pendingReception.receivedByName}` : ""}`
+        : p.lastInspection?.inspectedAt
+          ? `Inspecté le ${formatDateTime(p.lastInspection.inspectedAt)}${p.lastInspection.inspectedByName ? ` · ${p.lastInspection.inspectedByName}` : ""}`
+          : "—",
+    ])
+  );
 
   const statItems = [
     { key: "A_RECEPTIONNER" as const, icon: PackageSearch, tone: "text-amber-600 dark:text-amber-400" },
@@ -97,64 +108,7 @@ export default async function RetoursColisPage({
         />
       ) : (
         <div className="rounded-lg border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Commande</TableHead>
-                <TableHead>N° de suivi</TableHead>
-                <TableHead>Destinataire</TableHead>
-                <TableHead>Emplacement d&apos;origine</TableHead>
-                <TableHead className="text-right">Unités retournées</TableHead>
-                <TableHead>Étape</TableHead>
-                <TableHead>Réception</TableHead>
-                <TableHead className="text-right">Action</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((p) => (
-                <TableRow key={p.shipmentId}>
-                  <TableCell>
-                    <Link href={`/commandes/${p.orderId}`} className="font-medium underline-offset-2 hover:underline">
-                      {p.orderLabel}
-                    </Link>
-                  </TableCell>
-                  <TableCell>
-                    <div>{p.trackingNumber ?? "—"}</div>
-                    <div className="text-xs text-muted-foreground">{p.providerName}</div>
-                  </TableCell>
-                  <TableCell>
-                    <div>{p.recipientName}</div>
-                    <div className="text-xs text-muted-foreground">{[p.recipientPhone, p.city].filter(Boolean).join(" · ") || "—"}</div>
-                  </TableCell>
-                  <TableCell>{p.warehouseName ?? "—"}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {p.returnedUnits} / {p.shippedUnits}
-                  </TableCell>
-                  <TableCell>
-                    <ReturnParcelStateBadge state={p.state} />
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {p.pendingReception ? (
-                      <>
-                        {formatDateTime(p.pendingReception.receivedAt)}
-                        {p.pendingReception.receivedByName ? ` · ${p.pendingReception.receivedByName}` : ""}
-                      </>
-                    ) : p.lastInspection?.inspectedAt ? (
-                      <>
-                        Inspecté le {formatDateTime(p.lastInspection.inspectedAt)}
-                        {p.lastInspection.inspectedByName ? ` · ${p.lastInspection.inspectedByName}` : ""}
-                      </>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <ReceiveParcelButton parcel={p} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <ReturnParcelsTable rows={rows} receptionText={receptionText} />
           <DataTablePagination page={page} pageSize={pageSize} total={total} basePath="/livraison/retours" searchParams={{ q: params.q, state: params.state }} />
         </div>
       )}
@@ -162,9 +116,11 @@ export default async function RetoursColisPage({
       <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
         <HelpCircle className="mt-0.5 size-3.5 shrink-0" />
         <span>
-          Seuls les colis que le transporteur indique « Retourné » apparaissent ici. Réceptionner un colis ne modifie pas le
-          stock : seules les unités jugées revendables à l&apos;inspection reviennent en stock disponible, à leur emplacement
-          d&apos;origine. Le statut de la commande et celui du transporteur ne changent pas.
+          Seuls les colis que le transporteur indique « Retourné » apparaissent ici (la commande passe alors en « Retour »).
+          Scanner un colis ou un n° de commande sert seulement à l&apos;identifier et l&apos;ajouter au lot : rien n&apos;est
+          réceptionné sans confirmation. Les articles sont identifiés un par un à l&apos;inspection. Réceptionner ne modifie
+          pas le stock : seules les unités jugées revendables à l&apos;inspection reviennent en stock disponible, à leur
+          emplacement d&apos;origine, une seule fois. L&apos;inspection se fait colis par colis (un état par unité).
         </span>
       </p>
     </div>

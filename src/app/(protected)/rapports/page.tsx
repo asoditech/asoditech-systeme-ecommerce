@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
 import { Card, CardContent } from "@/components/ui/card";
 import { requirePermission } from "@/lib/auth/guards";
 import { visibleReports } from "@/lib/navigation/reports";
@@ -16,6 +17,7 @@ export default async function RapportsPage() {
         title="Rapports"
         description="Rapports d'activité exportables (CSV et impression / PDF), avec filtres de période."
       />
+      <MissingCostBanner user={user} />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {REPORTS_VISIBLE.map((r) => {
           const Icon = r.icon;

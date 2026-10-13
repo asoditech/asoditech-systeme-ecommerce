@@ -2,6 +2,8 @@ import "server-only";
 import { enableProductOnDefaultOnlineChannel } from "@/lib/channels";
 
 import { prisma } from "@/lib/prisma";
+import { patchIntegrationConfig } from "@/lib/integrations/shared/integration-config";
+import { deactivateRemovedVariations } from "@/lib/integrations/shared/variations";
 import type { WooCommerceClient } from "../client";
 import { mapProductFields } from "../mapper";
 import type { WcProduct, WcProductVariation } from "../types";
@@ -10,14 +12,19 @@ import { reconcileStockFromWooCommerce } from "./stock";
 import type { SyncActor } from "./actor";
 import { syncProductLeadImage } from "@/lib/integrations/shared";
 import { resolveStoreProduct, resolveStoreVariation } from "@/lib/integrations/shared/identity";
+import { inventoryOwnerOf, type InventoryOwner } from "../store-settings";
 
 /**
  * WooCommerce → System, one direction (see docs/adr/0010-woocommerce-integration.md).
  * Products are matched by (source=WOOCOMMERCE, externalId). Field
- * ownership: name/sku/description/price/salePrice/status/trackInventory/
- * categoryId are WooCommerce-owned and overwritten every sync; `cost` and
+ * ownership: name/sku/description/price/salePrice/status/categoryId are
+ * WooCommerce-owned and overwritten every sync; `cost` and
  * `lowStockThreshold` are internal-only and never touched here, even on an
- * update. A product with no matching internal Category (or no category at
+ * update. `trackInventory` follows the company's « Qui gère le stock ? »
+ * (store-settings.ts): ASODITECH (default) → the store's flag only seeds a
+ * NEW product, an existing product keeps the user's own choice
+ * (updateProductOperationalSettingsAction); the store → overwritten every
+ * sync, as before. A product with no matching internal Category (or no category at
  * all) is imported with `categoryId: null` — this is not an error.
  *
  * WooCommerce lets a product belong to several categories; the internal
@@ -71,6 +78,8 @@ export async function syncProducts(
 
   const integration = await prisma.integration.findUniqueOrThrow({ where: { id: integrationId } });
   const config = (integration.config as Record<string, unknown> | null) ?? {};
+  // « Qui gère le stock des produits importés ? » (store-settings.ts) — ASODITECH unless explicitly set to the store.
+  const inventoryOwner = inventoryOwnerOf(config);
   const startPage =
     typeof config.productsResumePage === "number" && config.productsResumePage > 0
       ? Math.floor(config.productsResumePage)
@@ -109,7 +118,7 @@ export async function syncProducts(
         // Deliberate, operator-triggered sync — stock reconciliation is
         // the whole point of the pull half (see this function's own doc
         // comment): reconcile every pass.
-        await syncOneProduct(client, wc, categoryIdMap, warehouse?.id ?? null, actor, summary, true);
+        await syncOneProduct(client, wc, categoryIdMap, warehouse?.id ?? null, actor, summary, true, false, inventoryOwner);
       } catch {
         recordNote(summary, `Produit WooCommerce #${wc.id} (${wc.sku || wc.name}) : échec de synchronisation.`);
         summary.failed++;
@@ -120,10 +129,7 @@ export async function syncProducts(
     if (capped) break;
   }
 
-  await prisma.integration.update({
-    where: { id: integrationId },
-    data: { config: { ...config, productsResumePage: resumePage, productsResumeOffset: resumeOffset } },
-  });
+  await patchIntegrationConfig(integrationId, { productsResumePage: resumePage, productsResumeOffset: resumeOffset });
 
   summary.hasMore = capped;
   if (capped) {
@@ -157,7 +163,28 @@ async function syncOneProduct(
    * of name/price/status/category is still fully live either way — only
    * the stock-quantity pull is skipped.
    */
-  reconcileStock: boolean
+  reconcileStock: boolean,
+  /**
+   * Archive is sticky (2026-10-12): a product that is ARCHIVE in ASODITECH —
+   * archived by hand, or because the store deleted it — is never moved back
+   * to ACTIF/BROUILLON by a sync or a product.updated webhook (before, the
+   * store's status silently undid a manual archive on the next sync). Only
+   * the store's explicit `product.restored` webhook passes `true` here; a
+   * user can also re-activate the product in ASODITECH at any time. Every
+   * other field (name, price, category, variations…) keeps syncing, and the
+   * row keeps its store id — a re-sync matches it and never duplicates it.
+   */
+  restoreArchived = false,
+  /**
+   * Who manages the stock of imported products (store-settings.ts). `ASODITECH`
+   * (default, docs/adr/0036): a unit the store manages that ASODITECH has no
+   * row for gets one at the store's reported quantity — none when the store
+   * reports none (never an invented 0); an existing row is never touched; an
+   * existing product's `trackInventory` is the user's, never the store's.
+   * `STORE`: the import creates no stock row at all, and ASODITECH never
+   * pushes stock to the store (stock-push.ts); rows that already exist stay.
+   */
+  inventoryOwner: InventoryOwner = "ASODITECH"
 ): Promise<void> {
   // A `product_variation` is NOT a catalogue product — it must only ever
   // become a `ProductVariation` row under its parent. WooCommerce's
@@ -194,6 +221,7 @@ async function syncOneProduct(
   }
 
   let productId: string;
+  let localTracked = fields.trackInventory;
   if (existing) {
     // Backfill / correct platformCreatedAt whenever WooCommerce gives us a
     // date the row doesn't already carry (rows imported before this field
@@ -202,13 +230,18 @@ async function syncOneProduct(
       fields.platformCreatedAt !== null &&
       existing.platformCreatedAt?.getTime() !== fields.platformCreatedAt.getTime();
 
+    const status = existing.status === "ARCHIVE" && !restoreArchived ? "ARCHIVE" : fields.status;
+    // ASODITECH manages the stock: whether this product is tracked is the
+    // user's decision, never switched on or off by the store's own flag.
+    const trackInventory = inventoryOwner === "ASODITECH" ? existing.trackInventory : fields.trackInventory;
+    localTracked = trackInventory;
     const changed =
       existing.name !== fields.name ||
       existing.description !== fields.description ||
       Number(existing.price) !== fields.price ||
       (existing.salePrice ? Number(existing.salePrice) : null) !== fields.salePrice ||
-      existing.status !== fields.status ||
-      existing.trackInventory !== fields.trackInventory ||
+      existing.status !== status ||
+      existing.trackInventory !== trackInventory ||
       existing.categoryId !== categoryId ||
       needsPlatformDate;
 
@@ -228,8 +261,8 @@ async function syncOneProduct(
           description: fields.description,
           price: fields.price,
           salePrice: fields.salePrice,
-          status: fields.status,
-          trackInventory: fields.trackInventory,
+          status,
+          trackInventory,
           categoryId,
           ...(fields.platformCreatedAt ? { platformCreatedAt: fields.platformCreatedAt } : {}),
         },
@@ -239,6 +272,14 @@ async function syncOneProduct(
       summary.unchanged++;
     }
     productId = existing.id;
+    // Manual review (never acted on here): the next stock push would switch on
+    // the store's stock management for a product it no longer manages.
+    if (inventoryOwner === "ASODITECH" && reconcileStock && trackInventory && !fields.trackInventory && wc.type !== "variable") {
+      recordNote(
+        summary,
+        `Produit « ${existing.name} » : stock suivi dans ASODITECH mais pas par la boutique — le prochain envoi de stock y activera la gestion du stock. Désactivez « Suivre le stock » sur la fiche produit si ce n'est pas voulu.`
+      );
+    }
   } else {
     const skuOwner = await prisma.product.findFirst({ where: { sku: fields.sku } });
     const sku = skuOwner ? `${fields.sku}-wc-${wc.id}` : fields.sku;
@@ -262,21 +303,51 @@ async function syncOneProduct(
     // docs/adr/0038: a synced product is sellable on the default ONLINE channel.
     await enableProductOnDefaultOnlineChannel(created.id);
     summary.imported++;
+    if (inventoryOwner === "ASODITECH" && !fields.trackInventory && wc.type !== "variable") {
+      recordNote(
+        summary,
+        `Produit « ${fields.name} » importé sans suivi de stock (la boutique ne le suit pas) — activez « Suivre le stock » sur la fiche produit si ASODITECH doit gérer son stock.`
+      );
+    }
   }
 
   await syncProductLeadImage(productId, wc.images[0]?.src ?? null, wc.images[0]?.alt ?? null);
 
-  if (reconcileStock && fields.trackInventory && wc.stock_quantity != null && warehouseId) {
-    await reconcileStockFromWooCommerce({
-      productId,
-      warehouseId,
-      externalQuantity: wc.stock_quantity,
-      actor,
-    });
+  // A row is only ever onboarded from a quantity the store actually reports
+  // for a unit it manages — a missing quantity is never turned into 0 (a 0 row
+  // would be pushed back as « épuisé »): no row, flagged for manual review.
+  if (inventoryOwner === "ASODITECH" && reconcileStock && fields.trackInventory && warehouseId) {
+    if (wc.stock_quantity != null) {
+      await reconcileStockFromWooCommerce({
+        productId,
+        warehouseId,
+        externalQuantity: wc.stock_quantity,
+        actor,
+      });
+    } else if (wc.type !== "variable" && !(await prisma.inventoryItem.findFirst({ where: { productId, warehouseId }, select: { id: true } }))) {
+      recordNote(
+        summary,
+        `Produit « ${fields.name} » : la boutique suit son stock sans indiquer de quantité — aucun stock créé ni envoyé. Enregistrez une réception d'achat dans ASODITECH, ou indiquez sa quantité sur la boutique puis relancez la synchronisation.`
+      );
+    }
   }
 
   if (wc.type === "variable" && wc.variations.length > 0) {
-    await syncVariationsForProduct(client, wc.id, productId, warehouseId, actor, summary, reconcileStock);
+    const stock = await syncVariationsForProduct(client, wc.id, productId, warehouseId, actor, summary, reconcileStock, wc.variations.map(String), inventoryOwner);
+    if (inventoryOwner === "ASODITECH" && reconcileStock) {
+      if (!localTracked && stock.managed > 0) {
+        recordNote(
+          summary,
+          `Produit variable « ${fields.name} » : la boutique gère le stock de ${stock.managed} variante(s), mais le suivi du stock est désactivé dans ASODITECH — rien n'est envoyé. Activez « Suivre le stock » sur la fiche produit si ASODITECH doit le gérer.`
+        );
+      }
+      if (stock.noOwnQuantity > 0) {
+        recordNote(
+          summary,
+          `Produit variable « ${fields.name} » : ${stock.noOwnQuantity} variante(s) sans quantité propre sur la boutique (stock du parent ou quantité absente) — aucun stock créé ni envoyé pour elles. Enregistrez une réception d'achat dans ASODITECH, ou gérez leur stock par variante sur la boutique puis relancez la synchronisation.`
+        );
+      }
+    }
   }
 }
 
@@ -287,15 +358,21 @@ async function syncVariationsForProduct(
   warehouseId: string | null,
   actor: SyncActor,
   summary: SyncSummary,
-  reconcileStock: boolean
-): Promise<void> {
+  reconcileStock: boolean,
+  /** The parent's own current `variations` id list (second source of truth for « gone »). */
+  parentVariationIds: readonly string[] = [],
+  inventoryOwner: InventoryOwner = "ASODITECH"
+): Promise<{ managed: number; noOwnQuantity: number }> {
   const variationExternalIds: string[] = [];
+  const stock = { managed: 0, noOwnQuantity: 0 };
   for await (const page of client.listAllProductVariations(wcProductId)) {
     for (const wcVar of page) {
       variationExternalIds.push(String(wcVar.id));
+      if (wcVar.manage_stock === true) stock.managed++;
       try {
-        const outcome = await syncOneVariation(wcVar, productId, warehouseId, actor, reconcileStock);
+        const { outcome, missingQuantity } = await syncOneVariation(wcVar, productId, warehouseId, actor, reconcileStock, inventoryOwner);
         summary[outcome]++;
+        if (missingQuantity) stock.noOwnQuantity++;
       } catch {
         recordNote(summary, `Variation WooCommerce #${wcVar.id} : échec de synchronisation.`);
         summary.failed++;
@@ -311,7 +388,19 @@ async function syncVariationsForProduct(
   // onDelete:SetNull, so a sale keeps its snapshot regardless, but we
   // still don't want to silently detach one).
   await cleanupBogusVariationProducts(variationExternalIds, productId, summary);
+
+  // Reached only after EVERY variation page was fetched (a fetch error
+  // throws above): a variation deleted in the store is deactivated here —
+  // never deleted (orders, stock movements and returns keep pointing at
+  // it) and never reactivated automatically. « Gone » = absent from the
+  // fetched list AND from the parent's own list; an empty fetch is never
+  // trusted to deactivate anything.
+  if (variationExternalIds.length > 0) {
+    await deactivateRemovedVariations(productId, "WOOCOMMERCE", [...variationExternalIds, ...parentVariationIds], summary);
+  }
+  return stock;
 }
+
 
 /**
  * Deletes standalone `Product` rows (source WOOCOMMERCE) whose `externalId`
@@ -364,8 +453,9 @@ async function syncOneVariation(
   productId: string,
   warehouseId: string | null,
   actor: SyncActor,
-  reconcileStock: boolean
-): Promise<"imported" | "updated" | "unchanged"> {
+  reconcileStock: boolean,
+  inventoryOwner: InventoryOwner = "ASODITECH"
+): Promise<{ outcome: "imported" | "updated" | "unchanged"; missingQuantity: boolean }> {
   const externalId = String(wc.id);
   const sku = wc.sku.trim() || `WC-VAR-${wc.id}`;
   const price = wc.regular_price || wc.price || null;
@@ -405,16 +495,24 @@ async function syncOneVariation(
     variationId = created.id;
   }
 
-  if (reconcileStock && wc.manage_stock && wc.stock_quantity != null && warehouseId) {
-    await reconcileStockFromWooCommerce({
-      variationId,
-      warehouseId,
-      externalQuantity: wc.stock_quantity,
-      actor,
-    });
+  // Same rule as the product (syncOneProduct): a row is onboarded only from
+  // THIS variation's own reported quantity — never the parent's (`"parent"`),
+  // never 0 for a missing one. Those stay without a row: nothing to push.
+  let missingQuantity = false;
+  if (inventoryOwner === "ASODITECH" && reconcileStock && warehouseId) {
+    if (wc.manage_stock === true && wc.stock_quantity != null) {
+      await reconcileStockFromWooCommerce({
+        variationId,
+        warehouseId,
+        externalQuantity: wc.stock_quantity,
+        actor,
+      });
+    } else if (wc.manage_stock !== false) {
+      missingQuantity = !(await prisma.inventoryItem.findFirst({ where: { variationId, warehouseId }, select: { id: true } }));
+    }
   }
 
-  return outcome;
+  return { outcome, missingQuantity };
 }
 
 /**
@@ -440,12 +538,15 @@ async function syncOneVariation(
 export async function importProduct(
   client: WooCommerceClient,
   wc: WcProduct,
-  actor: SyncActor
+  actor: SyncActor,
+  options: { restoreArchived?: boolean } = {}
 ): Promise<{ outcome: "imported" | "updated" | "unchanged" | "failed" }> {
   const warehouse = await prisma.warehouse.findFirst({ where: { isDefault: true } });
+  // The webhook path obeys the same « Qui gère le stock ? » as the bulk sync (trackInventory ownership).
+  const integration = await prisma.integration.findFirst({ where: { provider: "WOOCOMMERCE" }, select: { config: true } });
   const summary = emptySyncSummary();
   try {
-    await syncOneProduct(client, wc, null, warehouse?.id ?? null, actor, summary, false);
+    await syncOneProduct(client, wc, null, warehouse?.id ?? null, actor, summary, false, Boolean(options.restoreArchived), inventoryOwnerOf(integration?.config));
   } catch {
     return { outcome: "failed" };
   }

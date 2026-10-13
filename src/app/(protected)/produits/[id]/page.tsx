@@ -50,6 +50,9 @@ import { getLatestPurchasePricesForUnits, getPurchasePriceHistory, type Purchase
 import { listActiveChannels } from "@/lib/queries/channels";
 import { ProductIdentityPanel } from "@/components/products/product-identity-panel";
 import { ProductPublishPanel, type PublishChannel } from "@/components/products/product-publish-panel";
+import { RemoteLinkPanel } from "@/components/products/remote-link-panel";
+import { pendingRemoteMissing, wooLinkOfProduct } from "@/lib/integrations/woocommerce/remote-deletion";
+import { inventoryOwnerOf } from "@/lib/integrations/woocommerce/store-settings";
 import { variantLabel } from "@/lib/catalog/lookup";
 import { unitEconomics } from "@/lib/profitability";
 import { describeLocationCost } from "@/lib/catalog/location-cost";
@@ -277,6 +280,18 @@ export default async function ProduitDetailPage({
     })
   );
 
+  // WooCommerce link of this product and its pending « supprimé de la boutique »
+  // flag (src/lib/integrations/woocommerce/remote-deletion.ts) — for the same
+  // users who may publish; read from the database only, no store call here.
+  const wooLink = canPublish ? await wooLinkOfProduct(product.id) : null;
+  const wooFlag = wooLink ? await pendingRemoteMissing(wooLink) : null;
+  // « Suivre le stock » of an imported WooCommerce/Shopify product: who decides it (store-settings.ts).
+  const storeInventoryOwner =
+    product.source === "WOOCOMMERCE" || product.source === "SHOPIFY"
+      ? inventoryOwnerOf((await prisma.integration.findFirst({ where: { provider: product.source }, select: { config: true } }))?.config)
+      : null;
+  const wooInventoryOwner = product.source === "WOOCOMMERCE" ? storeInventoryOwner : null;
+
   // "Dernier prix d'achat" / purchase-price history (Batch 3, Task 3B) — read
   // straight off the existing Reception/ReceptionLine data. A variable
   // product's price lives per variation, so the history list only applies to
@@ -323,6 +338,12 @@ export default async function ProduitDetailPage({
     0
   );
   const variationStockTracked = product.variations.some((v) => v.inventoryItems.length > 0);
+  // Manual review (WooCommerce, ASODITECH-managed stock): store-linked variations
+  // with no stock row are neither sold nor pushed — never treated as 0.
+  const variationsWithoutStock =
+    wooInventoryOwner === "ASODITECH" && product.trackInventory
+      ? product.variations.filter((v) => v.isActive && v.source === "WOOCOMMERCE" && v.inventoryItems.length === 0)
+      : [];
   const displayStock = isVariable
     ? variationStockTracked
       ? variationStock
@@ -470,6 +491,15 @@ export default async function ProduitDetailPage({
         </Card>
       )}
 
+      {wooLink && wooFlag && (
+        <RemoteLinkPanel
+          productId={product.id}
+          externalId={wooLink.externalId}
+          kind={wooLink.kind}
+          flag={{ check: wooFlag.check, detectedAt: wooFlag.detectedAt.toISOString() }}
+        />
+      )}
+
       <Tabs defaultValue={defaultTab}>
         <TabsList>
           <TabsTrigger value="apercu">Aperçu</TabsTrigger>
@@ -588,6 +618,19 @@ export default async function ProduitDetailPage({
         </TabsContent>
 
         <TabsContent value="variations" className="space-y-4">
+          {variationsWithoutStock.length > 0 && (
+            <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-3 text-sm text-amber-900 dark:text-amber-200">
+              <p className="flex items-start gap-2 font-medium">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                {variationsWithoutStock.length} variante(s) sans stock dans ASODITECH : {variationsWithoutStock.map((v) => v.sku).join(", ")}
+              </p>
+              <p className="mt-1 pl-6">
+                Leur quantité n&apos;est pas connue d&apos;ASODITECH : aucun stock n&apos;est envoyé à la boutique pour elles (jamais 0 par défaut) et
+                leur disponibilité ne peut pas être contrôlée à la vente. Enregistrez une réception d&apos;achat, ou gérez leur stock par variante sur WooCommerce puis relancez « Synchroniser les
+                produits ».
+              </p>
+            </div>
+          )}
           {product.variations.length === 0 ? (
             <EmptyState icon={Boxes} title="Aucune variation pour ce produit." />
           ) : (
@@ -894,6 +937,15 @@ export default async function ProduitDetailPage({
                     canEditCost={costVisibility.cost}
                     trackInventory={product.trackInventory}
                     lowStockThreshold={product.lowStockThreshold}
+                    trackingHint={
+                      storeInventoryOwner === "STORE"
+                        ? `La boutique gère le stock : ce réglage suit celui de ${externalLabel} à chaque synchronisation, et ASODITECH n'envoie aucun stock à la boutique.`
+                        : storeInventoryOwner === "ASODITECH" && product.source === "WOOCOMMERCE"
+                          ? "ASODITECH gère le stock : ce choix vous appartient, la synchronisation WooCommerce ne le modifie pas. Activé, le stock disponible (celui de chaque variante pour un produit variable) est envoyé à la boutique, qui active alors sa propre gestion du stock pour ce produit ; désactivé, rien n'est envoyé."
+                          : storeInventoryOwner === "ASODITECH"
+                            ? "ASODITECH gère le stock : ce choix vous appartient, la synchronisation Shopify ne le modifie pas. Activé, le stock disponible de chaque emplacement Shopify (par variante) est envoyé ; ASODITECH n'active pas « Suivre la quantité » sur Shopify. Désactivé, rien n'est envoyé."
+                            : undefined
+                    }
                   />
                 </>
               ) : (
@@ -928,6 +980,7 @@ export default async function ProduitDetailPage({
                 channels={publishChannels}
                 canPublish={canPublish}
               />
+              {wooLink && !wooFlag && <RemoteLinkPanel productId={product.id} externalId={wooLink.externalId} kind={wooLink.kind} flag={null} />}
             </div>
           </TabsContent>
         )}

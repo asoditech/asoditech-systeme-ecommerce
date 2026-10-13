@@ -22,6 +22,8 @@
  *   npx dotenv -e .env -- tsx scripts/cleanup-variation-products.ts --dry-run
  *   npx dotenv -e .env -- tsx scripts/cleanup-variation-products.ts
  */
+// First: lets tsx load the server-only app modules (see the file).
+import "./server-only-cli";
 import { prismaBase } from "@/lib/prisma";
 import { runUnscoped } from "@/lib/tenant/context";
 

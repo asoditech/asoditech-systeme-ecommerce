@@ -74,6 +74,11 @@ export const updatePackingVerificationSchema = z.object({
   packingVerificationRequired: z.union([z.literal("on"), z.literal("true"), z.literal("false"), z.null(), z.undefined()]).transform((v) => v === "on" || v === "true"),
 });
 
+// « Paiement confirmé par la boutique » — same switch encoding.
+export const updateAutoPaymentFromStoreSchema = z.object({
+  autoPaymentFromStore: z.union([z.literal("on"), z.literal("true"), z.literal("false"), z.null(), z.undefined()]).transform((v) => v === "on" || v === "true"),
+});
+
 // « Coût d'achat à destination » sur les transferts — same switch encoding.
 export const updateTransferCostOverrideSchema = z.object({
   transferPurchaseCostOverrideEnabled: z.union([z.literal("on"), z.literal("true"), z.literal("false"), z.null(), z.undefined()]).transform((v) => v === "on" || v === "true"),

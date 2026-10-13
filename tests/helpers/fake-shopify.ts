@@ -49,6 +49,8 @@ export interface FakeOrder {
   displayFinancialStatus: string | null;
   displayFulfillmentStatus: string | null;
   cancelledAt?: string | null;
+  /** Shopify's own last-modification time (event ordering); omitted = unknown. */
+  updatedAt?: string | null;
   cancelReason?: string | null;
   customer?: { id: string; email?: string | null; firstName?: string | null; lastName?: string | null; phone?: string | null } | null;
   email?: string | null;
@@ -99,7 +101,7 @@ function jsonResponse(data: unknown) {
   return new Response(JSON.stringify({ data }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
-function serializeOrder(o: FakeOrder) {
+export function serializeOrder(o: FakeOrder) {
   return {
     id: o.id,
     name: o.name,
@@ -107,6 +109,7 @@ function serializeOrder(o: FakeOrder) {
     displayFinancialStatus: o.displayFinancialStatus,
     displayFulfillmentStatus: o.displayFulfillmentStatus,
     cancelledAt: o.cancelledAt ?? null,
+    updatedAt: o.updatedAt ?? null,
     cancelReason: o.cancelReason ?? null,
     customer: o.customer ?? null,
     email: o.email ?? null,

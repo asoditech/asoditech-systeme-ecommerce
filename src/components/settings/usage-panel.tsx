@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { UsageMetricCard } from "./usage-metric-card";
 import { UpgradeRequestButton } from "./upgrade-request-button";
 import { SettingInfo } from "./setting-info";
-import { formatCurrency, formatPeriodLabel } from "@/lib/format";
+import { formatPeriodLabel } from "@/lib/format";
 import { FEATURE_KEY_LABELS, type PlanFeatures } from "@/lib/entitlements/catalogue";
 import type { TenantUsage } from "@/lib/entitlements/usage";
 import type { Plan, SubscriptionStatus } from "@prisma/client";
@@ -16,7 +16,9 @@ import type { Plan, SubscriptionStatus } from "@prisma/client";
  * sentences, no "quota"/"tenant"/technical jargon, reassuring tone (see
  * that ADR's "Important product rule"). Read-only except the
  * upgrade-request button — a tenant can never change its own plan or
- * limits (docs/adr/0035 "Platform plan control").
+ * limits (docs/adr/0035 "Platform plan control"). The plan's price is not
+ * shown to the tenant: prices are managed by the ASODITECH team in
+ * /platform/plans only (the Plan price columns are unchanged).
  */
 export function UsagePanel({
   plan,
@@ -56,9 +58,6 @@ export function UsagePanel({
               {subscriptionStatus === "TRIALING" && <Badge variant="secondary">Essai</Badge>}
               {subscriptionStatus === "CANCELED" && <Badge variant="outline">Résilié</Badge>}
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {formatCurrency(plan.monthlyPriceMad.toString())} / mois
-            </p>
           </div>
           <div className="text-left sm:text-right">
             <p className="flex items-center gap-1 text-sm text-muted-foreground sm:justify-end">

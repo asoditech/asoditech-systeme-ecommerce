@@ -1,11 +1,12 @@
 import { requirePermission } from "@/lib/auth/guards";
 import { saleChannelWhere } from "@/lib/auth/channel-access";
-import { requireChannelKind } from "@/lib/auth/channel-access";
+import { listAccessibleChannels, requireChannelKind } from "@/lib/auth/channel-access";
 import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { listAccessibleActiveWarehouses, hasGlobalLocationAccess } from "@/lib/auth/location-access";
 import { resolveTenantReportRange } from "@/lib/reports/range";
 import { getChannelReport } from "@/lib/queries/reports/channels";
+import { resolveReportOnlineChannel, reportOrderScope } from "@/lib/reports/online-channel";
 import { csvDocument, csvDocumentResponse, type CsvSection } from "@/lib/reports/csv";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { getSalesReport } from "@/lib/queries/reports/sales";
@@ -16,7 +17,7 @@ import { getDeliveryPerformanceReport } from "@/lib/queries/reports/delivery";
 import { getCustomerReport } from "@/lib/queries/reports/customers";
 import { getCashflowReport } from "@/lib/queries/reports/cashflow";
 import { getReturnsReport, getOfflineReturnsReport } from "@/lib/queries/reports/returns";
-import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
+import { CASH_PAYMENT_METHOD_LABELS, ORDER_STATUS_LABELS } from "@/lib/status-labels";
 import { formatOrderNumber, formatSaleNumber } from "@/lib/format";
 
 /**
@@ -60,19 +61,26 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
   };
   const resolved = await resolveTenantReportRange(params);
   const stamp = resolved.key === "custom" ? `${params.from}_${params.to}` : resolved.key;
+  // « Canal en ligne » — resolved exactly like the page (the viewer's own
+  // channels only), so the CSV always matches what is on screen.
+  const channelFilter = await resolveReportOnlineChannel(user, url.searchParams.get("canal") ?? undefined);
+  const scope = reportOrderScope(channelFilter.salesChannelId);
+  const channelMeta = channelFilter.salesChannelId
+    ? [`Canal en ligne : ${channelFilter.channels.find((c) => c.id === channelFilter.salesChannelId)?.name ?? ""}`]
+    : [];
   const business = await getReportBusinessInfo();
   const generatedAt = new Date().toLocaleString("fr-FR");
 
   const doc = (title: string, sections: CsvSection[], extraMeta: string[] = []) =>
     csvDocument({
       title: `${business.companyName} — ${title}`,
-      meta: [`Période : ${resolved.label}`, `Généré le : ${generatedAt}`, ...extraMeta],
+      meta: [`Période : ${resolved.label}`, ...channelMeta, `Généré le : ${generatedAt}`, ...extraMeta],
       sections,
     });
 
   switch (type) {
     case "ventes": {
-      const r = await getSalesReport(resolved.range, resolved.previous);
+      const r = await getSalesReport(resolved.range, resolved.previous, scope);
       const kpi = (name: string, cur: string, prev: string, delta: number | null): (string | number | null)[] => [
         name,
         cur,
@@ -115,7 +123,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
     }
 
     case "rentabilite": {
-      const r = await getProductProfitReport(resolved.range);
+      const r = await getProductProfitReport(resolved.range, scope);
       const profitRows = (rows: typeof r.products) =>
         rows.map((p) => [p.name, p.unitsSold, p.revenue, p.cogs ?? "—", p.grossProfit ?? "—", fmtPct(p.marginPct), p.linesMissingCost]);
       return csvDocumentResponse(
@@ -141,7 +149,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
     }
 
     case "profitabilite": {
-      const r = await getProfitabilityReport(resolved.range);
+      const r = await getProfitabilityReport(resolved.range, scope);
       return csvDocumentResponse(
         `rapport-profitabilite-${stamp}`,
         doc("Rapport de profitabilité", [
@@ -177,8 +185,15 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
       if (!user.capabilities.has("storeChannels")) return new Response("Forbidden", { status: 403 });
       // Online / Offline / Total — each section only when the viewer holds a
       // channel of that activity (docs/adr/0039, 0040); the Total only with both.
+      // Same filters as the page, resolved the same way: `kind`, and `canal`
+      // only when it is one of the viewer's OWN store channels — an unknown
+      // or foreign id is ignored exactly like on screen, never widened.
+      const kindParam = url.searchParams.get("kind");
+      const stores = await listAccessibleChannels(user, "OFFLINE");
+      const canal = url.searchParams.get("canal");
       const r = await getChannelReport(user, resolved.range, {
-        kind: url.searchParams.get("kind") === "online" ? "online" : url.searchParams.get("kind") === "offline" ? "offline" : "all",
+        kind: kindParam === "online" ? "online" : kindParam === "offline" ? "offline" : "all",
+        salesChannelId: stores.some((s) => s.id === canal) ? canal! : undefined,
       });
       if (!r.online && !r.offline) return new Response("Forbidden", { status: 403 });
       const sections: CsvSection[] = [
@@ -193,7 +208,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
         },
         ...(r.offline
           ? [
-              { heading: "Magasin — par mode de paiement", headers: ["Mode", "Montant"], rows: r.offline.byPayment.map((p) => [p.method, p.amount]) },
+              { heading: "Magasin — par mode de paiement", headers: ["Mode", "Montant"], rows: r.offline.byPayment.map((p) => [CASH_PAYMENT_METHOD_LABELS[p.method] ?? p.method, p.amount]) },
               { heading: "Magasin — par canal", headers: ["Canal", "Ventes", "Montant"], rows: r.offline.byChannel.map((c) => [c.name, c.count, c.gross]) },
               { heading: "Magasin — par emplacement", headers: ["Emplacement", "Ventes", "Montant"], rows: r.offline.byLocation.map((w) => [w.name, w.count, w.gross]) },
             ]
@@ -267,7 +282,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
     }
 
     case "livraison": {
-      const r = await getDeliveryPerformanceReport(resolved.range);
+      const r = await getDeliveryPerformanceReport(resolved.range, scope);
       // Carrier costs are finance data (docs/adr/0050) — dropped without
       // `finance.view`; delivery performance and COD stay operational.
       const perfHeaders = canSeeFinance
@@ -292,7 +307,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
       // (and only ever shown) when the caller may read that channel.
       const sections: CsvSection[] = [];
       if (user.channels.online) {
-        const r = await getReturnsReport(resolved.range);
+        const r = await getReturnsReport(resolved.range, scope);
         sections.push(
           {
             heading: "En ligne — Résumé",
@@ -364,7 +379,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
     }
 
     case "clients": {
-      const r = await getCustomerReport(resolved.range);
+      const r = await getCustomerReport(resolved.range, scope);
       return csvDocumentResponse(
         `rapport-clients-${stamp}`,
         doc("Rapport clients", [

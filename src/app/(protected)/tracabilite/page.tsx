@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { ScanBarcode } from "lucide-react";
+import { ChevronRight, ScanBarcode } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { FilterSearchInput } from "@/components/filter-search-input";
 import { TraceScanButton } from "@/components/traceability/trace-scan-button";
+import { TraceUnitPicker } from "@/components/traceability/trace-unit-picker";
 import { inactiveUnitLabel } from "@/lib/traceability-scan";
 import { scanMissHint } from "@/lib/catalog/scan-input";
 import { requirePermission } from "@/lib/auth/guards";
@@ -49,7 +49,8 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
     <div className="space-y-6">
       <PageHeader title="Traçabilité" description="Suivez un article de son entrée en stock à sa sortie : emplacement, mouvements, réceptions, ventes, retours." />
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <FilterSearchInput placeholder="Code-barres, référence, SKU ou nom…" defaultValue={params.q} className="w-full sm:w-96" />
+        {/* Search field + product picker; keyed on `q` so back/forward navigation shows that search again. */}
+        <TraceUnitPicker key={q} defaultValue={q} className="w-full sm:w-96" />
         {/* Camera scan = the same `?q=` search, read-only; manual entry and USB/Bluetooth scanners keep working. */}
         <TraceScanButton />
       </div>
@@ -62,24 +63,37 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
           <CardHeader>
             <CardTitle className="text-[15px]">{candidates.length} articles correspondent</CardTitle>
           </CardHeader>
-          <CardContent className="divide-y text-sm">
-            {candidates.map((u) => {
-              const key = u.variationId ? `v:${u.variationId}` : `p:${u.productId}`;
-              return (
-                <Link key={key} href={`/tracabilite?q=${encodeURIComponent(q)}&unit=${encodeURIComponent(key)}`} className="flex items-center justify-between py-2 hover:underline">
-                  <span>
-                    {u.name}
-                    {u.variantLabel && <span className="text-muted-foreground"> — {u.variantLabel}</span>}
-                    {inactiveUnitLabel(u.status) && (
-                      <Badge variant="outline" className="ml-2">
-                        {inactiveUnitLabel(u.status)}
-                      </Badge>
-                    )}
-                  </span>
-                  <span className="font-mono text-xs text-muted-foreground">{u.primaryBarcode ?? u.sku}</span>
-                </Link>
-              );
-            })}
+          <CardContent className="p-2">
+            <p className="px-2 pb-2 text-xs text-muted-foreground">Choisissez l&apos;article à tracer.</p>
+            <ul className="divide-y rounded-lg border" aria-label="Articles correspondants">
+              {candidates.map((u) => {
+                const key = u.variationId ? `v:${u.variationId}` : `p:${u.productId}`;
+                return (
+                  <li key={key}>
+                    <Link
+                      href={`/tracabilite?q=${encodeURIComponent(q)}&unit=${encodeURIComponent(key)}`}
+                      className="flex items-center gap-3 px-3 py-2 text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-1.5 font-medium">
+                          {u.name}
+                          {u.variantLabel && <span className="font-normal text-muted-foreground">— {u.variantLabel}</span>}
+                          {inactiveUnitLabel(u.status) && (
+                            <Badge variant="outline" className="h-4 px-1 text-[10px]">
+                              {inactiveUnitLabel(u.status)}
+                            </Badge>
+                          )}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {[u.sku, u.primaryBarcode, u.categoryName].filter(Boolean).join(" · ")}
+                        </span>
+                      </span>
+                      <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
           </CardContent>
         </Card>
       )}
@@ -108,6 +122,53 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
               </div>
             </CardContent>
           </Card>
+
+          {trace.referenceCost && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-[15px]">Coût d&apos;achat actuel</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {trace.referenceCost.global === null && trace.referenceCost.locations.length === 0 ? (
+                  <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-800 dark:text-amber-400">
+                    Coût d&apos;achat non renseigné pour cet article.{" "}
+                    <Link href={trace.productHref} className="font-medium underline underline-offset-2">
+                      Renseignez-le sur la fiche produit
+                    </Link>{" "}
+                    — les marges et la valorisation du stock restent incomplètes tant qu&apos;il manque.
+                  </p>
+                ) : (
+                  <>
+                    <p>
+                      <span className="text-lg font-semibold tabular-nums">
+                        {trace.referenceCost.global !== null ? formatCurrency(String(trace.referenceCost.global)) : "Non renseigné"}
+                      </span>{" "}
+                      <span className="text-xs text-muted-foreground">
+                        {trace.referenceCost.globalSource === "variation"
+                          ? "coût de la variante"
+                          : trace.referenceCost.globalSource === "product"
+                            ? "coût du produit (la variante n'a pas de coût propre)"
+                            : "aucun coût sur la fiche produit"}
+                      </span>
+                    </p>
+                    {trace.referenceCost.locations.length > 0 && (
+                      <ul className="flex flex-wrap gap-2 text-xs">
+                        {trace.referenceCost.locations.map((l) => (
+                          <li key={l.warehouseId} className="rounded-md border px-2 py-1">
+                            {l.warehouseName} : <span className="font-medium tabular-nums">{formatCurrency(String(l.cost))}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Coût de référence actuel (repris pour les prochaines ventes). L&apos;historique ci-dessous montre le coût enregistré par
+                  chaque mouvement : il n&apos;est jamais recalculé ni complété après coup.
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>
@@ -181,7 +242,24 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
                           {m.onHandDelta === null ? `${m.quantity}` : m.onHandDelta > 0 ? `+${m.onHandDelta}` : `${m.onHandDelta}`}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{m.onHandAfter ?? "—"}</TableCell>
-                        {showCost && <TableCell className="text-right tabular-nums">{m.unitCost !== null ? formatCurrency(String(m.unitCost)) : "—"}</TableCell>}
+                        {showCost && (
+                          <TableCell className="text-right tabular-nums">
+                            {m.unitCost !== null ? (
+                              formatCurrency(String(m.unitCost))
+                            ) : m.costState === "hidden" ? (
+                              <span className="text-xs text-muted-foreground" title="Ce coût n'est visible qu'avec l'accès Finance.">
+                                masqué
+                              </span>
+                            ) : (
+                              <span
+                                className="text-xs text-muted-foreground italic"
+                                title="Seules les réceptions, les transferts reçus avec un coût de destination et les ventes magasin enregistrent un coût sur le mouvement. Voir « Coût d'achat actuel » pour le coût de référence."
+                              >
+                                non enregistré
+                              </span>
+                            )}
+                          </TableCell>
+                        )}
                         <TableCell>
                           {m.document ? (
                             <Link href={m.document.href} className="hover:underline">

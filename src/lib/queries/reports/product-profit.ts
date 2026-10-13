@@ -39,10 +39,10 @@ export interface ProductProfitReport {
   totals: { revenue: number; cogs: number | null; grossProfit: number | null; marginPct: number | null; cogsComplete: boolean };
 }
 
-export async function getProductProfitReport(range: PeriodRange): Promise<ProductProfitReport> {
+export async function getProductProfitReport(range: PeriodRange, scope: Prisma.OrderWhereInput = {}): Promise<ProductProfitReport> {
   const lines = await prisma.orderItem.findMany({
     where: {
-      order: { placedAt: { gte: range.from, lte: range.to }, status: { notIn: REVENUE_EXCLUDED_STATUSES } },
+      order: { AND: [{ placedAt: { gte: range.from, lte: range.to }, status: { notIn: REVENUE_EXCLUDED_STATUSES } }, scope] },
     },
     select: {
       productId: true,

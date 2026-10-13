@@ -6,6 +6,8 @@ import { ReportDefinitions } from "@/components/reports/report-definitions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
+import { ReportOnlineChannelFilter } from "@/components/reports/report-online-channel-filter";
+import { resolveReportOnlineChannel, reportOrderScope } from "@/lib/reports/online-channel";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
 import { resolveTenantReportRange, rangeQuery } from "@/lib/reports/range";
@@ -19,7 +21,7 @@ export const metadata = { title: "Rapport des retours — ASODITECH Gestion E-co
 export default async function RapportRetoursPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string; canal?: string }>;
 }) {
   const viewer = await requirePermission("analytics.view");
   // Batch 15: this report covers BOTH domains — Online (Order/OrderReturn)
@@ -31,14 +33,17 @@ export default async function RapportRetoursPage({
   if (!canViewOnline && !canViewOffline) redirect("/acces-refuse");
   const params = await searchParams;
   const resolved = await resolveTenantReportRange(params);
+  // « Canal en ligne » (only the viewer's own channels; see resolveReportOnlineChannel).
+  const channelFilter = await resolveReportOnlineChannel(viewer, params.canal);
+  const scope = reportOrderScope(channelFilter.salesChannelId);
   const [report, offlineReport, business] = await Promise.all([
-    canViewOnline ? getReturnsReport(resolved.range) : Promise.resolve(null),
+    canViewOnline ? getReturnsReport(resolved.range, scope) : Promise.resolve(null),
     canViewOffline ? getOfflineReturnsReport(resolved.range, viewer) : Promise.resolve(null),
     getReportBusinessInfo(),
   ]);
   const t = report?.totals;
 
-  const exportHref = `/rapports/export/retours?${rangeQuery(resolved)}`;
+  const exportHref = `/rapports/export/retours?${rangeQuery(resolved, { canal: channelFilter.salesChannelId })}`;
 
   return (
     <div>
@@ -47,7 +52,7 @@ export default async function RapportRetoursPage({
         title="Rapport des retours"
         description={`Période : ${resolved.label} — retours physiques confirmés (« Confirmer le retour physique ») dans la fenêtre.`}
       />
-      <ReportFilterBar basePath="/rapports/retours" resolved={resolved} exportHref={exportHref} />
+      <ReportFilterBar basePath="/rapports/retours" resolved={resolved} exportHref={exportHref} extraParams={{ canal: channelFilter.salesChannelId }} extra={<ReportOnlineChannelFilter channels={channelFilter.channels} value={channelFilter.salesChannelId} />} />
 
       {report && t && (
         <>

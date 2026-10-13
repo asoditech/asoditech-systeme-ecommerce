@@ -11,8 +11,8 @@ import { ClickableTableRow } from "@/components/clickable-table-row";
 import { StopPropagationLink } from "@/components/stop-propagation-link";
 import { Button } from "@/components/ui/button";
 import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
-import { Input } from "@/components/ui/input";
 import { FilterSelect } from "@/components/filter-select";
+import { DateRangeFields } from "@/components/date-range-fields";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { DisconnectedSourceBanner } from "@/components/integrations/disconnected-source-banner";
 import { SyncRefreshButton } from "@/components/sync-refresh-button";
@@ -206,8 +206,15 @@ export default async function CommandesPage({
           <span className="text-xs text-muted-foreground" title="Date à laquelle la commande a été passée — pas la date d'expédition.">
             Commandes passées
           </span>
-          <Input type="date" name="dateFrom" defaultValue={effectiveDateFrom} className="w-40" aria-label="Commandes passées à partir du" />
-          <Input type="date" name="dateTo" defaultValue={effectiveDateTo} className="w-40" aria-label="Commandes passées jusqu'au" />
+          <DateRangeFields
+            idPrefix="orders-placed"
+            fromName="dateFrom"
+            toName="dateTo"
+            from={effectiveDateFrom}
+            to={effectiveDateTo}
+            fromAriaLabel="Commandes passées à partir du"
+            toAriaLabel="Commandes passées jusqu'au"
+          />
           <Button type="submit" size="sm" variant="outline">
             Filtrer
           </Button>

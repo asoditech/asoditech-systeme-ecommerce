@@ -120,6 +120,11 @@ async function resolveShopifyIntegrationBySignature(
   // that shop's integration may claim the delivery — two tenants sharing one
   // app's client secret must never receive each other's webhooks.
   const sendingShop = shopDomainHeader ? bareShopHost(shopDomainHeader) : null;
+  // The delivery is accepted only when exactly ONE integration (of that shop,
+  // when the header is present) verifies it — never the first of several
+  // (two tenants sharing one app secret, or one shop connected twice):
+  // deterministic, or refused.
+  const verified: ResolvedShopifyIntegration[] = [];
 
   for (const candidate of candidates) {
     if (!candidate.credentialsEncrypted) continue;
@@ -140,9 +145,11 @@ async function resolveShopifyIntegrationBySignature(
     }
     if (!webhookSecret || !apiKey) continue;
     if (verifyShopifyWebhookSignature(rawBody, signatureHeader, webhookSecret)) {
-      return { integration: candidate, apiKey, shopDomain: config.shopDomain };
+      verified.push({ integration: candidate, apiKey, shopDomain: config.shopDomain });
     }
   }
+  if (verified.length === 1) return verified[0];
+  if (verified.length > 1) console.warn("[webhook] SHOPIFY request rejected: several integrations verify it (ambiguous)");
   return "invalid_signature";
 }
 
@@ -157,8 +164,10 @@ export async function POST(request: Request): Promise<Response> {
   const topic = request.headers.get("x-shopify-topic") ?? "inconnu";
 
   const resolved = await resolveShopifyIntegrationBySignature(rawBody, signatureHeader, request.headers.get("x-shopify-shop-domain"));
+  // Same 401 whether no Shopify connection exists anywhere or none verifies
+  // (see the WooCommerce route): nothing to learn for an unauthenticated caller.
   if (resolved === null) {
-    return new Response(null, { status: 404 });
+    return new Response(null, { status: 401 });
   }
   if (resolved === "invalid_signature") {
     // No candidate's secret matched — genuinely unknown which tenant (if
@@ -238,7 +247,9 @@ async function handleShopifyWebhook(
     try {
       await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: inventoryItemGid, status: "TRAITE" });
     } catch {
-      await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: inventoryItemGid, status: "ECHEC" });
+      // The record itself failed (e.g. database unavailable): recording the
+      // failure may fail the same way — answer 500 either way so Shopify retries.
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: inventoryItemGid, status: "ECHEC" }).catch(() => undefined);
       return new Response(null, { status: 500 });
     }
     return new Response(null, { status: 200 });
@@ -326,13 +337,14 @@ async function handleShopifyWebhook(
     // On by default (see ImportOrderOptions's doc comment) — only an
     // explicit `false` opts out, so the webhook path matches the bulk
     // sync path exactly.
-    await importOrder(order, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: rawConfig.forceNouvelleOnImport !== false });
+    const imported = await importOrder(order, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: rawConfig.forceNouvelleOnImport !== false });
     revalidateAfterImport("order");
     // Soft, informational only (docs/adr/0035) — a webhook-imported order
     // is never rejected or delayed because of a plan's order limit.
     const usage = await getTenantUsage(integration.tenantId);
     await checkAndNotifyUsageThreshold(integration.tenantId, "ORDERS", usage.orders);
-    await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: orderGid, status: "TRAITE" });
+    // A deliberately skipped import (combination that cannot be mapped, order not held) is not « traité ».
+    await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: orderGid, status: imported.outcome === "skipped" ? "IGNORE" : "TRAITE" });
   } catch {
     await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: orderGid, status: "ECHEC" });
     return new Response(null, { status: 500 });

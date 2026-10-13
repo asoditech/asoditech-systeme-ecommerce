@@ -268,19 +268,35 @@ function shopifyOrder(overrides: Record<string, unknown> = {}) {
 }
 
 describe("external sync reopening an order (K, L)", () => {
+  // Each store event is modified on the store AFTER the previous step (whole
+  // seconds apart: WooCommerce *_gmt times have 1 s precision) — the event
+  // ordering a store cancellation / reopen needs (shared/order-sync-rules.ts).
+  let storeEvents = 0;
+  const storeClock = () => new Date(Date.now() + ++storeEvents * 2000);
   const stores = [
     {
       name: "WooCommerce",
       source: "WOOCOMMERCE" as const,
       externalId: "9600",
-      sync: (state: "new" | "cancelled") => importWooOrder(wcOrder(state === "new" ? "pending" : "cancelled"), { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: true }),
+      sync: (state: "new" | "cancelled") =>
+        importWooOrder(
+          { ...wcOrder(state === "new" ? "pending" : "cancelled"), date_modified_gmt: storeClock().toISOString().slice(0, 19) } as never,
+          { type: "INTEGRATION" },
+          { forceNouvelleOnFirstImport: true }
+        ),
     },
     {
       name: "Shopify",
       source: "SHOPIFY" as const,
       externalId: "gid://shopify/Order/9600",
-      sync: (state: "new" | "cancelled") =>
-        importShopifyOrder(shopifyOrder(state === "new" ? {} : { cancelledAt: new Date().toISOString(), cancelReason: "CUSTOMER" }) as never, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: true }),
+      sync: (state: "new" | "cancelled") => {
+        const at = storeClock().toISOString();
+        return importShopifyOrder(
+          shopifyOrder(state === "new" ? { updatedAt: at } : { cancelledAt: at, cancelReason: "CUSTOMER", updatedAt: at }) as never,
+          { type: "INTEGRATION" },
+          { forceNouvelleOnFirstImport: true }
+        );
+      },
     },
   ];
 

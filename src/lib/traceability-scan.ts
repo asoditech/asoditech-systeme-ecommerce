@@ -14,6 +14,23 @@ export function traceabilitySearchHref(code: string | null | undefined): string 
   return `${TRACEABILITY_PATH}?${new URLSearchParams({ q }).toString()}`;
 }
 
+/** The page's `unit` key for one article: `v:<variationId>` or `p:<productId>`. */
+export function traceUnitKey(unit: { productId: string; variationId: string | null }): string {
+  return unit.variationId ? `v:${unit.variationId}` : `p:${unit.productId}`;
+}
+
+/**
+ * The picker's choice → the page's existing `?q=…&unit=…` URL (the same one
+ * the « N articles correspondent » list links to). `q` is the search the
+ * picker ran, so the page's own lookup returns the same candidates and opens
+ * the chosen one; with an empty search (initial list) the article's SKU is
+ * used — an exact reference the page's lookup resolves to it.
+ */
+export function traceabilityUnitHref(query: string, unit: { productId: string; variationId: string | null; sku: string }): string {
+  const q = query.trim() || unit.sku;
+  return `${TRACEABILITY_PATH}?${new URLSearchParams({ q, unit: traceUnitKey(unit) }).toString()}`;
+}
+
 /** French label for a non-active catalog status, or null when the unit is active. */
 export function inactiveUnitLabel(status: "ACTIF" | "BROUILLON" | "ARCHIVE"): string | null {
   if (status === "ARCHIVE") return "Archivé";

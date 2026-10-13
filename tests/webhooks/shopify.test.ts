@@ -94,10 +94,11 @@ describe("POST /api/webhooks/shopify", () => {
     vi.unstubAllGlobals();
   });
 
-  it("returns 404 when no Shopify integration is configured", async () => {
+  it("no Shopify integration anywhere → the same 401 as a bad signature (nothing to learn), nothing recorded", async () => {
     const body = orderCreatePayload();
     const response = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/create", "x-shopify-webhook-id": "d1" }));
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(401);
+    expect(await prismaBase.webhookEvent.count()).toBe(0);
   });
 
   it("processes a validly signed orders/create delivery by re-fetching and importing the order", async () => {
@@ -276,6 +277,51 @@ describe("POST /api/webhooks/shopify", () => {
     expect((await prismaBase.product.findUniqueOrThrow({ where: { id: productB.id } })).status).toBe("ARCHIVE");
     const event = await prismaBase.webhookEvent.findFirstOrThrow({ where: { deliveryId: "d-shared-secret" } });
     expect(event.tenantId).toBe(TENANT_B);
+  });
+
+  it("shared secret and NO shop-domain header: several integrations verify → refused (401), neither tenant touched; a single match is accepted", async () => {
+    await seedIntegration(); // tenant A, same secret as B
+    const { tenantId: TENANT_B } = await seedTenantBIntegration(WEBHOOK_SECRET);
+    const gid = "gid://shopify/Product/9611";
+    const productA = await prisma.product.create({ data: { name: "A", sku: "SH-A-9611", price: 1, status: "ACTIF", source: "SHOPIFY", externalId: gid } });
+    const productB = await prismaBase.product.create({ data: { name: "B", sku: "SH-B-9611", price: 1, status: "ACTIF", source: "SHOPIFY", externalId: gid, tenantId: TENANT_B } });
+
+    const body = JSON.stringify({ id: 9611 });
+    const ambiguous = await POST(request(body, { "x-shopify-hmac-sha256": sign(body, WEBHOOK_SECRET), "x-shopify-topic": "products/delete", "x-shopify-webhook-id": "d-no-header" }));
+    expect(ambiguous.status).toBe(401);
+    expect((await prismaBase.product.findUniqueOrThrow({ where: { id: productA.id } })).status).toBe("ACTIF");
+    expect((await prismaBase.product.findUniqueOrThrow({ where: { id: productB.id } })).status).toBe("ACTIF");
+    expect(await prismaBase.webhookEvent.count()).toBe(0);
+
+    // B rotates to its own secret: now only A verifies → deterministic, accepted for A
+    await prismaBase.integration.updateMany({ where: { tenantId: TENANT_B }, data: { credentialsEncrypted: encryptSecret(JSON.stringify({ apiKey: "shpat_b", apiSecret: "tenant-b-own-secret" })) } });
+    const single = await POST(request(body, { "x-shopify-hmac-sha256": sign(body, WEBHOOK_SECRET), "x-shopify-topic": "products/delete", "x-shopify-webhook-id": "d-no-header-2" }));
+    expect(single.status).toBe(200);
+    expect((await prismaBase.product.findUniqueOrThrow({ where: { id: productA.id } })).status).toBe("ARCHIVE");
+    expect((await prismaBase.product.findUniqueOrThrow({ where: { id: productB.id } })).status).toBe("ACTIF");
+  });
+
+  it("the same shop connected by two companies with the same secret: even WITH the header, refused rather than the first row", async () => {
+    await seedIntegration({ shopDomain: "https://tenant-b.myshopify.com" }); // A connects B's shop too
+    await seedTenantBIntegration(WEBHOOK_SECRET);
+    const body = JSON.stringify({ id: 9612 });
+    const response = await POST(
+      request(body, { "x-shopify-hmac-sha256": sign(body, WEBHOOK_SECRET), "x-shopify-topic": "products/delete", "x-shopify-webhook-id": "d-dup-shop", "x-shopify-shop-domain": "tenant-b.myshopify.com" })
+    );
+    expect(response.status).toBe(401);
+    expect(await prismaBase.webhookEvent.count()).toBe(0);
+  });
+
+  it("inventory_levels/update: when recording the delivery fails AND recording the failure fails too, the answer is still a clean 500 (Shopify retries)", async () => {
+    await seedIntegration();
+    const spy = vi.spyOn(prisma.webhookEvent, "create").mockRejectedValue(new Error("database unavailable"));
+    const body = JSON.stringify({ inventory_item_id: 701, location_id: 10, available: 3 });
+    try {
+      const response = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "inventory_levels/update", "x-shopify-webhook-id": "d-db-down" }));
+      expect(response.status).toBe(500);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("a signature that matches no tenant's integration is rejected with 401, attributed to no specific integration", async () => {
@@ -654,12 +700,38 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
     return { item, order };
   }
 
-  it("a stale 'cancelled' webhook after a manual CONFIRMEE releases the reservation instead of leaving it stuck", async () => {
+  it("an order whose Shopify status combination cannot be mapped and is not held: recorded « IGNORE », not « TRAITE »; nothing created", async () => {
+    await seedIntegration();
+    state.orders[0].displayFinancialStatus = "PARTIALLY_REFUNDED";
+    const body = orderCreatePayload();
+    const response = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/create", "x-shopify-webhook-id": "d-unmapped" }));
+    expect(response.status).toBe(200);
+    expect((await prisma.webhookEvent.findFirstOrThrow({ where: { deliveryId: "d-unmapped" } })).status).toBe("IGNORE");
+    expect(await prisma.order.count()).toBe(0);
+  });
+
+  it.each([
+    ["older than the manual confirmation", () => new Date(Date.now() - 3_600_000).toISOString()],
+    ["with no modification date (ordering unknown)", () => null],
+  ])("a Shopify cancellation %s does NOT undo a manual CONFIRMEE: refused, reservation kept, nothing released", async (_, updatedAt) => {
+    const { item, order } = await seedConfirmedOrder();
+    state.orders[0].cancelledAt = "2026-01-21T10:00:00Z";
+    state.orders[0].updatedAt = updatedAt();
+    const body = orderCreatePayload();
+    expect((await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "stale-old" }))).status).toBe(200);
+
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("CONFIRMEE");
+    expect(await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } })).toMatchObject({ quantityOnHand: 15, quantityReserved: 5 });
+    expect((await prisma.inventoryMovement.findMany({ where: { inventoryItemId: item.id } })).map((m) => m.type)).toEqual(["RESERVATION"]);
+  });
+
+  it("a Shopify cancellation NEWER than the manual CONFIRMEE is applied and releases the reservation (never left stuck)", async () => {
     const { item, order } = await seedConfirmedOrder();
     let stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 5 });
 
     state.orders[0].cancelledAt = "2026-01-21T10:00:00Z";
+    state.orders[0].updatedAt = new Date(Date.now() + 60_000).toISOString(); // modified on Shopify AFTER the manual confirmation
     const body = orderCreatePayload();
     const response = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "stale-cancel" }));
     expect(response.status).toBe(200);
@@ -672,10 +744,27 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
     expect(movements.map((m) => m.type)).toEqual(["RESERVATION", "LIBERATION"]);
   });
 
+  it("an order already shipped once (EXPEDIEE → ECHEC → EN_PREPARATION retry) holds no reservation: a store cancellation releases nothing — another order's reservation stays", async () => {
+    const { item, order } = await seedConfirmedOrder();
+    await prisma.order.update({ where: { id: order.id }, data: { status: "EN_PREPARATION", shippedAt: new Date() } });
+    await prisma.inventoryItem.update({ where: { id: item.id }, data: { quantityOnHand: 10, quantityReserved: 3 } }); // 3 = another order's
+    const movementsBefore = await prisma.inventoryMovement.count({ where: { inventoryItemId: item.id } });
+
+    state.orders[0].cancelledAt = "2026-01-21T10:00:00Z";
+    state.orders[0].updatedAt = new Date(Date.now() + 60_000).toISOString(); // modified on Shopify AFTER the manual confirmation
+    const body = orderCreatePayload();
+    expect((await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "shipped-cancel" }))).status).toBe(200);
+
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("ANNULEE");
+    expect(await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } })).toMatchObject({ quantityOnHand: 10, quantityReserved: 3 });
+    expect(await prisma.inventoryMovement.count({ where: { inventoryItemId: item.id } })).toBe(movementsBefore);
+  });
+
   it("reopening and re-confirming after a webhook-driven cancellation reserves exactly 5, never 10", async () => {
     const { item, order } = await seedConfirmedOrder();
 
     state.orders[0].cancelledAt = "2026-01-21T10:00:00Z";
+    state.orders[0].updatedAt = new Date(Date.now() + 60_000).toISOString(); // modified on Shopify AFTER the manual confirmation
     const body = orderCreatePayload();
     await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "stale-cancel-2" }));
 

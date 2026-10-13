@@ -8,7 +8,7 @@ import { canTransitionShipmentStatus, type ShipmentStatusValue } from "@/lib/val
 import { reconcileOrderCommission } from "@/lib/commissions";
 import { recordAuditEvent } from "@/lib/audit";
 import { fulfillStockForOrder, InsufficientStockError } from "@/lib/inventory";
-import { checkAndNotifyLowStock } from "@/lib/notifications";
+import { checkAndNotifyLowStock, notifyOrderReturned } from "@/lib/notifications";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
 import { PACKING_NOT_VERIFIED_MESSAGE } from "@/lib/packing";
 import { isPackingRequired } from "@/lib/packing-settings";
@@ -167,6 +167,8 @@ export type ShipmentTransitionResult =
       finalizedCost?: { cost: number | null; costSource: ShipmentCostSource | null };
       /** The order moved to LIVREE with this transition. */
       orderDelivered?: boolean;
+      /** The order moved to RETOUR with this transition (parcel « Retourné »). */
+      orderReturned?: boolean;
     }
   | { ok: false; reason: "invalid_transition" | "conflict" }
   /** A non-active row (ECHEC) would move again (« En transit » / « Livré »)
@@ -245,6 +247,8 @@ export async function applyShipmentStatusTransition(params: {
   /** Set when this transition shipped the order's stock (post-commit effects). */
   let stockRefs: { productIds: (string | null)[]; variationIds: (string | null)[] } | null = null;
   let orderDelivered = false;
+  /** Set when this transition moved the order to RETOUR (post-commit notification). */
+  let returnedOrder: { id: string; orderNumber: number; displayNumber: number | null; customerName: string } | null = null;
 
   // A non-active row (ECHEC) moving again — « En transit », or « Livré »
   // which also closes the order — must not coexist with another in-flight
@@ -278,6 +282,9 @@ export async function applyShipmentStatusTransition(params: {
           status: true,
           shippedAt: true,
           packedAt: true,
+          orderNumber: true,
+          displayNumber: true,
+          customer: { select: { fullName: true } },
           items: { select: { productId: true, variationId: true, quantity: true } },
         },
       });
@@ -392,6 +399,49 @@ export async function applyShipmentStatusTransition(params: {
         );
         orderDelivered = true;
       }
+
+      // A parcel the carrier (or staff) marks « Retourné » is the real-world
+      // signal that the order came back (docs/adr/0006, 2026-10-12 addendum):
+      // the order follows to RETOUR — a workflow LABEL only. Stock is NOT
+      // restored here: returned units come back exactly once, through the
+      // returns workspace (reception → inspection, src/lib/returns/) or the
+      // physical-return dialog, which own the per-item ceiling. Payment is
+      // untouched. Skipped when another parcel of the same order is still
+      // live or was delivered (this one is an old leg, not the order's
+      // outcome), and when the order can't become RETOUR (ANNULEE, RETOUR
+      // already, REMBOURSEE…). The order row is locked above and the update
+      // is conditional on the status read under that lock: a replayed
+      // carrier event can't apply it twice (the shipment row's own
+      // conditional update already rejected it as a conflict).
+      if (params.newStatus === "RETOURNE" && canTransitionOrderStatus(orderStatus, "RETOUR")) {
+        const otherLiveOrDelivered = await tx.shipment.count({
+          where: { orderId: params.orderId, id: { not: params.shipmentId }, status: { in: [...ACTIVE_SHIPMENT_STATUSES, "LIVRE"] } },
+        });
+        if (otherLiveOrDelivered === 0) {
+          const moved = await tx.order.updateMany({ where: { id: params.orderId, status: orderStatus }, data: { status: "RETOUR" } });
+          if (moved.count === 1) {
+            await recordAuditEvent(
+              {
+                ...actor,
+                action: "order.status_changed",
+                entityType: "Order",
+                entityId: params.orderId,
+                previousValue: { status: orderStatus },
+                newValue: { status: "RETOUR" },
+                metadata: { via: "shipment", reason: "shipment_returned", shipmentId: params.shipmentId, shipmentStatus: params.newStatus },
+              },
+              tx
+            );
+            returnedOrder = {
+              id: params.orderId,
+              orderNumber: order.orderNumber,
+              displayNumber: order.displayNumber,
+              customerName: order.customer.fullName,
+            };
+            orderStatus = "RETOUR";
+          }
+        }
+      }
     });
   } catch (error) {
     if (error instanceof ShipmentConflictError) {
@@ -420,5 +470,14 @@ export async function applyShipmentStatusTransition(params: {
     await reconcileOrderCommission(params.orderId, params.updatedById ?? null);
   }
 
-  return { ok: true, finalizedCost, orderDelivered };
+  // Returned: same post-commit effects as updateOrderStatusAction's RETOUR —
+  // the « Commande retournée » alert (deduped per order: a retry never sends
+  // it twice) and the commission reconcile (reverses one earned on LIVREE).
+  const returned = returnedOrder as { id: string; orderNumber: number; displayNumber: number | null; customerName: string } | null;
+  if (returned) {
+    await notifyOrderReturned(returned, params.updatedById);
+    await reconcileOrderCommission(params.orderId, params.updatedById ?? null);
+  }
+
+  return { ok: true, finalizedCost, orderDelivered, orderReturned: returned !== null };
 }

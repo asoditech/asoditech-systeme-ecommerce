@@ -8,8 +8,17 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { BrandMark } from "@/components/brand-mark";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import type { Permission } from "@/lib/auth/permissions";
+import type { SidebarVariant } from "@/lib/navigation/sidebar-variant";
 
-export function MobileNav({ permissions }: { permissions: Set<Permission> }) {
+export function MobileNav({
+  permissions,
+  favorites = [],
+  variant = "classic",
+}: {
+  permissions: Set<Permission>;
+  favorites?: string[];
+  variant?: SidebarVariant;
+}) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -25,7 +34,7 @@ export function MobileNav({ permissions }: { permissions: Set<Permission> }) {
           </Link>
         </SheetHeader>
         <div className="overflow-y-auto">
-          <SidebarNav permissions={permissions} onNavigate={() => setOpen(false)} />
+          <SidebarNav permissions={permissions} favorites={favorites} variant={variant} onNavigate={() => setOpen(false)} />
         </div>
       </SheetContent>
     </Sheet>

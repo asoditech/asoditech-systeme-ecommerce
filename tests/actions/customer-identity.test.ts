@@ -7,6 +7,8 @@ import { createCustomerForOrderAction, searchCustomersForOrderAction } from "@/a
 import { createSaleCustomerAction, findSaleCustomersByPhoneAction } from "@/actions/sales";
 import { quickSearchAction } from "@/actions/search";
 import { customerPhoneKey } from "@/lib/customers/identity";
+import { findOrCreateCustomer } from "@/lib/customers/find-or-create";
+import { runWithTenant } from "@/lib/tenant/context";
 import { customerVisibilityWhere } from "@/lib/customers/visibility";
 import { listCustomers, getCustomerDetail } from "@/lib/queries/customers";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -91,6 +93,84 @@ describe("findOrCreateCustomer through the Clients form", () => {
     );
     expect(results.every((r) => r.ok)).toBe(true);
     expect(await prisma.customer.count()).toBe(1);
+  });
+
+  it("historical duplicates (created before the rule): the oldest one is reused, nothing merged or deleted", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const mk = (createdAt: Date, fullName: string) =>
+      prismaBase.customer.create({ data: { tenantId: DEFAULT_TENANT_ID, fullName, phone: "0611223344", phoneKey: "212611223344", createdAt } });
+    const newer = await mk(new Date(Date.UTC(2026, 5, 1)), "sara amrani");
+    const oldest = await mk(new Date(Date.UTC(2026, 0, 1)), "Sara  Amrani");
+    const res = await createCustomerAction(fd({ fullName: "SARA AMRANI", phone: "+212 6 11 22 33 44" }));
+    expect(res.ok && res.data.id).toBe(oldest.id);
+    expect((await prisma.customer.findMany({ orderBy: { createdAt: "asc" } })).map((c) => c.id)).toEqual([oldest.id, newer.id]);
+  });
+
+  it("identity is per company: the same name + phone in another company is a different customer, never reused, never touched", async () => {
+    const OTHER = "tenant-identity-b";
+    await prismaBase.tenant.create({ data: { id: OTHER, name: "B", slug: OTHER } });
+    const bCustomer = await prismaBase.customer.create({ data: { tenantId: OTHER, fullName: "Sara Amrani", phone: "0611223344", phoneKey: "212611223344", email: "b@example.com" } });
+
+    await loginAsTestUser({ role: "ADMIN" });
+    const res = await createCustomerAction(fd({ fullName: "Sara Amrani", phone: "06 11 22 33 44" }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.id).not.toBe(bCustomer.id);
+    expect(await prismaBase.customer.findUniqueOrThrow({ where: { id: res.data.id } })).toMatchObject({ tenantId: DEFAULT_TENANT_ID, phoneKey: "212611223344" });
+    expect(await prismaBase.customer.findUniqueOrThrow({ where: { id: bCustomer.id } })).toEqual(bCustomer);
+
+    // and back in company B, its own customer is the one reused
+    await loginAsTestUser({ role: "ADMIN", tenantId: OTHER });
+    const again = await createCustomerAction(fd({ fullName: "SARA AMRANI", phone: "0611223344" }));
+    expect(again.ok && again.data.id).toBe(bCustomer.id);
+    expect(await prismaBase.customer.count({ where: { tenantId: OTHER } })).toBe(1);
+  });
+
+  it("repeated identical requests alternating between two companies: one customer EACH, neither reuses the other's", async () => {
+    const OTHER = "tenant-identity-c";
+    await prismaBase.tenant.create({ data: { id: OTHER, name: "C", slug: OTHER } });
+    const a = await loginAsTestUser({ role: "ADMIN" });
+    const b = await loginAsTestUser({ role: "ADMIN", tenantId: OTHER });
+    const asUser = async (userId: string) => {
+      mockCookieStore.clear();
+      const { createSession } = await import("@/lib/auth/session");
+      await createSession(userId);
+      return createCustomerAction(fd({ fullName: "Yassine Idrissi", phone: "0622334455" }));
+    };
+    // one cookie store in tests → requests are interleaved, not simultaneous
+    const results = [];
+    for (const userId of [a.id, b.id, a.id, b.id]) results.push(await asUser(userId));
+    expect(results.every((r) => r.ok)).toBe(true);
+    const rows = await prismaBase.customer.findMany({ where: { phoneKey: "212622334455" }, select: { tenantId: true } });
+    expect(rows.map((r) => r.tenantId).sort()).toEqual([DEFAULT_TENANT_ID, OTHER].sort());
+  });
+
+  it("simultaneous identical requests in two companies: one customer per company, each request in its own company, nothing else touched", async () => {
+    const OTHER = "tenant-identity-concurrent";
+    await prismaBase.tenant.create({ data: { id: OTHER, name: "D", slug: OTHER } });
+    // B already has a DIFFERENT person on the same phone: must be neither reused nor modified
+    const bystander = await prismaBase.customer.create({ data: { tenantId: OTHER, fullName: "Karim Idrissi", phone: "0622334455", phoneKey: "212622334455" } });
+    const names = ["Yassine Idrissi", "YASSINE  idrissi", "yassine idrissi", "Yassine Idrissi "];
+    const phones = ["0622334455", "+212 622-334-455", "00212622334455", "06 22 33 44 55"];
+
+    // 8 requests started together (no awaits in between), alternating companies; the
+    // per-(company, phone) lock decides the order, so the outcome is deterministic.
+    const requests = Array.from({ length: 8 }, (_, i) => {
+      const tenantId = i % 2 === 0 ? DEFAULT_TENANT_ID : OTHER;
+      return runWithTenant(tenantId, "test:concurrent-identity", () => findOrCreateCustomer({ fullName: names[i % 4], phone: phones[(i + 1) % 4] })).then(
+        (result) => ({ tenantId, ...result })
+      );
+    });
+    const results = await Promise.all(requests);
+
+    const yassine = await prismaBase.customer.findMany({ where: { phoneKey: "212622334455", id: { not: bystander.id } } });
+    expect(yassine.map((c) => c.tenantId).sort()).toEqual([DEFAULT_TENANT_ID, OTHER].sort());
+    const ownerOf = new Map(yassine.map((c) => [c.id, c.tenantId]));
+    for (const r of results) expect(ownerOf.get(r.customer.id)).toBe(r.tenantId); // own company's customer, always
+    expect(results.filter((r) => !r.reused)).toHaveLength(2); // one creation per company, every other request reused it
+    expect(new Set(results.map((r) => r.customer.id)).size).toBe(2);
+    expect(await prismaBase.customer.findUniqueOrThrow({ where: { id: bystander.id } })).toEqual(bystander);
+    expect(await prismaBase.customer.count()).toBe(3);
   });
 
   it("editing a customer's phone recomputes phoneKey", async () => {
@@ -199,6 +279,14 @@ describe("customer visibility", () => {
       "Client Sans Canal",
     ]);
   });
+
+  it("order form picker on open (empty query) = the 8 most recent visible customers; 1 character = nothing; still visibility-filtered", async () => {
+    await seedActivity();
+    await loginAsTestUser({ role: "CONFIRMATION" });
+    const recent = (await searchCustomersForOrderAction("")).map((c) => c.fullName).sort();
+    expect(recent).toEqual(["Client En Ligne", "Client Nouveau", "Client Sans Canal"]);
+    expect(await searchCustomersForOrderAction("C")).toEqual([]);
+  });
 });
 
 describe("order form customer search — name OR (partial) phone", () => {
@@ -235,6 +323,19 @@ describe("order form customer search — name OR (partial) phone", () => {
     await prismaBase.customer.create({ data: { tenantId: DEFAULT_TENANT_ID, fullName: "Client Libre", phone: "0611223399", phoneKey: "212611223399" } });
     await loginAsTestUser({ role: "CONFIRMATION" });
     expect((await searchCustomersForOrderAction("112233")).map((c) => c.fullName)).toEqual(["Client Libre"]);
+  });
+});
+
+describe("order form customer picker — list on open (empty query)", () => {
+  it("caps at 8, newest first, and never leaks another tenant's customers", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    for (let i = 0; i < 10; i++) {
+      await prisma.customer.create({ data: { fullName: `Récent ${i}`, updatedAt: new Date(Date.UTC(2026, 0, 1 + i)) } });
+    }
+    await prismaBase.tenant.upsert({ where: { id: "tenant-other" }, update: {}, create: { id: "tenant-other", name: "Autre", slug: "autre-cust-picker" } });
+    await prismaBase.customer.create({ data: { tenantId: "tenant-other", fullName: "Autre Tenant", updatedAt: new Date(Date.UTC(2030, 0, 1)) } });
+    const recent = (await searchCustomersForOrderAction("")).map((c) => c.fullName);
+    expect(recent).toEqual(["Récent 9", "Récent 8", "Récent 7", "Récent 6", "Récent 5", "Récent 4", "Récent 3", "Récent 2"]);
   });
 });
 

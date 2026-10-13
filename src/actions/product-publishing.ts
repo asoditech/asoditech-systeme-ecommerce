@@ -11,7 +11,7 @@ import { checkProductPublishEligibility, resolveExternalAdminUrl } from "@/lib/i
 import { isShopifyIntegrationEnabled, SHOPIFY_DISABLED_MESSAGE } from "@/lib/integrations/shopify/feature-flag";
 import { loadWooCommerceClient } from "@/lib/integrations/woocommerce/client-loader";
 import { loadShopifyClient } from "@/lib/integrations/shopify/client-loader";
-import { WooCommerceError } from "@/lib/integrations/woocommerce/errors";
+import { WooCommerceApiError, WooCommerceError } from "@/lib/integrations/woocommerce/errors";
 import { ShopifyError } from "@/lib/integrations/shopify/errors";
 import {
   buildWooCommerceProductPayload,
@@ -37,6 +37,51 @@ import { actionError, actionOk, type ActionResult } from "@/actions/types";
  * app for a sensitive cross-cutting action (docs/adr/0035's RBAC+entitlement
  * pattern), reusing two existing permissions rather than inventing a third.
  */
+type WooPublishStep =
+  | { stage: "product" }
+  | { stage: "variation"; variationId: string; variation: PublishableVariationInput; remoteParentId: number };
+
+const VARIATION_LABEL_MAX = 120;
+
+/** « SKU » (Taille : M, Couleur : Noir) — local catalogue data only, bounded. */
+function variationLabel(v: PublishableVariationInput): string {
+  const attributes = Object.entries(v.attributes ?? {})
+    .map(([name, option]) => `${name} : ${option}`)
+    .join(", ");
+  const label = `« ${v.sku} »${attributes ? ` (${attributes})` : ""}`;
+  return label.length > VARIATION_LABEL_MAX ? `${label.slice(0, VARIATION_LABEL_MAX)}…` : label;
+}
+
+/**
+ * The user-facing message for a WooCommerce rejection, naming the step that
+ * failed. A variation can only fail after createProduct() returned the
+ * parent's id, so the parent provably exists on the store at that point:
+ * say so, with its id, so the operator checks the catalogue instead of
+ * re-publishing into a duplicate SKU. Nothing is deleted or retried here.
+ */
+function wooPublishFailureMessage(error: WooCommerceError, step: WooPublishStep): string {
+  if (step.stage === "product") {
+    return `Publication impossible. WooCommerce a refusé le produit : ${error.message}`;
+  }
+  return (
+    `Publication impossible. WooCommerce a refusé la variation ${variationLabel(step.variation)} : ${error.message} ` +
+    `Le produit parent a déjà été créé sur WooCommerce (ID ${step.remoteParentId}) : vérifiez le catalogue WooCommerce avant de réessayer la publication.`
+  );
+}
+
+/** One diagnostic line per failed publication — status, WooCommerce slug, step and internal ids only (no payload, body or credentials). */
+function logWooPublishFailure(error: WooCommerceError, step: WooPublishStep, productId: string) {
+  console.warn("[woocommerce] product publication failed", {
+    stage: step.stage,
+    errorType: error.code,
+    httpStatus: error instanceof WooCommerceApiError ? error.status : undefined,
+    remoteCode: error instanceof WooCommerceApiError ? error.remoteCode : undefined,
+    productId,
+    variationId: step.stage === "variation" ? step.variationId : undefined,
+    remoteParentId: step.stage === "variation" ? step.remoteParentId : undefined,
+  });
+}
+
 export interface PublishProductResult {
   externalId: string;
   adminUrl: string | null;
@@ -105,6 +150,10 @@ export async function publishProductAction(input: {
   }));
 
   let externalId: string;
+  // Which WooCommerce call is in flight — so a rejection names the parent
+  // product or the exact variation, and says whether the parent already
+  // exists on the store (it does only once createProduct() has returned).
+  let wooStep: WooPublishStep = { stage: "product" };
   try {
     if (provider === "WOOCOMMERCE") {
       const loaded = await loadWooCommerceClient();
@@ -138,7 +187,8 @@ export async function publishProductAction(input: {
         // Sequential, not Promise.all — WooCommerce's REST API has no batch
         // variation-create endpoint, and creating them one at a time avoids
         // hitting the store with a burst of concurrent requests.
-        for (const v of variationInputs) {
+        for (const [index, v] of variationInputs.entries()) {
+          wooStep = { stage: "variation", variationId: product.variations[index].id, variation: v, remoteParentId: created.id };
           await loaded.client.createProductVariation(
             created.id,
             buildWooCommerceVariationPayload(v, Number(product.price))
@@ -164,7 +214,11 @@ export async function publishProductAction(input: {
       externalId = created.productId;
     }
   } catch (error) {
-    if (error instanceof WooCommerceError || error instanceof ShopifyError) {
+    if (error instanceof WooCommerceError) {
+      logWooPublishFailure(error, wooStep, product.id);
+      return actionError(wooPublishFailureMessage(error, wooStep));
+    }
+    if (error instanceof ShopifyError) {
       return actionError(`Publication impossible. ${providerLabel} a refusé le produit : ${error.message}`);
     }
     throw error;

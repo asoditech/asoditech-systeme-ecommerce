@@ -6,8 +6,8 @@ import { KpiCard } from "@/components/kpi-card";
 import { ExpenseForm } from "@/components/finance/expense-form";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { FilterSelect } from "@/components/filter-select";
+import { DateRangeFields } from "@/components/date-range-fields";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
@@ -153,8 +153,15 @@ export default async function DepensesPage({
           {params.q ? <input type="hidden" name="q" value={params.q} /> : null}
           {categoryFilter ? <input type="hidden" name="categoryId" value={categoryFilter} /> : null}
           {params.sort ? <input type="hidden" name="sort" value={params.sort} /> : null}
-          <Input type="date" name="dateFrom" defaultValue={params.dateFrom} className="w-40" aria-label="Date de début" />
-          <Input type="date" name="dateTo" defaultValue={params.dateTo} className="w-40" aria-label="Date de fin" />
+          <DateRangeFields
+            idPrefix="expenses"
+            fromName="dateFrom"
+            toName="dateTo"
+            from={params.dateFrom}
+            to={params.dateTo}
+            fromAriaLabel="Date de début"
+            toAriaLabel="Date de fin"
+          />
           <Button type="submit" size="sm" variant="outline">
             Filtrer
           </Button>

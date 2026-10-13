@@ -144,7 +144,7 @@ export async function notify(input: NotifyInput): Promise<string[]> {
       );
     }
     if (input.whatsapp && input.dedupeKey) {
-      await sendWhatsAppToUsers([...newlyNotified].map((userId) => ({ userId, message: input.whatsapp! })));
+      await sendWhatsAppToUsers([...newlyNotified].map((userId) => ({ userId, message: input.whatsapp!, alertType: input.type })));
     }
     return [...newlyNotified];
   } catch (error) {
@@ -293,12 +293,21 @@ export async function notifyShipmentsFailed(shipments: ShipmentFailure[], except
     [...perUser].map(([userId, providerNames]) => ({
       userId,
       message: deliveryFailureSummaryTemplate({ count: providerNames.length, providerNames }),
+      alertType: "ECHEC_LIVRAISON",
     })),
     { oncePerDay: "delivery_failure" }
   );
 }
 
-/** A sync run ended ECHEC or PARTIEL. */
+/**
+ * A sync run ended ECHEC or PARTIEL.
+ *
+ * PARTIEL (some items failed, the rest went through): in-app only, one per
+ * run. ECHEC (nothing could be synced — store unreachable, credentials
+ * refused…): actionable, so also WhatsApp (approved `asoditech_integration_down`
+ * template) — and deduplicated per store + resource per UTC day, so a
+ * button clicked ten times on a broken store raises ONE alert, not ten.
+ */
 export async function notifySyncFailure(
   run: {
     id: string;
@@ -311,22 +320,39 @@ export async function notifySyncFailure(
   },
   exceptUserId?: string | null
 ): Promise<void> {
+  const failedOutright = run.status === "ECHEC";
   await notify({
     type: "ECHEC_SYNCHRONISATION",
-    title:
-      run.status === "ECHEC"
-        ? `Échec de synchronisation ${run.provider}`
-        : `Synchronisation ${run.provider} partielle`,
-    message:
-      run.status === "ECHEC"
-        ? `La synchronisation « ${run.resource} » a échoué.` + (run.firstNote ? ` ${run.firstNote}` : "")
-        : `« ${run.resource} » : ${run.imported} importé(s), ${run.failed} en échec.` +
-          (run.firstNote ? ` ${run.firstNote}` : ""),
+    title: failedOutright ? `Échec de synchronisation ${run.provider}` : `Synchronisation ${run.provider} partielle`,
+    message: failedOutright
+      ? `La synchronisation « ${run.resource} » a échoué.` + (run.firstNote ? ` ${run.firstNote}` : "")
+      : `« ${run.resource} » : ${run.imported} importé(s), ${run.failed} en échec.` + (run.firstNote ? ` ${run.firstNote}` : ""),
     entityType: "SyncRun",
     entityId: run.id,
-    dedupeKey: `echec_sync:${run.id}`,
+    dedupeKey: failedOutright ? `echec_sync:${run.provider}:${run.resource}:${dayBucket()}` : `echec_sync:${run.id}`,
     recipientPermission: "integrations.view",
     exceptUserId,
+    ...(failedOutright ? { whatsapp: integrationDownTemplate({ label: `${run.provider} (synchronisation ${run.resource.toLowerCase()})` }) } : {}),
+  });
+}
+
+/**
+ * A store webhook delivery could not be processed (recorded ECHEC — the
+ * store retries it; see the integrations card). At most one alert per
+ * integration per UTC day, in-app + WhatsApp (same approved template as a
+ * failed sync). A rejected signature (401) is never recorded, so never
+ * alerts: no tenant can be matched to it.
+ */
+export async function notifyWebhookFailure(params: { integrationId: string; provider: "WooCommerce" | "Shopify"; topic: string }): Promise<void> {
+  await notify({
+    type: "ECHEC_SYNCHRONISATION",
+    title: `Webhook ${params.provider} non traité`,
+    message: `Une notification « ${params.topic} » de ${params.provider} n'a pas pu être traitée. La boutique la renverra ; vérifiez la carte ${params.provider} dans Intégrations ou relancez la synchronisation.`,
+    entityType: "Integration",
+    entityId: params.integrationId,
+    dedupeKey: `echec_webhook:${params.integrationId}:${dayBucket()}`,
+    recipientPermission: "integrations.view",
+    whatsapp: integrationDownTemplate({ label: `${params.provider} (webhooks)` }),
   });
 }
 

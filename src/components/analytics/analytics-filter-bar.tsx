@@ -1,9 +1,9 @@
 import { Download } from "lucide-react";
 import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { FilterSelect } from "@/components/filter-select";
 import { PrintButton } from "@/components/reports/print-button";
+import { DateRangeFields } from "@/components/date-range-fields";
 import { ANALYTICS_PERIODS, ANALYTICS_PERIOD_LABELS, type AnalyticsPeriod } from "@/lib/analytics/period";
 
 export interface AnalyticsFilterControl {
@@ -53,14 +53,7 @@ export function AnalyticsFilterBar({
           {Object.entries(filterParams).map(([k, v]) => (
             <input key={k} type="hidden" name={k} value={v} />
           ))}
-          <label htmlFor="analytics-from" className="text-xs font-medium text-muted-foreground">
-            Du
-          </label>
-          <Input id="analytics-from" type="date" name="from" defaultValue={period.params.from} className="h-8 w-38" required />
-          <label htmlFor="analytics-to" className="text-xs font-medium text-muted-foreground">
-            Au
-          </label>
-          <Input id="analytics-to" type="date" name="to" defaultValue={period.params.to} className="h-8 w-38" required />
+          <DateRangeFields idPrefix="analytics" fromName="from" toName="to" from={period.params.from} to={period.params.to} size="sm" required />
           <Button type="submit" size="sm" variant="outline">
             Appliquer
           </Button>

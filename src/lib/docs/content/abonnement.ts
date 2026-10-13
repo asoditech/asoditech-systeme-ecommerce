@@ -1,6 +1,6 @@
 import type { DocArticle } from "../types";
 
-const LAST_UPDATED = "2026-09-12";
+const LAST_UPDATED = "2026-10-12";
 
 export const abonnementArticles: DocArticle[] = [
   {
@@ -12,14 +12,12 @@ export const abonnementArticles: DocArticle[] = [
     steps: [
       "Ouvrir Paramètres → Abonnement & Utilisation pour voir votre forfait actuel, votre utilisation ce mois-ci, et les fonctionnalités incluses.",
     ],
-    whatYouShouldSee: "Le nom de votre forfait, son prix mensuel, la période en cours, et trois indicateurs d'utilisation (commandes, utilisateurs, entrepôts).",
+    whatYouShouldSee: "Le nom de votre forfait, l'état de l'abonnement, la période en cours, et trois indicateurs d'utilisation (commandes, utilisateurs, entrepôts).",
     body: [
       {
         type: "table",
         headers: ["", "Business", "Pro"],
         rows: [
-          ["Installation (unique)", "1 500 DH", "2 500 DH"],
-          ["Abonnement mensuel", "599 DH / mois", "1 000 DH / mois"],
           ["Commandes / mois (environ)", "1 500", "7 000"],
           ["Utilisateurs actifs", "7", "20"],
           ["Entrepôts actifs", "3", "10"],
@@ -40,7 +38,7 @@ export const abonnementArticles: DocArticle[] = [
     related: ["abonnement/comprendre-l-utilisation", "abonnement/mettre-a-niveau"],
     tryNow: { label: "Ouvrir Abonnement & Utilisation", href: "/parametres/abonnement" },
     lastUpdated: LAST_UPDATED,
-    keywords: ["forfait business", "forfait pro", "prix", "tarifs", "plan"],
+    keywords: ["forfait business", "forfait pro", "limites", "fonctionnalités", "plan"],
   },
   {
     slug: "abonnement/comprendre-l-utilisation",

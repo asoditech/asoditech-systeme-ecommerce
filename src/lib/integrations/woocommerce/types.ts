@@ -72,7 +72,10 @@ export const wcProductVariationSchema = z.object({
   regular_price: wcMoneyString.default(0),
   sale_price: wcMoneyString.nullish(),
   price: wcMoneyString.default(0),
-  manage_stock: z.boolean().default(false),
+  // WooCommerce answers `"parent"` (not a boolean) for a variation whose stock
+  // is the parent's own: it has no quantity of its own, so it is never given
+  // a stock row nor pushed (the parent's number is never used in its place).
+  manage_stock: z.union([z.boolean(), z.literal("parent")]).default(false),
   stock_quantity: z.number().nullish(),
   stock_status: z.string().default("instock"),
   attributes: z
@@ -127,6 +130,10 @@ export const wcOrderSchema = z.object({
   currency: z.string().default("MAD"),
   date_created: z.string(),
   date_paid: z.string().nullish(),
+  // Store-side event times (UTC, no zone suffix) — event ordering and the
+  // delivered/cancelled dates of store-driven transitions (shared/order-sync-rules.ts).
+  date_modified_gmt: z.string().nullish(),
+  date_completed_gmt: z.string().nullish(),
   customer_id: z.number().default(0),
   total: wcMoneyString.default(0),
   total_tax: wcMoneyString.default(0),

@@ -412,6 +412,15 @@ model User {
   // WhatsApp message — the per-shipment in-app dedupe key cannot express
   // "one per recipient per day" (docs/adr/0058).
   whatsappDeliveryFailureNotifiedAt DateTime?
+  // WhatsApp alert types this user turned OFF on « Notifications »
+  // (NotificationType names, src/lib/notification-settings.ts). Empty = every
+  // WhatsApp-capable alert stays on, exactly as before. In-app alerts are
+  // never affected.
+  whatsappMutedAlerts               String[]  @default([])
+  // « Favoris » (S8): the user's pinned sidebar pages, in order — hrefs of
+  // NAV_GROUPS only, at most 8 (src/lib/navigation/favorites.ts). Shown only
+  // while the user may open them; never an authorization by itself.
+  navFavorites                      String[]  @default([])
 
   tenant                     Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   sessions                   Session[]
@@ -2823,6 +2832,12 @@ model BusinessSettings {
   // line may carry `StockTransferLine.destinationUnitCost` (a PURCHASE cost,
   // never a selling price). Default false = transfers move quantity only.
   transferPurchaseCostOverrideEnabled Boolean @default(false)
+  // « Paiement confirmé par la boutique »: when true, an IMPORTED order whose
+  // store later reports it paid (WooCommerce `date_paid` / Shopify PAID) moves
+  // EN_ATTENTE → PAYE on sync/webhook, with an audit event. Never driven by a
+  // carrier delivery status (delivered ≠ cash collected). Default false =
+  // payment stays manual, unchanged.
+  autoPaymentFromStore Boolean @default(false)
 
   updatedAt DateTime @updatedAt
 

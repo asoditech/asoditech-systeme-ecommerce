@@ -2,8 +2,8 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { FilterSelect } from "@/components/filter-select";
+import { DateRangeFields } from "@/components/date-range-fields";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { ProductExportPanel } from "@/components/products/product-export-panel";
 import { requirePermission } from "@/lib/auth/guards";
@@ -90,14 +90,16 @@ export default async function ProductExportPage({ searchParams }: { searchParams
           {preserved.map(([k, v]) => (
             <input key={k} type="hidden" name={k} value={v} />
           ))}
-          <label htmlFor="createdFrom" className="text-xs font-medium text-muted-foreground">
-            Créés du
-          </label>
-          <Input id="createdFrom" type="date" name="createdFrom" defaultValue={filters.createdFrom} className="h-8 w-38" />
-          <label htmlFor="createdTo" className="text-xs font-medium text-muted-foreground">
-            au
-          </label>
-          <Input id="createdTo" type="date" name="createdTo" defaultValue={filters.createdTo} className="h-8 w-38" />
+          <DateRangeFields
+            idPrefix="createdRange"
+            fromName="createdFrom"
+            toName="createdTo"
+            from={filters.createdFrom}
+            to={filters.createdTo}
+            fromLabel="Créés du"
+            toLabel="au"
+            size="sm"
+          />
           <Button type="submit" size="sm" variant="outline">
             Appliquer
           </Button>

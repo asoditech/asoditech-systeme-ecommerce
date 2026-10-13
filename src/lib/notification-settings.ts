@@ -7,6 +7,7 @@ import { isEmailConfigured } from "@/lib/email";
 import { isWhatsAppConfigured } from "@/lib/whatsapp/client";
 import { maskWhatsAppPhone } from "@/lib/whatsapp/phone";
 import { parsePendingVerification } from "@/lib/whatsapp/verification";
+import { isWhatsAppAlertType, type WhatsAppAlertType } from "@/lib/whatsapp/alert-types";
 
 /**
  * What Paramètres → Notifications shows a user (docs/adr/0058 "Final
@@ -28,17 +29,27 @@ export interface AlertRule {
   /** Restricted to the user's locations (ADR 0056). */
   locationScoped?: boolean;
   note?: string;
+  /** The NotificationType a user may mute for WhatsApp (only rules whose WhatsApp channel is real). */
+  whatsappType?: WhatsAppAlertType;
 }
 
 /** Mirrors the notify* helpers' recipientPermission and channel opt-ins. */
 export const ALERT_RULES: readonly AlertRule[] = [
-  { key: "rupture", label: "Rupture de stock", anyOf: ["inventory.view"], channels: ["inApp", "email", "whatsapp"], locationScoped: true },
+  {
+    key: "rupture",
+    label: "Rupture de stock",
+    anyOf: ["inventory.view"],
+    channels: ["inApp", "email", "whatsapp"],
+    locationScoped: true,
+    whatsappType: "RUPTURE_STOCK",
+  },
   {
     key: "echec_livraison",
     label: "Échec de livraison",
     anyOf: ["delivery.view"],
     channels: ["inApp", "email", "whatsapp"],
     note: "WhatsApp : un résumé au plus par jour.",
+    whatsappType: "ECHEC_LIVRAISON",
   },
   {
     key: "erreur_integration",
@@ -46,11 +57,25 @@ export const ALERT_RULES: readonly AlertRule[] = [
     anyOf: ["integrations.view", "delivery.view"],
     channels: ["inApp", "email", "whatsapp"],
     note: "Boutiques et WhatsApp : droit Intégrations. Transporteurs : droit Livraison.",
+    whatsappType: "ERREUR_INTEGRATION",
   },
   { key: "limite_forfait", label: "Limite du forfait atteinte (100 %)", anyOf: ["settings.manage"], channels: ["inApp", "email"] },
   { key: "stock_faible", label: "Stock faible", anyOf: ["inventory.view"], channels: ["inApp"], locationScoped: true },
-  { key: "commandes", label: "Commandes : nouvelles, paiements, retours, stock insuffisant, incohérences", anyOf: ["orders.view"], channels: ["inApp"] },
-  { key: "synchronisation", label: "Synchronisation des boutiques", anyOf: ["integrations.view"], channels: ["inApp"] },
+  {
+    key: "commandes",
+    label: "Commandes : nouvelles, paiements, retours, stock insuffisant, incohérences",
+    anyOf: ["orders.view"],
+    channels: ["inApp"],
+    note: "WhatsApp non disponible : aucun modèle de message approuvé pour ces alertes.",
+  },
+  {
+    key: "synchronisation",
+    label: "Synchronisation des boutiques",
+    anyOf: ["integrations.view"],
+    channels: ["inApp", "whatsapp"],
+    note: "WhatsApp : échec complet d'une synchronisation ou webhook non traité — au plus un par boutique et par jour. Synchronisation partielle : application uniquement.",
+    whatsappType: "ECHEC_SYNCHRONISATION",
+  },
   { key: "forfait_seuils", label: "Utilisation du forfait (80 % et 90 %)", anyOf: ["settings.manage"], channels: ["inApp"] },
   { key: "support", label: "Signalements du centre d'aide", anyOf: ["settings.view"], channels: ["inApp"] },
 ];
@@ -86,6 +111,8 @@ export interface MyNotificationSettings {
     codePending: boolean;
   };
   alerts: AlertRule[];
+  /** WhatsApp alert types this user muted (User.whatsappMutedAlerts). */
+  whatsappMuted: WhatsAppAlertType[];
   locationScope: { global: boolean; count: number };
 }
 
@@ -93,7 +120,7 @@ export async function getMyNotificationSettings(user: CurrentUser): Promise<MyNo
   const [own, integration] = await Promise.all([
     prisma.user.findUniqueOrThrow({
       where: { id: user.id },
-      select: { whatsappPhone: true, whatsappVerifiedAt: true, whatsappOptInAt: true, whatsappVerification: true },
+      select: { whatsappPhone: true, whatsappVerifiedAt: true, whatsappOptInAt: true, whatsappVerification: true, whatsappMutedAlerts: true },
     }),
     prisma.integration.findFirst({ where: { provider: "WHATSAPP" }, select: { status: true } }),
   ]);
@@ -115,6 +142,7 @@ export async function getMyNotificationSettings(user: CurrentUser): Promise<MyNo
       codePending: Boolean(pending && pending.phone === own.whatsappPhone && new Date(pending.expiresAt) > new Date()),
     },
     alerts: alertsForUser(user.permissions),
+    whatsappMuted: own.whatsappMutedAlerts.filter(isWhatsAppAlertType),
     locationScope: { global: user.locations.global, count: user.locations.ids.length },
   };
 }

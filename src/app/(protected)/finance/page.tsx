@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { Receipt, Wallet, PackageMinus, TrendingUp, ReceiptText, Truck, TrendingDown, Megaphone, Percent } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
 import { EmptyState } from "@/components/empty-state";
 import { KpiCard } from "@/components/kpi-card";
 import { ExpenseForm } from "@/components/finance/expense-form";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { DateRangeFields } from "@/components/date-range-fields";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
@@ -87,8 +88,7 @@ export default async function FinancePage({
               </Button>
             ))}
             <form action="/finance" className="flex items-center gap-1.5">
-              <Input type="date" name="from" defaultValue={params.from} className="h-8 w-36" aria-label="Du" />
-              <Input type="date" name="to" defaultValue={params.to} className="h-8 w-36" aria-label="Au" />
+              <DateRangeFields idPrefix="finance" fromName="from" toName="to" from={params.from} to={params.to} size="sm" />
               <Button type="submit" variant={periodKey === "custom" ? "default" : "outline"} size="sm">
                 OK
               </Button>
@@ -97,6 +97,7 @@ export default async function FinancePage({
         }
       />
 
+      <MissingCostBanner user={user} />
       <p className="mb-4 text-sm text-muted-foreground">
         Période : <span className="text-foreground">{periodLabel}</span>
         {summary.itemsMissingCost > 0 && (

@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/page-header";
+import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
 import { KpiCard } from "@/components/kpi-card";
 import { ReportMetricInfo } from "@/components/reports/report-metric-info";
 import { ReportDefinitions } from "@/components/reports/report-definitions";
@@ -70,6 +71,7 @@ export default async function RapportStockPage({
             : "Photo du stock actuel — valeur au prix de vente, et articles qui ne tournent pas."
         }
       />
+      <MissingCostBanner user={user} />
       <ReportFilterBar
         basePath="/rapports/stock"
         resolved={resolved}

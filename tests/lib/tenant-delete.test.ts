@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { prismaBase } from "@/lib/prisma";
-import { deleteTenantData, BootstrapTenantDeletionError, TenantNotFoundError } from "@/lib/tenant/delete";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { prisma, prismaBase } from "@/lib/prisma";
+import { deleteTenantData, BootstrapTenantDeletionError, TenantNotFoundError, TenantNotPurgeableError } from "@/lib/tenant/delete";
 import { DEFAULT_TENANT_ID, resetDb, markTenantTrial } from "../helpers/db";
 import { createTestUser } from "../helpers/auth";
 import { createSession } from "@/lib/auth/session";
@@ -103,6 +103,30 @@ describe("deleteTenantData", () => {
   it("refuses the bootstrap tenant", async () => {
     await expect(deleteTenantData(DEFAULT_TENANT_ID)).rejects.toBeInstanceOf(BootstrapTenantDeletionError);
     expect(await prismaBase.tenant.findUnique({ where: { id: DEFAULT_TENANT_ID } })).not.toBeNull();
+  });
+
+  it.each([
+    ["its subscription leaves TRIALING", (id: string) => prismaBase.tenantSubscription.update({ where: { tenantId: id }, data: { status: "ACTIVE" } })],
+    ["a platform admin is added to it", (id: string) => createTestUser({ tenantId: id, role: "OWNER", isPlatformAdmin: true })],
+  ])("backstop: when %s between the check and the delete transaction, the purge is refused and nothing is deleted", async (_, lateChange) => {
+    const TENANT_B = "tenant-b-late-change";
+    await seedTenant(TENANT_B);
+    await markTenantTrial(TENANT_B);
+    const productsBefore = await prismaBase.product.count({ where: { tenantId: TENANT_B } });
+
+    // The change lands right after the up-front check, just before the transaction opens.
+    const original = prisma.$transaction.bind(prisma);
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementationOnce((async (...args: Parameters<typeof prisma.$transaction>) => {
+      await lateChange(TENANT_B);
+      return (original as (...a: unknown[]) => unknown)(...args);
+    }) as typeof prisma.$transaction);
+    try {
+      await expect(deleteTenantData(TENANT_B)).rejects.toBeInstanceOf(TenantNotPurgeableError);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await prismaBase.tenant.findUnique({ where: { id: TENANT_B } })).not.toBeNull();
+    expect(await prismaBase.product.count({ where: { tenantId: TENANT_B } })).toBe(productsBefore);
   });
 
   it("throws for a tenant that doesn't exist", async () => {

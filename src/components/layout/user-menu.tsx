@@ -2,8 +2,10 @@
 
 import { useTransition } from "react";
 import Link from "next/link";
-import { BellRing, ChevronDown, LogOut, User as UserIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { BellRing, ChevronDown, LayoutList, LogOut, User as UserIcon } from "lucide-react";
 import { logoutAction } from "@/actions/auth";
+import { sidebarVariantCookie, type SidebarVariant } from "@/lib/navigation/sidebar-variant";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,9 +26,20 @@ function initials(name: string): string {
     .join("");
 }
 
-/** Header user menu — avatar, name, role, « Mes notifications » (Paramètres → Notifications, open to every role), and the sign-out action (moved here from the sidebar). */
-export function UserMenu({ name, role }: { name: string; role: string }) {
+/**
+ * Header user menu — avatar, name, role, « Mes notifications » (Paramètres → Notifications, open to every role),
+ * the sidebar presentation switch (a per-browser cookie only — src/lib/navigation/sidebar-variant.ts), and the
+ * sign-out action (moved here from the sidebar).
+ */
+export function UserMenu({ name, role, sidebarVariant = "classic" }: { name: string; role: string; sidebarVariant?: SidebarVariant }) {
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+
+  function switchSidebar() {
+    // Presentation preference of this browser only: no server call, nothing stored on the account or the company.
+    document.cookie = sidebarVariantCookie(sidebarVariant === "sections" ? "classic" : "sections");
+    router.refresh();
+  }
 
   return (
     <DropdownMenu>
@@ -50,6 +63,10 @@ export function UserMenu({ name, role }: { name: string; role: string }) {
         <DropdownMenuItem render={<Link href="/parametres/notifications" />}>
           <BellRing className="size-4" />
           Mes notifications
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={switchSidebar} data-sidebar-variant-toggle="">
+          <LayoutList className="size-4" />
+          {sidebarVariant === "sections" ? "Revenir au menu actuel" : "Essayer le nouveau menu"}
         </DropdownMenuItem>
         <DropdownMenuItem
           variant="destructive"

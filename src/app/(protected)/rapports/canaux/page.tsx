@@ -60,7 +60,7 @@ export default async function RapportCanauxPage({
     <div>
       <ReportDocumentHeader business={business} title="Rapport par canal" periodLabel={resolved.label} />
       <PageHeader title="Rapport par canal" description={`Période : ${resolved.label} — En ligne, Magasin et Total, sans double comptage.`} />
-      <ReportFilterBar basePath="/rapports/canaux" resolved={resolved} exportHref={`/rapports/export/canaux?${base}`} />
+      <ReportFilterBar basePath="/rapports/canaux" resolved={resolved} extraParams={{ kind: kind === "all" ? undefined : kind, canal: salesChannelId }} exportHref={`/rapports/export/canaux?${base}${kind === "all" ? "" : `&kind=${kind}`}${salesChannelId ? `&canal=${salesChannelId}` : ""}`} />
 
       {both && (
         <div className="mb-4 flex flex-wrap gap-1">

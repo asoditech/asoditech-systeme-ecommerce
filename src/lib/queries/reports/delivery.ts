@@ -5,7 +5,7 @@ import type { PeriodRange } from "@/lib/queries/finance";
 import { shipmentIncursDeliveryCost } from "@/lib/profitability";
 import { listSupersededShipments } from "@/lib/queries/delivery";
 import { asPct, countOutcomes, deliveryOutcomeRate, orderDeliveryOutcome } from "@/lib/metrics/formulas";
-import type { OrderStatus, ShipmentStatus } from "@prisma/client";
+import type { OrderStatus, Prisma, ShipmentStatus } from "@prisma/client";
 
 /**
  * Delivery performance — by carrier and by destination city, over the
@@ -132,7 +132,7 @@ function summarise(key: string, rows: ShipmentRow[]): DeliveryPerfRow {
   };
 }
 
-export async function getDeliveryPerformanceReport(range: PeriodRange): Promise<DeliveryPerformanceReport> {
+export async function getDeliveryPerformanceReport(range: PeriodRange, scope: Prisma.OrderWhereInput = {}): Promise<DeliveryPerformanceReport> {
   const superseded = new Set((await listSupersededShipments()).map((s) => s.id));
   const found = await prisma.shipment.findMany({
     where: {
@@ -141,6 +141,8 @@ export async function getDeliveryPerformanceReport(range: PeriodRange): Promise<
       // that never reached the carrier. A MANUEL provider's ECHEC is a
       // real, deliberately-set failure and is kept.
       NOT: { status: "ECHEC", externalId: null, provider: { type: "API" } },
+      // An order-level filter (e.g. one online channel) narrows the parcels to that order set.
+      ...(Object.keys(scope).length ? { order: scope } : {}),
     },
     select: {
       id: true,

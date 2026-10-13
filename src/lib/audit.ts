@@ -62,7 +62,12 @@ export type AuditAction =
   | "product.created"
   | "product.updated"
   | "product.archived"
+  | "product.restored"
   | "product.published"
+  // Remote product deleted from the connected store (src/lib/integrations/woocommerce/remote-deletion.ts).
+  | "product.remote_missing"
+  | "product.remote_missing_cleared"
+  | "product.remote_unlinked"
   | "category.created"
   | "category.updated"
   | "order.created"

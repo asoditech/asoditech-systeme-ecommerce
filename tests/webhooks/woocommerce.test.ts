@@ -71,6 +71,11 @@ function sign(body: string, secret = WEBHOOK_SECRET): string {
   return createHmac("sha256", secret).update(body, "utf8").digest("base64");
 }
 
+/** A WooCommerce `*_gmt` timestamp (UTC, no zone suffix) `seconds` from now. */
+function storeTime(seconds: number): string {
+  return new Date(Date.now() + seconds * 1000).toISOString().slice(0, 19);
+}
+
 function orderPayload(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     id: 7001,
@@ -134,14 +139,27 @@ describe("POST /api/webhooks/woocommerce", () => {
   afterEach(async () => {
     await resetDb();
     mockCookieStore.clear();
+    vi.restoreAllMocks();
   });
 
-  it("returns 404 when no WooCommerce integration is configured", async () => {
+  it("no WooCommerce integration anywhere → the same 401 as a bad signature (nothing to learn), nothing recorded", async () => {
     const body = orderPayload();
     const response = await POST(
       request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "d1" })
     );
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(401);
+    expect(await prismaBase.webhookEvent.count()).toBe(0);
+  });
+
+  it("an order in a status that is never imported (draft) and not held: recorded « IGNORE », not « TRAITE »; nothing created", async () => {
+    await seedIntegration();
+    const body = orderPayload({ status: "checkout-draft" });
+    const response = await POST(
+      request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "order.created", "x-wc-webhook-delivery-id": "d-draft" })
+    );
+    expect(response.status).toBe(200);
+    expect((await prisma.webhookEvent.findFirstOrThrow({ where: { deliveryId: "d-draft" } })).status).toBe("IGNORE");
+    expect(await prisma.order.count()).toBe(0);
   });
 
   it("processes a validly signed order.created delivery and creates the order", async () => {
@@ -456,6 +474,8 @@ describe("POST /api/webhooks/woocommerce", () => {
 
   it("archives a product on a product.deleted delivery, keeping its history", async () => {
     await seedIntegration();
+    // The deletion is then checked against the store (remote-deletion.ts) — answered locally.
+    const store = mockStoreApi();
     const product = await prisma.product.create({
       data: { name: "Vieux produit", sku: "WC-DEL-1", price: 100, status: "ACTIF", source: "WOOCOMMERCE", externalId: "9500" },
     });
@@ -469,15 +489,21 @@ describe("POST /api/webhooks/woocommerce", () => {
     expect(after.status).toBe("ARCHIVE");
     const audit = await prisma.auditEvent.findFirstOrThrow({ where: { entityId: product.id, action: "product.archived" } });
     expect(audit.actorType).toBe("INTEGRATION");
+    // Unverifiable answer + default manual mode: still linked, flagged for review.
+    expect(store.map((r) => `${r.method} ${r.url}`)).toEqual([`GET ${STORE_API}/products/9500`]);
+    expect(after).toMatchObject({ source: "WOOCOMMERCE", externalId: "9500" });
+    expect(await prisma.auditEvent.count({ where: { entityId: product.id, action: "product.remote_missing" } })).toBe(1);
   });
 
   it("product.deleted for an unknown product is a no-op 200", async () => {
     await seedIntegration();
+    const store = mockStoreApi();
     const body = JSON.stringify({ id: 424242 });
     const response = await POST(
       request(body, { "x-wc-webhook-signature": sign(body), "x-wc-webhook-topic": "product.deleted", "x-wc-webhook-delivery-id": "d-del-2" })
     );
     expect(response.status).toBe(200);
+    expect(store).toEqual([]); // nothing linked to it: the store is not even asked
   });
 
   it("rejects a malformed (non-JSON) body with 400", async () => {
@@ -510,6 +536,33 @@ describe("POST /api/webhooks/woocommerce", () => {
   });
 
   describe("product.created / product.updated (real-time product sync)", () => {
+    it("a store URL that no longer validates (e.g. now resolves to a private address) → recorded ECHEC + 500 so the store retries — never an unrecorded crash", async () => {
+      const integration = await seedIntegration({ siteUrl: "https://127.0.0.1" });
+      const cases = [
+        { topic: "product.updated", body: productPayload(), id: "u1" },
+        { topic: "product.updated", body: JSON.stringify({ id: 7001, parent_id: 5001, type: "variation", name: "Tee - M" }), id: "u2" },
+        { topic: "product.restored", body: JSON.stringify({ id: 5001 }), id: "u3" },
+      ];
+      for (const c of cases) {
+        const response = await POST(request(c.body, { "x-wc-webhook-signature": sign(c.body), "x-wc-webhook-topic": c.topic, "x-wc-webhook-delivery-id": c.id }));
+        expect(response.status).toBe(500);
+      }
+      const events = await prisma.webhookEvent.findMany({ where: { integrationId: integration.id }, orderBy: { deliveryId: "asc" } });
+      expect(events.map((e) => [e.deliveryId, e.status])).toEqual([
+        ["u1", "ECHEC"],
+        ["u2", "ECHEC"],
+        ["u3", "ECHEC"],
+      ]);
+      expect(await prisma.product.count()).toBe(0);
+
+      // the address validates again → the store's retry of the same delivery goes through
+      await prisma.integration.update({ where: { id: integration.id }, data: { config: { siteUrl: "https://example.com" } } });
+      await prisma.warehouse.create({ data: { name: "Entrepôt principal", isDefault: true } });
+      const retry = await POST(request(cases[0].body, { "x-wc-webhook-signature": sign(cases[0].body), "x-wc-webhook-topic": "product.updated", "x-wc-webhook-delivery-id": "u1" }));
+      expect(retry.status).toBe(200);
+      expect((await prisma.webhookEvent.findFirstOrThrow({ where: { integrationId: integration.id, deliveryId: "u1" } })).status).toBe("TRAITE");
+    });
+
     // 2026-09-13 fix (docs/adr/0030's addendum): the webhook path no longer
     // reconciles stock at all — see syncOneProduct's `reconcileStock` doc
     // comment in src/lib/integrations/woocommerce/sync/products.ts. Product
@@ -742,7 +795,21 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
     return { item, order };
   }
 
-  it("a stale 'cancelled' webhook after a manual CONFIRMEE releases the reservation instead of leaving it stuck", async () => {
+  it.each([
+    ["older than the manual confirmation", () => storeTime(-3600)],
+    ["with no modification date (ordering unknown)", () => undefined],
+  ])("a store cancellation %s does NOT undo a manual CONFIRMEE: refused with a reason, reservation kept, nothing released", async (_, modified) => {
+    const { item, order } = await seedConfirmedOrder();
+    const stale = orderPayload({ status: "cancelled", date_modified_gmt: modified() });
+    expect((await POST(request(stale, { "x-wc-webhook-signature": sign(stale), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "stale-old" }))).status).toBe(200);
+
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("CONFIRMEE");
+    expect(await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } })).toMatchObject({ quantityOnHand: 15, quantityReserved: 5 });
+    const movements = await prisma.inventoryMovement.findMany({ where: { inventoryItemId: item.id } });
+    expect(movements.map((m) => m.type)).toEqual(["RESERVATION"]);
+  });
+
+  it("a store cancellation NEWER than the manual CONFIRMEE is applied and releases the reservation (never left stuck)", async () => {
     const { item, order } = await seedConfirmedOrder();
     let stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 5 });
@@ -750,7 +817,7 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
 
     // WooCommerce's own status is still "cancelled" (or reported again via
     // a retried delivery) — confirming never pushed anything back to it.
-    const staleCancel = orderPayload({ status: "cancelled" });
+    const staleCancel = orderPayload({ status: "cancelled", date_modified_gmt: storeTime(+60) });
     const response = await POST(
       request(staleCancel, { "x-wc-webhook-signature": sign(staleCancel), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "stale-cancel" })
     );
@@ -770,7 +837,7 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
   it("reopening and re-confirming after a webhook-driven cancellation reserves exactly 5, never 10", async () => {
     const { item, order } = await seedConfirmedOrder();
 
-    const staleCancel = orderPayload({ status: "cancelled" });
+    const staleCancel = orderPayload({ status: "cancelled", date_modified_gmt: storeTime(+60) });
     await POST(request(staleCancel, { "x-wc-webhook-signature": sign(staleCancel), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "stale-cancel-2" }));
 
     await reopenOrderAction(formData({ id: order.id }));
@@ -790,7 +857,7 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
     let stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(stock.quantityReserved).toBe(5); // still held through EN_PREPARATION
 
-    const staleCancel = orderPayload({ status: "cancelled" });
+    const staleCancel = orderPayload({ status: "cancelled", date_modified_gmt: storeTime(+60) });
     await POST(request(staleCancel, { "x-wc-webhook-signature": sign(staleCancel), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "stale-cancel-3" }));
 
     const afterOrder = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
@@ -798,6 +865,39 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
     stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 0 });
     expect(pushed).toEqual([stockPush(10)]); // only the confirm; EN_PREPARATION and the pulled cancel push nothing
+  });
+
+  it("an order already shipped once (EXPEDIEE → ECHEC → EN_PREPARATION retry) holds no reservation: a store cancellation releases nothing — another order's reservation stays", async () => {
+    const { item, order } = await seedConfirmedOrder();
+    // State after a shipped attempt that failed and went back to preparation:
+    // stock consumed at EXPEDIEE (`shippedAt` kept), no reservation of its own;
+    // the 3 reserved units belong to ANOTHER order.
+    await prisma.order.update({ where: { id: order.id }, data: { status: "EN_PREPARATION", shippedAt: new Date() } });
+    await prisma.inventoryItem.update({ where: { id: item.id }, data: { quantityOnHand: 10, quantityReserved: 3 } });
+    const movementsBefore = await prisma.inventoryMovement.count({ where: { inventoryItemId: item.id } });
+
+    const cancel = orderPayload({ status: "cancelled", date_modified_gmt: storeTime(+60) });
+    await POST(request(cancel, { "x-wc-webhook-signature": sign(cancel), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "shipped-cancel" }));
+
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("ANNULEE");
+    expect(await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } })).toMatchObject({ quantityOnHand: 10, quantityReserved: 3 });
+    expect(await prisma.inventoryMovement.count({ where: { inventoryItemId: item.id } })).toBe(movementsBefore);
+  });
+
+  it("repeated / simultaneous deliveries carrying the same refund keep ONE « Importé depuis WooCommerce » refund", async () => {
+    // Invariant check. The race itself (two transactions both finding no refund)
+    // did not reproduce locally even without the order-row lock; the lock in
+    // updateExistingOrder is the guard, this test pins the outcome.
+    const { order } = await seedConfirmedOrder();
+    const refunded = orderPayload({ status: "processing", refunds: [{ id: 91, total: "-50.00" }] });
+    const responses = await Promise.all(
+      ["r1", "r2", "r3", "r4"].map((id) =>
+        POST(request(refunded, { "x-wc-webhook-signature": sign(refunded), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": id }))
+      )
+    );
+    expect(responses.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+    const refunds = await prisma.refund.findMany({ where: { orderId: order.id } });
+    expect(refunds.map((r) => [r.source, Number(r.amount)])).toEqual([["WOOCOMMERCE", 50]]);
   });
 
   it("does not touch a reservation for an order that stays NOUVELLE (nothing to release)", async () => {

@@ -23,6 +23,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
 import { KpiCard } from "@/components/kpi-card";
 import { SummarySection } from "@/components/summary-section";
 import { MetricWithProgress } from "@/components/metric-with-progress";
@@ -226,6 +227,11 @@ export default async function TableauDeBordPage({
     canFilterChannel && (params.canal === "en-ligne" || params.canal === "magasin") ? params.canal : "total";
   const showOnline = !canFilterChannel || canalKey !== "magasin";
   const showOffline = !canFilterChannel || canalKey !== "en-ligne";
+  // Strict channel isolation: under « Magasin » every section built from
+  // ONLINE orders (confirmation, commissions, delivery rate, best sellers,
+  // orders to handle / recent orders) is hidden — never shown as if it were
+  // store data. Stock (location-based) and the audit trail stay.
+  const showOnlineOps = showOnline;
   // Same formula getChannelReport's own `total` uses (combinedChannelRevenue,
   // src/lib/queries/reports/channels.ts) — reusing the two figures already
   // computed on this same page rather than a second call to that report.
@@ -281,8 +287,11 @@ export default async function TableauDeBordPage({
         }
       />
 
+      {/* Missing purchase costs make « Bénéfice net » below « Non calculable » — say why, with the fix. */}
+      {canViewFinance && <MissingCostBanner user={user} />}
+
       {canFilterChannel && (
-        <div className="mb-4">
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
           <SegmentedControl>
             {(Object.keys(CHANNEL_FILTER_LABELS) as DashboardChannelFilter[]).map((key) => (
               <SegmentedControlItem key={key} active={key === canalKey} href={withParam(params, "canal", key === "total" ? undefined : key)}>
@@ -290,6 +299,11 @@ export default async function TableauDeBordPage({
               </SegmentedControlItem>
             ))}
           </SegmentedControl>
+          {canalKey === "magasin" && (
+            <p className="text-xs text-muted-foreground">
+              Vue Magasin : les sections issues des commandes en ligne (confirmation, livraison, meilleures ventes, commandes) sont masquées.
+            </p>
+          )}
         </div>
       )}
 
@@ -443,7 +457,7 @@ export default async function TableauDeBordPage({
         </SummarySection>
       )}
 
-      {(confirmationSummary || commissionSummary || canViewDelivery) && (
+      {showOnlineOps && (confirmationSummary || commissionSummary || canViewDelivery) && (
         <SummarySection
           title="Opérations"
           icon={Activity}
@@ -457,6 +471,11 @@ export default async function TableauDeBordPage({
             )
           }
         >
+          {(confirmationSummary || commissionSummary) && (
+            <p className="-mt-1 mb-3 text-xs text-muted-foreground">
+              Confirmation et commissions : file en cours et mois en cours, indépendamment de la période choisie. Taux de livraison : période choisie.
+            </p>
+          )}
           <FadeIn className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {/* "Breakdown KPI" (Phase 3 pattern D): three related confirmation
                 counts read as ONE pipeline, not three unrelated tiles —
@@ -532,7 +551,7 @@ export default async function TableauDeBordPage({
         </SummarySection>
       )}
 
-      {((canViewFinance && showOnline) || canViewOrders) && (
+      {showOnline && (canViewFinance || canViewOrders) && (
         <SummarySection title="Ventes" icon={LineChart} className="mb-6">
           <div className="grid gap-6 lg:grid-cols-3">
             {canViewFinance && showOnline && (
@@ -587,10 +606,10 @@ export default async function TableauDeBordPage({
 
       {/* Every card below needs orders.view or audit.view — without either
           (e.g. STORE_SELLER) the section would be a bare heading (Phase 4B). */}
-      {(canViewOrders || canViewAudit) && (
+      {((canViewOrders && showOnlineOps) || canViewAudit) && (
         <SummarySection title="Activité" icon={ShoppingCart}>
-          <div className={canViewOrders && canViewAudit ? "grid gap-6 lg:grid-cols-3" : "grid gap-6 lg:grid-cols-2"}>
-            {canViewOrders && (
+          <div className={canViewOrders && showOnlineOps && canViewAudit ? "grid gap-6 lg:grid-cols-3" : "grid gap-6 lg:grid-cols-2"}>
+            {canViewOrders && showOnlineOps && (
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="flex items-center gap-1">
@@ -624,7 +643,7 @@ export default async function TableauDeBordPage({
               </Card>
             )}
 
-            {canViewOrders && (
+            {canViewOrders && showOnlineOps && (
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="flex items-center gap-1">

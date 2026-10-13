@@ -8,6 +8,7 @@ import {
   WooCommerceTimeoutError,
   WooCommerceUnavailableError,
   WooCommerceMalformedResponseError,
+  WooCommerceApiError,
 } from "@/lib/integrations/woocommerce/errors";
 
 function jsonResponse(body: unknown, init: { status?: number; headers?: Record<string, string> } = {}) {
@@ -83,6 +84,49 @@ describe("WooCommerceClient", () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({}, { status: 404 })));
     const client = new WooCommerceClient("https://boutique.example", { consumerKey: "a", consumerSecret: "b" });
     await expect(client.testConnection()).rejects.toThrow(WooCommerceNotFoundError);
+  });
+
+  it("a 404 keeps WooCommerce's validated slug (product deleted vs wrong URL), never its text, same message", async () => {
+    const notFound = async (body: string) => {
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status: 404, headers: { "content-type": "application/json" } })));
+      const client = new WooCommerceClient("https://boutique.example", { consumerKey: "a", consumerSecret: "b" });
+      return (await client.getProduct(42).catch((e: unknown) => e)) as WooCommerceNotFoundError;
+    };
+    const deleted = await notFound(JSON.stringify({ code: "woocommerce_rest_product_invalid_id", message: "ID <b>non valide</b>.", data: { status: 404 } }));
+    expect(deleted).toBeInstanceOf(WooCommerceNotFoundError);
+    expect(deleted.remoteCode).toBe("woocommerce_rest_product_invalid_id");
+    expect(deleted.message).toBe("Ressource introuvable sur la boutique WooCommerce — vérifiez l'URL de la boutique.");
+    expect((await notFound(JSON.stringify({ code: "rest_no_route" }))).remoteCode).toBe("rest_no_route");
+    expect((await notFound("<html>404</html>")).remoteCode).toBeUndefined();
+    expect((await notFound(JSON.stringify({ code: "<script>alert(1)</script>" }))).remoteCode).toBeUndefined();
+  });
+
+  it("keeps a 4xx rejection's status, WooCommerce slug and a bounded message (WooCommerceApiError), without retrying", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ code: "product_invalid_sku", message: `<p>Invalid or duplicated SKU.</p>${" pad".repeat(200)}` }, { status: 400 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new WooCommerceClient("https://boutique.example", { consumerKey: "ck_secret_key", consumerSecret: "cs_secret" });
+    const error = await client.testConnection().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(WooCommerceApiError);
+    const api = error as WooCommerceApiError;
+    expect(api).toMatchObject({ code: "API_ERROR", status: 400, remoteCode: "product_invalid_sku", message: "SKU déjà utilisé sur la boutique." });
+    expect(api.remoteMessage?.startsWith("Invalid or duplicated SKU.")).toBe(true);
+    expect(api.remoteMessage!.length).toBeLessThanOrEqual(201);
+    expect(api.message).not.toMatch(/ck_secret_key|cs_secret|Basic/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("an empty or non-JSON 4xx body still yields a WooCommerceApiError with the status (never a JSON parse error)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>Not Acceptable</html>", { status: 406 })));
+    const client = new WooCommerceClient("https://boutique.example", { consumerKey: "a", consumerSecret: "b" });
+    const error = (await client.testConnection().catch((e: unknown) => e)) as WooCommerceApiError;
+    expect(error).toBeInstanceOf(WooCommerceApiError);
+    expect(error).toMatchObject({ status: 406, remoteCode: undefined, remoteMessage: undefined });
+    expect(error.message).toBe("La boutique WooCommerce a refusé la requête (HTTP 406).");
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 400 })));
+    await expect(client.testConnection()).rejects.toThrow("La boutique WooCommerce a refusé la requête (HTTP 400).");
   });
 
   it("maps a malformed (non-JSON) response body to WooCommerceMalformedResponseError", async () => {

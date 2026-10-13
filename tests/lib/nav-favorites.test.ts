@@ -3,7 +3,7 @@ import { MAX_FAVORITES, moveFavorite, sanitizeFavorites, toggleFavorite, visible
 import { NAV_GROUPS } from "@/lib/navigation/nav-items";
 import { ROLE_PERMISSIONS, type Permission } from "@/lib/auth/permissions";
 
-/** S8 — favorites rules (pure part; storage awaits the approved migration). */
+/** S8 — favorites rules (pure part; storage: tests/actions/favorites.test.ts). */
 const perms = (...p: Permission[]) => new Set<Permission>(p);
 const MANAGER = new Set<Permission>(ROLE_PERMISSIONS.MANAGER);
 const CONFIRMATION = new Set<Permission>(ROLE_PERMISSIONS.CONFIRMATION);

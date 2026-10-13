@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
 import { EmptyState } from "@/components/empty-state";
 import { KpiCard } from "@/components/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -95,6 +96,7 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
     <div className="space-y-6">
       <PageHeader title="Analyses" description={`Indicateurs factuels — ${period.label}. Chaque chiffre est défini en bas de page (population, date, calcul).`} />
       <AnalyticsNav access={access} active="overview" query={ctx.periodQuery} />
+      <MissingCostBanner user={user} />
       <AnalyticsFilterBar
         basePath="/analyses"
         period={period}

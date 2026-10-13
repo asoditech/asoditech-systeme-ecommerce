@@ -1,3 +1,4 @@
+import { applyStorePaymentConfirmation } from "@/lib/orders/store-payment";
 import "server-only";
 
 import { REOPEN_ORDER_DATA, isReopenable } from "@/lib/order-confirmation";
@@ -8,7 +9,16 @@ import { prisma } from "@/lib/prisma";
 import { recordAuditEvent } from "@/lib/audit";
 import { canTransitionOrderStatus, orderHoldsReservation } from "@/lib/validation/order";
 import { releaseStockForOrder } from "@/lib/inventory";
-import { mapCustomerFieldsFromOrder, mapOrderFields, mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
+import {
+  orderReservedUnits,
+  reserveForStoreConfirmation,
+  storeEventTime,
+  storeOrderingRefusal,
+  storeRefreshNeeded,
+  storeTransitionDates,
+} from "../../shared/order-sync-rules";
+import { isUnsupportedOrderStatus, mapCustomerFieldsFromOrder, mapOrderFields, mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
+import { historicalCutoff, patchIntegrationConfig, unsupportedStatusNote } from "../../shared/integration-config";
 import { findOrCreateCustomer } from "@/lib/customers/find-or-create";
 import { customerPhoneKey } from "@/lib/customers/identity";
 import type { WcOrder } from "../types";
@@ -35,20 +45,16 @@ import { isUniqueConstraintError } from "@/lib/prisma-errors";
  * the order.created/order.updated webhook handler, so both paths behave
  * identically.
  *
- * Deliberately NOT done here: reserving/fulfilling internal stock via
- * reserveStockForOrder/fulfillStockForOrder. A WooCommerce order's stock
- * impact already happened on the WooCommerce side — it is reflected into
- * this system via the separate stock-pull reconciliation
- * (sync/stock.ts), not by re-running the internal reservation ledger a
- * second time against the same units. Running both would double-count.
- * The one exception (2026-09-13 fix): `updateExistingOrder` DOES call
- * `releaseStockForOrder` — reservation-only, never touches on-hand —
- * when the store's own status demotes an order out of a
- * reservation-holding one (e.g. WooCommerce still reporting "cancelled"
- * after a manual re-confirmation this app never pushed back to the
- * store). Without it, a reservation a human took inside ASODITECH could
- * outlive the order being moved back to ANNULEE by a webhook, leaving it
- * permanently stuck — see docs/adr/0030's addendum.
+ * Stock (docs/adr/0030 / 0036, shared/order-sync-rules.ts): an order holds a
+ * reservation ⟺ CONFIRMEE / EN_PREPARATION and not shipped, whichever side
+ * moved it. A store status that would need a stock transition is never
+ * written straight onto a new order: CONFIRMEE (only with « Toujours
+ * importer en Nouvelle » off) goes through the update path, which takes the
+ * same strict reservation a human confirmation takes — or keeps the order
+ * NOUVELLE with a reason when stock is short; EXPEDIEE is never auto-applied.
+ * A store demotion releases only what the order's own ledger still holds.
+ * Never fulfils (EXPEDIEE is ASODITECH's own action) and never touches
+ * on-hand.
  *
  * Deliberately NOT done here: reconciling OrderItems on a re-import. A WC
  * order's line items are fixed at placement; a re-import (webhook
@@ -91,6 +97,14 @@ export async function importOrder(
 ): Promise<{ outcome: "imported" | "updated" | "unchanged" | "skipped"; reason?: string }> {
   const statusMapping = mapOrderStatus(wc.status);
   if (!statusMapping.ok) {
+    // An order we already hold, now in a status we cannot map: its status is
+    // left alone, but its amounts and refunds are still refreshed — a refund
+    // is never dropped while the delivery is counted as handled.
+    const held = await prisma.order.findFirst({ where: { source: "WOOCOMMERCE", externalId: String(wc.id) }, select: { id: true, status: true } });
+    if (held) {
+      const result = await updateExistingOrder(held.id, wc, held.status, actor, options);
+      return { ...result, reason: `${statusMapping.reason} Statut inchangé ; montants et remboursements mis à jour.` };
+    }
     return { outcome: "skipped", reason: statusMapping.reason };
   }
 
@@ -118,10 +132,17 @@ export async function importOrder(
   }
 
   const forcedToNouvelle = Boolean(options?.forceNouvelleOnFirstImport) && statusMapping.status === "CONFIRMEE";
-  const effectiveStatus: OrderStatus = forcedToNouvelle ? "NOUVELLE" : statusMapping.status;
+  // A status needing a stock transition is never written straight onto a new
+  // order: created NOUVELLE, then the update path applies it with its guards.
+  const viaTransition = !forcedToNouvelle && (orderHoldsReservation(statusMapping.status) || statusMapping.status === "EXPEDIEE");
+  const effectiveStatus: OrderStatus = forcedToNouvelle || viaTransition ? "NOUVELLE" : statusMapping.status;
 
   try {
-    return await createImportedOrder(wc, effectiveStatus, customerId, actor, forcedToNouvelle ? wc.status : undefined);
+    const created = await createImportedOrder(wc, effectiveStatus, customerId, actor, forcedToNouvelle ? wc.status : undefined);
+    if (!viaTransition) return { outcome: "imported" };
+    // Right after creation: the « nouvelle commande » alert just sent stays (ADR 0016).
+    const transition = await updateExistingOrder(created.orderId, wc, statusMapping.status, actor, options, { keepNewOrderAlert: true });
+    return { outcome: "imported", reason: transition.reason };
   } catch (error) {
     // Backstop for a genuine race (the order.created webhook and a
     // concurrent manual "Synchroniser les commandes" both importing the
@@ -189,7 +210,7 @@ async function createImportedOrder(
    * on the audit event so staff can see why a "processing" order didn't
    * land as Confirmée. */
   downgradedFromWcStatus?: string
-): Promise<{ outcome: "imported" }> {
+): Promise<{ outcome: "imported"; orderId: string }> {
   const fields = mapOrderFields(wc, status);
 
   const items: Prisma.OrderItemCreateManyOrderInput[] = [];
@@ -240,6 +261,8 @@ async function createImportedOrder(
       shippingCountry: fields.shippingCountry,
       shippingPhone: fields.shippingPhone,
       notes: fields.notes,
+      // A store LIVREE / ANNULEE carries its date like a manual transition.
+      ...storeTransitionDates(status, { deliveredAt: null, cancelledAt: null }, storeEventTimes(wc)),
       items: { create: items },
     },
   });
@@ -302,7 +325,13 @@ async function createImportedOrder(
     );
   }
 
-  return { outcome: "imported" };
+  return { outcome: "imported", orderId: order.id };
+}
+
+/** The store's own event times for this snapshot (UTC `*_gmt` fields). */
+function storeEventTimes(wc: WcOrder): { modified: Date | null; delivered: Date | null; cancelled: Date | null } {
+  const modified = storeEventTime(wc.date_modified_gmt, true);
+  return { modified, delivered: storeEventTime(wc.date_completed_gmt, true) ?? modified, cancelled: modified };
 }
 
 async function updateExistingOrder(
@@ -310,16 +339,31 @@ async function updateExistingOrder(
   wc: WcOrder,
   status: OrderStatus,
   actor: SyncActor,
-  options?: ImportOrderOptions
+  options?: ImportOrderOptions,
+  internal: { keepNewOrderAlert?: boolean } = {}
 ): Promise<{ outcome: "updated" | "unchanged"; reason?: string }> {
   const existing = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
   const fields = mapOrderFields(wc, status);
+  const label = `Commande WooCommerce #${wc.id}`;
+  const eventTimes = storeEventTimes(wc);
   let changedFields = false;
   let statusSkippedReason: string | undefined;
   let workflowMismatch: string | undefined;
+  /** The order's status as read UNDER the row lock (another delivery may have moved it since `existing`). */
+  let previousStatus: OrderStatus = existing.status;
 
   await prisma.$transaction(async (tx) => {
-    if (existing.status !== status) {
+    // One delivery at a time per order (e.g. refunds/create racing
+    // orders/updated): the refund find-then-create below and the stock
+    // release see the previous delivery's committed result — never two
+    // « Importé depuis …» refunds, never a double release.
+    await tx.$queryRaw`SELECT id FROM "orders" WHERE id = ${orderId} FOR UPDATE`;
+    const current = await tx.order.findUniqueOrThrow({
+      where: { id: orderId },
+      select: { status: true, shippedAt: true, confirmedAt: true, cancelledAt: true, deliveredAt: true },
+    });
+    previousStatus = current.status;
+    if (current.status !== status) {
       // Same rule as first import, now enforced on every later re-sync/
       // webhook update too (2026-09-13 fix): a store's own status must
       // never silently promote a still-unconfirmed order straight to
@@ -331,16 +375,18 @@ async function updateExistingOrder(
       // only ever looked at the FIRST snapshot. Every other transition
       // (→ LIVREE, → ANNULEE, → REMBOURSEE, → ECHEC, …) is untouched.
       const autoConfirmBlocked =
-        existing.status === "NOUVELLE" && status === "CONFIRMEE" && options?.forceNouvelleOnFirstImport !== false;
+        current.status === "NOUVELLE" && status === "CONFIRMEE" && options?.forceNouvelleOnFirstImport !== false;
       // ASODITECH's own EXPEDIEE transition is the ONLY physical
       // -fulfillment event, for every order source (docs/adr/0036) —
       // symmetric guard with Shopify's identical one, even though
       // WooCommerce's own `mapOrderStatus` never maps to EXPEDIEE today
       // (no "shipped" WooCommerce order status is mapped) — this is a
       // deliberate belt-and-suspenders should that mapping ever change.
-      const expedieeAutoAdvanceBlocked = status === "EXPEDIEE" && existing.status !== "EXPEDIEE";
+      const expedieeAutoAdvanceBlocked = status === "EXPEDIEE" && current.status !== "EXPEDIEE";
       // Same rule as « Rétablir la commande »: a shipped order never reopens.
-      const reopenBlocked = status === "NOUVELLE" && existing.status === "ANNULEE" && !isReopenable(existing);
+      const reopenBlocked = status === "NOUVELLE" && current.status === "ANNULEE" && !isReopenable(current);
+      // A stale snapshot never undoes a newer local confirmation / cancellation.
+      const orderingRefusal = storeOrderingRefusal(label, status, current, eventTimes.modified);
       if (autoConfirmBlocked) {
         statusSkippedReason = `Commande WooCommerce #${wc.id} : reste "Nouvelle" — confirmation manuelle requise avant "Confirmée" (réglage "Toujours importer en Nouvelle").`;
       } else if (expedieeAutoAdvanceBlocked) {
@@ -348,15 +394,32 @@ async function updateExistingOrder(
         workflowMismatch = wc.status;
       } else if (reopenBlocked) {
         statusSkippedReason = `Commande WooCommerce #${wc.id} : déjà expédiée — elle ne peut pas revenir à "Nouvelle" depuis "Annulée".`;
-      } else if (canTransitionOrderStatus(existing.status, status)) {
+      } else if (orderingRefusal) {
+        statusSkippedReason = orderingRefusal;
+      } else if (
+        canTransitionOrderStatus(current.status, status) &&
+        // Entering a reservation-holding status (NOUVELLE → CONFIRMEE, with
+        // « Toujours importer en Nouvelle » off): the strict reservation is
+        // taken first, in this transaction; a shortage keeps the order as it is.
+        (!orderHoldsReservation(status) ||
+          orderHoldsReservation(current.status) ||
+          current.shippedAt !== null ||
+          (await reserveForStoreConfirmation(tx, orderId, actorPerformedById(actor))) === "reserved")
+      ) {
         const result = await tx.order.updateMany({
-          where: { id: orderId, status: existing.status },
+          where: { id: orderId, status: current.status },
           // The store reopening a cancelled order (ANNULEE → NOUVELLE) is a
           // reopen like any other (docs/adr/0049): the current confirmation
           // state (confirmedAt, commission attribution) is reset; attempts,
           // audit and ledger history stay.
-          data: status === "NOUVELLE" ? REOPEN_ORDER_DATA : { status, ...packingResetFor(status) },
+          data:
+            status === "NOUVELLE"
+              ? REOPEN_ORDER_DATA
+              : { status, ...packingResetFor(status), ...storeTransitionDates(status, current, eventTimes) },
         });
+        // Under the row lock nothing else can have moved the order: a miss
+        // here would leave a reservation without its status → roll back.
+        if (result.count === 0) throw new Error(`${label} : statut modifié pendant la synchronisation.`);
         if (result.count > 0) {
           changedFields = true;
           // 2026-09-13 fix (production incident): keep the reservation
@@ -373,7 +436,16 @@ async function updateExistingOrder(
           // never quantityOnHand) — never reserves or fulfills; this
           // function still never creates a reservation, exactly as
           // before.
-          if (orderHoldsReservation(existing.status) && !orderHoldsReservation(status)) {
+          // Same rule as the manual cancel (src/actions/orders.ts `wasFulfilled`,
+          // docs/adr/0036): an order already shipped once (`shippedAt` set,
+          // e.g. EXPEDIEE → ECHEC → EN_PREPARATION retry) holds no
+          // reservation any more — releasing would eat another order's.
+          if (
+            current.shippedAt === null &&
+            orderHoldsReservation(current.status) &&
+            !orderHoldsReservation(status) &&
+            (await orderReservedUnits(tx, orderId)) > 0
+          ) {
             const items = await tx.orderItem.findMany({
               where: { orderId },
               select: { productId: true, variationId: true, quantity: true },
@@ -381,8 +453,10 @@ async function updateExistingOrder(
             await releaseStockForOrder(tx, orderId, items, actorPerformedById(actor));
           }
         }
+      } else if (canTransitionOrderStatus(current.status, status)) {
+        statusSkippedReason = `${label} : stock insuffisant pour réserver — la commande reste "${current.status}" ; confirmez-la dans ASODITECH.`;
       } else {
-        statusSkippedReason = `Commande WooCommerce #${wc.id} : transition ${existing.status} → ${status} ignorée (déjà en cours de traitement localement).`;
+        statusSkippedReason = `Commande WooCommerce #${wc.id} : transition ${current.status} → ${status} ignorée (déjà en cours de traitement localement).`;
         // A terminal/further-along external status than ASODITECH's own
         // current stage is a genuine workflow disagreement worth a
         // human's attention (docs/adr/0036) — not merely a sync-summary
@@ -442,6 +516,11 @@ async function updateExistingOrder(
         changedFields = true;
       }
     }
+
+    // « Paiement confirmé par la boutique » (opt-in, default off): the store
+    // now reports this order paid → EN_ATTENTE becomes PAYE, audited on its
+    // own. Never from a carrier status; never overwrites a manual status.
+    if (refunded <= 0) await applyStorePaymentConfirmation(orderId, Boolean(wc.date_paid), "WOOCOMMERCE", tx);
   });
 
   if (changedFields) {
@@ -456,7 +535,7 @@ async function updateExistingOrder(
 
   // The store moved this order past "new" (e.g. paid / processing) — clear
   // the local "nouvelle commande" alert, same as a manual status change.
-  if (existing.status === "NOUVELLE" && status !== "NOUVELLE") {
+  if (previousStatus === "NOUVELLE" && status !== "NOUVELLE" && !internal.keepNewOrderAlert) {
     await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: orderId });
   }
   if (workflowMismatch) {
@@ -466,13 +545,13 @@ async function updateExistingOrder(
       displayNumber: existing.displayNumber,
       source: "WOOCOMMERCE",
       externalNumber: wc.number,
-      localStatus: existing.status,
+      localStatus: previousStatus,
       externalStatus: workflowMismatch,
     });
   }
   // A store-driven move into (or out of) LIVREE affects any
   // confirmation-agent commission — reconcile it. Idempotent, best-effort.
-  if (existing.status !== status && (status === "LIVREE" || existing.status === "LIVREE")) {
+  if (previousStatus !== status && (status === "LIVREE" || previousStatus === "LIVREE")) {
     await reconcileOrderCommission(orderId);
   }
 
@@ -481,11 +560,13 @@ async function updateExistingOrder(
 
 /**
  * Bulk order import — the manual "Synchroniser les commandes" action.
- * Skips orders already held (their live edits arrive via the
- * order.updated webhook, not here), and does at most a bounded amount of
- * real work — new imports (the expensive path: several queries each) and
- * placedAt corrections on already-held orders (cheap: one field) each
- * have their own, much smaller cap — before stopping. Both caps are sized
+ * Imports new orders AND refreshes orders already held whose store state
+ * differs (status, totals, refunds — ADR 0010/0030: a missed webhook is
+ * recovered here), through the same update path and guards as a webhook
+ * (`storeRefreshNeeded` leaves out transitions that would be refused every
+ * time). It does at most a bounded amount of real work — new imports,
+ * refreshes and placedAt corrections each have their own cap — before
+ * stopping. Both caps are sized
  * for Vercel's Hobby tier (a hard ~10s wall clock): it is far better for
  * every run to finish and show real progress than for a larger batch to
  * occasionally run out of time and show nothing.
@@ -501,6 +582,7 @@ async function updateExistingOrder(
  * the cursor to 1, so the next one re-checks from the newest orders.
  */
 const MAX_IMPORTS_PER_RUN = 15;
+const MAX_REFRESHES_PER_RUN = 15;
 const MAX_PLACED_AT_FIXES_PER_RUN = 40;
 
 export async function syncOrders(
@@ -519,12 +601,19 @@ export async function syncOrders(
   // On by default — see ImportOrderOptions's doc comment. `false` is the
   // only value that opts out; unset/anything else keeps the safe default.
   const forceNouvelleOnFirstImport = config.forceNouvelleOnImport !== false;
+  // « Importer l'historique » OFF: orders placed before the cutoff are left
+  // out of the bulk import (pages are newest-first, so the first one older
+  // than the cutoff ends the scan). Newer orders and webhooks: unchanged.
+  const cutoff = historicalCutoff(config);
 
   let unreadable = 0;
   let importedThisRun = 0;
+  let refreshedThisRun = 0;
   let fixedThisRun = 0;
   let capped = false;
+  let reachedCutoff = false;
   let resumePage = 1;
+  const unsupported = new Map<string, number>();
 
   for await (const { orders, unparsable, page, totalPages } of client.listAllOrders(startPage)) {
     unreadable += unparsable;
@@ -538,14 +627,62 @@ export async function syncOrders(
       (
         await prisma.order.findMany({
           where: { source: "WOOCOMMERCE", externalId: { in: orders.map((o) => String(o.id)) } },
-          select: { id: true, externalId: true, placedAt: true, createdAt: true },
+          select: {
+            id: true,
+            externalId: true,
+            placedAt: true,
+            createdAt: true,
+            status: true,
+            total: true,
+            confirmedAt: true,
+            cancelledAt: true,
+            refunds: { where: { source: "WOOCOMMERCE" }, select: { amount: true } },
+          },
         })
       ).map((r) => [r.externalId, r])
     );
 
     for (const wc of orders) {
+      if (cutoff && parseOrderPlacedAt(wc.date_created) < cutoff) {
+        reachedCutoff = true;
+        resumePage = 1;
+        break;
+      }
       const existing = held.get(String(wc.id));
       if (existing) {
+        const mapped = mapOrderStatus(wc.status);
+        const needsRefresh = storeRefreshNeeded({
+          held: {
+            status: existing.status,
+            total: Number(existing.total),
+            refunded: existing.refunds.reduce((sum, r) => sum + Number(r.amount), 0),
+            confirmedAt: existing.confirmedAt,
+            cancelledAt: existing.cancelledAt,
+          },
+          mappedStatus: mapped.ok ? mapped.status : null,
+          storeTotal: mapOrderFields(wc, existing.status).total,
+          storeRefunded: totalRefundedAmount(wc),
+          storeModifiedAt: storeEventTimes(wc).modified,
+          forceNouvelleOnFirstImport,
+          canTransition: canTransitionOrderStatus,
+        });
+        if (needsRefresh) {
+          if (refreshedThisRun >= MAX_REFRESHES_PER_RUN) {
+            capped = true;
+            resumePage = page;
+            break;
+          }
+          refreshedThisRun++;
+          try {
+            const { outcome, reason } = await importOrder(wc, actor, { forceNouvelleOnFirstImport });
+            summary[outcome]++;
+            if (reason) recordNote(summary, reason);
+          } catch {
+            recordNote(summary, `Commande WooCommerce #${wc.id} : échec de la mise à jour.`);
+            summary.failed++;
+          }
+          continue;
+        }
         if (existing.placedAt.getTime() !== existing.createdAt.getTime()) {
           summary.unchanged++;
           continue;
@@ -568,6 +705,13 @@ export async function syncOrders(
         resumePage = page;
         break;
       }
+      // A status no mapping exists for (typically a plugin's custom
+      // status): counted and reported once per run, never guessed.
+      if (isUnsupportedOrderStatus(wc.status)) {
+        unsupported.set(wc.status, (unsupported.get(wc.status) ?? 0) + 1);
+        summary.skipped++;
+        continue;
+      }
       try {
         const { outcome, reason } = await importOrder(wc, actor, { forceNouvelleOnFirstImport });
         summary[outcome]++;
@@ -578,20 +722,25 @@ export async function syncOrders(
         summary.failed++;
       }
     }
-    if (capped) break;
+    if (capped || reachedCutoff) break;
+    // Saved after EVERY page (only this key, atomically): a run cut short by
+    // the platform's time limit still resumes past the pages it finished.
+    await patchIntegrationConfig(integrationId, { ordersResumePage: resumePage });
   }
 
-  await prisma.integration.update({
-    where: { id: integrationId },
-    data: { config: { ...config, ordersResumePage: resumePage } },
-  });
+  await patchIntegrationConfig(integrationId, { ordersResumePage: resumePage });
 
   summary.hasMore = capped;
   if (capped) {
     recordNote(
       summary,
-      `Lot traité (max ${MAX_IMPORTS_PER_RUN} nouvelles, ${MAX_PLACED_AT_FIXES_PER_RUN} dates corrigées) — relancez « Synchroniser les commandes » pour continuer.`
+      `Lot traité (max ${MAX_IMPORTS_PER_RUN} nouvelles, ${MAX_REFRESHES_PER_RUN} mises à jour, ${MAX_PLACED_AT_FIXES_PER_RUN} dates corrigées) — relancez « Synchroniser les commandes » pour continuer.`
     );
+  }
+  const unsupportedNote = unsupportedStatusNote("WooCommerce", unsupported);
+  if (unsupportedNote) recordNote(summary, unsupportedNote);
+  if (reachedCutoff) {
+    recordNote(summary, "Historique non importé (réglage « Importer l'historique des commandes » désactivé) : les commandes antérieures à la date choisie sont ignorées.");
   }
   if (unreadable > 0) {
     summary.failed += unreadable;

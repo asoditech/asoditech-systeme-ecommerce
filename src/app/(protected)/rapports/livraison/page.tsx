@@ -5,6 +5,8 @@ import { ReportDefinitions } from "@/components/reports/report-definitions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
+import { ReportOnlineChannelFilter } from "@/components/reports/report-online-channel-filter";
+import { resolveReportOnlineChannel, reportOrderScope } from "@/lib/reports/online-channel";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -58,7 +60,7 @@ function PerfTable({ rows, label }: { rows: DeliveryPerfRow[]; label: string }) 
 export default async function RapportLivraisonPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string; canal?: string }>;
 }) {
   const viewer = await requirePermission("analytics.view");
   // Carrier costs are finance data (docs/adr/0050); performance and COD are operational.
@@ -67,13 +69,16 @@ export default async function RapportLivraisonPage({
   requireChannelKind(viewer, "ONLINE");
   const params = await searchParams;
   const resolved = await resolveTenantReportRange(params);
+  // « Canal en ligne » (only the viewer's own channels; see resolveReportOnlineChannel).
+  const channelFilter = await resolveReportOnlineChannel(viewer, params.canal);
+  const scope = reportOrderScope(channelFilter.salesChannelId);
   const [report, business] = await Promise.all([
-    getDeliveryPerformanceReport(resolved.range),
+    getDeliveryPerformanceReport(resolved.range, scope),
     getReportBusinessInfo(),
   ]);
   const o = report.overall;
 
-  const exportHref = `/rapports/export/livraison?${rangeQuery(resolved)}`;
+  const exportHref = `/rapports/export/livraison?${rangeQuery(resolved, { canal: channelFilter.salesChannelId })}`;
 
   return (
     <div>
@@ -82,7 +87,7 @@ export default async function RapportLivraisonPage({
         title="Rapport de performance livraison"
         description={`Période : ${resolved.label} — expéditions créées dans la fenêtre.`}
       />
-      <ReportFilterBar basePath="/rapports/livraison" resolved={resolved} exportHref={exportHref} />
+      <ReportFilterBar basePath="/rapports/livraison" resolved={resolved} exportHref={exportHref} extraParams={{ canal: channelFilter.salesChannelId }} extra={<ReportOnlineChannelFilter channels={channelFilter.channels} value={channelFilter.salesChannelId} />} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Commandes expédiées" explain={<ReportMetricInfo metric="deliveryShipped" label="Commandes expédiées" className="-ml-1" />} value={String(o.total)} tone="primary" />

@@ -8,6 +8,8 @@ import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
+import { ReportOnlineChannelFilter } from "@/components/reports/report-online-channel-filter";
+import { resolveReportOnlineChannel, reportOrderScope } from "@/lib/reports/online-channel";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { SalesChart } from "@/components/reports/sales-chart";
 import { requirePermission } from "@/lib/auth/guards";
@@ -26,20 +28,23 @@ const pct = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)} %`);
 export default async function RapportVentesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string; canal?: string }>;
 }) {
   const viewer = await requirePermission("analytics.view");
   // Order-derived data: needs an ONLINE channel (docs/adr/0039).
   requireChannelKind(viewer, "ONLINE");
   const params = await searchParams;
   const resolved = await resolveTenantReportRange(params);
+  // « Canal en ligne » (only the viewer's own channels; see resolveReportOnlineChannel).
+  const channelFilter = await resolveReportOnlineChannel(viewer, params.canal);
+  const scope = reportOrderScope(channelFilter.salesChannelId);
   const [report, business] = await Promise.all([
-    getSalesReport(resolved.range, resolved.previous),
+    getSalesReport(resolved.range, resolved.previous, scope),
     getReportBusinessInfo(),
   ]);
   const { current, previous, deltas } = report;
 
-  const exportHref = `/rapports/export/ventes?${rangeQuery(resolved)}`;
+  const exportHref = `/rapports/export/ventes?${rangeQuery(resolved, { canal: channelFilter.salesChannelId })}`;
   const seriesTitle = report.granularity === "month" ? "Évolution par mois" : "Évolution par jour";
 
   return (
@@ -49,7 +54,7 @@ export default async function RapportVentesPage({
         title="Rapport de ventes"
         description={`Période : ${resolved.label} — comparé à la période précédente de même durée.`}
       />
-      <ReportFilterBar basePath="/rapports/ventes" resolved={resolved} exportHref={exportHref} />
+      <ReportFilterBar basePath="/rapports/ventes" resolved={resolved} exportHref={exportHref} extraParams={{ canal: channelFilter.salesChannelId }} extra={<ReportOnlineChannelFilter channels={channelFilter.channels} value={channelFilter.salesChannelId} />} />
 
       {/* Report storytelling (Phase 5): the primary result first — revenue
           with its trend and the volume figures behind it — then the three

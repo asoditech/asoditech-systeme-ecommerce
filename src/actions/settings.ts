@@ -11,6 +11,7 @@ import {
   updateDefaultShippingProviderSchema,
   updateSellerPriceOverrideSchema,
   updatePackingVerificationSchema,
+  updateAutoPaymentFromStoreSchema,
   updateTransferCostOverrideSchema,
 } from "@/lib/validation/settings";
 import { requireCapabilityForAction } from "@/lib/auth/capabilities";
@@ -224,6 +225,37 @@ export async function updatePackingVerificationAction(formData: FormData): Promi
   });
   revalidatePath("/parametres");
   revalidatePath("/livraison");
+  return actionOk(settings);
+}
+
+/**
+ * « Paiement confirmé par la boutique » — tenant-wide, default off. When on,
+ * an order IMPORTED from WooCommerce/Shopify that the store later reports as
+ * paid moves EN_ATTENTE → PAYE on sync/webhook (src/lib/orders/store-payment.ts),
+ * with an audit event. A carrier « Livré » never marks an order paid: delivery
+ * does not prove the cash was collected. Off = payment stays manual.
+ */
+export async function updateAutoPaymentFromStoreAction(formData: FormData): Promise<ActionResult<BusinessSettings>> {
+  const user = await requirePermissionForAction("settings.manage");
+  const parsed = updateAutoPaymentFromStoreSchema.safeParse({ autoPaymentFromStore: formData.get("autoPaymentFromStore") });
+  if (!parsed.success) return actionError("Valeur invalide.", parsed.error.flatten().fieldErrors);
+
+  const previous = await prisma.businessSettings.findUnique({ where: { tenantId: user.tenantId }, select: { autoPaymentFromStore: true } });
+  const settings = await prisma.businessSettings.upsert({
+    where: { tenantId: user.tenantId },
+    update: { autoPaymentFromStore: parsed.data.autoPaymentFromStore },
+    create: { autoPaymentFromStore: parsed.data.autoPaymentFromStore },
+  });
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "settings.updated",
+    entityType: "BusinessSettings",
+    entityId: settings.id,
+    previousValue: { autoPaymentFromStore: previous?.autoPaymentFromStore ?? false },
+    newValue: { autoPaymentFromStore: settings.autoPaymentFromStore },
+  });
+  revalidatePath("/parametres");
   return actionOk(settings);
 }
 

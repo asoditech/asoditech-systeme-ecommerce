@@ -17,7 +17,8 @@ import { actionError, actionOk, type ActionResult } from "@/actions/types";
  * the page still refreshes client-side.
  */
 export interface CombinedSyncResult {
-  ran: { platform: string; imported: number; updated: number; hasMore: boolean }[];
+  ran: { platform: string; imported: number; updated: number; skipped: number; failed: number; hasMore: boolean; notes: string[] }[];
+  errors: string[];
 }
 
 async function connectedProviders(): Promise<Set<"WOOCOMMERCE" | "SHOPIFY">> {
@@ -33,12 +34,20 @@ async function connectedProviders(): Promise<Set<"WOOCOMMERCE" | "SHOPIFY">> {
   return new Set(rows.map((r) => r.provider as "WOOCOMMERCE" | "SHOPIFY"));
 }
 
+const PLATFORMS = ["WooCommerce", "Shopify"] as const;
+
 async function run(
-  resource: "orders" | "products"
+  resource: "orders" | "products",
+  onlyPlatforms?: readonly string[]
 ): Promise<ActionResult<CombinedSyncResult>> {
   await requirePermissionForAction("integrations.manage");
 
   const connected = await connectedProviders();
+  // The client's follow-up calls (« (suite…) ») only re-run the platforms
+  // that still had more to do; unknown names are ignored.
+  const only = Array.isArray(onlyPlatforms)
+    ? new Set(onlyPlatforms.filter((p): p is (typeof PLATFORMS)[number] => (PLATFORMS as readonly string[]).includes(p)))
+    : null;
   if (connected.size === 0) {
     return actionError("Aucune boutique connectée — rien à synchroniser.");
   }
@@ -46,14 +55,17 @@ async function run(
   const ran: CombinedSyncResult["ran"] = [];
   const errors: string[] = [];
 
-  const jobs: { platform: string; run: () => Promise<ActionResult<{ summary: { imported: number; updated: number; hasMore?: boolean } }>> }[] = [];
-  if (connected.has("WOOCOMMERCE")) {
+  const jobs: {
+    platform: string;
+    run: () => Promise<ActionResult<{ summary: { imported: number; updated: number; skipped: number; failed: number; notes: string[]; hasMore?: boolean } }>>;
+  }[] = [];
+  if (connected.has("WOOCOMMERCE") && (!only || only.has("WooCommerce"))) {
     jobs.push({
       platform: "WooCommerce",
       run: resource === "orders" ? syncWooCommerceOrdersAction : syncWooCommerceProductsAction,
     });
   }
-  if (connected.has("SHOPIFY")) {
+  if (connected.has("SHOPIFY") && (!only || only.has("Shopify"))) {
     jobs.push({
       platform: "Shopify",
       run: resource === "orders" ? syncShopifyOrdersAction : syncShopifyProductsAction,
@@ -67,7 +79,10 @@ async function run(
         platform: job.platform,
         imported: res.data.summary.imported,
         updated: res.data.summary.updated,
+        skipped: res.data.summary.skipped,
+        failed: res.data.summary.failed,
         hasMore: Boolean(res.data.summary.hasMore),
+        notes: res.data.summary.notes.slice(0, 3),
       });
     } else {
       errors.push(`${job.platform} : ${res.error}`);
@@ -77,13 +92,13 @@ async function run(
   if (ran.length === 0) {
     return actionError(errors.join(" · ") || "La synchronisation a échoué.");
   }
-  return actionOk({ ran });
+  return actionOk({ ran, errors });
 }
 
-export async function syncConnectedOrdersAction(): Promise<ActionResult<CombinedSyncResult>> {
-  return run("orders");
+export async function syncConnectedOrdersAction(onlyPlatforms?: string[]): Promise<ActionResult<CombinedSyncResult>> {
+  return run("orders", onlyPlatforms);
 }
 
-export async function syncConnectedProductsAction(): Promise<ActionResult<CombinedSyncResult>> {
-  return run("products");
+export async function syncConnectedProductsAction(onlyPlatforms?: string[]): Promise<ActionResult<CombinedSyncResult>> {
+  return run("products", onlyPlatforms);
 }

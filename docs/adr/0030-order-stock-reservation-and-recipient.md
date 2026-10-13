@@ -407,3 +407,40 @@ confirmation is INTERNE-only (#15623)") — using the existing fake
 WooCommerce HTTP server, assert zero stock-update calls across
 confirm/ship/cancel of a WooCommerce-sourced order, and that an INTERNE
 order against the same WooCommerce-linked product still pushes normally.
+
+## Addendum (2026-10-13) — store-driven transitions: ledger, ordering, dates
+
+Shared by both providers in `src/lib/integrations/shared/order-sync-rules.ts`
+(called from each `sync/orders.ts`, bulk sync and webhooks alike):
+
+- **Into CONFIRMEE** (only with « Toujours importer en Nouvelle » off): the
+  store's status now takes the SAME strict reservation a human confirmation
+  takes (`reserveForConfirmation`, no override), in the transaction that
+  changes the status. A shortage keeps the order NOUVELLE with a reason. A
+  new order is never created directly in a reserving status (nor EXPEDIEE,
+  ADR 0036): it is created NOUVELLE and the status goes through the update
+  path. This closes ADR 0049's « Not changed (known) » gap.
+- **Out of a reserving status**: released only when the order's own ledger
+  (`RESERVATION − LIBERATION − VENTE` movements with its `orderId`) still
+  holds units — an order that never reserved (imported CONFIRMEE before this
+  rule, a shipped-then-retried order) releases nothing.
+- **Event ordering** — supersedes the 2026-09-13 behaviour above where a
+  stale « cancelled » re-applied after a manual re-confirmation: a store
+  cancellation of an order a person confirmed is applied only when the
+  store's own modification time (WooCommerce `date_modified_gmt`, Shopify
+  `updatedAt`) is newer than `confirmedAt`; a store reopen (ANNULEE →
+  NOUVELLE) only when newer than `cancelledAt`. Unknown times → refused with
+  a reason, order unchanged, staff decide (« Rétablir », re-confirm, cancel).
+- **Dates**: store-driven LIVREE / ANNULEE set `deliveredAt` / `cancelledAt`
+  (store time when available — WooCommerce `date_completed_gmt` /
+  `date_modified_gmt`, Shopify `cancelledAt` / `updatedAt` — else processing
+  time), only when not already set.
+- **Bulk sync** now refreshes held orders whose store status, total or
+  refunds differ (bounded per run), through the same path; transitions that
+  would always be refused are not retried.
+- An unmappable status on a HELD order (e.g. Shopify PARTIALLY_REFUNDED +
+  UNFULFILLED) keeps its status but its amounts and refunds are refreshed.
+
+Tests: `tests/integration/order-sync-consistency.test.ts` (both providers;
+each protection was removed in turn and the suite failed), updated webhook
+suites. Store field semantics are verified against fakes only.

@@ -1,5 +1,6 @@
 import { Plug, Clock3 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
 import { BrandLogo, type BrandKey } from "@/components/brand-logo";
 import { WooCommerceCard } from "@/components/integrations/woocommerce-card";
 import { ShopifyCard } from "@/components/integrations/shopify-card";
@@ -58,6 +59,9 @@ export default async function IntegrationsPage() {
             : "État des connexions externes : WooCommerce se synchronise avec ASODITECH ; les intégrations « Bientôt disponible » ne sont pas encore utilisables."
         }
       />
+
+      {/* Synced products arrive without a purchase cost (the stores don't hold it): say so where the sync lives. */}
+      <MissingCostBanner user={user} />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <WooCommerceCard canManage={canManage} />

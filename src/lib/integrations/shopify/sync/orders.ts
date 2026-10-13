@@ -1,3 +1,4 @@
+import { applyStorePaymentConfirmation } from "@/lib/orders/store-payment";
 import "server-only";
 
 import { REOPEN_ORDER_DATA, isReopenable } from "@/lib/order-confirmation";
@@ -5,9 +6,18 @@ import { packingResetFor } from "@/lib/packing";
 import { getDefaultOnlineChannelId } from "@/lib/channels";
 
 import { prisma } from "@/lib/prisma";
+import { historicalCutoff, patchIntegrationConfig } from "../../shared/integration-config";
 import { recordAuditEvent } from "@/lib/audit";
 import { canTransitionOrderStatus, orderHoldsReservation } from "@/lib/validation/order";
 import { releaseStockForOrder } from "@/lib/inventory";
+import {
+  orderReservedUnits,
+  reserveForStoreConfirmation,
+  storeEventTime,
+  storeOrderingRefusal,
+  storeRefreshNeeded,
+  storeTransitionDates,
+} from "../../shared/order-sync-rules";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
 import type { ShopifyOrder } from "../types";
@@ -30,17 +40,11 @@ import type { Prisma, OrderStatus } from "@prisma/client";
  * manual "Synchroniser les commandes" action and the orders/create and
  * orders/updated webhook handlers.
  *
- * Deliberately NOT done here: reserving/fulfilling internal stock — a
- * Shopify order's stock impact already happened on Shopify's side and is
- * reflected via the separate stock-pull reconciliation (sync/products.ts),
- * not by re-running the internal ledger a second time. The one exception
- * (2026-09-13 fix): `updateExistingOrder` DOES call `releaseStockForOrder`
- * — reservation-only, never on-hand — when the store's own status demotes
- * an order out of a reservation-holding one (e.g. CONFIRMEE/EN_PREPARATION
- * -> ANNULEE), so a reservation a human took inside ASODITECH can never
- * outlive the order being moved back by a webhook — see the identical fix
- * and full reasoning in WooCommerce's sync/orders.ts, and docs/adr/0030's
- * addendum.
+ * Stock: same rules as WooCommerce's sync/orders.ts (shared/order-sync-rules.ts,
+ * docs/adr/0030 / 0036) — reserved ⟺ CONFIRMEE / EN_PREPARATION and not
+ * shipped, whichever side moved the order; a store CONFIRMEE reserves like a
+ * human confirmation (or stays NOUVELLE when short), EXPEDIEE is never
+ * auto-applied, a demotion releases only what the order's ledger holds.
  *
  * Deliberately NOT done here: reconciling line items on a re-import — a
  * Shopify order's line items are fixed at placement; a re-import only
@@ -65,6 +69,16 @@ export async function importOrder(
 ): Promise<{ outcome: "imported" | "updated" | "unchanged" | "skipped"; reason?: string }> {
   const statusMapping = mapOrderStatus(order.displayFinancialStatus, order.displayFulfillmentStatus, order.cancelledAt);
   if (!statusMapping.ok) {
+    // An order we already hold, now in a combination we cannot map (e.g. a
+    // partial refund on an unshipped order): its status is left alone, but
+    // its amounts and refunds are still refreshed — never dropped while the
+    // delivery is counted as handled. Partial stays partial: `paymentStatus`
+    // only becomes REMBOURSE on Shopify's own REFUNDED.
+    const held = await prisma.order.findFirst({ where: { source: "SHOPIFY", externalId: order.id }, select: { id: true, status: true } });
+    if (held) {
+      const result = await updateExistingOrder(held.id, order, held.status, actor, options);
+      return { ...result, reason: `${statusMapping.reason} Statut inchangé ; montants et remboursements mis à jour.` };
+    }
     return { outcome: "skipped", reason: statusMapping.reason };
   }
 
@@ -90,10 +104,19 @@ export async function importOrder(
   }
 
   const forcedToNouvelle = Boolean(options?.forceNouvelleOnFirstImport) && statusMapping.status === "CONFIRMEE";
-  const effectiveStatus: OrderStatus = forcedToNouvelle ? "NOUVELLE" : statusMapping.status;
+  // A status needing a stock transition is never written straight onto a new
+  // order (see WooCommerce's importOrder): created NOUVELLE, then the update
+  // path applies it with its guards — CONFIRMEE reserves or stays NOUVELLE,
+  // EXPEDIEE (Shopify IN_PROGRESS / PARTIALLY_FULFILLED) is never auto-applied.
+  const viaTransition = !forcedToNouvelle && (orderHoldsReservation(statusMapping.status) || statusMapping.status === "EXPEDIEE");
+  const effectiveStatus: OrderStatus = forcedToNouvelle || viaTransition ? "NOUVELLE" : statusMapping.status;
 
   try {
-    return await createImportedOrder(order, effectiveStatus, customerId, actor, forcedToNouvelle ? true : undefined);
+    const created = await createImportedOrder(order, effectiveStatus, customerId, actor, forcedToNouvelle ? true : undefined);
+    if (!viaTransition) return { outcome: "imported" };
+    // Right after creation: the « nouvelle commande » alert just sent stays (ADR 0016).
+    const transition = await updateExistingOrder(created.orderId, order, statusMapping.status, actor, options, { keepNewOrderAlert: true });
+    return { outcome: "imported", reason: transition.reason };
   } catch (error) {
     // Backstop for a genuine race (a webhook delivery and a concurrent
     // manual sync both importing the same new Shopify order for the first
@@ -200,7 +223,7 @@ async function createImportedOrder(
    * NOUVELLE — recorded on the audit event so staff can see why an
    * already-paid/processing order didn't land as Confirmée. */
   forcedNouvelleFromConfirmee?: boolean
-): Promise<{ outcome: "imported" }> {
+): Promise<{ outcome: "imported"; orderId: string }> {
   const fields = mappedOrderFields(order);
 
   const items: Prisma.OrderItemCreateManyOrderInput[] = [];
@@ -246,6 +269,8 @@ async function createImportedOrder(
       shippingCountry: fields.shippingCountry,
       shippingPhone: fields.shippingPhone,
       notes: fields.notes,
+      // A store LIVREE / ANNULEE carries its date like a manual transition.
+      ...storeTransitionDates(status, { deliveredAt: null, cancelledAt: null }, storeEventTimes(order)),
       items: { create: items },
     },
   });
@@ -308,7 +333,13 @@ async function createImportedOrder(
     );
   }
 
-  return { outcome: "imported" };
+  return { outcome: "imported", orderId: createdOrder.id };
+}
+
+/** Shopify's own event times for this order: last modification, cancellation. */
+function storeEventTimes(order: ShopifyOrder): { modified: Date | null; delivered: Date | null; cancelled: Date | null } {
+  const modified = storeEventTime(order.updatedAt);
+  return { modified, delivered: modified, cancelled: storeEventTime(order.cancelledAt) ?? modified };
 }
 
 async function updateExistingOrder(
@@ -316,21 +347,36 @@ async function updateExistingOrder(
   order: ShopifyOrder,
   status: OrderStatus,
   actor: SyncActor,
-  options?: ImportOrderOptions
+  options?: ImportOrderOptions,
+  internal: { keepNewOrderAlert?: boolean } = {}
 ): Promise<{ outcome: "updated" | "unchanged"; reason?: string }> {
   const existing = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
   const fields = mappedOrderFields(order);
+  const label = `Commande Shopify ${order.name}`;
+  const eventTimes = storeEventTimes(order);
   let changedFields = false;
   let statusSkippedReason: string | undefined;
   let workflowMismatch: string | undefined;
+  /** The order's status as read UNDER the row lock (another delivery may have moved it since `existing`). */
+  let previousStatus: OrderStatus = existing.status;
 
   await prisma.$transaction(async (tx) => {
-    if (existing.status !== status) {
+    // One delivery at a time per order (e.g. refunds/create racing
+    // orders/updated): the refund find-then-create below and the stock
+    // release see the previous delivery's committed result — never two
+    // « Importé depuis …» refunds, never a double release.
+    await tx.$queryRaw`SELECT id FROM "orders" WHERE id = ${orderId} FOR UPDATE`;
+    const current = await tx.order.findUniqueOrThrow({
+      where: { id: orderId },
+      select: { status: true, shippedAt: true, confirmedAt: true, cancelledAt: true, deliveredAt: true },
+    });
+    previousStatus = current.status;
+    if (current.status !== status) {
       // Same rule as first import, now enforced on every later re-sync/
       // webhook update too (2026-09-13 fix) — see the identical comment in
       // WooCommerce's sync/orders.ts for the full reasoning.
       const autoConfirmBlocked =
-        existing.status === "NOUVELLE" && status === "CONFIRMEE" && options?.forceNouvelleOnFirstImport !== false;
+        current.status === "NOUVELLE" && status === "CONFIRMEE" && options?.forceNouvelleOnFirstImport !== false;
       // ASODITECH's own EXPEDIEE transition is the ONLY physical
       // -fulfillment event, for every order source (docs/adr/0036-inventory
       // -single-source-of-truth.md) — a Shopify fulfillment status (e.g.
@@ -340,9 +386,11 @@ async function updateExistingOrder(
       // fulfillStockForOrder — corrupting on-hand — and at worst skip the
       // physical-fulfillment step entirely. Surface a workflow mismatch
       // instead; a human validates the shipment inside ASODITECH itself.
-      const expedieeAutoAdvanceBlocked = status === "EXPEDIEE" && existing.status !== "EXPEDIEE";
+      const expedieeAutoAdvanceBlocked = status === "EXPEDIEE" && current.status !== "EXPEDIEE";
       // Same rule as « Rétablir la commande »: a shipped order never reopens.
-      const reopenBlocked = status === "NOUVELLE" && existing.status === "ANNULEE" && !isReopenable(existing);
+      const reopenBlocked = status === "NOUVELLE" && current.status === "ANNULEE" && !isReopenable(current);
+      // A stale snapshot never undoes a newer local confirmation / cancellation.
+      const orderingRefusal = storeOrderingRefusal(label, status, current, eventTimes.modified);
       if (autoConfirmBlocked) {
         statusSkippedReason = `Commande Shopify ${order.name} : reste "Nouvelle" — confirmation manuelle requise avant "Confirmée" (réglage "Toujours importer en Nouvelle").`;
       } else if (expedieeAutoAdvanceBlocked) {
@@ -350,12 +398,26 @@ async function updateExistingOrder(
         workflowMismatch = `${order.displayFulfillmentStatus ?? "?"} (exécution) / ${order.displayFinancialStatus ?? "?"} (paiement)`;
       } else if (reopenBlocked) {
         statusSkippedReason = `Commande Shopify ${order.name} : déjà expédiée — elle ne peut pas revenir à "Nouvelle" depuis "Annulée".`;
-      } else if (canTransitionOrderStatus(existing.status, status)) {
+      } else if (orderingRefusal) {
+        statusSkippedReason = orderingRefusal;
+      } else if (
+        canTransitionOrderStatus(current.status, status) &&
+        // Entering a reservation-holding status: same strict reservation as a
+        // human confirmation, first, in this transaction (see WooCommerce's).
+        (!orderHoldsReservation(status) ||
+          orderHoldsReservation(current.status) ||
+          current.shippedAt !== null ||
+          (await reserveForStoreConfirmation(tx, orderId, actorPerformedById(actor))) === "reserved")
+      ) {
         // ANNULEE → NOUVELLE resets the current confirmation state (docs/adr/0049).
         const result = await tx.order.updateMany({
-          where: { id: orderId, status: existing.status },
-          data: status === "NOUVELLE" ? REOPEN_ORDER_DATA : { status, ...packingResetFor(status) },
+          where: { id: orderId, status: current.status },
+          data:
+            status === "NOUVELLE"
+              ? REOPEN_ORDER_DATA
+              : { status, ...packingResetFor(status), ...storeTransitionDates(status, current, eventTimes) },
         });
+        if (result.count === 0) throw new Error(`${label} : statut modifié pendant la synchronisation.`);
         if (result.count > 0) {
           changedFields = true;
           // 2026-09-13 fix — see the identical comment in WooCommerce's
@@ -363,7 +425,16 @@ async function updateExistingOrder(
           // ledger honest regardless of which side drove the demotion.
           // Reservation-only (never quantityOnHand); this function still
           // never reserves or fulfills.
-          if (orderHoldsReservation(existing.status) && !orderHoldsReservation(status)) {
+          // Same rule as the manual cancel (src/actions/orders.ts `wasFulfilled`,
+          // docs/adr/0036): an order already shipped once (`shippedAt` set,
+          // e.g. EXPEDIEE → ECHEC → EN_PREPARATION retry) holds no
+          // reservation any more — releasing would eat another order's.
+          if (
+            current.shippedAt === null &&
+            orderHoldsReservation(current.status) &&
+            !orderHoldsReservation(status) &&
+            (await orderReservedUnits(tx, orderId)) > 0
+          ) {
             const items = await tx.orderItem.findMany({
               where: { orderId },
               select: { productId: true, variationId: true, quantity: true },
@@ -371,8 +442,10 @@ async function updateExistingOrder(
             await releaseStockForOrder(tx, orderId, items, actorPerformedById(actor));
           }
         }
+      } else if (canTransitionOrderStatus(current.status, status)) {
+        statusSkippedReason = `${label} : stock insuffisant pour réserver — la commande reste "${current.status}" ; confirmez-la dans ASODITECH.`;
       } else {
-        statusSkippedReason = `Commande Shopify ${order.name} : transition ${existing.status} → ${status} ignorée (déjà en cours de traitement localement).`;
+        statusSkippedReason = `Commande Shopify ${order.name} : transition ${current.status} → ${status} ignorée (déjà en cours de traitement localement).`;
         // A terminal/further-along external status than ASODITECH's own
         // current stage is a genuine workflow disagreement worth a human's
         // attention (docs/adr/0036) — not merely a sync-summary footnote.
@@ -427,6 +500,11 @@ async function updateExistingOrder(
         changedFields = true;
       }
     }
+
+    // « Paiement confirmé par la boutique » (opt-in, default off): the store
+    // now reports this order paid → EN_ATTENTE becomes PAYE, audited on its
+    // own. Never from a carrier status; never overwrites a manual status.
+    if (refunded <= 0) await applyStorePaymentConfirmation(orderId, order.displayFinancialStatus === "PAID", "SHOPIFY", tx);
   });
 
   if (changedFields) {
@@ -439,7 +517,7 @@ async function updateExistingOrder(
     });
   }
 
-  if (existing.status === "NOUVELLE" && status !== "NOUVELLE") {
+  if (previousStatus === "NOUVELLE" && status !== "NOUVELLE" && !internal.keepNewOrderAlert) {
     await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: orderId });
   }
   if (workflowMismatch) {
@@ -449,11 +527,11 @@ async function updateExistingOrder(
       displayNumber: existing.displayNumber,
       source: "SHOPIFY",
       externalNumber: order.name,
-      localStatus: existing.status,
+      localStatus: previousStatus,
       externalStatus: workflowMismatch,
     });
   }
-  if (existing.status !== status && (status === "LIVREE" || existing.status === "LIVREE")) {
+  if (previousStatus !== status && (status === "LIVREE" || previousStatus === "LIVREE")) {
     await reconcileOrderCommission(orderId);
   }
 
@@ -462,14 +540,14 @@ async function updateExistingOrder(
 
 /**
  * Bulk order import — the manual "Synchroniser les commandes" action.
- * Skips orders already held (their live edits arrive via the
- * orders/updated webhook, not here), and does at most a bounded amount
- * of real work — new imports (the expensive path: several queries each)
- * and placedAt corrections on already-held orders (cheap: one field)
- * each have their own, much smaller cap — before stopping. Both caps are
+ * Imports new orders AND refreshes held orders whose Shopify state differs
+ * (status, totals, refunds), through the same update path as a webhook
+ * (`storeRefreshNeeded`), with at most a bounded amount of work — new
+ * imports, refreshes and placedAt corrections each have their own cap —
+ * before stopping. Both caps are
  * sized for Vercel's Hobby tier (a hard ~10s wall clock).
  *
- * Where it resumes: Shopify pages newest-first, so a run that always
+ * Where it resumes: Shopify pages newest-first (`reverse: true` in the client), so a run that always
  * restarted at the beginning would spend most of its time budget
  * re-fetching and skipping already-held pages before reaching new work.
  * The GraphQL cursor it stopped on is persisted to
@@ -479,6 +557,7 @@ async function updateExistingOrder(
  * cursor, so the next one re-checks from the newest orders.
  */
 const MAX_IMPORTS_PER_RUN = 15;
+const MAX_REFRESHES_PER_RUN = 15;
 const MAX_PLACED_AT_FIXES_PER_RUN = 40;
 
 export async function syncOrders(
@@ -490,12 +569,22 @@ export async function syncOrders(
 
   const integration = await prisma.integration.findUniqueOrThrow({ where: { id: integrationId } });
   const config = (integration.config as Record<string, unknown> | null) ?? {};
-  const startCursor = typeof config.ordersResumeCursor === "string" ? config.ordersResumeCursor : null;
+  // A cursor saved before the switch to newest-first paging belongs to the
+  // old (oldest-first) ordering: ignored, the scan restarts from the newest.
+  const startCursor =
+    typeof config.ordersResumeCursor === "string" && config.ordersCursorOrder === "newest" ? config.ordersResumeCursor : null;
   // On by default — see ImportOrderOptions's doc comment. `false` is the
   // only value that opts out; unset/anything else keeps the safe default.
   const forceNouvelleOnFirstImport = config.forceNouvelleOnImport !== false;
+  // « Importer l'historique » OFF — see WooCommerce's syncOrders.
+  const cutoff = historicalCutoff(config);
 
   let importedThisRun = 0;
+  let refreshedThisRun = 0;
+  let reachedCutoff = false;
+  // The cursor that fetched the page being processed: a run capped inside
+  // a page resumes AT that page next time (not at the run's first page).
+  let pageStartCursor: string | null = startCursor;
   let fixedThisRun = 0;
   let capped = false;
   let resumeCursor: string | null = null;
@@ -507,21 +596,71 @@ export async function syncOrders(
       (
         await prisma.order.findMany({
           where: { source: "SHOPIFY", externalId: { in: page.map((o) => o.id) } },
-          select: { id: true, externalId: true, placedAt: true, createdAt: true },
+          select: {
+            id: true,
+            externalId: true,
+            placedAt: true,
+            createdAt: true,
+            status: true,
+            total: true,
+            confirmedAt: true,
+            cancelledAt: true,
+            refunds: { where: { source: "SHOPIFY" }, select: { amount: true } },
+          },
         })
       ).map((r) => [r.externalId, r])
     );
 
     for (const order of page) {
+      if (cutoff && parseOrderPlacedAt(order.createdAt) < cutoff) {
+        reachedCutoff = true;
+        resumeCursor = null;
+        break;
+      }
       const existing = held.get(order.id);
       if (existing) {
+        // ADR 0010/0011/0030: a later manual sync refreshes held orders too
+        // (see WooCommerce's syncOrders and `storeRefreshNeeded`).
+        const mapped = mapOrderStatus(order.displayFinancialStatus, order.displayFulfillmentStatus, order.cancelledAt);
+        const needsRefresh = storeRefreshNeeded({
+          held: {
+            status: existing.status,
+            total: Number(existing.total),
+            refunded: existing.refunds.reduce((sum, r) => sum + Number(r.amount), 0),
+            confirmedAt: existing.confirmedAt,
+            cancelledAt: existing.cancelledAt,
+          },
+          mappedStatus: mapped.ok ? mapped.status : null,
+          storeTotal: mappedOrderFields(order).total,
+          storeRefunded: totalRefundedAmount(order),
+          storeModifiedAt: storeEventTimes(order).modified,
+          forceNouvelleOnFirstImport,
+          canTransition: canTransitionOrderStatus,
+        });
+        if (needsRefresh) {
+          if (refreshedThisRun >= MAX_REFRESHES_PER_RUN) {
+            capped = true;
+            resumeCursor = pageStartCursor;
+            break;
+          }
+          refreshedThisRun++;
+          try {
+            const { outcome, reason } = await importOrder(order, actor, { forceNouvelleOnFirstImport });
+            summary[outcome]++;
+            if (reason) recordNote(summary, reason);
+          } catch {
+            recordNote(summary, `Commande Shopify ${order.name} : échec de la mise à jour.`);
+            summary.failed++;
+          }
+          continue;
+        }
         if (existing.placedAt.getTime() !== existing.createdAt.getTime()) {
           summary.unchanged++;
           continue;
         }
         if (fixedThisRun >= MAX_PLACED_AT_FIXES_PER_RUN) {
           capped = true;
-          resumeCursor = startCursor;
+          resumeCursor = pageStartCursor;
           break;
         }
         await prisma.order.update({
@@ -534,7 +673,7 @@ export async function syncOrders(
       }
       if (importedThisRun >= MAX_IMPORTS_PER_RUN) {
         capped = true;
-        resumeCursor = startCursor;
+        resumeCursor = pageStartCursor;
         break;
       }
       try {
@@ -547,20 +686,23 @@ export async function syncOrders(
         summary.failed++;
       }
     }
-    if (capped) break;
+    if (capped || reachedCutoff) break;
+    pageStartCursor = endCursor;
+    // Saved after every page, only this key, atomically (see WooCommerce).
+    await patchIntegrationConfig(integrationId, { ordersResumeCursor: resumeCursor, ordersCursorOrder: "newest" });
   }
 
-  await prisma.integration.update({
-    where: { id: integrationId },
-    data: { config: { ...config, ordersResumeCursor: resumeCursor } },
-  });
+  await patchIntegrationConfig(integrationId, { ordersResumeCursor: resumeCursor, ordersCursorOrder: "newest" });
 
   summary.hasMore = capped;
   if (capped) {
     recordNote(
       summary,
-      `Lot traité (max ${MAX_IMPORTS_PER_RUN} nouvelles, ${MAX_PLACED_AT_FIXES_PER_RUN} dates corrigées) — relancez « Synchroniser les commandes » pour continuer.`
+      `Lot traité (max ${MAX_IMPORTS_PER_RUN} nouvelles, ${MAX_REFRESHES_PER_RUN} mises à jour, ${MAX_PLACED_AT_FIXES_PER_RUN} dates corrigées) — relancez « Synchroniser les commandes » pour continuer.`
     );
+  }
+  if (reachedCutoff) {
+    recordNote(summary, "Historique non importé (réglage « Importer l'historique des commandes » désactivé) : les commandes antérieures à la date choisie sont ignorées.");
   }
 
   return summary;

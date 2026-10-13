@@ -1,8 +1,9 @@
 "use client";
 
-import { ArrowLeftRight, BadgePercent, Inbox, PackageCheck, Truck } from "lucide-react";
+import { ArrowLeftRight, BadgePercent, Banknote, Inbox, PackageCheck, Truck } from "lucide-react";
 import {
   updateDefaultShippingProviderAction,
+  updateAutoPaymentFromStoreAction,
   updatePackingVerificationAction,
   updateSellerPriceOverrideAction,
   updateTransferCostOverrideAction,
@@ -63,6 +64,29 @@ export function PackingVerificationForm({ enabled }: { enabled: boolean }) {
       onMessage="Vérification de l'emballage activée."
       offMessage="Vérification de l'emballage désactivée."
       info={<SettingInfo setting="packingVerification" />}
+    />
+  );
+}
+
+/**
+ * « Paiement confirmé par la boutique » — opt-in: an imported order the shop
+ * reports as paid becomes « Payé ». Never driven by a carrier « Livré ».
+ */
+export function AutoPaymentFromStoreForm({ enabled }: { enabled: boolean }) {
+  return (
+    <ToggleTile
+      anchor="paiement-boutique"
+      section="commandes"
+      icon={Banknote}
+      title="Paiement confirmé par la boutique"
+      summary="Une commande importée passe « Payé » quand WooCommerce ou Shopify la signale payée."
+      detail="Désactivé (par défaut) : le statut de paiement se change à la main. Une livraison « Livré » ne marque jamais une commande payée."
+      note="Seulement « En attente » → « Payé » ; chaque changement est historisé."
+      checked={enabled}
+      save={formSwitch(updateAutoPaymentFromStoreAction, "autoPaymentFromStore")}
+      onMessage="Paiement confirmé par la boutique : activé."
+      offMessage="Paiement confirmé par la boutique : désactivé."
+      info={<SettingInfo setting="autoPaymentFromStore" />}
     />
   );
 }

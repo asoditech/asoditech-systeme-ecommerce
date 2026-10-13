@@ -34,6 +34,41 @@ runtime call sites this file documents) without a matching row here — see
 | `SHOPIFY_INTEGRATION_ENABLED` | Deployment-wide kill switch for the Shopify adapter (`src/lib/integrations/shopify/feature-flag.ts`). The adapter is fully built and tested but shown as "Bientôt disponible" and refuses new connect/configure/sync actions unless this is the literal string `"true"`. Existing connections keep receiving webhooks regardless. | Set by you, per client, based on whether they use Shopify. | `true` or unset/`false` | Production **and** Preview | Public (a feature toggle, not a secret) | Optional (defaults to disabled) |
 | `NODE_ENV` | Standard Next.js/Node environment marker. Also forces `src/lib/email.ts` onto the log-only path when `"test"`, regardless of Resend vars (keeps the test suite hermetic). | Set automatically by Vercel (`production` / `preview` / `development`) — do not set by hand in Vercel's dashboard. | `production` | Set by Vercel automatically | Public | Required, but never set manually on Vercel |
 
+## WhatsApp staff alerts — what is automatic, what is not
+
+- **Staff alerts (automatic)** go through the WhatsApp Cloud API from the one
+  central ASODITECH number, and only when ALL of these hold: the
+  `WHATSAPP_ACCESS_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` pair is set, the tenant
+  switched WhatsApp on (Intégrations → WhatsApp, status « Connecté »), and the
+  user verified their own number and opted in (Paramètres → Notifications).
+  Each user can also mute any single alert type for WhatsApp there
+  (`User.whatsappMutedAlerts`); in-app and email are never affected.
+- **Alerts sent on WhatsApp** (each needs its Meta template APPROVED, language
+  `fr`, in the central WhatsApp Business Account — nothing in the app creates
+  them):
+
+  | Alert | Template | Anti-flood rule |
+  | --- | --- | --- |
+  | Rupture de stock | `asoditech_stock_out` (product, location) | once per item per day |
+  | Échec de livraison | `asoditech_delivery_failure_summary` (count, carriers) | one summary per user per day |
+  | Erreur de connexion boutique / transporteur / WhatsApp | `asoditech_integration_down` (label) | once per integration per day |
+  | Synchronisation boutique en échec complet, webhook boutique non traité | `asoditech_integration_down` (« WooCommerce (synchronisation commandes) », « WooCommerce (webhooks) ») | once per store + resource per day / once per integration per day |
+
+- **In-app only for now — need a NEW approved template before they can go to
+  WhatsApp** (and, for the last two, a new `NotificationType` value):
+  commande retournée (suggested `asoditech_order_returned`: {{1}} order
+  number, {{2}} carrier), important order status changes, « commande prête à
+  expédier ». Low stock (not exhausted) stays in-app on purpose (too
+  frequent). Partial syncs stay in-app.
+- **Customer messages are never automatic**: the « WhatsApp » buttons next
+  to a customer open a `wa.me` link that a human sends by hand.
+- **Test mode**: on Preview / local, set `WHATSAPP_ALLOWED_RECIPIENTS` to the
+  staff test numbers — every other recipient is refused before Meta is
+  called. The automated test suite never calls Meta (`isWhatsAppConfigured()`
+  is false under `NODE_ENV=test`; tests mock the client).
+- No send log, delivery receipt or retry: Meta accepting a message is not
+  proof it was delivered.
+
 ## Not a Vercel project variable
 
 | Variable | Purpose | Where used |

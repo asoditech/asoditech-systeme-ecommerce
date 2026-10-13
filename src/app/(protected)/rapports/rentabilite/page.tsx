@@ -1,10 +1,13 @@
 import { PageHeader } from "@/components/page-header";
+import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
 import { KpiCard } from "@/components/kpi-card";
 import { ReportMetricInfo } from "@/components/reports/report-metric-info";
 import { ReportDefinitions } from "@/components/reports/report-definitions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
+import { ReportOnlineChannelFilter } from "@/components/reports/report-online-channel-filter";
+import { resolveReportOnlineChannel, reportOrderScope } from "@/lib/reports/online-channel";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
 import { requireChannelKind } from "@/lib/auth/channel-access";
@@ -60,7 +63,7 @@ function ProfitTable({ rows, label }: { rows: ProfitRow[]; label: string }) {
 export default async function RapportRentabilitePage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string; canal?: string }>;
 }) {
   const viewer = await requirePermission("analytics.view");
   // Margins, cost of goods and profit are finance data (docs/adr/0050).
@@ -69,13 +72,16 @@ export default async function RapportRentabilitePage({
   requireChannelKind(viewer, "ONLINE");
   const params = await searchParams;
   const resolved = await resolveTenantReportRange(params);
+  // « Canal en ligne » (only the viewer's own channels; see resolveReportOnlineChannel).
+  const channelFilter = await resolveReportOnlineChannel(viewer, params.canal);
+  const scope = reportOrderScope(channelFilter.salesChannelId);
   const [report, business] = await Promise.all([
-    getProductProfitReport(resolved.range),
+    getProductProfitReport(resolved.range, scope),
     getReportBusinessInfo(),
   ]);
   const { totals } = report;
 
-  const exportHref = `/rapports/export/rentabilite?${rangeQuery(resolved)}`;
+  const exportHref = `/rapports/export/rentabilite?${rangeQuery(resolved, { canal: channelFilter.salesChannelId })}`;
 
   return (
     <div>
@@ -84,7 +90,8 @@ export default async function RapportRentabilitePage({
         title="Rapport de rentabilité produit"
         description={`Période : ${resolved.label} — marge réalisée sur les coûts figés à la vente (jamais recalculée).`}
       />
-      <ReportFilterBar basePath="/rapports/rentabilite" resolved={resolved} exportHref={exportHref} />
+      <MissingCostBanner user={viewer} />
+      <ReportFilterBar basePath="/rapports/rentabilite" resolved={resolved} exportHref={exportHref} extraParams={{ canal: channelFilter.salesChannelId }} extra={<ReportOnlineChannelFilter channels={channelFilter.channels} value={channelFilter.salesChannelId} />} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="CA produits" explain={<ReportMetricInfo metric="marginProductRevenue" label="CA produits" className="-ml-1" />} value={formatCurrency(totals.revenue)} tone="primary" hint="Hors frais de livraison" />

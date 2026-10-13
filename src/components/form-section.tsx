@@ -39,11 +39,15 @@ export function FormSectionGroup({ children, className }: { children: React.Reac
 
 /**
  * Phase 5 visual QA — a form's action area as a deliberate surface, not an
- * afterthought row of buttons: a sticky bar (it stays in reach on a long
- * form, pinned just above the fixed site footer) with optional context on
- * the left (a total, a "stock is only added on validation" reminder) and
- * the action hierarchy on the right — secondary (Annuler) then the one
- * primary action last, where the eye ends.
+ * afterthought row of buttons: a bar at the end of the form with optional
+ * context on the left (a total, a "stock is only added on validation"
+ * reminder) and the action hierarchy on the right — secondary (Annuler)
+ * then the one primary action last, where the eye ends.
+ *
+ * In normal flow, never sticky: `<main>` (app-shell) is an `overflow-y-auto`
+ * box that never scrolls itself (the window does), so a sticky `bottom-*`
+ * here pinned against main's own bottom edge and permanently overlapped the
+ * form's last fields by that offset, on every page using it.
  */
 export function FormActions({
   children,
@@ -57,7 +61,7 @@ export function FormActions({
   return (
     <div
       className={cn(
-        "sticky bottom-11 z-20 flex flex-col gap-3 rounded-xl bg-card/95 px-4 py-3 shadow-popover ring-1 ring-border backdrop-blur supports-backdrop-filter:bg-card/85 sm:flex-row sm:items-center sm:justify-between",
+        "flex flex-col gap-3 rounded-xl bg-card px-4 py-3 shadow-popover ring-1 ring-border sm:flex-row sm:items-center sm:justify-between",
         className
       )}
     >

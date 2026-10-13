@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/page-header";
+import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
 import { KpiCard } from "@/components/kpi-card";
 import { ReportMetricInfo } from "@/components/reports/report-metric-info";
 import { ReportDefinitions } from "@/components/reports/report-definitions";
@@ -41,6 +42,7 @@ export default async function RapportTresoreriePage({
         title="Rapport de trésorerie"
         description={`Période : ${resolved.label} — encaissements attendus vs sorties. Vue caisse, pas comptable.`}
       />
+      <MissingCostBanner user={viewer} />
       <ReportFilterBar basePath="/rapports/tresorerie" resolved={resolved} exportHref={exportHref} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

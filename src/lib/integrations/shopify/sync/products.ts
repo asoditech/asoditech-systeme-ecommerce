@@ -2,12 +2,15 @@ import "server-only";
 import { enableProductOnDefaultOnlineChannel } from "@/lib/channels";
 
 import { prisma } from "@/lib/prisma";
+import { patchIntegrationConfig } from "@/lib/integrations/shared/integration-config";
+import { deactivateRemovedVariations } from "@/lib/integrations/shared/variations";
 import type { ShopifyClient } from "../client";
 import { mapSimpleProductFields, mapVariantFields, isSimpleProduct, mapProductStatus } from "../mapper";
 import { availableFrom } from "../types";
 import type { ShopifyProduct, ShopifyVariant } from "../types";
 import { emptySyncSummary, recordNote, reconcileStockFromProvider, syncProductLeadImage, type SyncSummary, type SyncActor } from "@/lib/integrations/shared";
 import { resolveStoreProduct, resolveStoreVariation } from "@/lib/integrations/shared/identity";
+import { inventoryOwnerOf, type InventoryOwner } from "@/lib/integrations/woocommerce/store-settings";
 import { variantLabel } from "@/lib/catalog/lookup";
 
 /** Shopify `createdAt` is an ISO 8601 string. Guard against a
@@ -22,9 +25,14 @@ function parseShopifyDate(value: string | null | undefined): Date | null {
  * Shopify → System, one direction (see docs/adr/0011-shopify-integration.md).
  * Products are matched by (source=SHOPIFY, externalId=<product gid>).
  * Field ownership mirrors the WooCommerce integration: name/sku/
- * description/price/status/trackInventory are Shopify-owned and
- * overwritten every sync; `cost` and `lowStockThreshold` are
- * internal-only and never touched here, even on an update.
+ * description/price/status are Shopify-owned and overwritten every sync;
+ * `cost` and `lowStockThreshold` are internal-only and never touched here,
+ * even on an update. `trackInventory` follows the connection's « Qui gère
+ * le stock ? » (`Integration.config.inventoryOwner`): ASODITECH (default) →
+ * Shopify's `tracked` only seeds a NEW product, an existing one keeps the
+ * user's choice; the store → overwritten every sync, and no stock row is
+ * onboarded. A row is only ever onboarded from the quantity Shopify reports
+ * at that location — never a 0 for a missing one.
  *
  * Shopify has no single-parent Category concept comparable to this
  * system's Category tree — Collections are many-to-many, and the newer
@@ -67,6 +75,7 @@ export async function syncProducts(
 
   const integration = await prisma.integration.findUniqueOrThrow({ where: { id: integrationId } });
   const config = (integration.config as Record<string, unknown> | null) ?? {};
+  const inventoryOwner = inventoryOwnerOf(config);
   const startCursor = typeof config.productsResumeCursor === "string" ? config.productsResumeCursor : null;
   const startOffset =
     typeof config.productsResumeOffset === "number" && config.productsResumeOffset > 0
@@ -103,7 +112,7 @@ export async function syncProducts(
         break;
       }
       try {
-        await syncOneProduct(product, locationIdMap, actor, summary);
+        await syncOneProduct(product, locationIdMap, actor, summary, inventoryOwner);
       } catch {
         recordNote(summary, `Produit Shopify ${product.title} : échec de synchronisation.`);
         summary.failed++;
@@ -115,10 +124,7 @@ export async function syncProducts(
     cursorBeforePage = endCursor;
   }
 
-  await prisma.integration.update({
-    where: { id: integrationId },
-    data: { config: { ...config, productsResumeCursor: resumeCursor, productsResumeOffset: resumeOffset } },
-  });
+  await patchIntegrationConfig(integrationId, { productsResumeCursor: resumeCursor, productsResumeOffset: resumeOffset });
 
   summary.hasMore = capped;
   if (capped) {
@@ -135,10 +141,11 @@ async function syncOneProduct(
   product: ShopifyProduct,
   locationIdMap: Map<string, string>,
   actor: SyncActor,
-  summary: SyncSummary
+  summary: SyncSummary,
+  inventoryOwner: InventoryOwner
 ): Promise<void> {
   if (isSimpleProduct(product)) {
-    await syncSimpleProduct(product, locationIdMap, actor, summary);
+    await syncSimpleProduct(product, locationIdMap, actor, summary, inventoryOwner);
     return;
   }
 
@@ -166,12 +173,17 @@ async function syncOneProduct(
   const existing = resolved?.product ?? null;
 
   let productId: string;
+  let localTracked = false;
   if (existing) {
+    localTracked = existing.trackInventory;
     const needsPlatformDate =
       platformCreatedAt !== null && existing.platformCreatedAt?.getTime() !== platformCreatedAt.getTime();
+    // Archive is sticky — see WooCommerce's syncOneProduct (`restoreArchived`).
+    // Shopify has no « restored » webhook: a user re-activates it here.
+    const status = existing.status === "ARCHIVE" ? "ARCHIVE" : fields.status;
     const changed =
       existing.name !== fields.name ||
-      existing.status !== fields.status ||
+      existing.status !== status ||
       Number(existing.price) !== fields.price ||
       needsPlatformDate;
     if (changed) {
@@ -179,7 +191,7 @@ async function syncOneProduct(
         where: { id: existing.id },
         data: {
           name: fields.name,
-          status: fields.status,
+          status,
           price: fields.price,
           ...(platformCreatedAt ? { platformCreatedAt } : {}),
         },
@@ -215,14 +227,35 @@ async function syncOneProduct(
 
   for (const variant of product.variants.nodes) {
     try {
-      const outcome = await syncOneVariant(variant, productId, locationIdMap, actor);
+      const outcome = await syncOneVariant(variant, productId, locationIdMap, actor, inventoryOwner);
       summary[outcome]++;
     } catch {
       recordNote(summary, `Variante Shopify ${variant.title} : échec de synchronisation.`);
       summary.failed++;
     }
   }
+
+  // Variants deleted in Shopify → deactivated here (never deleted). Only
+  // when the fetched list is certainly complete: the query reads at most
+  // VARIANTS_PAGE (100) variants, so a full page proves nothing.
+  const variantIds = product.variants.nodes.map((v) => v.id);
+  if (variantIds.length > 0 && variantIds.length < SHOPIFY_VARIANTS_PAGE) {
+    await deactivateRemovedVariations(productId, "SHOPIFY", variantIds, summary);
+  }
+
+  // Manual review (never acted on here): a variant follows its parent's
+  // « Suivre le stock », which ASODITECH never switches on by itself.
+  const trackedVariants = product.variants.nodes.filter((v) => v.inventoryItem.tracked).length;
+  if (inventoryOwner === "ASODITECH" && !localTracked && trackedVariants > 0) {
+    recordNote(
+      summary,
+      `Produit Shopify « ${product.title} » : Shopify suit le stock de ${trackedVariants} variante(s), mais le suivi du stock est désactivé dans ASODITECH — rien n'est envoyé. Activez « Suivre le stock » sur la fiche produit si ASODITECH doit le gérer.`
+    );
+  }
 }
+
+/** `variants(first: 100)` in the Shopify client's product query. */
+const SHOPIFY_VARIANTS_PAGE = 100;
 
 function noteAdoption(summary: SyncSummary, resolved: Awaited<ReturnType<typeof resolveStoreProduct>>, title: string): void {
   if (resolved && resolved.via !== "linked") {
@@ -237,7 +270,8 @@ async function syncSimpleProduct(
   product: ShopifyProduct,
   locationIdMap: Map<string, string>,
   actor: SyncActor,
-  summary: SyncSummary
+  summary: SyncSummary,
+  inventoryOwner: InventoryOwner
 ): Promise<void> {
   const fields = mapSimpleProductFields(product);
   const platformCreatedAt = parseShopifyDate(product.createdAt);
@@ -249,12 +283,15 @@ async function syncSimpleProduct(
   if (existing) {
     const needsPlatformDate =
       platformCreatedAt !== null && existing.platformCreatedAt?.getTime() !== platformCreatedAt.getTime();
+    const status = existing.status === "ARCHIVE" ? "ARCHIVE" : fields.status; // sticky archive (see above)
+    // ASODITECH manages the stock: « Suivre le stock » is the user's, never switched by Shopify's flag.
+    const trackInventory = inventoryOwner === "ASODITECH" ? existing.trackInventory : fields.trackInventory;
     const changed =
       existing.name !== fields.name ||
       existing.description !== fields.description ||
       Number(existing.price) !== fields.price ||
-      existing.status !== fields.status ||
-      existing.trackInventory !== fields.trackInventory ||
+      existing.status !== status ||
+      existing.trackInventory !== trackInventory ||
       needsPlatformDate;
 
     if (changed) {
@@ -267,8 +304,8 @@ async function syncSimpleProduct(
           sku,
           description: fields.description,
           price: fields.price,
-          status: fields.status,
-          trackInventory: fields.trackInventory,
+          status,
+          trackInventory,
           ...(platformCreatedAt ? { platformCreatedAt } : {}),
         },
       });
@@ -277,6 +314,12 @@ async function syncSimpleProduct(
       summary.unchanged++;
     }
     productId = existing.id;
+    if (inventoryOwner === "ASODITECH" && trackInventory && !fields.trackInventory) {
+      recordNote(
+        summary,
+        `Produit Shopify « ${product.title} » : stock suivi dans ASODITECH mais pas par Shopify — ASODITECH n'active pas ce suivi sur Shopify. Activez « Suivre la quantité » dans Shopify, ou désactivez « Suivre le stock » sur la fiche produit.`
+      );
+    }
   } else {
     const skuOwner = await prisma.product.findFirst({ where: { sku: fields.sku } });
     const sku = skuOwner ? `${fields.sku}-shop-${product.id.split("/").pop()}` : fields.sku;
@@ -287,12 +330,19 @@ async function syncSimpleProduct(
     // docs/adr/0038: a synced product is sellable on the default ONLINE channel.
     await enableProductOnDefaultOnlineChannel(created.id);
     summary.imported++;
+    if (inventoryOwner === "ASODITECH" && !fields.trackInventory) {
+      recordNote(
+        summary,
+        `Produit Shopify « ${product.title} » importé sans suivi de stock (Shopify ne le suit pas) — activez « Suivre le stock » sur la fiche produit si ASODITECH doit gérer son stock.`
+      );
+    }
   }
 
   await syncProductLeadImage(productId, product.featuredImage?.url ?? null, product.featuredImage?.altText ?? null);
 
+  // Onboarding rows only when ASODITECH manages the stock and Shopify tracks this item.
   const variant = product.variants.nodes[0];
-  if (!variant || !fields.trackInventory) return;
+  if (!variant || !fields.trackInventory || inventoryOwner === "STORE") return;
   await reconcileVariantStock(variant, { productId }, locationIdMap, actor);
 }
 
@@ -300,7 +350,8 @@ async function syncOneVariant(
   variant: ShopifyVariant,
   productId: string,
   locationIdMap: Map<string, string>,
-  actor: SyncActor
+  actor: SyncActor,
+  inventoryOwner: InventoryOwner
 ): Promise<"imported" | "updated" | "unchanged"> {
   const fields = mapVariantFields(variant);
   // Within this parent only (docs/adr/0055).
@@ -335,7 +386,7 @@ async function syncOneVariant(
     outcome = "imported";
   }
 
-  if (fields.trackInventory) {
+  if (fields.trackInventory && inventoryOwner === "ASODITECH") {
     await reconcileVariantStock(variant, { variationId }, locationIdMap, actor);
   }
 
@@ -382,10 +433,12 @@ export async function importProduct(
     select: { id: true, externalId: true },
   });
   const locationIdMap = new Map(warehouses.map((w) => [w.externalId!, w.id]));
+  // The webhook path obeys the same « Qui gère le stock ? » as the bulk sync.
+  const integration = await prisma.integration.findFirst({ where: { provider: "SHOPIFY" }, select: { config: true } });
 
   const summary = emptySyncSummary();
   try {
-    await syncOneProduct(product, locationIdMap, actor, summary);
+    await syncOneProduct(product, locationIdMap, actor, summary, inventoryOwnerOf(integration?.config));
   } catch {
     return { outcome: "failed" };
   }

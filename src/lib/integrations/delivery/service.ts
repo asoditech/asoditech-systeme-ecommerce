@@ -1,7 +1,7 @@
 import "server-only";
 
 import "./providers"; // populates the production registry — see providers/index.ts
-import { prisma } from "@/lib/prisma";
+import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/crypto";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import {
@@ -12,7 +12,7 @@ import {
   RESHIP_AFTER_RETURN_MESSAGE,
   shipmentSlotLockKey,
 } from "@/lib/delivery";
-import { DEFAULT_SHIPPING_COUNTRY } from "@/lib/format";
+import { DEFAULT_SHIPPING_COUNTRY, displayOrderNumber } from "@/lib/format";
 import { shippableOrderProblem, shippableOrderWhere } from "@/lib/packing";
 import { isPackingRequired } from "@/lib/packing-settings";
 import { matchCityName } from "./city-match";
@@ -49,6 +49,55 @@ export class ManifestSelectionError extends Error {}
  * own doc comment for why a plain pre-check `findFirst` isn't enough here.
  */
 export class DuplicateActiveShipmentError extends Error {}
+
+/**
+ * A tracking number already carried by another shipment of the SAME carrier
+ * (providerId — carrier rows are per tenant, so this is tenant-scoped too).
+ * Same family as DuplicateActiveShipmentError so every existing caller shows
+ * its French message unchanged.
+ */
+export class DuplicateTrackingNumberError extends DuplicateActiveShipmentError {}
+
+/**
+ * Tracking-number uniqueness rule:
+ *  - scope = one carrier (`providerId`) of one tenant — two carriers may
+ *    legitimately issue the same string (each carrier has its own numbering);
+ *  - compared trimmed and case-insensitively;
+ *  - ANNULE shipments are ignored (a cancelled parcel never travelled; its
+ *    number may be re-entered), every other status — including ECHEC /
+ *    RETOURNE history — keeps its number.
+ * Enforced in reserveShipmentSlot under an advisory lock (no DB unique index:
+ * existing data may already hold duplicates and must not block a migration).
+ */
+export function normalizeTrackingNumber(value: string | null | undefined): string | null {
+  const v = value?.trim();
+  return v ? v : null;
+}
+
+export function trackingNumberLockKey(providerId: string, trackingNumber: string): string {
+  return `shipment-tracking:${providerId}:${trackingNumber.toLowerCase()}`;
+}
+
+async function findTrackingNumberOwner(
+  tx: Pick<PrismaTransactionClient, "shipment">,
+  providerId: string,
+  trackingNumber: string,
+  exceptShipmentId?: string
+) {
+  return tx.shipment.findFirst({
+    where: {
+      providerId,
+      trackingNumber: { equals: trackingNumber, mode: "insensitive" },
+      status: { not: "ANNULE" },
+      ...(exceptShipmentId ? { id: { not: exceptShipmentId } } : {}),
+    },
+    select: { id: true, order: { select: { orderNumber: true, displayNumber: true, source: true, externalNumber: true } } },
+  });
+}
+
+export function duplicateTrackingMessage(order: Parameters<typeof displayOrderNumber>[0]): string {
+  return `Ce numéro de suivi est déjà utilisé par la commande ${displayOrderNumber(order)} chez ce transporteur.`;
+}
 
 /** Never re-thrown as a generic 500 — every branch here is a safe, French,
  * user-facing message. Anything else propagates (a real bug, not a normal
@@ -134,8 +183,20 @@ export async function reserveShipmentSlot(
       );
     }
 
+    // Tracking number unique per carrier (see normalizeTrackingNumber). The
+    // second lock is always taken AFTER the order lock — one fixed order, so
+    // two callers can never deadlock — and serializes two orders entering
+    // the same number at the same time: the second check runs after the
+    // first insert committed.
+    const trackingNumber = normalizeTrackingNumber(typeof data.trackingNumber === "string" ? data.trackingNumber : null);
+    if (trackingNumber) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${trackingNumberLockKey(providerId, trackingNumber)}))`;
+      const owner = await findTrackingNumberOwner(tx, providerId, trackingNumber);
+      if (owner) throw new DuplicateTrackingNumberError(duplicateTrackingMessage(owner.order));
+    }
+
     return tx.shipment.create({
-      data: { orderId, providerId, ...data },
+      data: { orderId, providerId, ...data, ...(trackingNumber ? { trackingNumber } : {}) },
     });
   });
 }
@@ -436,6 +497,18 @@ export async function createShipmentViaProvider(params: {
       data: { status: "ECHEC", failedReason: message },
     });
     throw error;
+  }
+
+  // The carrier issued this number: the parcel EXISTS on their side, so it is
+  // always recorded (refusing would orphan a real parcel). A clash with
+  // another live shipment of the same carrier can only be a carrier-side
+  // reuse or a manual entry made earlier — logged (ids only) for a human,
+  // never silently merged or dropped.
+  const carrierTracking = normalizeTrackingNumber(result.trackingNumber);
+  const clash = carrierTracking ? await findTrackingNumberOwner(prisma, pending.providerId, carrierTracking, pending.id) : null;
+  if (clash) {
+    // ids only — never the number or customer data in logs
+    console.warn(`[delivery] carrier tracking number already used by shipment ${clash.id} (new shipment ${pending.id}, provider ${pending.providerId})`);
   }
 
   const created = await prisma.shipment.update({

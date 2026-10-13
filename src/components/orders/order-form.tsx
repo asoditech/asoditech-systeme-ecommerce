@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Trash2, Search, ShieldAlert, AlertTriangle, Check } from "lucide-react";
+import { Plus, Trash2, Search, ShieldAlert, AlertTriangle, Check, Warehouse, X, UserRound } from "lucide-react";
 import {
   createOrderAction,
   createCustomerForOrderAction,
@@ -32,6 +32,7 @@ import { PAYMENT_METHOD_LABELS, WAREHOUSE_TYPE_LABELS, ORDER_CHANNEL_LABELS } fr
 import { cityGuidanceMessage, type CityGuidance } from "@/lib/integrations/delivery/city-guidance";
 import { applyShippingPrefill, customerShippingDefaults, type ShippingFields } from "@/lib/orders/shipping-prefill";
 import { SelectedLineChips } from "@/components/orders/selected-line-chips";
+import { useListboxNavigation } from "@/components/ui/use-listbox-navigation";
 import type { Customer } from "@prisma/client";
 
 interface SelectableWarehouse {
@@ -125,18 +126,57 @@ export function OrderForm({
   const customerSearching = customerQuery.trim().length >= 2 && customerSearchedFor !== customerQuery.trim();
   const productSearching = productQuery.trim().length >= 2 && productSearchedFor !== productQuery.trim();
 
+  const [customerSearchError, setCustomerSearchError] = React.useState(false);
   React.useEffect(() => {
     if (customerQuery.trim().length < 2) return;
+    let cancelled = false;
     const t = setTimeout(async () => {
       const q = customerQuery.trim();
-      const results = await searchCustomersForOrderAction(customerQuery);
-      setCustomerResults(results);
+      try {
+        const results = await searchCustomersForOrderAction(customerQuery);
+        if (cancelled) return;
+        setCustomerResults(results);
+        setCustomerSearchError(false);
+      } catch {
+        if (cancelled) return;
+        setCustomerResults([]);
+        setCustomerSearchError(true);
+      }
       setCustomerSearchedFor(q);
     }, 120);
-    return () => clearTimeout(t);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
   }, [customerQuery]);
+  // Initial list on open with an empty query: the most recent customers this
+  // user may see (same tenant + visibility rule as the search), fetched once
+  // on first open — never on page load.
+  const [initialCustomers, setInitialCustomers] = React.useState<CustomerSearchResult[] | null>(null);
+  const [initialCustomersLoading, setInitialCustomersLoading] = React.useState(false);
+  function openCustomerPicker(open: boolean) {
+    setCustomerOpen(open);
+    if (!open) {
+      setNewCustomerMode(false);
+      return;
+    }
+    if (initialCustomers !== null || initialCustomersLoading) return;
+    setInitialCustomersLoading(true);
+    searchCustomersForOrderAction("")
+      .then((list) => {
+        setInitialCustomers(list);
+        setCustomerSearchError(false);
+      })
+      .catch(() => {
+        setInitialCustomers([]);
+        setCustomerSearchError(true);
+      })
+      .finally(() => setInitialCustomersLoading(false));
+  }
+  const customerQueryEmpty = customerQuery.trim().length === 0;
   // Query too short for a server round-trip — don't show stale results from a longer query.
-  const visibleCustomerResults = customerQuery.trim().length >= 2 ? customerResults : [];
+  const visibleCustomerResults =
+    customerQuery.trim().length >= 2 ? customerResults : customerQueryEmpty ? (initialCustomers ?? []) : [];
 
   React.useEffect(() => {
     if (productQuery.trim().length < 2) return;
@@ -244,6 +284,38 @@ export function OrderForm({
     setShippingCity(next.city);
     setShippingPhone(next.phone);
   }
+
+  function selectCustomer(c: CustomerSearchResult) {
+    setCustomer(c);
+    prefillShipping(c);
+    setCustomerOpen(false);
+    setCustomerQuery("");
+  }
+
+  const customerNav = useListboxNavigation({
+    id: "ord-customer",
+    count: visibleCustomerResults.length,
+    onSelect: (i) => {
+      const c = visibleCustomerResults[i];
+      if (c) selectCustomer(c);
+    },
+    onClose: () => openCustomerPicker(false),
+  });
+
+  // Product picker options, flattened (one per variation / simple product) so
+  // the keyboard moves through exactly what is displayed.
+  const productOptions = visibleProductResults.flatMap((p) =>
+    p.variations.length > 0 ? p.variations.map((v) => ({ product: p, variation: v as ProductVariation | undefined })) : [{ product: p, variation: undefined }]
+  );
+  const productNav = useListboxNavigation({
+    id: "ord-product",
+    count: productOptions.length,
+    onSelect: (i) => {
+      const o = productOptions[i];
+      if (o) addProductLine(o.product, o.variation);
+    },
+    onClose: () => openProductPicker(false),
+  });
 
   function openNewCustomer() {
     setNewCustName(customerQuery.trim());
@@ -367,25 +439,90 @@ export function OrderForm({
         onCancel={() => setShortage(null)}
         onOverride={(token, reason) => submitOrder({ token, reason })}
       />
+      {warehouses.length > 1 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">1</span>
+              Entrepôt de préparation
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Field>
+              <Label htmlFor="ord-warehouse" className="sr-only">
+                Entrepôt de préparation
+              </Label>
+              <Select value={fulfillmentWarehouseId} onValueChange={(v) => v && changeFulfillmentWarehouse(v)}>
+                <SelectTrigger id="ord-warehouse" className="w-full sm:max-w-md">
+                  <Warehouse className="size-4 text-muted-foreground" />
+                  <SelectValue>
+                    {(value: string) => {
+                      const w = warehouses.find((x) => x.id === value);
+                      return w ? `${w.name} (${WAREHOUSE_TYPE_LABELS[w.type]})` : value;
+                    }}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {warehouses.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.name} ({WAREHOUSE_TYPE_LABELS[w.type]})
+                      {w.isDefault ? " — par défaut" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldHint>
+                D&apos;où part le stock — choisissez-le d&apos;abord : le stock affiché pour chaque article suit cet emplacement.
+                La commande reste « En ligne » quel que soit l&apos;emplacement.
+              </FieldHint>
+            </Field>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
-          <CardTitle>Client</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            {warehouses.length > 1 && (
+              <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">2</span>
+            )}
+            Client
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <Popover
-            open={customerOpen}
-            onOpenChange={(open) => {
-              setCustomerOpen(open);
-              if (!open) setNewCustomerMode(false);
-            }}
-          >
-            <PopoverTrigger
-              render={<Button type="button" variant="outline" className="w-full justify-start" />}
-            >
-              <Search className="size-4" />
-              {customer ? customer.fullName : "Rechercher un client..."}
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-80 p-2">
+          <Popover open={customerOpen} onOpenChange={openCustomerPicker}>
+            {customer ? (
+              <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2.5">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <UserRound className="size-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{customer.fullName}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {[customer.phone, customer.email].filter(Boolean).join(" · ") || "Aucun contact enregistré"}
+                  </p>
+                </div>
+                <PopoverTrigger render={<Button type="button" size="sm" variant="outline" />}>
+                  <Search className="size-3.5" />
+                  Changer
+                </PopoverTrigger>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Retirer le client sélectionné"
+                  onClick={() => setCustomer(null)}
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+            ) : (
+              <PopoverTrigger render={<Button type="button" variant="outline" className="w-full justify-start font-normal text-muted-foreground" />}>
+                <Search className="size-4" />
+                Rechercher ou créer un client...
+              </PopoverTrigger>
+            )}
+            <PopoverContent align="start" className="w-[min(24rem,calc(100vw-2rem))] p-2">
               {newCustomerMode ? (
                 <div className="space-y-2">
                   <p className="px-1 text-sm font-medium">Nouveau client</p>
@@ -411,37 +548,57 @@ export function OrderForm({
                 <>
                   <Input
                     placeholder="Nom ou téléphone..."
+                    aria-label="Rechercher un client"
                     value={customerQuery}
-                    onChange={(e) => setCustomerQuery(e.target.value)}
+                    onChange={(e) => {
+                      setCustomerQuery(e.target.value);
+                      customerNav.reset();
+                    }}
                     autoFocus
+                    {...customerNav.inputProps}
                   />
-                  <div className="mt-2 max-h-56 overflow-y-auto">
-                    {visibleCustomerResults.map((c) => (
+                  {customerQueryEmpty && visibleCustomerResults.length > 0 && (
+                    <p className="px-2 pt-2 text-[0.7rem] font-medium tracking-wide text-muted-foreground uppercase">Clients récents</p>
+                  )}
+                  <div className="mt-1 max-h-64 overflow-y-auto" {...customerNav.listProps} aria-label="Clients">
+                    {visibleCustomerResults.map((c, i) => (
                       <button
                         key={c.id}
                         type="button"
-                        onClick={() => {
-                          setCustomer(c);
-                          prefillShipping(c);
-                          setCustomerOpen(false);
-                        }}
-                        className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+                        tabIndex={-1}
+                        onClick={() => selectCustomer(c)}
+                        {...customerNav.optionProps(i, customer?.id === c.id)}
+                        className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted data-[active]:bg-muted"
                       >
                         <span className="flex items-center gap-1.5">
                           <span className="font-medium">{c.fullName}</span>
+                          {customer?.id === c.id && <Check className="size-3.5 text-primary" aria-label="sélectionné" />}
                           {c.isBlacklisted && (
                             <Badge variant="destructive" className="h-4 px-1 text-[10px]">
                               Indésirable
                             </Badge>
                           )}
                         </span>
-                        <span className="text-xs text-muted-foreground">{c.phone ?? c.email ?? ""}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {[c.phone ?? c.email, c.addresses[0]?.city].filter(Boolean).join(" · ")}
+                        </span>
                       </button>
                     ))}
-                    {customerSearching && (
-                      <p className="px-2 py-1.5 text-sm text-muted-foreground">Recherche...</p>
+                    {(customerSearching || (customerQueryEmpty && initialCustomersLoading)) && (
+                      <p className="px-2 py-1.5 text-sm text-muted-foreground" role="status">Recherche...</p>
                     )}
-                    {!customerSearching && customerQuery.trim().length >= 2 && visibleCustomerResults.length === 0 && (
+                    {customerSearchError && !customerSearching && (
+                      <p className="px-2 py-1.5 text-sm text-destructive" role="alert">
+                        La recherche a échoué. Réessayez.
+                      </p>
+                    )}
+                    {!customerSearchError && customerQueryEmpty && initialCustomers !== null && initialCustomers.length === 0 && (
+                      <p className="px-2 py-1.5 text-sm text-muted-foreground">Aucun client pour l&apos;instant.</p>
+                    )}
+                    {customerQuery.trim().length === 1 && (
+                      <p className="px-2 py-1.5 text-sm text-muted-foreground">Tapez au moins 2 caractères.</p>
+                    )}
+                    {!customerSearchError && !customerSearching && customerQuery.trim().length >= 2 && visibleCustomerResults.length === 0 && (
                       <p className="px-2 py-1.5 text-sm text-muted-foreground">Aucun client trouvé.</p>
                     )}
                   </div>
@@ -485,9 +642,14 @@ export function OrderForm({
             <PopoverContent align="start" className="w-96 p-2">
               <Input
                 placeholder="Nom ou SKU..."
+                aria-label="Rechercher un produit"
                 value={productQuery}
-                onChange={(e) => setProductQuery(e.target.value)}
+                onChange={(e) => {
+                  setProductQuery(e.target.value);
+                  productNav.reset();
+                }}
                 autoFocus
+                {...productNav.inputProps}
               />
               {items.length > 0 && (
                 <div className="mt-2 flex items-start gap-2">
@@ -499,44 +661,26 @@ export function OrderForm({
                   </Button>
                 </div>
               )}
-              <div className="mt-2 max-h-64 overflow-y-auto">
-                {visibleProductResults.map((p) =>
-                  p.variations.length > 0 ? (
-                    p.variations.map((v) => (
-                      <button
-                        key={v.id}
-                        type="button"
-                        onClick={() => addProductLine(p, v)}
-                        className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
-                      >
-                        <span className="flex items-center gap-1.5 font-medium">
-                          {p.name} — {Object.values(v.attributes as Record<string, string>).join(", ")}
-                          {isUnitInOrder(p.id, v.id) && <Check className="size-3.5 text-primary" aria-label="déjà ajouté" />}
-                          <StockBadge stock={v.stock} />
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {v.sku} · {formatCurrency((v.salePrice ?? v.price ?? p.price).toString())}
-                        </span>
-                      </button>
-                    ))
-                  ) : (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => addProductLine(p)}
-                      className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
-                    >
-                      <span className="flex items-center gap-1.5 font-medium">
-                        {p.name}
-                        {isUnitInOrder(p.id) && <Check className="size-3.5 text-primary" aria-label="déjà ajouté" />}
-                        <StockBadge stock={p.stock} />
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {p.sku} · {formatCurrency(p.price.toString())}
-                      </span>
-                    </button>
-                  )
-                )}
+              <div className="mt-2 max-h-64 overflow-y-auto" {...productNav.listProps} aria-label="Produits">
+                {productOptions.map(({ product: p, variation: v }, i) => (
+                  <button
+                    key={v?.id ?? p.id}
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => addProductLine(p, v)}
+                    {...productNav.optionProps(i, isUnitInOrder(p.id, v?.id))}
+                    className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted data-[active]:bg-muted"
+                  >
+                    <span className="flex items-center gap-1.5 font-medium">
+                      {v ? `${p.name} — ${Object.values(v.attributes as Record<string, string>).join(", ")}` : p.name}
+                      {isUnitInOrder(p.id, v?.id) && <Check className="size-3.5 text-primary" aria-label="déjà ajouté" />}
+                      <StockBadge stock={v ? v.stock : p.stock} />
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {v ? v.sku : p.sku} · {formatCurrency((v ? (v.salePrice ?? v.price ?? p.price) : p.price).toString())}
+                    </span>
+                  </button>
+                ))}
                 {(productSearching || (productQueryEmpty && initialProductsLoading)) && (
                   <p className="px-2 py-1.5 text-sm text-muted-foreground">Recherche...</p>
                 )}
@@ -699,7 +843,7 @@ export function OrderForm({
                     </span>
                   </label>
                 )}
-                {(commissionAgents.length > 0 || warehouses.length > 1) && (
+                {commissionAgents.length > 0 && (
                   <FieldRow>
                     {commissionAgents.length > 0 && (
                       <Field>
@@ -721,33 +865,6 @@ export function OrderForm({
                             ))}
                           </SelectContent>
                         </Select>
-                      </Field>
-                    )}
-                    {warehouses.length > 1 && (
-                      <Field>
-                        <Label>Entrepôt de préparation</Label>
-                        <Select
-                          value={fulfillmentWarehouseId}
-                          onValueChange={(v) => v && changeFulfillmentWarehouse(v)}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue>
-                              {(value: string) => {
-                                const w = warehouses.find((x) => x.id === value);
-                                return w ? `${w.name} (${WAREHOUSE_TYPE_LABELS[w.type]})` : value;
-                              }}
-                            </SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {warehouses.map((w) => (
-                              <SelectItem key={w.id} value={w.id}>
-                                {w.name} ({WAREHOUSE_TYPE_LABELS[w.type]})
-                                {w.isDefault ? " — par défaut" : ""}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FieldHint>D&apos;où part le stock — la commande reste « En ligne » quel que soit l&apos;emplacement.</FieldHint>
                       </Field>
                     )}
                   </FieldRow>

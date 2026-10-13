@@ -13,6 +13,7 @@ import { confirmPhysicalReturnAction } from "@/actions/returns";
 import { listReturnParcels, getReturnParcel, getReceptionForInspection } from "@/lib/queries/return-receiving";
 import { getOrderAuditTimeline } from "@/lib/queries/orders";
 import { lotRowDisplayState } from "@/lib/returns/lot-row-state";
+import { summarizeBulkReceive } from "@/lib/returns/bulk-selection";
 import { auditActionCategory, humanizeAuditAction } from "@/lib/audit-labels";
 import { auditEventDetails } from "@/lib/audit-details";
 import { auditJournalDetails, listAuditJournal } from "@/lib/queries/audit";
@@ -349,6 +350,21 @@ describe("reception — duplicates and concurrency", () => {
     expect(byId.get(failed.shipment.id)).toMatchObject({ ok: false, code: "not_eligible" });
     expect(byId.get("does-not-exist")).toMatchObject({ ok: false, code: "not_found" });
     expect(await prisma.returnReception.count()).toBe(2);
+  });
+
+  it("« Réceptionner la sélection »: the workspace summary of a mixed batch lists every failure, never « all OK »", async () => {
+    await loginOperator();
+    const ok = await seedParcel();
+    const failed = await seedParcel({ status: "ECHEC" });
+    await grantDefaultWarehouse();
+    const r = await receiveReturnParcelsAction({ shipmentIds: [ok.shipment.id, failed.shipment.id] });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const summary = summarizeBulkReceive(r.data);
+    expect(summary.allOk).toBe(false);
+    expect(summary.received).toBe(1);
+    expect(summary.failed.map((f) => f.shipmentId)).toEqual([failed.shipment.id]);
+    expect(await prisma.inventoryMovement.count({ where: { type: { in: ["RETOUR", "ENDOMMAGE"] } } })).toBe(0); // reception never restocks
   });
 });
 

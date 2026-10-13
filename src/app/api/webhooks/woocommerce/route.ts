@@ -9,6 +9,8 @@ import { importOrder, importProduct } from "@/lib/integrations/woocommerce/sync"
 import { wcOrderSchema, wcProductSchema } from "@/lib/integrations/woocommerce/types";
 import { loadWooCommerceClient } from "@/lib/integrations/woocommerce/client-loader";
 import { recordWebhookEventOnce } from "@/lib/integrations/shared";
+import { clearRemoteMissing, handleWooProductDeletedWebhook, wooLinksForExternalId } from "@/lib/integrations/woocommerce/remote-deletion";
+import { remoteDeletionModeOf } from "@/lib/integrations/woocommerce/store-settings";
 import { getTenantUsage } from "@/lib/entitlements/usage";
 import { checkAndNotifyUsageThreshold } from "@/lib/entitlements/alerts";
 
@@ -41,11 +43,27 @@ const SUPPORTED_TOPICS = new Set([
   "product.created",
   "product.updated",
   "product.deleted",
+  "product.restored",
 ]);
 
 /** A webhook import writes straight to the DB but the Server-Component
  * pages that read it are cached per-path — without this, a new store order
  * only shows up here after a hard reload or a few minutes. Best-effort. */
+/**
+ * `loadWooCommerceClient`, for a delivery: `null` = no usable credentials
+ * (recorded, acknowledged — retrying cannot help); `"unreachable"` = the
+ * stored store URL no longer validates right now (DNS failure, or it now
+ * resolves to a private address — ssrf.ts): recorded as ECHEC (which alerts)
+ * and answered 500 so WooCommerce retries, never an unrecorded crash.
+ */
+async function loadClientForDelivery(): Promise<Awaited<ReturnType<typeof loadWooCommerceClient>> | "unreachable"> {
+  try {
+    return await loadWooCommerceClient();
+  } catch {
+    return "unreachable";
+  }
+}
+
 function revalidateAfterImport(kind: "order" | "product"): void {
   try {
     if (kind === "order") {
@@ -107,8 +125,11 @@ export async function POST(request: Request): Promise<Response> {
   const topic = request.headers.get("x-wc-webhook-topic") ?? "inconnu";
 
   const resolved = await resolveWooCommerceIntegrationBySignature(rawBody, signatureHeader);
+  // No WooCommerce connection anywhere, or none whose secret verifies: the
+  // same 401 — an unauthenticated caller cannot learn whether any company
+  // has this provider connected.
   if (resolved === null) {
-    return new Response(null, { status: 404 });
+    return new Response(null, { status: 401 });
   }
   if (resolved === "invalid_signature") {
     // No candidate's secret matched — genuinely unknown which tenant (if
@@ -185,9 +206,67 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
         });
         revalidateAfterImport("product");
       }
+      // The link itself (imported or published product): checked against the
+      // store, then unlinked automatically only on a confirmed deletion in
+      // « Dissocier automatiquement » mode — otherwise flagged for a user to
+      // confirm (src/lib/integrations/woocommerce/remote-deletion.ts). A store
+      // that cannot be reached leaves it flagged, never unlinked.
+      let loaded: Awaited<ReturnType<typeof loadWooCommerceClient>> = null;
+      try {
+        loaded = await loadWooCommerceClient();
+      } catch {
+        // invalid stored URL — the deletion stays unverified
+      }
+      const outcomes = await handleWooProductDeletedWebhook(String(id), loaded?.client ?? null, remoteDeletionModeOf(integration.config));
+      if (outcomes.some((o) => o.result === "unlinked")) revalidateAfterImport("product");
       await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, resourceId: String(id), status: "TRAITE" });
     } catch {
       await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, resourceId: String(id), status: "ECHEC" });
+      return new Response(null, { status: 500 });
+    }
+    return new Response(null, { status: 200 });
+  }
+
+  if (topic === "product.restored") {
+    // The store took the product out of its trash: the one explicit signal
+    // that lifts the sticky ARCHIVE set by product.deleted (see
+    // syncOneProduct's `restoreArchived`). Re-read from the store (the
+    // payload may be partial), then imported with its real store status.
+    const id = (payload as { id?: unknown })?.id;
+    const numericId = typeof id === "number" ? id : typeof id === "string" && /^\d+$/.test(id) ? Number(id) : null;
+    if (numericId === null) {
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, status: "ECHEC" });
+      return new Response(null, { status: 400 });
+    }
+    const loaded = await loadClientForDelivery();
+    if (loaded === "unreachable") {
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, resourceId: String(numericId), status: "ECHEC" });
+      return new Response(null, { status: 500 });
+    }
+    if (!loaded) {
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, resourceId: String(numericId), status: "ECHEC" });
+      return new Response(null, { status: 200 });
+    }
+    try {
+      const product = await loaded.client.getProduct(numericId);
+      const imported = await importProduct(loaded.client, product, { type: "INTEGRATION" }, { restoreArchived: true });
+      if (imported.outcome === "failed") throw new Error("product restore failed");
+      const local = await prisma.product.findFirst({ where: { source: "WOOCOMMERCE", externalId: String(numericId) }, select: { id: true } });
+      if (local) {
+        await recordAuditEvent({
+          actorType: "INTEGRATION",
+          action: "product.restored",
+          entityType: "Product",
+          entityId: local.id,
+          metadata: { source: "WOOCOMMERCE", reason: "restored_upstream" },
+        });
+      }
+      // Back in the store: a pending « supprimé de la boutique » flag no longer applies.
+      for (const link of await wooLinksForExternalId(String(numericId))) await clearRemoteMissing(link, { type: "INTEGRATION" });
+      revalidateAfterImport("product");
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, resourceId: String(numericId), status: "TRAITE" });
+    } catch {
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, resourceId: String(numericId), status: "ECHEC" });
       return new Response(null, { status: 500 });
     }
     return new Response(null, { status: 200 });
@@ -212,8 +291,12 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
     const isVariation = rawObj.type === "variation" || parentId > 0;
 
     if (isVariation) {
-      const loaded = await loadWooCommerceClient();
+      const loaded = await loadClientForDelivery();
       const resourceId = typeof rawObj.id === "number" || typeof rawObj.id === "string" ? String(rawObj.id) : undefined;
+      if (loaded === "unreachable") {
+        await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, resourceId, status: "ECHEC" });
+        return new Response(null, { status: 500 });
+      }
       if (loaded && parentId > 0) {
         try {
           const parent = await loaded.client.getProduct(parentId);
@@ -245,7 +328,11 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
       return new Response(null, { status: 400 });
     }
 
-    const loaded = await loadWooCommerceClient();
+    const loaded = await loadClientForDelivery();
+    if (loaded === "unreachable") {
+      await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, resourceId: String(parsed.data.id), status: "ECHEC" });
+      return new Response(null, { status: 500 });
+    }
     if (!loaded) {
       // Configured well enough to have a webhook secret but not (or no
       // longer) real API credentials — nothing this route can do about
@@ -288,7 +375,7 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
     // On by default (see ImportOrderOptions's doc comment) — only an
     // explicit `false` opts out, so the webhook path matches the bulk
     // sync path exactly.
-    await importOrder(parsed.data, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: config.forceNouvelleOnImport !== false });
+    const imported = await importOrder(parsed.data, { type: "INTEGRATION" }, { forceNouvelleOnFirstImport: config.forceNouvelleOnImport !== false });
     revalidateAfterImport("order");
     // Soft, informational only (docs/adr/0035) — a webhook-imported order
     // is never rejected or delayed because of a plan's order limit.
@@ -300,7 +387,8 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
       deliveryId,
       topic,
       resourceId: String(parsed.data.id),
-      status: "TRAITE",
+      // A deliberately skipped import (status that cannot be mapped, order not held) is not « traité ».
+      status: imported.outcome === "skipped" ? "IGNORE" : "TRAITE",
     });
   } catch {
     await recordWebhookEventOnce({

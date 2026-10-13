@@ -431,3 +431,42 @@ gracefully. Fixed here (and in the Shopify route, which had the identical
 pattern) via `shared/webhook-event.ts:recordWebhookEventOnce()`, which
 treats that specific constraint violation as "a concurrent request
 already recorded this delivery," not a failure.
+
+## Addendum 2026-10-12 — sync hardening and remote deletion rules
+
+Applies to WooCommerce and, where noted, Shopify (ADR 0011).
+
+- **One orders import at a time per store.** A lease in `Integration.config`
+  (`syncLease_orders`, claimed by one conditional UPDATE, expires after 2 min
+  if a run dies) refuses a second concurrent run with « Synchronisation déjà
+  en cours ». No DB connection or lock is held during the store API calls.
+  Idempotency is unchanged: `Order @@unique([tenantId, source, externalId])`.
+- **Config writes are atomic per key** (`patchIntegrationConfig`: `config ||
+  patch`), so a sync, a products sync and a settings toggle no longer
+  overwrite each other's keys.
+- **The resume cursor is saved after every page**, so a run cut short by the
+  platform time limit still progresses.
+- **The Commandes page « Synchroniser » loops** while a store reports
+  `hasMore` (same driver as the integrations card, `runSyncLoop`), instead of
+  stopping after the first 15 new orders.
+- **Unmapped store statuses** (plugin statuses) are still never guessed, now
+  counted and reported once per run.
+- **Optional historical backfill** (`config.importHistoricalOrders`, default
+  ON = unchanged): OFF sets `historyCutoffAt`; the bulk import then stops at
+  the first order placed before it (pages are newest-first). Webhooks and
+  newer orders are unaffected; nothing already imported is removed.
+- **Shopify pages newest first** (`reverse: true`), matching WooCommerce; a
+  cursor saved under the old ordering is ignored once (`ordersCursorOrder`).
+- **Archive is sticky.** A product ARCHIVE in ASODITECH (archived by hand or
+  by `product.deleted`) is never moved back to ACTIF/BROUILLON by a sync or
+  `product.updated`; other fields keep syncing and the store id stays on the
+  row (no duplicate on re-sync). WooCommerce `product.restored` is the one
+  upstream signal that lifts it; otherwise a user re-activates the product.
+- **Variations deleted in the store** are set `isActive = false` after a
+  complete, successful fetch of the product's variations (never on a failed
+  or empty fetch; Shopify only when fewer than 100 variants were returned).
+  Never deleted, never re-activated automatically.
+- **Failures alert staff**: a sync that fails outright and a webhook recorded
+  ECHEC raise an `ECHEC_SYNCHRONISATION` alert (in-app + WhatsApp
+  `asoditech_integration_down`), at most once per store + resource / per
+  integration per UTC day.

@@ -23,6 +23,7 @@ export function OperationalSettingsForm({
   canEditCost,
   trackInventory,
   lowStockThreshold,
+  trackingHint,
 }: {
   productId: string;
   cost: string | null;
@@ -31,6 +32,8 @@ export function OperationalSettingsForm({
   canEditCost: boolean;
   trackInventory: boolean;
   lowStockThreshold: number;
+  /** Who decides « Suivre le stock » for an imported product, and what it causes (product page). */
+  trackingHint?: string;
 }) {
   const router = useRouter();
   const [state, formAction, isPending] = useActionState(
@@ -75,6 +78,7 @@ export function OperationalSettingsForm({
               Suivre le stock pour ce produit
             </Label>
           </div>
+          {trackingHint && <p className="-mt-2 pl-6 text-xs text-muted-foreground">{trackingHint}</p>}
           <div className="flex justify-end">
             <Button type="submit" disabled={isPending}>
               {isPending ? "Enregistrement..." : "Enregistrer"}

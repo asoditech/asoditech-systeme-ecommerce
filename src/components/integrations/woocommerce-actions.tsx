@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { runSyncLoop } from "@/lib/integrations/shared/sync-loop";
 import {
   testWooCommerceConnectionAction,
   syncWooCommerceProductsAction,
@@ -49,12 +50,6 @@ function summaryToast(label: string, summary: SyncSummary) {
 // a large first import, the button re-invokes the action itself while
 // hasMore stays true, so one click looks like one sync even though it is
 // really several short runs — with a safety cap so a bug can't spin forever.
-const MAX_SYNC_ITERATIONS = 80;
-const SYNC_ITERATION_GAP_MS = 250;
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 export function WooCommerceActions({ canManage, hasCredentials }: { canManage: boolean; hasCredentials: boolean }) {
   const router = useRouter();
@@ -105,24 +100,32 @@ export function WooCommerceActions({ canManage, hasCredentials }: { canManage: b
       const totals = { imported: 0, updated: 0, unchanged: 0, skipped: 0, failed: 0 };
       toast.loading(`Synchronisation ${label}...`, { id: toastId });
       try {
-        for (let i = 0; i < MAX_SYNC_ITERATIONS; i++) {
-          const result = await action();
-          if (!result.ok || !result.data) {
-            toast.error(result.error ?? "Une erreur est survenue.", { id: toastId });
-            return;
+        const notes: string[] = [];
+        const outcome = await runSyncLoop(
+          async () => {
+            const result = await action();
+            return result.ok && result.data ? { ok: true as const, data: result.data } : { ok: false as const, error: result.error ?? "Une erreur est survenue." };
+          },
+          (data) => Boolean(data.summary.hasMore),
+          (data) => {
+            const s = data.summary;
+            totals.imported += s.imported;
+            totals.updated += s.updated;
+            totals.unchanged += s.unchanged;
+            totals.skipped += s.skipped;
+            totals.failed += s.failed;
+            for (const n of s.notes) if (!n.startsWith("Lot traité") && !notes.includes(n)) notes.push(n);
+            if (s.hasMore) toast.loading(`Synchronisation en cours... ${summaryText(totals)}.`, { id: toastId });
           }
-          const s = result.data.summary;
-          totals.imported += s.imported;
-          totals.updated += s.updated;
-          totals.unchanged += s.unchanged;
-          totals.skipped += s.skipped;
-          totals.failed += s.failed;
-          if (!s.hasMore) break;
-          toast.loading(`Synchronisation en cours... ${summaryText(totals)}.`, { id: toastId });
-          await sleep(SYNC_ITERATION_GAP_MS);
+        );
+        if (!outcome.ok) {
+          toast.error(outcome.error, { id: toastId });
+          return;
         }
-        if (totals.failed > 0) {
-          toast.warning(`${label} : ${summaryText(totals)}.`, { id: toastId });
+        // Skip / failure reasons (e.g. « N commande(s) ignorée(s) : statut … non pris en charge ») stay visible.
+        const detail = notes.length > 0 ? ` ${notes.slice(0, 2).join(" · ")}` : "";
+        if (totals.failed > 0 || totals.skipped > 0) {
+          toast.warning(`${label} : ${summaryText(totals)}.${detail}`, { id: toastId });
         } else {
           toast.success(`${label} : ${summaryText(totals)}.`, { id: toastId });
         }

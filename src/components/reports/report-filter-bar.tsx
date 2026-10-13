@@ -1,8 +1,8 @@
 import { Download } from "lucide-react";
 import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { PrintButton } from "@/components/reports/print-button";
+import { DateRangeFields } from "@/components/date-range-fields";
 import type { ResolvedReportRange } from "@/lib/reports/range";
 
 /**
@@ -64,18 +64,7 @@ export function ReportFilterBar({
             {Object.entries(extraParams ?? {}).map(([k, v]) =>
               v ? <input key={k} type="hidden" name={k} value={v} /> : null
             )}
-            <div className="flex items-center gap-1.5">
-              <label htmlFor="report-from" className="text-xs font-medium text-muted-foreground">
-                Du
-              </label>
-              <Input id="report-from" type="date" name="from" defaultValue={resolved.params.from} className="h-8 w-38" />
-            </div>
-            <div className="flex items-center gap-1.5">
-              <label htmlFor="report-to" className="text-xs font-medium text-muted-foreground">
-                Au
-              </label>
-              <Input id="report-to" type="date" name="to" defaultValue={resolved.params.to} className="h-8 w-38" />
-            </div>
+            <DateRangeFields idPrefix="report" fromName="from" toName="to" from={resolved.params.from} to={resolved.params.to} size="sm" />
             <Button type="submit" size="sm" variant="outline">
               Appliquer
             </Button>

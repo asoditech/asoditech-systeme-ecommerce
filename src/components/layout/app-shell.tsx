@@ -18,6 +18,7 @@ import { ANNOUNCEMENT_DISMISS_COOKIE, parseDismissedCookie } from "@/lib/announc
 import { aiQuestionsForUser } from "@/lib/ai/tools";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { USER_ROLE_LABELS } from "@/lib/status-labels";
+import { parseSidebarVariant, SIDEBAR_VARIANT_COOKIE } from "@/lib/navigation/sidebar-variant";
 import type { CurrentUser } from "@/lib/auth/session";
 
 export async function AppShell({ user, children }: { user: CurrentUser; children: React.ReactNode }) {
@@ -37,14 +38,17 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
   // Server-read so the very first paint already reflects the viewer's
   // saved sidebar-collapse preference — no client-only effect, no flash.
   const sidebarCollapsed = cookieStore.get("sidebar-collapsed")?.value === "1";
+  // Sidebar presentation experiment — same per-browser cookie mechanism, opt-in
+  // from the user menu; absent = the current sidebar (src/lib/navigation/sidebar-variant.ts).
+  const sidebarVariant = parseSidebarVariant(cookieStore.get(SIDEBAR_VARIANT_COOKIE)?.value);
 
   return (
-    <SidebarShell permissions={permissions} defaultCollapsed={sidebarCollapsed}>
+    <SidebarShell permissions={permissions} favorites={user.navFavorites} defaultCollapsed={sidebarCollapsed} variant={sidebarVariant}>
       {/* Top announcement bar — first in the content column, above the sticky header, in normal flow (scrolls away; the header stays sticky; the fixed sidebar is untouched).
           Keyed by id + last edit: a different (or edited) announcement remounts the bar, so a previous dismissal's local state never hides it. */}
       {announcement && <AnnouncementBar key={announcement.key} announcement={announcement} />}
       <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:px-6">
-        <MobileNav permissions={permissions} />
+        <MobileNav permissions={permissions} favorites={user.navFavorites} variant={sidebarVariant} />
         <div className="md:hidden">
           <Link href="/tableau-de-bord">
             <BrandMark />
@@ -56,11 +60,12 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
           <NotificationSoundListener />
           <NotificationBell items={items} unreadCount={unreadCount} />
           <div className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-          <UserMenu name={user.name} role={USER_ROLE_LABELS[user.role]} />
+          <UserMenu name={user.name} role={USER_ROLE_LABELS[user.role]} sidebarVariant={sidebarVariant} />
         </div>
       </header>
-      {/* pb clears the fixed IntegrationsFooter (h-9) AND the floating « Centre d'aide »
-          button (bottom-12/14 + ~44px) so the last row — e.g. pagination « Suivant » — stays clickable */}
+      {/* pb clears the floating « Centre d'aide » button (bottom-12/14 + ~44px) so the last
+          row — e.g. pagination « Suivant », a form's FormActions — stays clickable; the
+          IntegrationsFooter below is sticky in flow, so it never covers the end of the page */}
       <main className="flex-1 overflow-y-auto p-4 pb-24 [scrollbar-gutter:stable] md:p-6 md:pb-28">
         <div className="mx-auto w-full max-w-[1600px]">{children}</div>
       </main>

@@ -9,6 +9,7 @@ import { validateStoreUrl, InvalidStoreUrlError } from "@/lib/integrations/wooco
 import { validateShopDomain, InvalidShopDomainError } from "@/lib/integrations/shopify/ssrf";
 import { isShopifyIntegrationEnabled, SHOPIFY_DISABLED_MESSAGE } from "@/lib/integrations/shopify/feature-flag";
 import { connectIntegrationSchema, disconnectIntegrationSchema } from "@/lib/validation/integration";
+import { inventoryOwnerSchema, remoteDeletionModeSchema } from "@/lib/integrations/woocommerce/store-settings";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
 
 /**
@@ -46,7 +47,7 @@ export async function connectIntegrationAction(formData: FormData): Promise<Acti
   }
 
   let normalizedSiteUrl = parsed.data.siteUrl || null;
-  let config: Record<string, string | null> = { siteUrl: normalizedSiteUrl };
+  let config: Record<string, string | boolean | null> = { siteUrl: normalizedSiteUrl };
 
   if (parsed.data.provider === "WOOCOMMERCE") {
     if (!normalizedSiteUrl) {
@@ -103,6 +104,13 @@ export async function connectIntegrationAction(formData: FormData): Promise<Acti
       )
     : null;
 
+  // Owner decision (2026-10-13): re-saving the SAME store (rotated key,
+  // disconnect + reconnect) keeps the company's valid per-connection choices;
+  // a DIFFERENT store address never inherits them — it starts from the safe
+  // defaults. Sync cursors restart either way (working state).
+  const { storeAddress, kept, initialized } = await connectionSettingsOnSave(user.tenantId, parsed.data.provider, config);
+  config = { ...config, ...kept };
+
   const integration = await prisma.integration.upsert({
     where: { tenantId_provider: { tenantId: user.tenantId, provider: parsed.data.provider } },
     update: {
@@ -125,7 +133,8 @@ export async function connectIntegrationAction(formData: FormData): Promise<Acti
     action: "integration.connected",
     entityType: "Integration",
     entityId: integration.id,
-    newValue: { provider: integration.provider },
+    // `new` / `same` / `changed` store address; which choices were kept and which start from their default.
+    newValue: { provider: integration.provider, storeAddress, keptSettings: Object.keys(kept).sort(), initializedSettings: initialized },
   });
 
   revalidatePath("/integrations");
@@ -134,6 +143,55 @@ export async function connectIntegrationAction(formData: FormData): Promise<Acti
   // boundary at all. Found during the A–G audit; see
   // docs/adr/0004-integration-architecture.md.
   return actionOk({ id: integration.id });
+}
+
+/**
+ * The company's own choices on a connection (each set by an audited action:
+ * remote deletion, stock owner, order history, first-import status) — not
+ * sync cursors or leases, which belong to the store they were read from.
+ * Each value is kept only when valid; anything else starts from its default
+ * (manual unlinking, ASODITECH stock, history imported, first import NOUVELLE).
+ */
+const SETTING_VALIDATORS: Record<string, (value: unknown) => boolean> = {
+  remoteDeletionMode: (v) => remoteDeletionModeSchema.safeParse(v).success,
+  inventoryOwner: (v) => inventoryOwnerSchema.safeParse(v).success,
+  importHistoricalOrders: (v) => typeof v === "boolean",
+  historyCutoffAt: (v) => typeof v === "string" && !Number.isNaN(Date.parse(v)),
+  forceNouvelleOnImport: (v) => typeof v === "boolean",
+};
+const CONNECTION_SETTING_KEYS: Record<"WOOCOMMERCE" | "SHOPIFY", string[]> = {
+  WOOCOMMERCE: ["remoteDeletionMode", "inventoryOwner", "importHistoricalOrders", "historyCutoffAt", "forceNouvelleOnImport"],
+  SHOPIFY: ["inventoryOwner", "importHistoricalOrders", "historyCutoffAt", "forceNouvelleOnImport"],
+};
+
+/**
+ * What a save does to this tenant's choices for `provider`: same validated
+ * store address (`siteUrl` / `shopDomain`) → the valid ones are kept; a first
+ * connection or a different address → none (safe defaults).
+ */
+async function connectionSettingsOnSave(
+  tenantId: string,
+  provider: string,
+  next: Record<string, string | boolean | null>
+): Promise<{ storeAddress: "new" | "same" | "changed"; kept: Record<string, string | boolean>; initialized: string[] }> {
+  if (provider !== "WOOCOMMERCE" && provider !== "SHOPIFY") return { storeAddress: "new", kept: {}, initialized: [] };
+  const keys = CONNECTION_SETTING_KEYS[provider];
+  const row = await prisma.integration.findUnique({
+    where: { tenantId_provider: { tenantId, provider } },
+    select: { config: true },
+  });
+  const previous = (row?.config ?? null) as Record<string, unknown> | null;
+  const addressKey = provider === "WOOCOMMERCE" ? "siteUrl" : "shopDomain";
+  const previousAddress = typeof previous?.[addressKey] === "string" ? previous[addressKey] : null;
+  if (!previous || previousAddress === null) return { storeAddress: "new", kept: {}, initialized: [...keys] };
+  if (previousAddress !== next[addressKey]) return { storeAddress: "changed", kept: {}, initialized: [...keys] };
+
+  const kept: Record<string, string | boolean> = {};
+  for (const key of keys) {
+    const value = previous[key];
+    if (SETTING_VALIDATORS[key](value)) kept[key] = value as string | boolean;
+  }
+  return { storeAddress: "same", kept, initialized: keys.filter((key) => !(key in kept)) };
 }
 
 /** The stored WooCommerce webhook secret of this tenant, if any (never returned to the client). */

@@ -191,7 +191,7 @@ describe("S1 — a moving parcel ships its order (once)", () => {
     expect(await saleMovements(productId)).toBe(1);
   });
 
-  it("« Échec », « Retourné » and « Annulé » never change the order's status", async () => {
+  it("« Échec » and « Annulé » never change the order's status; « Retourné » moves it to « Retour » without restocking", async () => {
     await loginAsTestUser({ role: "MANAGER" });
     const a = await seedOrder(1);
     const failed = await manualShipment(a.orderId);
@@ -206,8 +206,8 @@ describe("S1 — a moving parcel ships its order (once)", () => {
     const returned = await manualShipment(a.orderId);
     expect((await setStatus(returned, "EN_TRANSIT")).ok).toBe(true); // ships the order
     expect((await setStatus(returned, "RETOURNE")).ok).toBe(true);
-    expect(await orderStatus(a.orderId)).toBe("EXPEDIEE");
-    expect(await stock(a.productId)).toEqual({ onHand: 9, reserved: 0 }); // only a physical return restocks
+    expect(await orderStatus(a.orderId)).toBe("RETOUR");
+    expect(await stock(a.productId)).toEqual({ onHand: 9, reserved: 0 }); // only a physical return / inspection restocks
   });
 
   it("with packing verification required, an unpacked order is refused and nothing changes", async () => {
@@ -316,11 +316,16 @@ describe("S1 — manual failures, carrier cancellations, one active parcel", () 
 });
 
 describe("S1 — re-shipping an order whose goods came back", () => {
-  /** Ships the order (1 unit) through a parcel that then comes back. */
+  /** Ships the order (1 unit) through a parcel that then comes back. Staff
+   * had already moved the order to « Échec » (the historical retry loop), so
+   * the late « Retourné » leaves it there (ECHEC can't become RETOUR) — the
+   * re-ship guard below is what stops a second parcel. */
   async function shippedThenReturned(productId: string, orderId: string, opts: { restock: boolean }) {
     const first = await manualShipment(orderId);
     expect((await setStatus(first, "EN_TRANSIT")).ok).toBe(true);
+    expect((await updateOrderStatusAction(fd({ id: orderId, status: "ECHEC" }))).ok).toBe(true);
     expect((await setStatus(first, "RETOURNE")).ok).toBe(true);
+    expect(await orderStatus(orderId)).toBe("ECHEC");
     expect(await stock(productId)).toEqual({ onHand: 9, reserved: 0 });
     if (opts.restock) {
       const item = await prisma.orderItem.findFirstOrThrow({ where: { orderId } });
@@ -332,8 +337,7 @@ describe("S1 — re-shipping an order whose goods came back", () => {
       expect(r.ok).toBe(true);
       expect(await stock(productId)).toEqual({ onHand: 10, reserved: 0 });
     }
-    // The pre-existing retry loop: EXPEDIEE → ECHEC → EN_PREPARATION.
-    expect((await updateOrderStatusAction(fd({ id: orderId, status: "ECHEC" }))).ok).toBe(true);
+    // The pre-existing retry loop: (EXPEDIEE → ECHEC above) → EN_PREPARATION.
     expect((await updateOrderStatusAction(fd({ id: orderId, status: "EN_PREPARATION" }))).ok).toBe(true);
   }
 
@@ -449,5 +453,71 @@ describe("S1 — status-change audit keeps the failure reasons", () => {
     const audit = await prisma.auditEvent.findFirstOrThrow({ where: { action: "shipment.status_changed", entityId: shipment.id } });
     expect(audit.previousValue).toEqual({ status: "EN_ATTENTE", failedReason: null });
     expect(audit.newValue).toEqual({ status: "EN_TRANSIT", failedReason: null });
+  });
+});
+
+describe("C1 — a parcel « Retourné » moves its order to « Retour » (docs/adr/0006, 2026-10-12)", () => {
+  const returnMovements = (productId: string) =>
+    prisma.inventoryMovement.count({ where: { inventoryItem: { productId }, type: { in: ["RETOUR", "ENDOMMAGE"] } } });
+  const returnAudits = (orderId: string) =>
+    prisma.auditEvent.findMany({
+      where: { action: "order.status_changed", entityId: orderId, metadata: { path: ["reason"], equals: "shipment_returned" } },
+    });
+
+  it("manual « Retourné »: order RETOUR, audited once, one alert, no stock movement, payment untouched", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { orderId, productId } = await seedOrder(1);
+    const shipmentId = await manualShipment(orderId);
+    expect((await setStatus(shipmentId, "EN_TRANSIT")).ok).toBe(true);
+    const r = await setStatus(shipmentId, "RETOURNE");
+    expect(r.ok).toBe(true);
+
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(order.status).toBe("RETOUR");
+    expect(order.paymentStatus).toBe("EN_ATTENTE");
+    expect(await stock(productId)).toEqual({ onHand: 9, reserved: 0 });
+    expect(await returnMovements(productId)).toBe(0);
+    const audits = await returnAudits(orderId);
+    expect(audits).toHaveLength(1);
+    expect(audits[0].previousValue).toEqual({ status: "EXPEDIEE" });
+
+    // Replayed event: refused (terminal shipment), nothing applied twice.
+    expect((await setStatus(shipmentId, "RETOURNE")).ok).toBe(false);
+    expect(await returnAudits(orderId)).toHaveLength(1);
+    // One « Commande retournée » alert per recipient (dedupe key per order).
+    const alerts = await prisma.notification.findMany({ where: { type: "COMMANDE_RETOURNEE", entityId: orderId } });
+    expect(new Set(alerts.map((n) => n.userId)).size).toBe(alerts.length);
+  });
+
+  it("a carrier sync reporting « returned » moves the order to RETOUR", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const providerId = await apiProvider();
+    const { orderId, productId } = await seedOrder(1);
+    const created = await createShipmentViaProviderAction(fd({ orderId, providerId }));
+    if (!created.ok) throw new Error("setup failed");
+    const shipment = await prisma.shipment.findUniqueOrThrow({ where: { id: created.data.id } });
+    carrier.shipments.get(shipment.externalId!)!.status = "in_transit";
+    expect((await syncShipmentStatusAction(fd({ shipmentId: shipment.id }))).ok).toBe(true);
+    carrier.shipments.get(shipment.externalId!)!.status = "returned";
+    const r = await syncShipmentStatusAction(fd({ shipmentId: shipment.id }));
+    expect(r.ok && r.data.outcome).toBe("updated");
+    expect(await orderStatus(orderId)).toBe("RETOUR");
+    expect(await returnMovements(productId)).toBe(0);
+
+    // The same carrier answer again: unchanged, still one audit.
+    await syncShipmentStatusAction(fd({ shipmentId: shipment.id }));
+    expect(await returnAudits(orderId)).toHaveLength(1);
+  });
+
+  it("an order that can't become RETOUR (« Annulée » after a failed delivery) is left unchanged", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { orderId } = await seedOrder(1);
+    const shipmentId = await manualShipment(orderId);
+    expect((await setStatus(shipmentId, "EN_TRANSIT")).ok).toBe(true);
+    expect((await updateOrderStatusAction(fd({ id: orderId, status: "ECHEC" }))).ok).toBe(true);
+    expect((await updateOrderStatusAction(fd({ id: orderId, status: "ANNULEE" }))).ok).toBe(true);
+    expect((await setStatus(shipmentId, "RETOURNE")).ok).toBe(true);
+    expect(await orderStatus(orderId)).toBe("ANNULEE");
+    expect(await returnAudits(orderId)).toHaveLength(0);
   });
 });
