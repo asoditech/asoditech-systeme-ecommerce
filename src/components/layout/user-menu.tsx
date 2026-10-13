@@ -43,14 +43,14 @@ export function UserMenu({ name, role, sidebarVariant = "classic" }: { name: str
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button type="button" variant="ghost" className="h-8 gap-1.5 px-1.5" />}>
-        <Avatar size="sm">
-          <AvatarFallback className="bg-primary text-primary-foreground">
-            {initials(name) || <UserIcon className="size-3.5" />}
+      <DropdownMenuTrigger render={<Button type="button" variant="ghost" className="h-11 gap-2 rounded-full p-0.5 hover:bg-nav-hover lg:pr-3" />}>
+        <Avatar size="lg">
+          <AvatarFallback className="bg-pastel-peach text-sm font-semibold text-[#1a1a1a]">
+            {initials(name) || <UserIcon className="size-4" />}
           </AvatarFallback>
         </Avatar>
-        <span className="hidden max-w-32 truncate text-sm font-medium sm:inline">{name}</span>
-        <ChevronDown className="hidden size-3.5 text-muted-foreground sm:inline" />
+        <span className="hidden max-w-32 truncate text-sm font-medium text-ink lg:inline">{name}</span>
+        <ChevronDown className="hidden size-4 text-ink-faint lg:inline" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuGroup>

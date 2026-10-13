@@ -7,9 +7,20 @@ interface ThemeContextValue {
   /** undefined until mounted (avoids a hydration mismatch — see theme-toggle.tsx). */
   theme: Theme | undefined;
   toggleTheme: () => void;
+  /** Explicit choice (the sidebar's Light / Dark segmented control) — same class + localStorage mechanism. */
+  setTheme: (theme: Theme) => void;
 }
 
-const ThemeContext = createContext<ThemeContextValue>({ theme: undefined, toggleTheme: () => {} });
+const ThemeContext = createContext<ThemeContextValue>({ theme: undefined, toggleTheme: () => {}, setTheme: () => {} });
+
+function applyTheme(next: Theme) {
+  document.documentElement.classList.toggle("dark", next === "dark");
+  try {
+    localStorage.setItem("theme", next);
+  } catch {
+    // localStorage can throw in private-browsing/blocked-storage contexts — theme just won't persist.
+  }
+}
 
 /**
  * Minimal theme context — see theme-script.tsx for why this doesn't use
@@ -31,17 +42,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const toggleTheme = useCallback(() => {
     setTheme((prev) => {
       const next: Theme = prev === "dark" ? "light" : "dark";
-      document.documentElement.classList.toggle("dark", next === "dark");
-      try {
-        localStorage.setItem("theme", next);
-      } catch {
-        // localStorage can throw in private-browsing/blocked-storage contexts — theme just won't persist.
-      }
+      applyTheme(next);
       return next;
     });
   }, []);
 
-  return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>;
+  const chooseTheme = useCallback((next: Theme) => {
+    applyTheme(next);
+    setTheme(next);
+  }, []);
+
+  return <ThemeContext.Provider value={{ theme, toggleTheme, setTheme: chooseTheme }}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme() {

@@ -81,10 +81,11 @@ export function SupportWidget({
           onClick={() => setOpen(true)}
           aria-label="Ouvrir le centre d'aide"
           className={cn(
-            "fixed right-4 bottom-12 z-40 flex items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/25 transition-transform hover:scale-[1.03] focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none sm:right-6 sm:bottom-14 print:hidden",
+            // Soft UI: a small white pill with a soft shadow — only the icon is orange.
+            "fixed right-4 bottom-12 z-40 flex items-center gap-2 rounded-full bg-shell px-3 py-2.5 text-sm font-medium text-ink shadow-popover ring-1 ring-hairline transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:hover:translate-y-0 sm:right-8 sm:bottom-14 sm:px-4 print:hidden",
           )}
         >
-          <LifeBuoy className="size-5" />
+          <LifeBuoy className="size-5 text-brand" aria-hidden="true" />
           <span className="hidden sm:inline">Centre d&apos;aide</span>
         </button>
       )}

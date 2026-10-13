@@ -1,10 +1,13 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { LifeBuoy, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
+import { ThemeSegmented } from "@/components/layout/theme-segmented";
 import { BrandMark } from "@/components/brand-mark";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { openSupportWidget } from "@/lib/support/open-support";
 import { cn } from "@/lib/utils";
 import type { Permission } from "@/lib/auth/permissions";
 import type { SidebarVariant } from "@/lib/navigation/sidebar-variant";
@@ -12,28 +15,22 @@ import type { SidebarVariant } from "@/lib/navigation/sidebar-variant";
 const COOKIE_NAME = "sidebar-collapsed";
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
+const bottomRow =
+  "flex items-center rounded-control text-sm font-medium text-ink-secondary transition-colors duration-150 hover:bg-nav-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
+
 /**
- * Desktop sidebar collapse toggle — icon-only mode for a denser,
- * "professional" layout, on request. Purely a per-viewer UI preference:
- * it changes nothing about navigation, permissions, or which routes
- * exist, only how much horizontal space the nav itself takes.
+ * The Soft UI app frame (redesign/soft-ui): the whole app sits in a white,
+ * rounded (32px) shell floating on the grey page (full-bleed on mobile), the
+ * sidebar on its left and the content column (children: topbar, page, footer)
+ * on its right — only the content column scrolls.
  *
- * `defaultCollapsed` is read server-side from a plain cookie by the
- * caller (AppShell, an async Server Component: `(await
- * cookies()).get("sidebar-collapsed")?.value === "1"`) — deliberately
- * NOT localStorage, so the very first server-rendered paint already
- * reflects the viewer's saved preference with no flash and no
- * client-only effect syncing state from an external store (which would
- * either mismatch the server's HTML on hydration, or need a
- * `useSyncExternalStore` subscription for a value that only this one
- * button ever writes). Toggling updates local state immediately for a
- * snappy UI, and best-effort persists the same cookie for the next
- * server render / navigation.
- *
- * Owns the collapsed state for BOTH the `<aside>` and the content
- * column's left padding in one client component, since they're siblings
- * under the (server) AppShell and must resize together — no
- * CSS-variable or context indirection needed.
+ * Sidebar collapse: an icon-only 72px rail (tooltips; « sections » open as a
+ * floating card). Purely a per-viewer UI preference: it changes nothing about
+ * navigation, permissions, or which routes exist. `defaultCollapsed` is read
+ * server-side from a plain cookie by AppShell — deliberately NOT localStorage,
+ * so the first server paint already reflects the saved preference with no
+ * flash; toggling updates local state immediately and best-effort persists
+ * the same cookie for the next server render.
  */
 export function SidebarShell({
   permissions,
@@ -50,23 +47,6 @@ export function SidebarShell({
   children: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
-  // Icon-only mode still lets a viewer preview the full menu without
-  // committing to expanding it: hovering the collapsed `<aside>` shows it
-  // at full width as an overlay (higher z-index, content padding untouched)
-  // rather than reflowing the page on every hover. A short leave delay
-  // avoids it flickering shut while the cursor crosses a small gap.
-  const [hovering, setHovering] = useState(false);
-  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const previewing = collapsed && hovering;
-
-  function handleMouseEnter() {
-    if (leaveTimer.current) clearTimeout(leaveTimer.current);
-    if (collapsed) setHovering(true);
-  }
-
-  function handleMouseLeave() {
-    leaveTimer.current = setTimeout(() => setHovering(false), 150);
-  }
 
   function toggle() {
     setCollapsed((prev) => {
@@ -81,37 +61,68 @@ export function SidebarShell({
     });
   }
 
+  const help = (
+    <>
+      <LifeBuoy className="size-5 shrink-0" aria-hidden="true" />
+      {!collapsed && <span className="truncate">Centre d&apos;aide</span>}
+    </>
+  );
+
   return (
-    <div className="flex min-h-screen bg-background">
-      <aside
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-        className={cn(
-          "fixed inset-y-0 left-0 z-40 hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar shadow-sm transition-[width] duration-150 md:flex",
-          previewing ? "w-64 shadow-lg" : collapsed ? "w-16" : "w-64"
-        )}
-      >
-        <div className={cn("flex h-14 shrink-0 items-center border-b border-sidebar-border", collapsed && !previewing ? "justify-center px-2" : "px-4")}>
-          <Link href="/tableau-de-bord" aria-label="Tableau de bord">
-            <BrandMark variant={collapsed && !previewing ? "icon" : "compact"} />
-          </Link>
-        </div>
-        <div className="sidebar-scroll flex-1 overflow-y-auto">
-          <SidebarNav permissions={permissions} favorites={favorites} collapsed={collapsed && !previewing} variant={variant} />
-        </div>
-        <button
-          type="button"
-          onClick={toggle}
-          aria-pressed={collapsed}
-          title={collapsed ? "Agrandir le menu" : "Réduire le menu"}
-          className="flex h-10 shrink-0 items-center justify-center gap-2 border-t border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+    <div className="h-dvh overflow-hidden bg-page md:p-4 lg:p-5">
+      <div data-app-shell="" className="flex h-full min-h-0 overflow-hidden bg-shell md:rounded-shell md:shadow-shell">
+        <aside
+          className={cn(
+            "hidden h-full shrink-0 flex-col bg-shell transition-[width] duration-200 ease-out motion-reduce:transition-none md:flex",
+            collapsed ? "w-[72px]" : "w-[272px]"
+          )}
         >
-          {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
-          {(!collapsed || previewing) && <span className="text-xs font-medium">Réduire</span>}
-        </button>
-      </aside>
-      <div className={cn("flex min-w-0 flex-1 flex-col transition-[padding] duration-150", collapsed ? "md:pl-16" : "md:pl-64")}>
-        {children}
+          <div className={cn("flex h-[72px] shrink-0 items-center", collapsed ? "justify-center" : "px-7")}>
+            <Link href="/tableau-de-bord" aria-label="Tableau de bord" className="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">
+              <BrandMark variant={collapsed ? "icon" : "compact"} />
+            </Link>
+          </div>
+
+          <div className="sidebar-scroll min-h-0 flex-1 overflow-y-auto pb-2">
+            <SidebarNav permissions={permissions} favorites={favorites} collapsed={collapsed} variant={variant} />
+          </div>
+
+          <div className={cn("flex shrink-0 flex-col gap-2 border-t border-hairline", collapsed ? "items-center px-3 py-3" : "px-4 py-4")}>
+            {collapsed ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={<button type="button" onClick={() => openSupportWidget()} aria-label="Centre d'aide" className={cn(bottomRow, "size-11 justify-center")} />}
+                >
+                  {help}
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={10}>
+                  Centre d&apos;aide
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <button type="button" onClick={() => openSupportWidget()} className={cn(bottomRow, "h-11 gap-3 px-3")}>
+                {help}
+              </button>
+            )}
+
+            <ThemeSegmented compact={collapsed} />
+
+            <button
+              type="button"
+              onClick={toggle}
+              aria-pressed={collapsed}
+              title={collapsed ? "Agrandir le menu" : "Réduire le menu"}
+              className={cn(bottomRow, collapsed ? "size-11 justify-center" : "h-10 gap-3 px-3")}
+            >
+              {collapsed ? <PanelLeftOpen className="size-5" aria-hidden="true" /> : <PanelLeftClose className="size-5" aria-hidden="true" />}
+              {!collapsed && <span>Réduire</span>}
+            </button>
+          </div>
+        </aside>
+
+        <div data-app-content="" className="flex min-w-0 flex-1 flex-col">
+          {children}
+        </div>
       </div>
     </div>
   );
