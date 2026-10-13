@@ -34,7 +34,7 @@ function FieldHint({ className, ...props }: React.ComponentProps<"p">) {
   return (
     <p
       data-slot="field-hint"
-      className={cn("text-xs text-muted-foreground", className)}
+      className={cn("text-xs text-ink-muted", className)}
       {...props}
     />
   )
@@ -52,7 +52,7 @@ function FieldError({
     <p
       data-slot="field-error"
       role="alert"
-      className={cn("text-xs font-medium text-destructive", className)}
+      className={cn("text-xs font-medium text-pill-red-fg", className)}
       {...props}
     >
       {children}

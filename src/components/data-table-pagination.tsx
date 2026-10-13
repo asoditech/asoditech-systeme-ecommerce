@@ -73,15 +73,15 @@ export function DataTablePagination({
   const items = pageWindow(page, totalPages);
 
   return (
-    <div className="flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t px-4 py-3">
-      <p className="text-sm text-muted-foreground tabular-nums">
+    <div className="flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-3 border-t border-hairline px-4 py-3">
+      <p className="text-sm text-ink-muted tabular-nums">
         {total === 0 ? "Aucun résultat" : `${from}–${to} sur ${total}`}
       </p>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         {sizeOptions && (
-          <div className="flex h-8 items-center gap-1.5 text-sm text-muted-foreground">
+          <div className="flex h-9 items-center gap-2 text-sm text-ink-muted">
             <span>Afficher</span>
-            <div role="group" aria-label="Lignes par page" className="inline-flex h-8 items-center rounded-lg border bg-card p-0.5">
+            <div role="group" aria-label="Lignes par page" className="inline-flex h-9 items-center gap-0.5 rounded-full bg-segment-track p-1">
               {sizeOptions.map((size) => {
                 const active = size === pageSize;
                 return (
@@ -91,10 +91,8 @@ export function DataTablePagination({
                     aria-current={active ? "true" : undefined}
                     aria-label={`Afficher ${size} lignes par page`}
                     className={cn(
-                      "inline-flex h-6.5 min-w-9 items-center justify-center rounded-md px-2 text-xs font-medium tabular-nums transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/35",
-                      active
-                        ? "bg-primary/10 text-accent-foreground ring-1 ring-primary/30 dark:text-primary"
-                        : "text-foreground/80 hover:bg-accent hover:text-accent-foreground"
+                      "inline-flex h-7 min-w-10 items-center justify-center rounded-full px-2.5 text-xs font-medium tabular-nums transition-[color,background-color,box-shadow] duration-150 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/25",
+                      active ? "bg-segment-thumb text-ink shadow-soft" : "text-ink-secondary hover:text-ink"
                     )}
                   >
                     {size}
@@ -105,10 +103,11 @@ export function DataTablePagination({
             <span>par page</span>
           </div>
         )}
-        <nav aria-label="Pagination" className="flex h-8 items-center gap-1">
+        <nav aria-label="Pagination" className="flex h-9 items-center gap-1">
           <Button
             variant="outline"
             size="sm"
+            className="rounded-full"
             disabled={page <= 1}
             aria-label="Page précédente"
             {...(page > 1 ? { render: <Link href={hrefFor(page - 1)} /> } : {})}
@@ -123,7 +122,7 @@ export function DataTablePagination({
                   key={item}
                   aria-current="page"
                   aria-label={`Page ${item} sur ${totalPages}`}
-                  className="inline-flex h-8 min-w-8 items-center justify-center rounded-[calc(var(--radius)-1px)] border border-primary/45 bg-primary/10 px-2 text-[0.8rem] font-medium tabular-nums text-accent-foreground dark:text-primary"
+                  className="inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-nav-active px-2.5 text-[13px] font-semibold text-ink tabular-nums shadow-soft"
                 >
                   {item}
                 </span>
@@ -133,7 +132,7 @@ export function DataTablePagination({
                   variant="ghost"
                   size="icon-sm"
                   aria-label={`Page ${item}`}
-                  className="hidden min-w-8 w-auto px-2 tabular-nums sm:inline-flex"
+                  className="hidden w-auto min-w-9 px-2.5 tabular-nums sm:inline-flex"
                   render={<Link href={hrefFor(item)} />}
                 >
                   {item}
@@ -143,7 +142,7 @@ export function DataTablePagination({
               <span
                 key={item}
                 aria-hidden="true"
-                className="hidden h-8 min-w-6 items-center justify-center text-sm text-muted-foreground sm:inline-flex"
+                className="hidden h-9 min-w-6 items-center justify-center text-sm text-ink-faint sm:inline-flex"
               >
                 …
               </span>
@@ -152,6 +151,7 @@ export function DataTablePagination({
           <Button
             variant="outline"
             size="sm"
+            className="rounded-full"
             disabled={page >= totalPages}
             aria-label="Page suivante"
             {...(page < totalPages ? { render: <Link href={hrefFor(page + 1)} /> } : {})}

@@ -1,17 +1,20 @@
-export type BadgeVariant = "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info";
+export type BadgeVariant = "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" | "purple";
 
 interface StatusMeta {
   label: string;
   variant: BadgeVariant;
 }
 
+/** Soft UI pastel mapping (REDESIGN_PROGRESS.md): Nouvelle blue, Emballage
+ * peach, Confirmée / Livrée green, Expédiée purple, Annulée / Retour / Échec
+ * red tint. Colour only — labels and values unchanged. */
 export const ORDER_STATUS_LABELS: Record<string, StatusMeta> = {
-  NOUVELLE: { label: "Nouvelle", variant: "secondary" },
-  CONFIRMEE: { label: "Confirmée", variant: "default" },
+  NOUVELLE: { label: "Nouvelle", variant: "info" },
+  CONFIRMEE: { label: "Confirmée", variant: "success" },
   EN_PREPARATION: { label: "Emballage", variant: "default" },
-  EXPEDIEE: { label: "Expédiée", variant: "info" },
+  EXPEDIEE: { label: "Expédiée", variant: "purple" },
   LIVREE: { label: "Livrée", variant: "success" },
-  ANNULEE: { label: "Annulée", variant: "outline" },
+  ANNULEE: { label: "Annulée", variant: "destructive" },
   RETOUR: { label: "Retour", variant: "destructive" },
   REMBOURSEE: { label: "Remboursée", variant: "outline" },
   ECHEC: { label: "Échec", variant: "destructive" },

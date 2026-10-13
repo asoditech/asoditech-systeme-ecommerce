@@ -4,7 +4,7 @@ import { formatDateTime } from "@/lib/format";
 import { SYNC_RUN_STATUS_LABELS } from "@/lib/status-labels";
 import type { SyncRun } from "@prisma/client";
 
-const DOT_TONE: Record<"default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info", string> = {
+const DOT_TONE: Record<"default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" | "purple", string> = {
   default: "bg-primary",
   secondary: "bg-muted-foreground/40",
   destructive: "bg-destructive",
@@ -12,6 +12,7 @@ const DOT_TONE: Record<"default" | "secondary" | "destructive" | "outline" | "su
   success: "bg-emerald-500",
   warning: "bg-amber-500",
   info: "bg-sky-500",
+  purple: "bg-violet-500",
 };
 
 function summaryLine(run: SyncRun): string {

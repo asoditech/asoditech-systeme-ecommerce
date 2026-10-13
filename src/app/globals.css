@@ -45,6 +45,29 @@
   --color-success-soft: var(--success-soft);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
+  --color-danger-strong: var(--danger-strong);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-row-hover: var(--row-hover);
+  --color-segment-track: var(--segment-track);
+  --color-segment-thumb: var(--segment-thumb);
+  --color-field: var(--field-bg);
+  --color-field-border: var(--field-border);
+  --color-field-border-hover: var(--field-border-hover);
+  /* Status pills / tone chips: pastel fill + darker same-hue text (AA). */
+  --color-pill-neutral: var(--pill-neutral-bg);
+  --color-pill-neutral-fg: var(--pill-neutral-fg);
+  --color-pill-green: var(--pill-green-bg);
+  --color-pill-green-fg: var(--pill-green-fg);
+  --color-pill-blue: var(--pill-blue-bg);
+  --color-pill-blue-fg: var(--pill-blue-fg);
+  --color-pill-purple: var(--pill-purple-bg);
+  --color-pill-purple-fg: var(--pill-purple-fg);
+  --color-pill-peach: var(--pill-peach-bg);
+  --color-pill-peach-fg: var(--pill-peach-fg);
+  --color-pill-yellow: var(--pill-yellow-bg);
+  --color-pill-yellow-fg: var(--pill-yellow-fg);
+  --color-pill-red: var(--pill-red-bg);
+  --color-pill-red-fg: var(--pill-red-fg);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
@@ -98,7 +121,8 @@
  * (--text-faint) is for icons, dividers and decoration only.
  * Chart colours are unchanged until the charts step.
  */
-:root {
+:root,
+.force-light {
   --bg-page: #ecedee;
   --bg-shell: #ffffff;
   --bg-content: #f6f6f6;
@@ -121,6 +145,30 @@
   --success-soft: #e8f7ef;
   --danger: #ef5b4b;
   --danger-soft: #fdecea;
+  --danger-strong: #cc3a28; /* solid destructive button, white text */
+  /* THE text colour on the orange (primary button, checked controls) —
+     change it here only. Dark text: 6.5:1 (white would be 2.8:1). */
+  --brand-foreground: #1f1206;
+  --row-hover: #f7f7f7;
+  --segment-track: #ebebeb;
+  --segment-thumb: #ffffff;
+  --field-bg: #ffffff;
+  --field-border: #e8e8e8;
+  --field-border-hover: #d6d6d6;
+  --pill-neutral-bg: #efefef;
+  --pill-neutral-fg: #4a4a4a;
+  --pill-green-bg: #dcf3e7;
+  --pill-green-fg: #1b6642;
+  --pill-blue-bg: #def2fc;
+  --pill-blue-fg: #175877;
+  --pill-purple-bg: #ebe6fb;
+  --pill-purple-fg: #4c3b9e;
+  --pill-peach-bg: #ffe7d8;
+  --pill-peach-fg: #8a3c10;
+  --pill-yellow-bg: #fff0cc;
+  --pill-yellow-fg: #6f4b00;
+  --pill-red-bg: #fdecea;
+  --pill-red-fg: #ad2f1e;
 
   --background: var(--bg-content);
   --foreground: var(--text-primary);
@@ -129,7 +177,7 @@
   --popover: #ffffff;
   --popover-foreground: var(--text-primary);
   --primary: var(--brand);
-  --primary-foreground: #1f1206;
+  --primary-foreground: var(--brand-foreground);
   --secondary: #f2f2f2;
   --secondary-foreground: var(--text-primary);
   --muted: #f2f2f2;
@@ -138,7 +186,7 @@
   --accent-foreground: var(--text-primary);
   --destructive: oklch(0.577 0.245 27.325);
   --border: var(--border-subtle);
-  --input: oklch(0.64 0 0); /* control edge ≥ 3:1 — softened with the form controls in Step 2 */
+  --input: var(--field-border);
   --ring: var(--brand-hover);
   --chart-1: oklch(0.546 0.245 262.881);
   --chart-2: oklch(0.656 0.196 253.8);
@@ -149,7 +197,7 @@
   --sidebar: var(--bg-shell);
   --sidebar-foreground: var(--text-primary);
   --sidebar-primary: var(--brand);
-  --sidebar-primary-foreground: #1f1206;
+  --sidebar-primary-foreground: var(--brand-foreground);
   --sidebar-accent: var(--nav-active);
   --sidebar-accent-foreground: var(--text-primary);
   --sidebar-border: var(--border-subtle);
@@ -180,6 +228,28 @@
   --success-soft: rgb(59 178 115 / 0.16);
   --danger: #f2796b;
   --danger-soft: rgb(239 91 75 / 0.16);
+  --danger-strong: #c43a29;
+  --brand-foreground: #1f1206;
+  --row-hover: rgb(255 255 255 / 0.03);
+  --segment-track: #232323;
+  --segment-thumb: #363636;
+  --field-bg: rgb(255 255 255 / 0.03);
+  --field-border: rgb(255 255 255 / 0.1);
+  --field-border-hover: rgb(255 255 255 / 0.18);
+  --pill-neutral-bg: rgb(255 255 255 / 0.08);
+  --pill-neutral-fg: #c9c9c9;
+  --pill-green-bg: rgb(166 205 187 / 0.16);
+  --pill-green-fg: #a6cdbb;
+  --pill-blue-bg: rgb(177 208 223 / 0.16);
+  --pill-blue-fg: #b1d0df;
+  --pill-purple-bg: rgb(196 189 224 / 0.16);
+  --pill-purple-fg: #c9c2e6;
+  --pill-peach-bg: rgb(230 190 164 / 0.16);
+  --pill-peach-fg: #e6bea4;
+  --pill-yellow-bg: rgb(226 200 143 / 0.16);
+  --pill-yellow-fg: #e2c88f;
+  --pill-red-bg: rgb(239 91 75 / 0.16);
+  --pill-red-fg: #f4897c;
 
   --background: var(--bg-content);
   --foreground: var(--text-primary);
@@ -188,7 +258,7 @@
   --popover: #1c1c1c;
   --popover-foreground: var(--text-primary);
   --primary: var(--brand);
-  --primary-foreground: #1f1206;
+  --primary-foreground: var(--brand-foreground);
   --secondary: #232323;
   --secondary-foreground: var(--text-primary);
   --muted: #232323;
@@ -197,7 +267,7 @@
   --accent-foreground: var(--text-primary);
   --destructive: oklch(0.704 0.191 22.216);
   --border: var(--border-subtle);
-  --input: rgb(255 255 255 / 0.4);
+  --input: var(--field-border);
   --ring: var(--brand-hover);
   --chart-1: oklch(0.68 0.19 258);
   --chart-2: oklch(0.74 0.16 253);
@@ -207,7 +277,7 @@
   --sidebar: var(--bg-shell);
   --sidebar-foreground: var(--text-primary);
   --sidebar-primary: var(--brand);
-  --sidebar-primary-foreground: #1f1206;
+  --sidebar-primary-foreground: var(--brand-foreground);
   --sidebar-accent: var(--nav-active);
   --sidebar-accent-foreground: var(--text-primary);
   --sidebar-border: var(--border-subtle);
@@ -226,42 +296,11 @@
   }
 }
 
-/* Always-light surfaces (the /connexion page, any pre-auth screen) — the
-   glassmorphic design is committed to a light look, so pin the tokens it
-   uses to their light values even when the app is in dark mode. A wrapper
-   that directly declares a custom property overrides the inherited `.dark`
-   value for itself and its descendants. */
+/* Always-light surfaces (the /connexion page, any pre-auth screen): the
+   complete light token set is declared on `.force-light` too (shared with
+   `:root` above), so a subtree stays light even when the app is dark. */
 .force-light {
   color-scheme: light;
-  --bg-page: #ecedee;
-  --bg-shell: #ffffff;
-  --bg-content: #f6f6f6;
-  --bg-card: #ffffff;
-  --text-primary: #1a1a1a;
-  --text-secondary: #6b6b6b;
-  --text-muted: #767676;
-  --text-faint: #9a9a9a;
-  --border-subtle: #f0f0f0;
-  --nav-active: #eeeeee;
-  --nav-hover: #f5f5f5;
-  --background: #f6f6f6;
-  --foreground: #1a1a1a;
-  --card: #ffffff;
-  --card-foreground: #1a1a1a;
-  --popover: #ffffff;
-  --popover-foreground: #1a1a1a;
-  --primary: #e67e3c;
-  --primary-foreground: #1f1206;
-  --secondary: #f2f2f2;
-  --secondary-foreground: #1a1a1a;
-  --muted: #f2f2f2;
-  --muted-foreground: #6b6b6b;
-  --accent: #f2f2f2;
-  --accent-foreground: #1a1a1a;
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: #f0f0f0;
-  --input: oklch(0.64 0 0);
-  --ring: #d96f2d;
 }
 
 /* ---------------------------------------------------------------------------
@@ -460,5 +499,25 @@
     display: grid !important;
     grid-template-columns: repeat(3, 1fr) !important;
     gap: 8px !important;
+  }
+}
+
+/* Table rows (Soft UI): inline row actions marked `data-row-actions` stay
+   hidden until the row is hovered or holds focus — only where a real hover
+   exists; touch screens always show them. */
+@media (hover: hover) {
+  [data-slot="table-row"] [data-row-actions] {
+    opacity: 0;
+    transition: opacity 150ms ease-out;
+  }
+  [data-slot="table-row"]:hover [data-row-actions],
+  [data-slot="table-row"]:focus-within [data-row-actions],
+  [data-slot="table-row"] [data-row-actions]:has([aria-expanded="true"]) {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="table-row"] [data-row-actions] {
+    transition: none;
   }
 }

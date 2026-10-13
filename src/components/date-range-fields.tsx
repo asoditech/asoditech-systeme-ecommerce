@@ -62,8 +62,8 @@ function DateRangeFieldsInner({
   const { fromMax, toMin } = linkedDayBounds(from, to);
   const inputClass = cn(
     "min-w-0 bg-transparent tabular-nums outline-none [color-scheme:light] dark:[color-scheme:dark]",
-    "rounded-md px-1.5 focus-visible:ring-2 focus-visible:ring-ring/50",
-    size === "sm" ? "h-7 text-sm" : "h-8 text-sm"
+    "rounded-lg px-1.5 text-ink focus-visible:ring-[3px] focus-visible:ring-ring/25",
+    size === "sm" ? "h-7 text-sm" : "h-9 text-sm"
   );
 
   return (
@@ -71,14 +71,14 @@ function DateRangeFieldsInner({
       role="group"
       aria-label={`${fromLabel} – ${toLabel}`}
       className={cn(
-        "inline-flex max-w-full flex-wrap items-center gap-x-1 gap-y-1 rounded-lg border border-input bg-background px-2 shadow-xs",
-        "focus-within:border-ring",
-        size === "sm" ? "py-0.5" : "py-1",
+        "inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 border border-field-border bg-field transition-[border-color,box-shadow] duration-150 hover:border-field-border-hover",
+        "focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/20",
+        size === "sm" ? "min-h-9 rounded-xl px-2.5 py-0.5" : "min-h-11 rounded-control px-3.5 py-1",
         className
       )}
     >
-      <CalendarDays className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <label htmlFor={`${idPrefix}-from`} className="text-xs font-medium text-muted-foreground">
+      <CalendarDays className="size-4 shrink-0 text-ink-muted" aria-hidden="true" />
+      <label htmlFor={`${idPrefix}-from`} className="text-xs font-medium text-ink-muted">
         {fromLabel}
       </label>
       <input
@@ -95,10 +95,10 @@ function DateRangeFieldsInner({
         }}
         className={inputClass}
       />
-      <span className="text-muted-foreground" aria-hidden="true">
+      <span className="text-ink-faint" aria-hidden="true">
         →
       </span>
-      <label htmlFor={`${idPrefix}-to`} className="text-xs font-medium text-muted-foreground">
+      <label htmlFor={`${idPrefix}-to`} className="text-xs font-medium text-ink-muted">
         {toLabel}
       </label>
       <input

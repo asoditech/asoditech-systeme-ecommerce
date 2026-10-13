@@ -5,7 +5,7 @@ export function StatusBadge({
   labels,
 }: {
   status: string;
-  labels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" }>;
+  labels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" | "purple" }>;
 }) {
   const meta = labels[status] ?? { label: status, variant: "outline" as const };
   return <Badge variant={meta.variant}>{meta.label}</Badge>;

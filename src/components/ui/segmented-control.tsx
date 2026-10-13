@@ -19,7 +19,7 @@ export function SegmentedControl({ children, className }: { children: React.Reac
   return (
     <div
       className={cn(
-        "inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full bg-muted p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        "inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full bg-segment-track p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
         className
       )}
     >
@@ -42,8 +42,8 @@ export function SegmentedControlItem({
       href={href}
       aria-current={active ? "true" : undefined}
       className={cn(
-        "rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-        active ? "bg-background text-foreground shadow-sm ring-1 ring-[color-mix(in_oklch,var(--input),var(--foreground)_12%)]" : "text-muted-foreground hover:text-foreground"
+        "inline-flex h-8 items-center rounded-full px-3.5 text-[13px] font-medium whitespace-nowrap transition-[color,background-color,box-shadow] duration-150 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/25 motion-reduce:transition-none",
+        active ? "bg-segment-thumb text-ink shadow-soft" : "text-ink-secondary hover:text-ink"
       )}
     >
       {children}
