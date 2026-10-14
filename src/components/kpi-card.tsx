@@ -37,6 +37,7 @@ export function KpiCard({
   info,
   metric,
   explain,
+  size = "default",
 }: {
   label: string;
   value: string | null;
@@ -51,15 +52,18 @@ export function KpiCard({
   metric?: AnalyticsMetricId;
   /** Any other « ⓘ » (e.g. <ReportMetricInfo/> on /rapports). */
   explain?: React.ReactNode;
+  /** "lg": the dashboard bento tile — 40px figure, larger chip and padding. */
+  size?: "default" | "lg";
 }) {
+  const lg = size === "lg";
   const colors = TONES[tone];
   return (
-    <Card size="sm">
-      <CardContent className="flex flex-col gap-2">
+    <Card size={lg ? "default" : "sm"} className={cn(lg && "h-full")}>
+      <CardContent className={cn("flex flex-col", lg ? "gap-3" : "gap-2")}>
         <div className="flex items-center gap-2.5">
           {Icon && (
-            <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-[10px]", colors.badge)}>
-              <Icon className="size-4" />
+            <span className={cn("flex shrink-0 items-center justify-center", lg ? "size-10 rounded-xl" : "size-8 rounded-[10px]", colors.badge)}>
+              <Icon className={lg ? "size-[18px]" : "size-4"} />
             </span>
           )}
           <p className="truncate text-xs text-ink-muted">{label}</p>
@@ -76,11 +80,18 @@ export function KpiCard({
           </>
         ) : (
           <>
-            <p className="truncate text-[28px] leading-tight font-semibold tracking-tight text-ink tabular-nums">{value}</p>
+            <p
+              className={cn(
+                "truncate font-semibold tracking-tight text-ink tabular-nums",
+                lg ? "text-[32px] leading-none sm:text-[40px]" : "text-[28px] leading-tight"
+              )}
+            >
+              {value}
+            </p>
             {(hint || trend) && (
               <div className="flex items-center gap-1.5 text-xs text-ink-muted">
                 {trend && <TrendBadge trend={trend} />}
-                {hint && <span className="truncate">{hint}</span>}
+                {hint && <span className={lg ? "line-clamp-2" : "truncate"}>{hint}</span>}
               </div>
             )}
           </>

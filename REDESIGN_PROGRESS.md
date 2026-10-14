@@ -12,7 +12,7 @@ References: `design-reference/` (untracked, local only).
 | 0 | Git setup, codebase summary | Done |
 | 1 | Tokens, Inter font, global CSS, floating shell, sidebar, topbar | Done |
 | 2 | Shared components (cards, buttons, inputs, pills, tables, dialogs) | Done |
-| 3 | Dashboard (`/tableau-de-bord`) + chart tokens | To do |
+| 3 | Dashboard (`/tableau-de-bord`) + chart tokens | Done |
 | 4 | Commandes (`/commandes`, detail, confirmation) | To do |
 | 5a/b/c | Remaining page groups | To do |
 | 6 | Polish, responsiveness, AA audit | To do |
@@ -20,7 +20,8 @@ References: `design-reference/` (untracked, local only).
 ## Pages
 
 - Done (shell + shared components): every page in the app area gets the new shell, sidebar, topbar and the restyled shared components (buttons, inputs, selects, cards, tables, pills, pagination, tabs, menus, dialogs, toasts…).
-- Page-specific layouts and colours not restyled yet: all pages (Steps 3–5).
+- Page fully redesigned: `/tableau-de-bord` (Step 3).
+- Page-specific layouts and colours not restyled yet: all other pages (Steps 4–5).
 - Review page: `/dev/components` (dev only, 404 in production builds, not linked).
 - Out of scope until decided: `src/app/platform/*` (platform admin), not touched.
 
@@ -44,17 +45,26 @@ References: `design-reference/` (untracked, local only).
 - Props: all unchanged; only optional additions (`CardTitle accent`, Badge `purple`).
 - Test updated: `tests/lib/tracking-table.test.ts` asserted the old emerald class; it now asserts the green pill (same intent).
 
+## Step 3 — what changed
+
+- Tokens: muted text `#707070` (4.6:1 on the grey content, 4.9:1 on white); input hover border `#D4D4D4`.
+- Chart palette in ONE place: `--chart-1…5` (orange, blue, green, purple, yellow), `--chart-bar` / `--chart-highlight`, grid, axis, cursor, track and dark tooltip tokens (light + dark) in `globals.css`; recharts props in `src/lib/design/chart.ts` (`CHART_COLORS`, `CHART_BAR_RADIUS` = 8, `CHART_GRID_PROPS`, `CHART_AXIS_PROPS`, `chartTooltipProps()`).
+- Dashboard (`src/app/(protected)/tableau-de-bord/page.tsx`): bento layout — overview card + « Meilleures ventes » side card (≥ xl), KPI tiles, wide revenue chart card, stock donut, operations, activity lists; pastel bar before every card title (one colour per card type); period filters as dropdown pills (`FilterDropdownPill`, same URLs); no uppercase labels. Data fetching, calculations, permissions and French copy unchanged (render conditions diffed against the original).
+- Charts: revenue trend = rounded pastel bars with the peak bucket highlighted in orange (the same « Pic » named above it); hero sparkline = smooth orange line; « Stock physique » = donut with rounded caps (same three figures); dark tooltip chip.
+- Components: `CommandHero` (plain card, 48px figure, pastel stat chips), `KpiCard` new optional `size="lg"` (40px figure), `SummarySection` (sentence case — also on the 4 other pages using it), `MetricBreakdown`, `RankedMetricList`, `Sparkline`, `MissingCostBanner` (pastel yellow).
+- New: `src/components/filter-dropdown-pill.tsx`, `src/components/dashboard/stock-donut.tsx`, `src/app/(protected)/tableau-de-bord/loading.tsx` (bento skeleton, also shown on `/dev/components`).
+
 ## Decisions (confirmed by the owner after Step 1)
 
-- AA contrast: muted text is `#767676` (`#9A9A9A` kept as `--text-faint`, decoration only); primary-button text is dark `#1f1206` on orange (white is 2.8:1), set once as `--brand-foreground`; focus ring uses `#D96F2D`.
+- AA contrast: muted text is `#707070` (switched from `#767676` after Step 2; `#9A9A9A` kept as `--text-faint`, decoration only); primary-button text is dark `#1f1206` on orange (white is 2.8:1), set once as `--brand-foreground`; focus ring uses `#D96F2D`.
 - New labels « Clair » / « Sombre » and « Nouvelle opération » (topbar button linking to the existing `/operations/nouvelle`).
 - Sidebar hover-preview (expand on hover when collapsed) replaced by the rail with tooltips/popovers.
 
 ## Known issues
 
-- Muted text `#767676` is 4.5:1 on white cards but 4.2:1 on the grey content background (`#F6F6F6`); `#707070` would pass on both — to decide.
 - Input border `#E8E8E8` (requested) is below the 3:1 non-text contrast guideline; the label above, the focus ring and the error state carry the meaning.
 - Some pages override sizes / colours locally (e.g. `CardTitle className="text-[15px]"`, small « Actualiser » buttons, orange settings tabs): cleaned page by page in Steps 3–5.
 - `/dev/components` to be removed or kept dev-only at Step 6.
-- Dashboard still shows uppercase section labels and old card styles (Step 3); chart colours unchanged until Step 3.
+- Other charts (`/rapports/ventes` sales chart, `/analyses` series chart) still use their own colours: move them onto `src/lib/design/chart.ts` with their pages (Step 5).
+- `CommandHero` / `SummarySection` restyle also shows on `/rapports/ventes`, `/confirmation`, `/fournisseurs/[id]`, `/commissions/[agentId]` (shared components) before those pages get their own pass.
 - `NavBadge` not connected to counts (by decision: no new queries in Step 1).

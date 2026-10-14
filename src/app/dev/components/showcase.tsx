@@ -17,6 +17,7 @@ import { KpiCard } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { ORDER_PAYMENT_STATUS_LABELS, ORDER_STATUS_LABELS } from "@/lib/status-labels";
+import DashboardLoading from "@/app/(protected)/tableau-de-bord/loading";
 import { InteractiveDemos } from "./interactive";
 
 const ROWS = [
@@ -245,6 +246,10 @@ export function Showcase({ id }: { id: string }) {
           </Table>
           <DataTablePagination page={3} pageSize={10} total={200} basePath="/dev/components" pageSizeOptions={[10, 50, 100]} />
         </Card>
+      </Section>
+
+      <Section title="Chargement — tableau de bord (loading.tsx)">
+        <DashboardLoading />
       </Section>
 
       <Section title="État vide · squelettes">

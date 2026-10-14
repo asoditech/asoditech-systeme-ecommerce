@@ -86,6 +86,9 @@
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
+  --color-chart-bar: var(--chart-bar);
+  --color-chart-highlight: var(--chart-highlight);
+  --color-chart-track: var(--chart-track);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -117,9 +120,8 @@
  * primary button, focus rings and small highlights — never a filled nav item.
  * Contrast (WCAG AA): dark text on the orange (6.5:1 — white would be 2.8:1);
  * the focus ring uses the darker hover orange (3.4:1 on white); small muted
- * labels use --text-muted (4.5:1 on white) — the lighter #9A9A9A
+ * labels use --text-muted (4.6:1 on the grey content, 4.9:1 on white) — the lighter #9A9A9A
  * (--text-faint) is for icons, dividers and decoration only.
- * Chart colours are unchanged until the charts step.
  */
 :root,
 .force-light {
@@ -129,7 +131,7 @@
   --bg-card: #ffffff;
   --text-primary: #1a1a1a;
   --text-secondary: #6b6b6b;
-  --text-muted: #767676;
+  --text-muted: #707070; /* readable muted text: 4.6:1 on #F6F6F6, 4.9:1 on white */
   --text-faint: #9a9a9a;
   --border-subtle: #f0f0f0;
   --brand: #e67e3c;
@@ -154,7 +156,7 @@
   --segment-thumb: #ffffff;
   --field-bg: #ffffff;
   --field-border: #e8e8e8;
-  --field-border-hover: #d6d6d6;
+  --field-border-hover: #d4d4d4;
   --pill-neutral-bg: #efefef;
   --pill-neutral-fg: #4a4a4a;
   --pill-green-bg: #dcf3e7;
@@ -188,11 +190,25 @@
   --border: var(--border-subtle);
   --input: var(--field-border);
   --ring: var(--brand-hover);
-  --chart-1: oklch(0.546 0.245 262.881);
-  --chart-2: oklch(0.656 0.196 253.8);
-  --chart-3: oklch(0.769 0.147 251.5);
-  --chart-4: oklch(0.446 0.043 257.281);
-  --chart-5: oklch(0.279 0.041 260.031);
+  /* Charts — THE palette for every recharts chart (src/lib/design/chart.ts).
+     Series 1–5: orange (highlight / main line), blue, green, purple, yellow.
+     Bars are pastel (--chart-bar) with ONE highlighted bar (--chart-highlight). */
+  --chart-1: #e67e3c;
+  --chart-2: #6fbbe3;
+  --chart-3: #5fc392;
+  --chart-4: #9d8ce6;
+  --chart-5: #f2b84b;
+  --chart-bar: #cfe9f8;
+  --chart-bar-hover: #b4dcf3;
+  --chart-highlight: #e67e3c;
+  --chart-area: rgb(230 126 60 / 0.16);
+  --chart-grid: #efefef;
+  --chart-axis: #8a8a8a;
+  --chart-cursor: rgb(0 0 0 / 0.04);
+  --chart-track: #efefef;
+  --chart-tooltip-bg: #1a1a1a;
+  --chart-tooltip-fg: #ffffff;
+  --chart-tooltip-muted: #b3b3b3;
   --radius: 0.5rem;
   --sidebar: var(--bg-shell);
   --sidebar-foreground: var(--text-primary);
@@ -269,11 +285,22 @@
   --border: var(--border-subtle);
   --input: var(--field-border);
   --ring: var(--brand-hover);
-  --chart-1: oklch(0.68 0.19 258);
-  --chart-2: oklch(0.74 0.16 253);
-  --chart-3: oklch(0.82 0.12 251);
-  --chart-4: oklch(0.64 0.02 260);
-  --chart-5: oklch(0.87 0.02 253);
+  --chart-1: #e8874a;
+  --chart-2: #7fb3cf;
+  --chart-3: #74b394;
+  --chart-4: #a197d1;
+  --chart-5: #d9b062;
+  --chart-bar: #2b3a43;
+  --chart-bar-hover: #354854;
+  --chart-highlight: #e8874a;
+  --chart-area: rgb(232 135 74 / 0.18);
+  --chart-grid: rgb(255 255 255 / 0.06);
+  --chart-axis: #8f8f8f;
+  --chart-cursor: rgb(255 255 255 / 0.04);
+  --chart-track: rgb(255 255 255 / 0.08);
+  --chart-tooltip-bg: #2c2c2c;
+  --chart-tooltip-fg: #f2f2f2;
+  --chart-tooltip-muted: #a3a3a3;
   --sidebar: var(--bg-shell);
   --sidebar-foreground: var(--text-primary);
   --sidebar-primary: var(--brand);

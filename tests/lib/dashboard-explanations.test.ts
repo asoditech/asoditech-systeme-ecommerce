@@ -32,12 +32,14 @@ describe("every dashboard figure has a registered explanation", () => {
     expect(src).not.toMatch(/\binfo="/);
   });
 
-  it("each CommandHero headline, each hero stat, the stock bar and each breakdown row carries an « ⓘ »", () => {
+  it("each CommandHero headline, each hero stat, the stock donut and each breakdown row carries an « ⓘ »", () => {
     const heroes = chunks("CommandHero");
     expect(heroes).toHaveLength(3);
     for (const body of heroes) expect(body).toMatch(/explain=\{<DashboardMetricInfo metric=/);
     for (const id of ["ordersPlaced", "averageBasket", "newCustomers"]) expect(src).toContain(`explain: <DashboardMetricInfo metric="${id}" />`);
-    expect(chunks("MetricWithProgress")[0]).toContain('<DashboardMetricInfo metric="stockOnHand"');
+    // « Stock physique » (Soft UI donut): its « ⓘ » sits in the card title.
+    expect(src).toMatch(/<CardTitle\b[^>]*>[\s\S]*?Stock physique[\s\S]*?<DashboardMetricInfo metric="stockOnHand"[\s\S]*?<\/CardTitle>/);
+    expect(src).toContain("<StockDonut");
     for (const id of ["toConfirm", "confirmedThisMonth", "toRecall", "commissionEarned", "commissionRemaining"]) {
       expect(src).toContain(`explain: <DashboardMetricInfo metric="${id}" />`);
     }
@@ -50,7 +52,7 @@ describe("every dashboard figure has a registered explanation", () => {
       if (m[1].includes("Commissions")) continue;
       expect(m[1], m[1]).toContain("<DashboardMetricInfo metric");
     }
-    expect(titles).toBe(6);
+    expect(titles).toBe(7);
   });
 
   it("every id used exists, every registered id is shown, and the page has its definitions panel", () => {

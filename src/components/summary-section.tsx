@@ -28,12 +28,12 @@ export function SummarySection({
   className?: string;
 }) {
   return (
-    <section className={cn("space-y-3", className)}>
+    <section className={cn("space-y-4", className)}>
       <div className="flex items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-[13px] font-semibold tracking-wide text-foreground/80 uppercase">
+        <h2 className="flex items-center gap-2.5 text-base font-semibold text-ink">
           {Icon && (
-            <span className="flex size-5 items-center justify-center rounded-md bg-primary/10 text-primary">
-              <Icon className="size-3" />
+            <span className="flex size-7 items-center justify-center rounded-lg bg-nav-active text-ink-secondary">
+              <Icon className="size-3.5" />
             </span>
           )}
           {title}

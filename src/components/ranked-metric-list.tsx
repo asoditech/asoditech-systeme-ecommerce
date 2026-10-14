@@ -31,30 +31,30 @@ export function RankedMetricList({
   const max = Math.max(...items.map((i) => i.metric), 1);
 
   return (
-    <StaggerUl className="divide-y">
+    <StaggerUl className="space-y-1">
       {items.map((item, i) => (
-        <StaggerItem key={item.key} as="li" className="flex items-center gap-3 py-2.5">
-          <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground tabular-nums">
+        <StaggerItem key={item.key} as="li" className="flex items-center gap-3 rounded-tile px-2 py-2.5 transition-colors duration-150 hover:bg-row-hover">
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-nav-active text-[11px] font-semibold text-ink-secondary tabular-nums">
             {i + 1}
           </span>
           {item.imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- arbitrary merchant/WooCommerce/Shopify host, can't be allow-listed for next/image
-            <img src={item.imageUrl} alt="" className="size-9 shrink-0 rounded-md border object-cover" />
+            <img src={item.imageUrl} alt="" className="size-11 shrink-0 rounded-xl object-cover" />
           ) : (
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted">
-              <FallbackIcon className="size-4 text-muted-foreground" />
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-content">
+              <FallbackIcon className="size-4 text-ink-muted" />
             </span>
           )}
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">{item.primary}</p>
-            {item.secondary && <p className="truncate text-[11px] text-muted-foreground">{item.secondary}</p>}
-            <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted">
-              <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(6, (item.metric / max) * 100)}%` }} />
+            <p className="truncate text-sm font-medium text-ink">{item.primary}</p>
+            {item.secondary && <p className="truncate text-xs text-ink-muted">{item.secondary}</p>}
+            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-chart-track">
+              <div className="h-full rounded-full bg-chart-highlight" style={{ width: `${Math.max(6, (item.metric / max) * 100)}%` }} />
             </div>
           </div>
           <div className="shrink-0 text-right">
-            <p className="text-sm font-semibold tabular-nums">{item.value}</p>
-            {item.valueHint && <p className="text-[11px] text-muted-foreground">{item.valueHint}</p>}
+            <p className="text-sm font-semibold text-ink tabular-nums">{item.value}</p>
+            {item.valueHint && <p className="text-xs text-ink-muted">{item.valueHint}</p>}
           </div>
         </StaggerItem>
       ))}
