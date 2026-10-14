@@ -32,7 +32,7 @@ export default async function InspectionRetourPage({ params }: { params: Promise
         Inspection — {parcel.trackingNumber ?? parcel.orderLabel}
       </h1>
 
-      <dl className="grid gap-x-6 gap-y-2 rounded-lg border bg-card p-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+      <dl className="grid gap-x-6 gap-y-2 rounded-card bg-card p-4 shadow-card sm:p-5 text-sm sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <dt className="text-xs text-muted-foreground">Commande</dt>
           <dd>
@@ -74,9 +74,9 @@ export default async function InspectionRetourPage({ params }: { params: Promise
       </dl>
 
       {view.status === "INSPECTE" ? (
-        <div className="space-y-3 rounded-lg border bg-card p-4 text-sm">
+        <div className="space-y-3 rounded-card bg-card p-5 shadow-card text-sm">
           <p className="flex items-center gap-2 font-medium">
-            <PackageCheck className="size-4 text-emerald-600" aria-hidden="true" />
+            <PackageCheck className="size-4 text-pill-green-fg" aria-hidden="true" />
             Inspection terminée{view.inspectedAt ? ` le ${formatDateTime(view.inspectedAt)}` : ""}
             {view.inspectedByName ? ` par ${view.inspectedByName}` : ""}.
           </p>
@@ -88,7 +88,7 @@ export default async function InspectionRetourPage({ params }: { params: Promise
       ) : (
         <>
           <ReturnInspectionForm receptionId={view.receptionId} lines={view.lines} />
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-3 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-tile border border-dashed border-field-border p-3 text-sm">
             <p className="text-muted-foreground">
               Colis vide, mauvais colis ou unités déjà retournées par ailleurs ? Annulez la réception plutôt que de l&apos;inspecter.
             </p>

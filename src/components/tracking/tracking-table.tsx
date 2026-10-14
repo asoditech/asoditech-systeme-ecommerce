@@ -40,11 +40,11 @@ export function TrackingTable({ rows }: { rows: TrackingRow[] }) {
           return (
             <TableRow key={r.shipmentId}>
               <TableCell>
-                <Link href={`/livraison/suivi/${r.shipmentId}`} className="font-medium hover:underline">
+                <Link href={`/livraison/suivi/${r.shipmentId}`} className="text-[15px] font-semibold tracking-tight text-ink hover:underline">
                   {r.orderLabel}
                 </Link>
                 {r.trackingNumber && (
-                  <span className="block font-mono text-[11px] text-muted-foreground">
+                  <span className="block font-mono text-xs text-ink-muted">
                     {r.trackingUrl ? (
                       <a href={r.trackingUrl} target="_blank" rel="noreferrer" className="hover:underline">
                         {r.trackingNumber}
@@ -56,8 +56,8 @@ export function TrackingTable({ rows }: { rows: TrackingRow[] }) {
                 )}
               </TableCell>
               <TableCell>
-                <span className="block max-w-[10rem] truncate">{r.customerName}</span>
-                <PhoneActions phone={r.customerPhone} whatsapp size="sm" className="text-[11px] text-muted-foreground" />
+                <span className="block max-w-[10rem] truncate font-medium text-ink">{r.customerName}</span>
+                <PhoneActions phone={r.customerPhone} whatsapp size="sm" className="text-xs text-muted-foreground" />
               </TableCell>
               <TableCell className="text-muted-foreground">
                 <span className="block max-w-[8rem] truncate">{r.city ?? "—"}</span>
@@ -69,7 +69,7 @@ export function TrackingTable({ rows }: { rows: TrackingRow[] }) {
                   // value (name + phone) stays readable on hover.
                   <span className="block" title={[r.courierName, r.courierPhone].filter(Boolean).join(" · ")}>
                     {r.courierName && <span className="block max-w-[9rem] truncate">{r.courierName}</span>}
-                    <PhoneActions phone={r.courierPhone} whatsapp size="sm" className="text-[11px] text-muted-foreground" />
+                    <PhoneActions phone={r.courierPhone} whatsapp size="sm" className="text-xs text-muted-foreground" />
                   </span>
                 ) : (
                   <span className="text-muted-foreground">—</span>
@@ -86,11 +86,11 @@ export function TrackingTable({ rows }: { rows: TrackingRow[] }) {
               </TableCell>
               <TableCell className="max-w-[14rem] text-xs text-muted-foreground" title={syncTitle}>
                 {r.trackingSyncError ? (
-                  <span className="text-amber-600 dark:text-amber-400">Synchro en échec — dernier statut conservé</span>
+                  <span className="text-pill-yellow-fg">Synchro en échec — dernier statut conservé</span>
                 ) : event ? (
                   <>
                     {eventText && <span className="block truncate text-foreground">{eventText}</span>}
-                    <span className="block text-[11px] text-muted-foreground/80">
+                    <span className="block text-xs text-ink-muted">
                       {event.timestamp ? formatDateTime(event.timestamp) : "—"}
                       {event.location ? ` · ${event.location}` : ""}
                     </span>

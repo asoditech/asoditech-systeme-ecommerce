@@ -352,6 +352,8 @@
   --scrollbar-thumb-hover: rgb(0 0 0 / 0.3);
 }
 .dark {
+  /* Native controls (number spinners, date pickers, autofill) follow the theme. */
+  color-scheme: dark;
   --scrollbar-thumb: rgb(255 255 255 / 0.16);
   --scrollbar-thumb-hover: rgb(255 255 255 / 0.3);
 }

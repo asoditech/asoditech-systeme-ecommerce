@@ -188,7 +188,7 @@ export default async function CommandesPage({
           value={statusFilter}
           allLabel="Tous les statuts"
           ariaLabel="Statut"
-          className="w-[calc(50%-0.25rem)] sm:w-44"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-44"
           options={Object.entries(ORDER_STATUS_LABELS).map(([value, meta]) => ({ value, label: meta.label }))}
         />
         <FilterSelect
@@ -196,7 +196,7 @@ export default async function CommandesPage({
           value={paymentStatusFilter}
           allLabel="Tous les paiements"
           ariaLabel="Paiement"
-          className="w-[calc(50%-0.25rem)] sm:w-48"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-48"
           options={Object.entries(ORDER_PAYMENT_STATUS_LABELS).map(([value, meta]) => ({ value, label: meta.label }))}
         />
         <form className="flex max-w-full flex-wrap items-center gap-2" action="/commandes">

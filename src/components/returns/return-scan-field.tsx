@@ -48,7 +48,7 @@ export function ReturnScanField({
   }
 
   return (
-    <div className="space-y-2 rounded-md border border-dashed p-3">
+    <div className="space-y-2 rounded-tile border border-dashed border-field-border p-3">
       <div className="flex flex-col gap-2 sm:flex-row">
         <Input
           value={code}
@@ -71,13 +71,13 @@ export function ReturnScanField({
       {feedback && (
         <p
           role="status"
-          className={`flex items-start gap-1.5 text-xs ${feedback.ok ? "text-emerald-700 dark:text-emerald-400" : "text-destructive"}`}
+          className={`flex items-start gap-1.5 text-xs ${feedback.ok ? "text-pill-green-fg" : "text-destructive"}`}
         >
           {feedback.ok ? <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" /> : <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />}
           {feedback.text}
         </p>
       )}
-      <p className="text-[11px] text-muted-foreground">Chaque article lu ajoute 1 « revendable » ; ajustez revendable / endommagé ci-dessous si besoin.</p>
+      <p className="text-xs text-muted-foreground">Chaque article lu ajoute 1 « revendable » ; ajustez revendable / endommagé ci-dessous si besoin.</p>
     </div>
   );
 }

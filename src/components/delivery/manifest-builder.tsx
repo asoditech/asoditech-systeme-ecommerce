@@ -110,8 +110,8 @@ export function ManifestBuilder({ shipments }: { shipments: ManifestableShipment
         const allSelected = group.items.every((s) => selected.has(s.id));
         const selectedCount = group.items.filter((s) => selected.has(s.id)).length;
         return (
-          <div key={group.providerId} className="rounded-lg border">
-            <div className="flex items-center justify-between gap-3 border-b bg-muted/40 px-4 py-2.5">
+          <div key={group.providerId} className="overflow-hidden rounded-tile border border-hairline">
+            <div className="flex items-center justify-between gap-3 border-b border-hairline bg-pill-neutral px-4 py-2.5">
               <div className="flex items-center gap-2.5">
                 <Checkbox
                   checked={allSelected}

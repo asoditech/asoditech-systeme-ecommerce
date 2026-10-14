@@ -1,5 +1,6 @@
-import Link from "next/link";
 import { PhoneCall, RotateCcw, CheckCircle2, UserCheck, ClipboardCheck, Clock } from "lucide-react";
+import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
+import { FilterBar } from "@/components/filter-bar";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { DataTablePagination } from "@/components/data-table-pagination";
@@ -7,7 +8,6 @@ import { FilterSearchInput } from "@/components/filter-search-input";
 import { KpiCard } from "@/components/kpi-card";
 import { MetricBreakdown } from "@/components/metric-breakdown";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { ConfirmationQueue, type ConfirmationQueueOrder } from "@/components/orders/confirmation-queue";
 import { ConfirmedOrdersList, type ConfirmedOrderRow } from "@/components/orders/confirmed-orders-list";
 import { requirePermission } from "@/lib/auth/guards";
@@ -98,19 +98,14 @@ export default async function ConfirmationPage({
         <KpiCard label="Aujourd'hui" value={String(summary.confirmedToday)} icon={UserCheck} tone="info" />
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-1 border-b pb-2">
+      <SegmentedControl className="mb-5">
         {TABS.map((t) => (
-          <Button
-            key={t.key}
-            size="sm"
-            variant={tab === t.key ? "default" : "ghost"}
-            render={<Link href={tabHref(t.key)} />}
-          >
-            <t.icon className="size-4" />
+          <SegmentedControlItem key={t.key} active={tab === t.key} href={tabHref(t.key)}>
+            <t.icon className="mr-1.5 size-4" aria-hidden="true" />
             {t.label}
-          </Button>
+          </SegmentedControlItem>
         ))}
-      </div>
+      </SegmentedControl>
 
       {tab === "a-confirmer" && (
         <QueueTab search={search} page={page} onlyRetried={false} />
@@ -129,9 +124,9 @@ async function QueueTab({ search, page, onlyRetried }: { search?: string; page: 
 
   return (
     <div>
-      <div className="mb-4">
-        <FilterSearchInput paramKey="q" placeholder="N° commande, client, téléphone…" className="w-72 max-w-full" />
-      </div>
+      <FilterBar>
+        <FilterSearchInput paramKey="q" placeholder="N° commande, client, téléphone…" className="w-full sm:w-72" />
+      </FilterBar>
       {queueOrders.length === 0 ? (
         <EmptyState
           icon={onlyRetried ? RotateCcw : PhoneCall}
@@ -177,9 +172,9 @@ async function ConfirmedTab({ search, page }: { search?: string; page: number })
 
   return (
     <div>
-      <div className="mb-4">
-        <FilterSearchInput paramKey="q" placeholder="N° commande, client, téléphone…" className="w-72 max-w-full" />
-      </div>
+      <FilterBar>
+        <FilterSearchInput paramKey="q" placeholder="N° commande, client, téléphone…" className="w-full sm:w-72" />
+      </FilterBar>
       {rows.length === 0 ? (
         <EmptyState icon={CheckCircle2} title="Aucune commande confirmée pour le moment." />
       ) : (
@@ -247,11 +242,11 @@ async function MyConfirmationsTab({
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-1">
           <CardContent className="flex h-full flex-col items-center justify-center gap-1 py-6 text-center">
-            <p className="text-xs font-medium text-muted-foreground">Commission acquise (net)</p>
-            <p className="text-3xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">
+            <p className="text-sm font-medium text-ink-muted">Commission acquise (net)</p>
+            <p className="text-[40px] leading-tight font-semibold tracking-tight text-ink tabular-nums">
               {formatCurrency(breakdown.netAmount, currency)}
             </p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-ink-muted">
               {breakdown.reversedCount > 0
                 ? `dont ${formatCurrency(breakdown.reversedAmount, currency)} reversée(s)`
                 : "Aucune reprise"}
@@ -260,7 +255,7 @@ async function MyConfirmationsTab({
         </Card>
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle className="text-[15px]">Pipeline de confirmation</CardTitle>
+            <CardTitle accent="blue">Pipeline de confirmation</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <MetricBreakdown

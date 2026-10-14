@@ -22,7 +22,7 @@ export function TrackingStatusBadge({
     <span className="inline-flex flex-col gap-0.5">
       <Badge variant={NORMALIZED_TRACKING_VARIANT[status]}>{NORMALIZED_TRACKING_LABELS[status]}</Badge>
       {showRaw && raw ? (
-        <span className="text-[11px] text-muted-foreground/70">{raw}</span>
+        <span className="text-xs text-ink-muted">{raw}</span>
       ) : null}
     </span>
   );

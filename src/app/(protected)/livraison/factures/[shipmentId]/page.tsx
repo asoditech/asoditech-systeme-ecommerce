@@ -51,7 +51,7 @@ export default async function FactureLivraisonPage({
 
       <div
         data-print-sheet
-        className="mx-auto max-w-3xl rounded-lg border bg-white p-8 text-[13px] text-slate-900 shadow-sm dark:bg-white"
+        className="mx-auto max-w-3xl rounded-card bg-white p-8 text-[13px] text-slate-900 shadow-card dark:bg-white"
       >
         <div className="flex items-start justify-between gap-6 border-b border-slate-200 pb-5">
           <div>
@@ -66,7 +66,7 @@ export default async function FactureLivraisonPage({
             {settings.email && <p>{settings.email}</p>}
           </div>
           <div className="text-right">
-            <p className="text-base font-semibold uppercase tracking-wide">Facture de livraison</p>
+            <p className="text-base font-semibold">Facture de livraison</p>
             <p className="text-slate-600">{invoiceRef}</p>
             <p className="text-slate-600">Émise le {formatDate(new Date())}</p>
             <p className="mt-1">Commande {displayOrderNumber(order, orderNumberPrefix)}</p>

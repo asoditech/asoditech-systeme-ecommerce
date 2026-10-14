@@ -35,3 +35,40 @@ export function FilterChip({
     </Link>
   );
 }
+
+/**
+ * Counter chip for a status strip above a list (« En transit 12 »): white
+ * pill, tinted icon, muted label, ink figure. A link when it filters the list.
+ */
+export function StatChip({
+  icon: Icon,
+  iconClassName,
+  label,
+  value,
+  href,
+}: {
+  icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
+  iconClassName?: string;
+  label: React.ReactNode;
+  value: React.ReactNode;
+  href?: string | null;
+}) {
+  const body = (
+    <>
+      <Icon className={cn("size-4", iconClassName)} aria-hidden="true" />
+      <span className="text-ink-secondary">{label}</span>
+      <span className="font-semibold text-ink tabular-nums">{value}</span>
+    </>
+  );
+  const className = "inline-flex h-9 items-center gap-2 rounded-full bg-card px-3.5 text-sm shadow-card";
+  return href ? (
+    <Link
+      href={href}
+      className={cn(className, "transition-colors hover:bg-row-hover focus-visible:ring-[3px] focus-visible:ring-ring/25 focus-visible:outline-none")}
+    >
+      {body}
+    </Link>
+  ) : (
+    <div className={className}>{body}</div>
+  );
+}

@@ -11,11 +11,11 @@ import type { StoredTrackingEvent } from "@/lib/integrations/delivery/tracking-s
 export function TrackingTimeline({ events }: { events: StoredTrackingEvent[] }) {
   const ordered = [...events].reverse();
   return (
-    <ol className="relative space-y-4 border-l border-border pl-5">
+    <ol className="relative space-y-4 border-l border-hairline pl-5">
       {ordered.map((e, i) => (
         <li key={`${e.timestamp ?? "na"}-${i}`} className="relative">
           <span
-            className="absolute top-1 -left-[23px] size-2.5 rounded-full border-2 border-background bg-muted-foreground/50 data-[first=true]:bg-primary"
+            className="absolute top-1 -left-[23px] size-2.5 rounded-full border-2 border-card bg-ink-faint data-[first=true]:bg-brand"
             data-first={i === 0}
             aria-hidden="true"
           />
@@ -25,7 +25,7 @@ export function TrackingTimeline({ events }: { events: StoredTrackingEvent[] }) 
           {e.description && e.description !== e.label ? (
             <p className="text-xs text-muted-foreground">{e.description}</p>
           ) : null}
-          <p className="mt-0.5 text-[11px] text-muted-foreground/70">
+          <p className="mt-0.5 text-xs text-ink-muted">
             {e.timestamp ? formatDateTime(e.timestamp) : "Date non communiquée"}
             {e.location ? ` · ${e.location}` : ""}
           </p>

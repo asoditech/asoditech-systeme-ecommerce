@@ -8,6 +8,7 @@ import { Phone, PhoneOff, Check, X, RotateCcw, MapPin, Package, Clock, TriangleA
 import { recordConfirmationAttemptAction } from "@/actions/order-confirmation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Notice } from "@/components/ui/notice";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -117,19 +118,19 @@ function ConfirmationCard({ order }: { order: ConfirmationQueueOrder }) {
   const whatsappHref = buildCustomerWhatsAppUrl(order.customerWhatsapp ?? order.customerPhone, whatsappMessage);
 
   return (
-    <div className="rounded-xl border p-4">
+    <div className="rounded-card bg-card p-4 shadow-card sm:p-5">
       {/* Header: who, and how urgent */}
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-3">
           <Avatar>
-            <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
+            <AvatarFallback className="bg-pill-peach text-xs font-semibold text-pill-peach-fg">
               {initials(order.customerName)}
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <p className="truncate text-[15px] font-semibold leading-tight">{order.customerName}</p>
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Link href={`/commandes/${order.id}`} className="font-medium hover:underline">
+            <p className="truncate text-[15px] font-semibold leading-tight text-ink">{order.customerName}</p>
+            <p className="flex items-center gap-1.5 text-xs text-ink-muted">
+              <Link href={`/commandes/${order.id}`} className="font-medium text-ink-secondary hover:underline">
                 {order.displayNumber}
               </Link>
               {order.city && (
@@ -164,7 +165,7 @@ function ConfirmationCard({ order }: { order: ConfirmationQueueOrder }) {
           <Button
             size="sm"
             variant="outline"
-            className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900/50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+            className="border-transparent bg-pill-green text-pill-green-fg hover:bg-pill-green hover:text-pill-green-fg hover:brightness-95"
             render={<a href={whatsappHref} target="_blank" rel="noopener noreferrer" />}
           >
             <WhatsAppIcon className="size-4" />
@@ -174,23 +175,23 @@ function ConfirmationCard({ order }: { order: ConfirmationQueueOrder }) {
       </div>
 
       {/* Order essentials */}
-      <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-muted/40 px-3 py-2 text-sm">
+      <div className="mt-3 flex items-center gap-1.5 rounded-xl bg-pill-neutral px-3 py-2 text-sm">
         <Package className="size-3.5 text-muted-foreground" />
         <span className="text-muted-foreground">
           {order.itemCount} article{order.itemCount > 1 ? "s" : ""}
         </span>
         <span className="text-muted-foreground">·</span>
-        <span className="font-semibold">{formatCurrency(order.total, order.currency)}</span>
+        <span className="font-semibold text-ink tabular-nums">{formatCurrency(order.total, order.currency)}</span>
       </div>
 
       {order.stockWarning && (
-        <div className="mt-2 flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-          <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+        <Notice tone="warning" size="sm" className="mt-2">
+          <TriangleAlert />
           <span>
             Stock insuffisant à l&apos;emplacement de préparation pour au moins un article — la confirmation sera
             refusée, sauf validation motivée d&apos;un responsable.
           </span>
-        </div>
+        </Notice>
       )}
       {order.stockUntracked && (
         <p className="mt-2 text-xs text-muted-foreground">Stock non suivi pour au moins un article à cet emplacement.</p>
@@ -204,7 +205,7 @@ function ConfirmationCard({ order }: { order: ConfirmationQueueOrder }) {
       />
 
       {order.recentAttempts.length > 0 && (
-        <ul className="mt-3 space-y-0.5 border-l-2 border-muted pl-3 text-xs text-muted-foreground">
+        <ul className="mt-3 space-y-0.5 border-l-2 border-hairline pl-3 text-xs text-ink-muted">
           {order.recentAttempts.map((a, i) => (
             <li key={i}>
               <span className="text-foreground">{OUTCOME_LABELS[a.outcome] ?? a.outcome}</span>
@@ -215,7 +216,7 @@ function ConfirmationCard({ order }: { order: ConfirmationQueueOrder }) {
       )}
 
       {/* Outcome actions */}
-      <div className="mt-3.5 flex flex-wrap items-center gap-2 border-t pt-3.5">
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-hairline pt-4">
         <Input
           value={note}
           onChange={(e) => setNote(e.target.value)}

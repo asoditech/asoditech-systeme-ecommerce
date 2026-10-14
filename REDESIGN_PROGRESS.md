@@ -14,13 +14,14 @@ References: `design-reference/` (untracked, local only).
 | 2 | Shared components (cards, buttons, inputs, pills, tables, dialogs) | Done |
 | 3 | Dashboard (`/tableau-de-bord`) + chart tokens | Done |
 | 4 | Commandes (`/commandes`, detail, nouvelle, order dialogs) | Done |
-| 5a/b/c | Remaining page groups | To do |
+| 5a | Ventes: nouvelle opération, ventes magasin, confirmation, clients, livraison, suivi, retours colis | Done |
+| 5b–5e | Catalogue · Finance & analytics · Settings & others · Public/auth | To do |
 | 6 | Polish, responsiveness, AA audit | To do |
 
 ## Pages
 
 - Done (shell + shared components): every page in the app area gets the new shell, sidebar, topbar and the restyled shared components (buttons, inputs, selects, cards, tables, pills, pagination, tabs, menus, dialogs, toasts…).
-- Pages fully redesigned: `/tableau-de-bord` (Step 3); `/commandes`, `/commandes/[id]`, `/commandes/nouvelle` + order dialogs (Step 4 — the reference pattern for table pages).
+- Pages fully redesigned: `/tableau-de-bord` (Step 3); `/commandes`, `/commandes/[id]`, `/commandes/nouvelle` + order dialogs (Step 4 — the reference pattern for table pages); Ventes group (Step 5a): `/operations/nouvelle`, `/ventes` (+ detail, nouvelle), `/confirmation` (+ performance), `/clients` (+ detail, nouveau), `/livraison` (4 tabs), `/livraison/suivi` (+ detail), `/livraison/retours` (+ inspection), `/livraison/factures` (+ invoice).
 - Page-specific layouts and colours not restyled yet: all other pages (Steps 4–5).
 - Review page: `/dev/components` (dev only, 404 in production builds, not linked).
 - Out of scope until decided: `src/app/platform/*` (platform admin), not touched.
@@ -63,6 +64,18 @@ References: `design-reference/` (untracked, local only).
 - `FormSection` title: sentence case 14px (was 11px uppercase) — shows on every form using it.
 - Dialogs: purge (neutral summary tile, no uppercase, danger Notices), status change stock notice, edit address, stock override (now uses `Textarea`), shipment cost override, packing panel; `ProductChips` = neutral pills; `PhoneActions` WhatsApp = round green pill; `DisconnectedSourceBanner` = warning Notice.
 
+## Step 5a — Ventes
+
+- Shared: `StatChip` (`components/filter-bar.tsx`) — the white counter pill of the Suivi / Retours status strips (was two page-local copies); `FilterSelect`s in filter bars are full-half-width on mobile and content-sized on desktop (`sm:w-auto sm:min-w-*`, labels no longer clipped — also on `/commandes`); `.dark { color-scheme: dark }` so native number spinners / date pickers follow the theme.
+- Every list: `FilterBar` + `TableCard`, order / sale numbers as the 15px semibold anchor, ink / muted text tokens, page-level buttons at the default 44px.
+- `/operations/nouvelle`: two choice cards with round pastel icon chips, shadow on hover, focus ring, ink « Créer … → » link (orange text removed).
+- `/ventes/[id]` + `/ventes/nouvelle` (`SaleForm`): accent bars (blue = point de vente, peach = articles, green = paiement, purple = retours), larger ink total, `Notice` for « Reste à encaisser », hairline line lists, neutral chosen-client pill.
+- `/confirmation`: tabs as `SegmentedControl` (same links), queue cards = white cards, WhatsApp = green pill, stock warning = `Notice`, confirmed lists = card rows; « Mes confirmations » hero figure in ink (no green text). `/confirmation/performance`: explanation as a neutral `Notice`, conversion bar on the chart tokens.
+- `/clients/[id]`: blacklist / cancelled-orders banner = `Notice` (danger / warning).
+- `/livraison`: shipments + providers in `TableCard` (dense columns kept so the 9-column table still fits at 1280), docs panels as cards, Aramex warning = `Notice`. `/livraison/suivi` + detail: accent bars instead of icons, `Notice` for sync errors, ink link to the carrier. `/livraison/retours` + inspection: `StatChip` strip, tiles on tokens. Invoice sheet keeps its printed-paper look (white, slate) — only the uppercase title removed.
+- Colour tokens: emerald / amber / sky text → `text-pill-*-fg` (AA in both themes); `text-[10px]` / `text-[11px]` → 12px; `text-muted-foreground/70` → `text-ink-muted`.
+- Checked: light 1280, dark 390, light 768 on all 21 URLs (no horizontal overflow); dialogs in dark: sale return, provider pricing, provider connection, blacklist, cancel reception.
+
 ## Decisions (confirmed by the owner after Step 1)
 
 - AA contrast: muted text is `#707070` (switched from `#767676` after Step 2; `#9A9A9A` kept as `--text-faint`, decoration only); primary-button text is dark `#1f1206` on orange (white is 2.8:1), set once as `--brand-foreground`; focus ring uses `#D96F2D`.
@@ -80,3 +93,6 @@ References: `design-reference/` (untracked, local only).
 - Full suite under load: a few DB-backed tests time out (baseline run: 10 in 6 files; Step 4 run: 4 in `analytics.test.ts`) and pass when re-run alone — not redesign-related.
 - Pre-existing (not redesign): dev console error « useInsertionEffect must not schedule updates » from `src/components/top-progress-bar.tsx` on client navigation (file untouched since before the redesign).
 - `NavBadge` not connected to counts (by decision: no new queries in Step 1).
+- Pre-existing (not redesign): `/clients/[id]` logs « Only plain objects can be passed to Client Components… Decimal » in dev (a Prisma `Decimal` reaches a client component). Fixing it is a data-shape change, so it is left alone.
+- At 768px the expanded sidebar (272px) leaves a narrow content column; the shell does not auto-collapse to the rail at tablet width (Step 1 shell) — to review in Step 6.
+- Not openable on the local data during 5a checks (empty lists): « Créer une expédition » and the city-mapping dialog — restyled through shared tokens, not seen.

@@ -9,7 +9,7 @@ import { createShipmentsBulkAction } from "@/actions/delivery";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   CreateShipmentDialog,
   type ShipmentProviderOption,
@@ -154,7 +154,7 @@ export function AwaitingShipmentTable({
   return (
     <div className="space-y-3">
       {apiProviders.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2 rounded-tile bg-pill-neutral px-3 py-2">
           <span className="text-sm font-medium">{selected.size} sélectionnée(s)</span>
           <span className="text-muted-foreground">→</span>
           <Select value={bulkProviderId} onValueChange={(v) => setBulkProviderId((v as string | null) ?? undefined)}>
@@ -226,7 +226,7 @@ export function AwaitingShipmentTable({
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+      <TableCard>
         <Table className="text-[13px] [&_td]:px-2.5 [&_td]:py-2 [&_th]:px-2.5">
           <TableHeader>
             <TableRow>
@@ -261,7 +261,7 @@ export function AwaitingShipmentTable({
                     {o.address.shippingCity ?? "ville manquante"}
                   </span>
                   {o.failedReason && (
-                    <p className="mt-1 max-w-[18rem] text-[11px] leading-tight text-destructive">{o.failedReason}</p>
+                    <p className="mt-1 max-w-[18rem] text-xs leading-tight text-destructive">{o.failedReason}</p>
                   )}
                 </TableCell>
                 <TableCell className="text-right tabular-nums align-top">{formatCurrency(o.total, o.currency)}</TableCell>
@@ -285,7 +285,7 @@ export function AwaitingShipmentTable({
             ))}
           </TableBody>
         </Table>
-      </div>
+      </TableCard>
     </div>
   );
 }

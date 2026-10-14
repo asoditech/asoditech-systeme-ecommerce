@@ -3,9 +3,10 @@ import { PhoneCall, CheckCircle2, RotateCcw, Percent, HandCoins, Users } from "l
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { KpiCard } from "@/components/kpi-card";
+import { Notice } from "@/components/ui/notice";
 import { Badge } from "@/components/ui/badge";
 import { DateRangeFilter } from "@/components/date-range-filter";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { listAgentPerformance } from "@/lib/queries/commissions";
 import { resolveDateRangePreset, DATE_RANGE_PRESET_LABELS, type DateRangePreset } from "@/lib/date-range-presets";
@@ -69,7 +70,7 @@ export default async function ConfirmationPerformancePage({
         }
       />
 
-      <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard label="Confirmées" value={String(totals.confirmed)} icon={PhoneCall} tone="primary" />
         <KpiCard label="Livrées" value={String(totals.delivered)} icon={CheckCircle2} tone="success" />
         <KpiCard
@@ -89,7 +90,7 @@ export default async function ConfirmationPerformancePage({
         />
       </div>
 
-      <div className="mb-4 space-y-1 rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+      <Notice tone="neutral" size="sm" className="mb-5 block space-y-1">
         <p>
           Le taux Confirmation → Livraison correspond au nombre de commandes confirmées par l&apos;agent ayant été
           livrées, rapporté au nombre de commandes confirmées par cet agent.
@@ -98,14 +99,14 @@ export default async function ConfirmationPerformancePage({
           Une confirmation ne constitue pas une commission acquise. La commission est acquise uniquement lorsque la
           commande est livrée, selon les règles de commission existantes.
         </p>
-      </div>
+      </Notice>
 
       {rows.length === 0 ? (
         <EmptyState icon={Users} title="Aucun agent de confirmation trouvé." />
       ) : !hasAnyConfirmation ? (
         <EmptyState icon={PhoneCall} title="Aucune confirmation sur cette période." />
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -123,7 +124,7 @@ export default async function ConfirmationPerformancePage({
               {sorted.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell>
-                    <Link href={`/commissions/${r.id}`} className="font-medium hover:underline">
+                    <Link href={`/commissions/${r.id}`} className="font-semibold text-ink hover:underline">
                       {r.userName}
                     </Link>
                     {!r.isActive && (
@@ -140,9 +141,9 @@ export default async function ConfirmationPerformancePage({
                     ) : (
                       <div className="flex items-center gap-2">
                         <span className="tabular-nums">{formatPercent(r.conversion, 0)}</span>
-                        <span className="h-1.5 w-16 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                        <span className="h-1.5 w-16 overflow-hidden rounded-full bg-chart-track" aria-hidden="true">
                           <span
-                            className="block h-full bg-primary"
+                            className="block h-full rounded-full bg-brand"
                             style={{ width: `${Math.round(r.conversion * 100)}%` }}
                           />
                         </span>
@@ -154,14 +155,14 @@ export default async function ConfirmationPerformancePage({
                   <TableCell className="text-right tabular-nums text-destructive">
                     {r.breakdown.reversedCount > 0 ? formatCurrency(Math.abs(r.breakdown.reversedAmount), r.currency) : "—"}
                   </TableCell>
-                  <TableCell className="text-right font-medium tabular-nums">
+                  <TableCell className="text-right font-semibold text-ink tabular-nums">
                     {formatCurrency(r.breakdown.netAmount, r.currency)}
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableCard>
       )}
     </div>
   );
