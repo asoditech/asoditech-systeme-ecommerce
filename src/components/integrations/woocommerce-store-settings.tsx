@@ -59,8 +59,8 @@ function ChoiceSetting<T extends string>({
           <label
             key={choice.value}
             className={cn(
-              "flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-xs transition-colors has-focus-visible:ring-2 has-focus-visible:ring-ring/40",
-              current === choice.value ? "border-primary/50 bg-primary/5" : "border-border/60 hover:bg-muted/50"
+              "flex cursor-pointer items-start gap-2 rounded-xl border px-2.5 py-2 text-xs transition-colors has-focus-visible:ring-2 has-focus-visible:ring-ring/40",
+              current === choice.value ? "border-brand bg-pill-peach/40" : "border-hairline hover:bg-row-hover"
             )}
           >
             <input

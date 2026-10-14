@@ -55,7 +55,7 @@ export function SupportQuickActions({
 
   return (
     <section className="space-y-2">
-      <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase">
+      <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
         <Sparkles className="size-3.5" />
         Questions rapides
       </div>
@@ -78,7 +78,7 @@ export function SupportQuickActions({
                 {answers[q.id].href && (
                   <Link
                     href={answers[q.id].href!}
-                    className="inline-flex items-center gap-0.5 text-xs font-medium text-primary hover:underline"
+                    className="inline-flex items-center gap-0.5 text-xs font-medium text-link"
                   >
                     {answers[q.id].linkLabel ?? "Voir le détail"}
                     <ArrowUpRight className="size-3" />
@@ -94,7 +94,7 @@ export function SupportQuickActions({
         <button
           type="button"
           onClick={() => setShowAll((v) => !v)}
-          className="text-xs font-medium text-primary hover:underline"
+          className="text-xs font-medium text-link"
         >
           {showAll ? "Moins de questions" : `Plus de questions (${rest.length})`}
         </button>

@@ -46,7 +46,7 @@ export function CompletionRing({ percent, size = 44 }: { percent: number; size?:
         strokeLinecap="round"
         strokeDasharray={c}
         strokeDashoffset={c * (1 - percent / 100)}
-        className={percent === 100 ? "stroke-emerald-500" : "stroke-primary"}
+        className={percent === 100 ? "stroke-success" : "stroke-brand"}
       />
     </svg>
   );
@@ -74,27 +74,25 @@ export function ConfigHero({
       value: `${health.sectionsOk}/${health.sections}`,
       label: "sections en ordre",
       info: "sectionsInOrder",
-      tone: health.sectionsOk === health.sections ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400" : "bg-muted text-foreground",
+      tone: health.sectionsOk === health.sections ? "bg-pill-green text-pill-green-fg" : "bg-pill-neutral text-ink",
     },
     {
       icon: AlertTriangle,
       value: String(health.attention),
       label: health.attention === 1 ? "point à vérifier" : "points à vérifier",
       info: "pointsToCheck",
-      tone: health.attention > 0 ? "bg-amber-500/12 text-amber-600 dark:text-amber-400" : "bg-muted text-muted-foreground",
+      tone: health.attention > 0 ? "bg-pill-yellow text-pill-yellow-fg" : "bg-pill-neutral text-ink-secondary",
     },
     {
       icon: ToggleRight,
       value: `${health.switchesOn}/${health.switchesTotal}`,
       label: "fonctions activées",
       info: "featuresOn",
-      tone: "bg-primary/12 text-primary",
+      tone: "bg-pill-peach text-pill-peach-fg",
     },
   ];
   return (
-    <section aria-label="Centre de contrôle" className="relative overflow-hidden rounded-2xl bg-card shadow-card ring-1 ring-border">
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-linear-to-br from-primary/10 via-primary/3 to-transparent" />
-      <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1 bg-primary" />
+    <section aria-label="Centre de contrôle" className="relative overflow-hidden rounded-card bg-card shadow-card">
       <div className="relative flex flex-col gap-6 p-5 sm:p-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex min-w-0 items-center gap-4">
@@ -110,8 +108,8 @@ export function ConfigHero({
               </span>
             </div>
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold tracking-wide text-accent-foreground uppercase">Centre de contrôle</p>
-              <h2 className="truncate text-xl font-bold tracking-tight sm:text-2xl">{companyName.trim() || "Votre entreprise"}</h2>
+              <p className="text-xs font-medium text-ink-muted">Centre de contrôle</p>
+              <h2 className="truncate text-xl font-semibold tracking-tight text-ink sm:text-2xl">{companyName.trim() || "Votre entreprise"}</h2>
               <p className="flex items-center gap-1 text-sm text-muted-foreground">
                 Pilotez le fonctionnement de votre activité · identité complète à {completion} %
                 <SettingInfo setting="identityCompletion" />
@@ -142,7 +140,7 @@ export function ConfigHero({
 export function ConfigNav({ current, flagged }: { current: ConfigSectionId; flagged: ConfigSectionId[] }) {
   return (
     <nav aria-label="Sections de la configuration" className="min-w-0">
-      <ul className="flex gap-1 overflow-x-auto rounded-2xl bg-muted/60 p-1 [scrollbar-width:none]">
+      <ul className="flex gap-1 overflow-x-auto rounded-full bg-segment-track p-1 [scrollbar-width:none]">
         {CONFIG_SECTIONS.map((s) => {
           const active = s.id === current;
           const accent = SECTION_ACCENTS[s.id];
@@ -153,13 +151,13 @@ export function ConfigNav({ current, flagged }: { current: ConfigSectionId; flag
                 href={sectionHref(s.id)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex h-10 items-center gap-2 rounded-xl px-3.5 text-sm font-medium whitespace-nowrap transition-all",
-                  active ? "bg-card text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:bg-card/60 hover:text-foreground"
+                  "flex h-9 items-center gap-2 rounded-full px-3.5 text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:ring-[3px] focus-visible:ring-ring/25",
+                  active ? "bg-segment-thumb text-ink shadow-soft" : "text-ink-secondary hover:text-ink"
                 )}
               >
                 <Icon className={cn("size-4", active ? accent.text : "")} />
                 {s.short}
-                {flagged.includes(s.id) && <span className="size-1.5 rounded-full bg-amber-500" aria-label="à vérifier" />}
+                {flagged.includes(s.id) && <span className="size-1.5 rounded-full bg-chart-5" aria-label="à vérifier" />}
               </Link>
             </li>
           );
@@ -177,9 +175,9 @@ export function AttentionCards({ items }: { items: AttentionItem[] }) {
       {items.map((a) => {
         const Icon = SECTION_ACCENTS[a.section].icon;
         return (
-          <li key={`${a.section}-${a.title}`} className="relative flex items-start gap-3 overflow-hidden rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 pl-5">
-            <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1 bg-amber-500" />
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
+          <li key={`${a.section}-${a.title}`} className="relative flex items-start gap-3 overflow-hidden rounded-tile bg-pill-yellow/60 p-4 pl-5">
+            <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1 bg-chart-5" />
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-pill-yellow text-pill-yellow-fg">
               <Icon className="size-4" />
             </span>
             <div className="min-w-0 flex-1">
@@ -188,7 +186,7 @@ export function AttentionCards({ items }: { items: AttentionItem[] }) {
             </div>
             <Link
               href={sectionHref(a.section, a.anchor)}
-              className="inline-flex shrink-0 items-center gap-1 self-center rounded-lg bg-background px-2.5 py-1.5 text-xs font-semibold shadow-xs ring-1 ring-border transition-colors hover:bg-muted"
+              className="inline-flex shrink-0 items-center gap-1 self-center rounded-full bg-card px-3 py-1.5 text-xs font-semibold text-ink shadow-soft transition-colors hover:bg-row-hover"
             >
               Corriger
               <ArrowRight className="size-3.5" />
@@ -209,7 +207,7 @@ export function SectionTile({ summary, settingsCount }: { summary: SectionSummar
     <Link
       href={sectionHref(summary.id)}
       className={cn(
-        "group relative flex flex-col overflow-hidden rounded-2xl border bg-card p-5 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-md hover:ring-1 focus-visible:ring-2 focus-visible:outline-none",
+        "group relative flex flex-col overflow-hidden rounded-card bg-card p-5 shadow-card transition-all hover:shadow-popover hover:ring-1 focus-visible:ring-2 focus-visible:outline-none",
         accent.hoverRing
       )}
     >
@@ -219,12 +217,12 @@ export function SectionTile({ summary, settingsCount }: { summary: SectionSummar
           <Icon className="size-5" />
         </span>
         {summary.attention > 0 ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/12 px-2 py-0.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
+          <span className="inline-flex items-center gap-1 rounded-full bg-pill-yellow px-2 py-0.5 text-xs font-semibold text-pill-yellow-fg">
             <AlertTriangle className="size-3" />
             {summary.attention} à vérifier
           </span>
         ) : (
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-pill-green-fg">
             <CheckCircle2 className="size-3.5" />
             En ordre
           </span>
@@ -234,15 +232,15 @@ export function SectionTile({ summary, settingsCount }: { summary: SectionSummar
         <h3 className="text-base font-semibold tracking-tight">{meta.label}</h3>
         <p className="text-sm text-muted-foreground">{meta.purpose}</p>
       </div>
-      <div className="relative mt-4 rounded-xl bg-muted/50 px-3.5 py-3">
-        <p className={cn("truncate text-lg font-bold tracking-tight", accent.text)}>{summary.value}</p>
+      <div className="relative mt-4 rounded-xl bg-pill-neutral px-3.5 py-3">
+        <p className={cn("truncate text-lg font-semibold tracking-tight", accent.text)}>{summary.value}</p>
         <p className="truncate text-xs text-muted-foreground">{summary.caption}</p>
       </div>
       {summary.switches.length > 0 && (
         <ul className="relative mt-3 space-y-1.5">
           {summary.switches.map((sw) => (
             <li key={sw.label} className="flex items-center gap-2 text-xs">
-              <span className={cn("size-2 shrink-0 rounded-full", sw.on ? "bg-emerald-500" : "border border-muted-foreground/50")} />
+              <span className={cn("size-2 shrink-0 rounded-full", sw.on ? "bg-success" : "border border-muted-foreground/50")} />
               <span className={cn("truncate", sw.on ? "text-foreground" : "text-muted-foreground")}>{sw.label}</span>
             </li>
           ))}
@@ -278,12 +276,12 @@ export function SectionHeader({
   const accent = SECTION_ACCENTS[id];
   const Icon = accent.icon;
   return (
-    <header className="relative overflow-hidden rounded-2xl border bg-card px-5 py-5 shadow-xs sm:px-6">
+    <header className="relative overflow-hidden rounded-card bg-card px-5 py-5 shadow-card sm:px-6">
       <span aria-hidden="true" className={cn("pointer-events-none absolute inset-0 bg-linear-to-r", accent.wash)} />
       <span aria-hidden="true" className={cn("absolute inset-y-0 left-0 w-1", accent.bar)} />
       <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-4">
-          <span className={cn("flex size-12 shrink-0 items-center justify-center rounded-2xl", accent.chip)}>
+          <span className={cn("flex size-12 shrink-0 items-center justify-center rounded-full", accent.chip)}>
             <Icon className="size-6" />
           </span>
           <div className="min-w-0">
@@ -292,11 +290,11 @@ export function SectionHeader({
           </div>
         </div>
         <div className="flex shrink-0 gap-2 text-xs">
-          <span className="rounded-lg bg-background/80 px-2.5 py-1.5 font-medium shadow-xs ring-1 ring-border">
+          <span className="rounded-full bg-pill-neutral px-3 py-1.5 font-medium text-ink">
             {settingsCount} réglage{settingsCount > 1 ? "s" : ""}
           </span>
           {switchesTotal > 0 && (
-            <span className="rounded-lg bg-background/80 px-2.5 py-1.5 font-medium shadow-xs ring-1 ring-border">
+            <span className="rounded-full bg-pill-neutral px-3 py-1.5 font-medium text-ink">
               {switchesOn}/{switchesTotal} activé{switchesOn > 1 ? "s" : ""}
             </span>
           )}
@@ -309,13 +307,13 @@ export function SectionHeader({
 /** A switch shown read-only (the user may see it but not change it). */
 export function ReadOnlyStateTile({ icon: Icon, title, on, note, info }: { icon: LucideIcon; title: string; on: boolean; note: string; info?: React.ReactNode }) {
   return (
-    <article className="flex flex-col rounded-2xl border border-dashed bg-card/60 p-5">
+    <article className="flex flex-col rounded-card border border-dashed border-field-border bg-card/60 p-5">
       <div className="flex items-start justify-between gap-3">
-        <span className="flex size-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+        <span className="flex size-10 items-center justify-center rounded-full bg-pill-neutral text-ink-secondary">
           <Icon className="size-5" />
         </span>
-        <span className={cn("inline-flex items-center gap-1.5 text-xs font-semibold", on ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
-          <span className={cn("size-2 rounded-full", on ? "bg-emerald-500" : "border border-muted-foreground/50")} />
+        <span className={cn("inline-flex items-center gap-1.5 text-xs font-semibold", on ? "text-pill-green-fg" : "text-muted-foreground")}>
+          <span className={cn("size-2 rounded-full", on ? "bg-success" : "border border-muted-foreground/50")} />
           {on ? "Activé" : "Désactivé"}
         </span>
       </div>
@@ -346,8 +344,8 @@ export function UnavailableTile({
   info?: React.ReactNode;
 }) {
   return (
-    <article className="flex flex-col items-start rounded-2xl border border-dashed bg-muted/20 p-5">
-      <span className="flex size-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+    <article className="flex flex-col items-start rounded-card border border-dashed border-field-border p-5">
+      <span className="flex size-10 items-center justify-center rounded-full bg-pill-neutral text-ink-secondary">
         <Icon className="size-5" />
       </span>
       <div className="mt-4 flex items-start gap-1">
@@ -356,7 +354,7 @@ export function UnavailableTile({
       </div>
       <p className="mt-1 text-sm text-muted-foreground">{message}</p>
       {action && (
-        <Link href={action.href} className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">
+        <Link href={action.href} className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-link">
           {action.label}
           <ArrowUpRight className="size-3.5" />
         </Link>
@@ -370,9 +368,9 @@ export function DedicatedLink({ href, icon: Icon, title, description }: { href: 
   return (
     <Link
       href={href}
-      className="group flex min-w-0 items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-2 focus-visible:outline-none"
+      className="group flex min-w-0 items-center gap-3 rounded-tile bg-card px-4 py-3 shadow-card transition-all hover:shadow-popover focus-visible:ring-2 focus-visible:outline-none"
     >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground/80 transition-colors group-hover:bg-primary/12 group-hover:text-primary">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-pill-neutral text-ink-secondary transition-colors group-hover:bg-pill-peach group-hover:text-pill-peach-fg">
         <Icon className="size-4" />
       </span>
       <span className="min-w-0 flex-1">

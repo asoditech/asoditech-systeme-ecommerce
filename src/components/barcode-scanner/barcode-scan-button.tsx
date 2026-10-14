@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Notice } from "@/components/ui/notice";
 import { Camera, CheckCircle2, Flashlight, FlashlightOff, Loader2, ScanLine, TriangleAlert, ZoomIn, ZoomOut } from "lucide-react";
 import { scannerStatusMessage, RELEVANT_BARCODE_FORMATS, type CameraFeatures } from "@/lib/barcode-scanner/support";
 import {
@@ -192,13 +193,12 @@ export function BarcodeScanButton({
         </DialogHeader>
 
         {message ? (
-          <div
-            role="alert"
-            className="flex flex-col items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-6 text-center text-sm text-amber-700 dark:text-amber-400"
+          <Notice tone="warning"
+            role="alert" className="items-center gap-2"
           >
             <TriangleAlert className="size-5 shrink-0" />
             <p>{message}</p>
-          </div>
+          </Notice>
         ) : (
           <div className="relative aspect-[4/3] max-h-[55dvh] w-full overflow-hidden rounded-md bg-black">
             <video ref={videoRef} className="size-full object-cover" muted playsInline aria-label="Aperçu caméra pour le scan de code-barres" />
@@ -263,7 +263,7 @@ export function BarcodeScanButton({
           </div>
         )}
         {hint && (
-          <p className="text-xs text-amber-700 dark:text-amber-400" role="status">
+          <p className="text-xs text-pill-yellow-fg" role="status">
             {hint}
           </p>
         )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { Notice } from "@/components/ui/notice";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Download, DatabaseBackup, Upload, ShieldAlert, Loader2, FileArchive, Cloud, CloudOff, Trash2, RotateCcw } from "lucide-react";
@@ -286,7 +287,7 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
           Importer une sauvegarde
         </Button>
         {status.pendingUpload && !preview && (
-          <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+          <p className="mt-2 text-xs text-pill-yellow-fg">
             Une sauvegarde importée est en attente de confirmation (
             {formatDateTime(status.pendingUpload.createdAt)}).{" "}
             <button
@@ -323,13 +324,13 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
                 </span>
                 {s.downloadable ? (
                   <a
-                    className="text-primary hover:underline"
+                    className="text-link"
                     href={`/parametres/sauvegarde/download?snapshot=${s.id}`}
                   >
                     Télécharger
                   </a>
                 ) : (
-                  <span className="text-xs text-muted-foreground/70">Expiré</span>
+                  <span className="text-xs text-ink-muted">Expiré</span>
                 )}
               </li>
             ))}
@@ -358,10 +359,10 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
 
           {gd.connection.status === "ERREUR" && (
             <div className="space-y-2">
-              <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              <Notice tone="warning" size="sm" className="block">
                 La connexion Google Drive a expiré ou a été révoquée. Reconnectez-vous pour reprendre les envois.
                 {gd.connection.lastError ? ` (${gd.connection.lastError})` : ""}
-              </p>
+              </Notice>
               <div className="flex gap-2">
                 <Button type="button" variant="outline" render={<a href="/parametres/sauvegarde/google/start" />}>
                   <RotateCcw className="size-4" />
@@ -396,7 +397,7 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
               </div>
 
               {gd.listError && (
-                <p className="text-xs text-amber-600 dark:text-amber-400">
+                <p className="text-xs text-pill-yellow-fg">
                   Impossible de lister les sauvegardes Google Drive : {gd.listError}
                 </p>
               )}
@@ -404,12 +405,12 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
               {gd.backups.length === 0 ? (
                 <p className="text-xs text-muted-foreground">Aucune sauvegarde sur Google Drive.</p>
               ) : (
-                <ul className="divide-y rounded-md border text-sm">
+                <ul className="divide-y divide-hairline rounded-tile border border-hairline text-sm">
                   {gd.backups.map((b) => (
                     <li key={b.recordId} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
                       <div className="min-w-0">
                         <p className="truncate font-mono text-xs">{b.name}</p>
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           {formatDateTime(b.createdAt)} · {formatBytes(b.sizeBytes)}
                           {b.totalRows != null ? ` · ${b.totalRows} enreg.` : ""}
                           {!b.existsOnDrive ? " · (fichier absent de Drive)" : ""}
@@ -418,7 +419,7 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
                       <div className="flex shrink-0 items-center gap-1">
                         {b.existsOnDrive ? (
                           <a
-                            className="rounded px-2 py-1 text-xs text-primary hover:underline"
+                            className="rounded px-2 py-1 text-xs text-link"
                             href={`/parametres/sauvegarde/google/download?ref=${encodeURIComponent(b.recordId)}`}
                           >
                             <Download className="mr-1 inline size-3.5" />
@@ -475,20 +476,20 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
                 </dl>
 
                 {!preview.manifest.sameTenant && (
-                  <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  <p className="rounded-tile bg-pill-red px-3 py-2 text-xs text-pill-red-fg">
                     Cette sauvegarde provient d&apos;un autre compte/déploiement. La restauration entre tenants n&apos;est
                     pas disponible dans cette version.
                   </p>
                 )}
                 {preview.errors.length > 0 && (
-                  <ul className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  <ul className="rounded-tile bg-pill-red px-3 py-2 text-xs text-pill-red-fg">
                     {preview.errors.map((e, i) => (
                       <li key={i}>{e}</li>
                     ))}
                   </ul>
                 )}
                 {preview.warnings.length > 0 && (
-                  <ul className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                  <ul className="rounded-tile bg-pill-yellow px-3 py-2 text-xs text-pill-yellow-fg">
                     {preview.warnings.map((w, i) => (
                       <li key={i}>{w}</li>
                     ))}

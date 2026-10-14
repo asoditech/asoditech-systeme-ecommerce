@@ -86,7 +86,7 @@ export function AnnouncementBar({ announcement }: { announcement: ActiveAnnounce
             >
               {[false, true].map((duplicate) => (
                 <p key={String(duplicate)} className="announcement-ticker-copy text-sm leading-snug font-bold break-words text-white" aria-hidden={duplicate || undefined}>
-                  <span className="me-1.5 inline-block rounded bg-black/20 px-1.5 py-px text-[11px] font-bold tracking-wide uppercase">
+                  <span className="me-1.5 inline-block rounded bg-black/20 px-1.5 py-px text-xs font-bold">
                     {ANNOUNCEMENT_TYPE_LABELS[announcement.type]}
                   </span>
                   {announcement.message}

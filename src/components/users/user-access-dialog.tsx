@@ -197,7 +197,7 @@ export function UserAccessDialog({
           {/* Phase 2 — "Accès effectif": one authoritative summary, computed
               via computeEffectiveAccess (never a second RBAC formula),
               reflecting the draft toggles/channels below in real time. */}
-          <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+          <div className="space-y-2 rounded-tile bg-pill-neutral p-3">
             <p className="text-sm font-medium">Accès effectif</p>
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <Badge variant="secondary">{scopeLabel}</Badge>
@@ -233,7 +233,7 @@ export function UserAccessDialog({
             </p>
             <div className="flex flex-wrap gap-2">
               {channels.map((c) => (
-                <label key={c.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">
+                <label key={c.id} className="flex items-center gap-2 rounded-xl border border-hairline p-2.5 text-sm">
                   <Checkbox
                     checked={selectedChannels.has(c.id)}
                     onCheckedChange={(checked) =>
@@ -269,11 +269,11 @@ export function UserAccessDialog({
                 const status = responsibilityStatus(r.id, base, permissions, states);
                 const toRevoke = responsibilityRevocations(r.id, base, permissions, states);
                 return (
-                  <div key={r.id} className="flex flex-col gap-1.5 rounded-md border p-2.5">
+                  <div key={r.id} className="flex flex-col gap-1.5 rounded-xl border border-hairline p-2.5">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-medium">{r.label}</p>
-                      {status === "granted" && <Badge variant="default" className="text-[10px]">Attribuée</Badge>}
-                      {status === "partial" && <Badge variant="outline" className="text-[10px]">Partielle</Badge>}
+                      {status === "granted" && <Badge variant="default" className="text-xs">Attribuée</Badge>}
+                      {status === "partial" && <Badge variant="outline" className="text-xs">Partielle</Badge>}
                     </div>
                     <p className="text-xs text-muted-foreground">{r.description}</p>
                     {status === "covered-by-role" ? (
@@ -332,11 +332,11 @@ export function UserAccessDialog({
               « Hérité » suit le rôle. « Autoriser » ajoute une permission que le rôle n&apos;a pas ; « Refuser » en
               retire une que le rôle accorde. Un refus l&apos;emporte toujours.
             </p>
-            <ScrollArea className="h-72 rounded-md border">
+            <ScrollArea className="h-72 rounded-tile border border-hairline">
               <div className="space-y-4 p-3">
                 {[...byModule].map(([group, perms]) => (
                   <div key={group}>
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <p className="mb-1 text-xs font-semibold text-muted-foreground">
                       {MODULE_LABELS[group] ?? group}
                     </p>
                     <div className="space-y-1">
@@ -353,21 +353,21 @@ export function UserAccessDialog({
                           <div key={p} className="flex items-center gap-2 text-sm">
                             <span className="flex-1 font-mono text-xs">{p}</span>
                             {domain && (
-                              <span className="text-[10px] text-muted-foreground">
+                              <span className="text-xs text-muted-foreground">
                                 {domain === "ONLINE" ? "canal en ligne" : "canal magasin"}
                               </span>
                             )}
-                            <Badge variant={base.has(p) ? "secondary" : "outline"} className="text-[10px]">
+                            <Badge variant={base.has(p) ? "secondary" : "outline"} className="text-xs">
                               {base.has(p) ? "rôle : oui" : "rôle : non"}
                             </Badge>
                             <Badge
                               variant={effective ? "default" : "outline"}
-                              className={"text-[10px] " + (effective ? "" : "text-muted-foreground")}
+                              className={"text-xs " + (effective ? "" : "text-muted-foreground")}
                               title="Accès effectif résultant de ce choix"
                             >
                               {effective ? "effectif : oui" : "effectif : non"}
                             </Badge>
-                            <div className="flex overflow-hidden rounded-md border text-xs">
+                            <div className="flex gap-0.5 overflow-hidden rounded-full bg-segment-track p-0.5 text-xs">
                               {(["inherit", "grant", "deny"] as const)
                                 // P2: a DENY-only permission (the stock override) can never be granted
                                 // individually — the server refuses it too; this only hides the choice.
@@ -379,14 +379,14 @@ export function UserAccessDialog({
                                   aria-pressed={state === opt}
                                   onClick={() => setStates((prev) => ({ ...prev, [p]: opt }))}
                                   className={
-                                    "px-2 py-1 " +
+                                    "rounded-full px-2.5 py-1 font-medium transition-colors " +
                                     (state === opt
                                       ? opt === "deny"
-                                        ? "bg-destructive text-destructive-foreground"
+                                        ? "bg-pill-red text-pill-red-fg"
                                         : opt === "grant"
-                                          ? "bg-primary text-primary-foreground"
-                                          : "bg-muted"
-                                      : "hover:bg-muted/60")
+                                          ? "bg-pill-green text-pill-green-fg"
+                                          : "bg-segment-thumb text-ink shadow-soft"
+                                      : "text-ink-secondary hover:text-ink")
                                   }
                                 >
                                   {opt === "inherit" ? "Hérité" : opt === "grant" ? "Autoriser" : "Refuser"}

@@ -13,12 +13,12 @@ export function AccountSecurityCard() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-start gap-3 space-y-0">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-pill-peach text-pill-peach-fg">
           <ShieldCheck className="size-4.5" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1">
-            <CardTitle className="text-base">Sécurité du compte</CardTitle>
+            <CardTitle accent="purple">Sécurité du compte</CardTitle>
             <SettingInfo setting="accountSecurity" />
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">

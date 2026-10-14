@@ -4,15 +4,15 @@ import type { IntegrationStatus } from "@prisma/client";
 
 const DOT_TONE: Record<IntegrationStatus, string> = {
   DECONNECTE: "bg-muted-foreground/40",
-  CONFIGURE: "bg-amber-500",
-  CONNECTE: "bg-emerald-500",
+  CONFIGURE: "bg-chart-5",
+  CONNECTE: "bg-success",
   ERREUR: "bg-destructive",
 };
 
 const TEXT_TONE: Record<IntegrationStatus, string> = {
   DECONNECTE: "text-muted-foreground",
-  CONFIGURE: "text-amber-700 dark:text-amber-400",
-  CONNECTE: "text-emerald-700 dark:text-emerald-400",
+  CONFIGURE: "text-pill-yellow-fg",
+  CONNECTE: "text-pill-green-fg",
   ERREUR: "text-destructive",
 };
 

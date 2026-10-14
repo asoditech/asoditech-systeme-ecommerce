@@ -29,16 +29,15 @@ export function DocSidebar({
           <div key={cat.id}>
             <Link
               href={`/documentation/${cat.id}`}
-              className={`relative flex items-center gap-2 rounded-md py-1.5 pr-2.5 pl-3.5 text-sm font-medium transition-colors ${
-                isActiveCategory ? "bg-primary/10 text-primary" : "text-foreground/80 hover:bg-muted"
+              className={`relative flex items-center gap-2 rounded-xl py-2 pr-2.5 pl-3.5 text-sm font-medium transition-colors ${
+                isActiveCategory ? "bg-nav-active text-ink" : "text-ink-secondary hover:bg-nav-hover hover:text-ink"
               }`}
             >
-              {isActiveCategory && <span className="absolute inset-y-1 left-0 w-[3px] rounded-full bg-primary" />}
-              <cat.icon className="size-4 shrink-0" />
+                            <cat.icon className="size-4 shrink-0" />
               <span className="truncate">{cat.label}</span>
             </Link>
             {isActiveCategory && articles.length > 0 && (
-              <ul className="mt-1 mb-2 ml-4 space-y-0.5 border-l pl-3">
+              <ul className="mt-1 mb-2 ml-4 space-y-0.5 border-l border-hairline pl-3">
                 {articles.map((a) => {
                   const tail = a.slug.slice(a.category.length + 1);
                   const isActive = tail === activeSlug;
@@ -46,8 +45,8 @@ export function DocSidebar({
                     <li key={a.slug}>
                       <Link
                         href={articleHref(a)}
-                        className={`block truncate rounded-md px-2 py-1 text-[13px] ${
-                          isActive ? "font-medium text-primary" : "text-muted-foreground hover:text-foreground"
+                        className={`block truncate rounded-lg px-2 py-1 text-[13px] ${
+                          isActive ? "font-medium text-ink" : "text-ink-muted hover:text-ink"
                         }`}
                       >
                         {a.title}

@@ -87,7 +87,7 @@ export function UsagePanel({
 
       {/* Upgrade nudge — only shown when it's actually relevant */}
       {!isPro && mostSevere !== "NORMAL" && canRequestUpgrade && (
-        <Card className="border-primary/30 bg-primary/5">
+        <Card className="bg-pill-peach/40">
           <CardContent className="flex flex-col gap-3 pt-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="flex items-center gap-1 font-medium">
@@ -119,7 +119,7 @@ export function UsagePanel({
               const tierSuffix = value === "advanced" ? " (avancé)" : value === "standard" ? "" : "";
               return (
                 <div key={key} className="flex items-center gap-2 text-sm">
-                  {on ? <Check className="size-4 text-emerald-600 dark:text-emerald-400" /> : <X className="size-4 text-muted-foreground" />}
+                  {on ? <Check className="size-4 text-pill-green-fg" /> : <X className="size-4 text-muted-foreground" />}
                   <span className={on ? "" : "text-muted-foreground"}>
                     {label}
                     {tierSuffix}

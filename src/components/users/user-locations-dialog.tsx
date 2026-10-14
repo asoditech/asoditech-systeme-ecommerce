@@ -93,7 +93,7 @@ export function UserLocationsDialog({
             <ScrollArea className="max-h-72">
               <div className="space-y-2 pr-3">
                 {warehouses.map((w) => (
-                  <label key={w.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">
+                  <label key={w.id} className="flex items-center gap-2 rounded-xl border border-hairline p-2.5 text-sm">
                     <Checkbox
                       checked={selected.has(w.id)}
                       onCheckedChange={(checked) => toggle(w.id, checked === true)}

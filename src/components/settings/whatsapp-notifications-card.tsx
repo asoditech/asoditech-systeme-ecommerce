@@ -32,12 +32,12 @@ const STATUS: Record<Status, { label: string; tone: string; text: string }> = {
   },
   pending: {
     label: "En attente de vérification",
-    tone: "border-amber-300 bg-amber-50 text-amber-800",
+    tone: "border-transparent bg-pill-yellow text-pill-yellow-fg",
     text: "Vérifiez votre numéro pour pouvoir activer les alertes WhatsApp.",
   },
   active: {
     label: "Activé",
-    tone: "border-emerald-300 bg-emerald-50 text-emerald-800",
+    tone: "border-transparent bg-pill-green text-pill-green-fg",
     text: "Les alertes WhatsApp critiques sont activées.",
   },
   disabled: {
@@ -92,12 +92,12 @@ export function WhatsAppNotificationsCard({
   return (
     <Card>
       <CardHeader className="flex flex-row items-start gap-3 space-y-0">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-pill-green text-pill-green-fg">
           <MessageCircle className="size-4.5" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="text-base">Alertes WhatsApp</CardTitle>
+            <CardTitle accent="yellow">Alertes WhatsApp</CardTitle>
             <SettingInfo setting="whatsappAlerts" />
             <Badge variant="outline" className={cn("font-medium", s.tone)}>
               {s.label}
@@ -111,7 +111,7 @@ export function WhatsAppNotificationsCard({
 
       <CardContent className="space-y-4">
         {status === "unavailable" ? (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/60 px-3 py-2.5 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-pill-neutral px-3 py-2.5 text-xs text-muted-foreground">
             <p>
               {unavailableReason === "not_configured"
                 ? "Le canal WhatsApp n'est pas encore disponible sur cette plateforme."
@@ -167,11 +167,11 @@ export function WhatsAppNotificationsCard({
               <div className="flex items-center gap-2">
                 <span className="font-mono text-sm">{maskedPhone}</span>
                 {verified ? (
-                  <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-pill-green-fg">
                     <BadgeCheck className="size-3.5" /> Vérifié
                   </span>
                 ) : (
-                  <span className="text-xs font-medium text-amber-700">Non vérifié</span>
+                  <span className="text-xs font-medium text-pill-yellow-fg">Non vérifié</span>
                 )}
               </div>
               <div className="flex gap-1.5">

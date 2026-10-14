@@ -44,9 +44,9 @@ export default async function DocumentationHomePage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {categoriesFor(user.capabilities).map((cat) => (
             <Link key={cat.id} href={`/documentation/${cat.id}`}>
-              <Card size="sm" className="h-full gap-3 transition-colors hover:border-primary/40">
+              <Card size="sm" className="h-full gap-3 transition-colors hover:border-field-border-hover">
                 <CardContent className="flex items-start gap-3">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-pill-peach text-pill-peach-fg">
                     <cat.icon className="size-4.5" />
                   </div>
                   <div className="min-w-0">
@@ -67,7 +67,7 @@ export default async function DocumentationHomePage() {
             <Link
               key={tour.slug}
               href={`/documentation/demos/${tour.slug}`}
-              className="flex items-center justify-between gap-2 rounded-lg border p-3.5 text-sm hover:bg-muted/50"
+              className="flex items-center justify-between gap-2 rounded-tile bg-card p-4 text-sm shadow-card transition-colors hover:bg-row-hover"
             >
               <div>
                 <p className="font-medium">{tour.title}</p>

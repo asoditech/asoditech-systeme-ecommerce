@@ -47,14 +47,14 @@ export async function ShopifyCard({ canManage }: { canManage: boolean }) {
 
       <CardContent className="space-y-4">
         {config?.shopDomain && (
-          <div className="flex items-center gap-1.5 truncate rounded-md bg-muted/50 px-2.5 py-1.5 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5 truncate rounded-xl bg-pill-neutral px-2.5 py-1.5 text-xs text-muted-foreground">
             <Globe className="size-3.5 shrink-0" />
             <span className="truncate">{config.shopDomain}</span>
           </div>
         )}
 
         {integration?.lastError && status === "ERREUR" && (
-          <div className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/8 px-3 py-2 text-xs text-destructive">
+          <div className="flex items-start gap-2 rounded-tile bg-pill-red px-3 py-2 text-xs text-pill-red-fg">
             <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
             <p>{integration.lastError}</p>
           </div>

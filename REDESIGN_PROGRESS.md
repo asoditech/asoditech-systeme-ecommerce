@@ -17,13 +17,14 @@ References: `design-reference/` (untracked, local only).
 | 5a | Ventes: nouvelle opération, ventes magasin, confirmation, clients, livraison, suivi, retours colis | Done |
 | 5b | Catalogue: produits, catégories, stock, réceptions, fournisseurs, traçabilité, transferts, inventaires, entrepôts | Done |
 | 5c | Finance & analytics: finance, dépenses, commissions, rapports (12), analyses (6) + charts on the shared chart settings | Done |
-| 5d–5e | Settings & others · Public/auth | To do |
+| 5d | Settings & others: paramètres (5), utilisateurs, intégrations, marketing, notifications, journal-audit, assistant-IA, documentation, scan (+ shell bits: support widget, announcement badge) | Done |
+| 5e | Public/auth | To do |
 | 6 | Polish, responsiveness, AA audit | To do |
 
 ## Pages
 
 - Done (shell + shared components): every page in the app area gets the new shell, sidebar, topbar and the restyled shared components (buttons, inputs, selects, cards, tables, pills, pagination, tabs, menus, dialogs, toasts…).
-- Pages fully redesigned: `/tableau-de-bord` (Step 3); `/commandes`, `/commandes/[id]`, `/commandes/nouvelle` + order dialogs (Step 4 — the reference pattern for table pages); Ventes group (Step 5a): `/operations/nouvelle`, `/ventes` (+ detail, nouvelle), `/confirmation` (+ performance), `/clients` (+ detail, nouveau), `/livraison` (4 tabs), `/livraison/suivi` (+ detail), `/livraison/retours` (+ inspection), `/livraison/factures` (+ invoice); Catalogue group (Step 5b): `/produits` (+ detail, nouveau, exporter, étiquette), `/catalogue/categories`, `/stock`, `/receptions` (+ detail, nouveau, modifier), `/fournisseurs` (+ detail), `/tracabilite`, `/transferts` (+ detail, nouveau), `/inventaires` (+ detail, nouveau), `/entrepots`; Finance & analytics (Step 5c): `/finance`, `/depenses`, `/commissions` (+ agent, relevé), `/rapports` + 11 reports, `/analyses` + 5 tabs.
+- Pages fully redesigned: `/tableau-de-bord` (Step 3); `/commandes`, `/commandes/[id]`, `/commandes/nouvelle` + order dialogs (Step 4 — the reference pattern for table pages); Ventes group (Step 5a): `/operations/nouvelle`, `/ventes` (+ detail, nouvelle), `/confirmation` (+ performance), `/clients` (+ detail, nouveau), `/livraison` (4 tabs), `/livraison/suivi` (+ detail), `/livraison/retours` (+ inspection), `/livraison/factures` (+ invoice); Catalogue group (Step 5b): `/produits` (+ detail, nouveau, exporter, étiquette), `/catalogue/categories`, `/stock`, `/receptions` (+ detail, nouveau, modifier), `/fournisseurs` (+ detail), `/tracabilite`, `/transferts` (+ detail, nouveau), `/inventaires` (+ detail, nouveau), `/entrepots`; Finance & analytics (Step 5c): `/finance`, `/depenses`, `/commissions` (+ agent, relevé), `/rapports` + 11 reports, `/analyses` + 5 tabs; Settings & others (Step 5d): `/parametres` (configuration, notifications, abonnement, canaux, sauvegarde), `/utilisateurs`, `/integrations`, `/marketing`, `/notifications`, `/journal-audit`, `/assistant-ia`, `/documentation` (+ catégorie, article, démo), `/scan/[token]`. « catalogue » and « opérations » of this group were done in 5b (`/catalogue/categories`) and 5a (`/operations/nouvelle`).
 - Page-specific layouts and colours not restyled yet: all other pages (Steps 4–5).
 - Review page: `/dev/components` (dev only, 404 in production builds, not linked).
 - Out of scope until decided: `src/app/platform/*` (platform admin), not touched.
@@ -96,6 +97,16 @@ References: `design-reference/` (untracked, local only).
 - Commissions: « Ajouter un agent » and agent rate forms wrap instead of overflowing at 390 / 768.
 - Checked: light 1280, dark 390, light 768 on 21 URLs (no overflow after the fix above); charts scrolled into view in light and dark; dialogs in dark: new expense (1280 + 390), edit expense.
 
+## Step 5d — Settings & others
+
+- No uppercase label left in the app (`grep uppercase` = only `src/app/platform`, out of scope): settings legends / column heads, docs « Sur cette page », support widget headings, control-centre eyebrow, announcement « Nouveau » tag.
+- Settings: tab nav = ink underline on a hairline (was orange); configuration « Centre de contrôle » = plain card, completion ring on brand / success, stat chips and section accents (`config/section-meta.ts`) on the pastel pill pairs (same keys, same icons — no more indigo / teal / sky / violet scale), section switcher = segmented pills, « à corriger » tiles = pale yellow with yellow rail, setting cards = 24px cards, radio tiles = hairline tiles with a brand check.
+- Docs: `Callout` is now the shared `Notice` (same tones); sidebar active item = neutral nav pill (was peach + orange rail); guided tour progress on brand / chart track; card titles with accent bars.
+- Integrations / notifications: status dots on success / chart yellow; « actif » chips = green pills; error boxes = red tiles; « Bientôt disponible » cards = dashed hairline. Notification list = one card with hairline rows, unread rows faint peach, date + dismiss stack on phones (fixed a 390px overflow).
+- Users: permission override switch (Hérité / Autoriser / Refuser) = segmented pills (neutral / green / red); checkbox rows = hairline tiles.
+- `/scan/[token]` (public scan page): page background + 24px card.
+- Checked: light 1280, dark 390, light 768 on 16 URLs (no overflow after the fix above); dialogs in dark: invite user (1280 + 390), new marketing channel.
+
 ## Decisions (confirmed by the owner after Step 1)
 
 - AA contrast: muted text is `#707070` (switched from `#767676` after Step 2; `#9A9A9A` kept as `--text-faint`, decoration only); primary-button text is dark `#1f1206` on orange (white is 2.8:1), set once as `--brand-foreground`; focus ring uses `#D96F2D`.
@@ -114,6 +125,7 @@ References: `design-reference/` (untracked, local only).
 - `NavBadge` not connected to counts (by decision: no new queries in Step 1).
 - Pre-existing (not redesign): `/clients/[id]` logs « Only plain objects can be passed to Client Components… Decimal » in dev (a Prisma `Decimal` reaches a client component). Fixing it is a data-shape change, so it is left alone.
 - At 768px the expanded sidebar (272px) leaves a narrow content column; the shell does not auto-collapse to the rail at tablet width (Step 1 shell) — to review in Step 6.
+- Not opened during 5d checks: « Nouvelle campagne » (button hidden without a marketing channel), user access / locations dialogs (restyled through shared tokens).
 - Not checked on the local data during 5c (no data): `/rapports/profitabilite/campagne/[id]`, commission statement `/commissions/[agentId]/releves/[id]`.
 - Pre-existing (not redesign): some percentages print « 100.0 % » (dot) next to « 100,0 % » (comma) — number formatting, not changed.
 - Not openable on the local data during 5b checks: stock adjustment (« Ajuster ») from the product Stock tab.

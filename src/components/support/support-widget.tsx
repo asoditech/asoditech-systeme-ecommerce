@@ -120,7 +120,7 @@ export function SupportWidget({
                   <p id={titleId} className="text-sm font-semibold">
                     Centre d&apos;aide
                   </p>
-                  <p className="text-[11px] text-muted-foreground">{config.companyName}</p>
+                  <p className="text-xs text-muted-foreground">{config.companyName}</p>
                 </div>
               </div>
               <button

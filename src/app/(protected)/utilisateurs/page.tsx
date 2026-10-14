@@ -5,7 +5,7 @@ import { PendingInvitationsList } from "@/components/users/pending-invitations-l
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EntityAvatar } from "@/components/entity-avatar";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { hasGlobalLocationAccess } from "@/lib/auth/location-access";
@@ -93,7 +93,7 @@ export default async function UtilisateursPage() {
         />
       )}
 
-      <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+      <TableCard>
         <Table>
           <TableHeader>
             <TableRow>
@@ -155,11 +155,11 @@ export default async function UtilisateursPage() {
             ))}
           </TableBody>
         </Table>
-      </div>
+      </TableCard>
 
       <Card>
         <CardHeader>
-          <CardTitle>Matrice des permissions par rôle</CardTitle>
+          <CardTitle accent="purple">Matrice des permissions par rôle</CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <table className="w-full text-sm">

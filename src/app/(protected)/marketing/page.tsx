@@ -5,7 +5,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { ChannelForm } from "@/components/marketing/channel-form";
 import { CampaignForm } from "@/components/marketing/campaign-form";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/prisma";
@@ -49,7 +49,7 @@ export default async function MarketingPage() {
           {campaigns.length === 0 ? (
             <EmptyState icon={Megaphone} title="Aucune campagne pour le moment." />
           ) : (
-            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+            <TableCard>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -83,10 +83,10 @@ export default async function MarketingPage() {
                   ))}
                 </TableBody>
               </Table>
-            </div>
+            </TableCard>
           )}
 
-          <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+          <TableCard>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -109,7 +109,7 @@ export default async function MarketingPage() {
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </TableCard>
         </div>
       )}
     </div>

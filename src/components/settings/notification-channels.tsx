@@ -26,14 +26,14 @@ export function InAppChannelCard() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-start gap-3 space-y-0">
-        <SectionIcon className="bg-primary/10 text-primary">
+        <SectionIcon className="bg-pill-peach text-pill-peach-fg">
           <Bell className="size-4.5" />
         </SectionIcon>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="text-base">Dans l&apos;application</CardTitle>
+            <CardTitle accent="yellow">Dans l&apos;application</CardTitle>
             <SettingInfo setting="inAppAlerts" />
-            <Badge variant="outline" className="border-emerald-300 bg-emerald-50 font-medium text-emerald-800">
+            <Badge variant="outline" className="border-transparent bg-pill-green font-medium text-pill-green-fg">
               Toujours actif
             </Badge>
           </div>
@@ -56,16 +56,16 @@ export function EmailChannelCard({ address, available }: { address: string; avai
   return (
     <Card>
       <CardHeader className="flex flex-row items-start gap-3 space-y-0">
-        <SectionIcon className="bg-sky-500/10 text-sky-600">
+        <SectionIcon className="bg-pill-blue text-pill-blue-fg">
           <Mail className="size-4.5" />
         </SectionIcon>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="text-base">Alertes par email</CardTitle>
+            <CardTitle accent="yellow">Alertes par email</CardTitle>
             <SettingInfo setting="emailAlerts" />
             <Badge
               variant="outline"
-              className={cn("font-medium", available ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "text-muted-foreground")}
+              className={cn("font-medium", available ? "border-transparent bg-pill-green text-pill-green-fg" : "text-muted-foreground")}
             >
               {available ? "Activé" : "Canal indisponible"}
             </Badge>
@@ -109,12 +109,12 @@ export function AlertPreferencesCard({
   return (
     <Card>
       <CardHeader className="flex flex-row items-start gap-3 space-y-0">
-        <SectionIcon className="bg-violet-500/10 text-violet-600">
+        <SectionIcon className="bg-pill-purple text-pill-purple-fg">
           <ListChecks className="size-4.5" />
         </SectionIcon>
         <div className="min-w-0">
           <div className="flex items-center gap-1">
-            <CardTitle className="text-base">Préférences d&apos;alertes</CardTitle>
+            <CardTitle accent="yellow">Préférences d&apos;alertes</CardTitle>
             <SettingInfo setting="alertPreferences" />
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
@@ -164,12 +164,12 @@ export function AlertPreferencesCard({
                         key={c}
                         title={!supported ? "Non disponible pour cette alerte" : on ? "Actif" : "Canal désactivé ou indisponible"}
                         className={cn(
-                          "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs",
+                          "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs",
                           on
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                            ? "border-transparent bg-pill-green text-pill-green-fg"
                             : supported
-                              ? "border-border text-muted-foreground"
-                              : "border-dashed border-border/70 text-muted-foreground/60"
+                              ? "border-hairline text-ink-secondary"
+                              : "border-dashed border-field-border text-ink-muted"
                         )}
                       >
                         {on ? <Check className="size-3" /> : <Minus className="size-3" />}
@@ -183,7 +183,7 @@ export function AlertPreferencesCard({
           </ul>
         )}
         <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Check className="size-3 text-emerald-700" /> envoyé à vous · <Minus className="size-3" /> non envoyé (canal inactif ou non
+          <Check className="size-3 text-pill-green-fg" /> envoyé à vous · <Minus className="size-3" /> non envoyé (canal inactif ou non
           proposé pour cette alerte)
           {whatsappStatus === "active" ? " · cliquez sur « WhatsApp » pour couper ou réactiver une alerte sur WhatsApp uniquement" : ""}
         </p>

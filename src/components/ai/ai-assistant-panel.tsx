@@ -75,7 +75,7 @@ export function AiAssistantPanel({ questions }: { questions: { id: string; label
                 {h.href && (
                   <Link
                     href={h.href}
-                    className="inline-flex items-center gap-0.5 text-sm font-medium text-primary hover:underline"
+                    className="inline-flex items-center gap-0.5 text-sm font-medium text-link"
                   >
                     {h.linkLabel ?? "Voir le détail"}
                     <ArrowUpRight className="size-3.5" />

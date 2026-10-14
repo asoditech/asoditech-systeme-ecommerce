@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FilterBar } from "@/components/filter-bar";
 import { ScrollText } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
@@ -7,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { formatDateTime } from "@/lib/format";
 import {
@@ -50,22 +51,22 @@ export default async function JournalAuditPage({
         description="Historique complet et non modifiable des actions effectuées dans le système."
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <FilterSearchInput placeholder="Action ou type d'entité..." defaultValue={params.q} className="w-64" />
+      <FilterBar>
+        <FilterSearchInput placeholder="Action ou type d'entité..." defaultValue={params.q} className="w-full sm:w-72" />
         <FilterSelect
           paramKey="category"
           value={category}
           allLabel="Toutes les catégories"
           ariaLabel="Catégorie"
-          className="w-48"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-48"
           options={Object.entries(AUDIT_CATEGORY_LABELS).map(([value, label]) => ({ value, label }))}
         />
         {hasActiveFilter ? (
-          <Button size="sm" variant="ghost" render={<Link href="/journal-audit" />}>
+          <Button variant="ghost" render={<Link href="/journal-audit" />}>
             Réinitialiser
           </Button>
         ) : null}
-      </div>
+      </FilterBar>
 
       {pageItems.length === 0 ? (
         <EmptyState
@@ -73,7 +74,7 @@ export default async function JournalAuditPage({
           title={hasActiveFilter ? "Aucun évènement ne correspond à ces critères." : "Aucun évènement enregistré."}
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -130,7 +131,7 @@ export default async function JournalAuditPage({
             basePath="/journal-audit"
             searchParams={{ q: params.q, category: params.category }}
           />
-        </div>
+        </TableCard>
       )}
     </div>
   );

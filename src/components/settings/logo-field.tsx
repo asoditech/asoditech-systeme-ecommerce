@@ -56,12 +56,12 @@ export function LogoField({ defaultValue, showLabel = true }: { defaultValue: st
       )}
       <input ref={hiddenRef} type="hidden" name="logoUrl" value={value} />
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-md border bg-muted">
+        <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl border border-hairline bg-pill-neutral">
           {value ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={value} alt="Logo" className="max-h-full max-w-full object-contain" />
           ) : (
-            <span className="text-[10px] text-muted-foreground">Aucun</span>
+            <span className="text-xs text-muted-foreground">Aucun</span>
           )}
         </div>
         <div className="flex flex-col gap-2">

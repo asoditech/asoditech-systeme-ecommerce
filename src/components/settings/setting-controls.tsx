@@ -32,13 +32,13 @@ export function StateIndicator({ on, pending = false }: { on: boolean; pending?:
     <span
       className={cn(
         "inline-flex items-center gap-1.5 text-xs font-semibold",
-        on ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
+        on ? "text-pill-green-fg" : "text-muted-foreground"
       )}
     >
       {pending ? (
         <Loader2 className="size-3 animate-spin" />
       ) : (
-        <span className={cn("size-2 rounded-full", on ? "bg-emerald-500 shadow-[0_0_0_3px] shadow-emerald-500/20" : "border border-muted-foreground/50")} />
+        <span className={cn("size-2 rounded-full", on ? "bg-success shadow-[0_0_0_3px] shadow-success/20" : "border border-muted-foreground/50")} />
       )}
       {on ? "Activé" : "Désactivé"}
     </span>
@@ -104,7 +104,7 @@ export function ToggleTile({
     <article
       id={anchor}
       className={cn(
-        "group relative flex scroll-mt-24 flex-col overflow-hidden rounded-2xl border bg-card p-5 shadow-xs transition-all data-flash:ring-2 data-flash:ring-primary/50",
+        "group relative flex scroll-mt-24 flex-col overflow-hidden rounded-card bg-card p-5 shadow-card transition-all data-flash:ring-2 data-flash:ring-primary/50",
         value ? cn("border-transparent ring-1", accent.ring) : "border-border",
       )}
     >
@@ -204,7 +204,7 @@ export function ValueTile({
     <article
       id={anchor}
       className={cn(
-        "relative flex scroll-mt-24 flex-col overflow-hidden rounded-2xl border bg-card p-5 shadow-xs transition-shadow data-flash:ring-2 data-flash:ring-primary/50",
+        "relative flex scroll-mt-24 flex-col overflow-hidden rounded-card bg-card p-5 shadow-card transition-shadow data-flash:ring-2 data-flash:ring-primary/50",
         wide && "md:col-span-2",
         editing && cn("ring-2", accent.ring)
       )}
@@ -248,7 +248,7 @@ export function ValueTile({
         </form>
       ) : (
         <div className="mt-4 flex flex-1 flex-col justify-end">
-          <div className="rounded-xl bg-muted/50 px-4 py-3">
+          <div className="rounded-xl bg-pill-neutral px-4 py-3">
             <div className={cn("text-xl font-semibold tracking-tight break-words", accent.text)}>{value}</div>
             {valueCaption && <p className="mt-0.5 text-xs text-muted-foreground">{valueCaption}</p>}
           </div>
@@ -274,10 +274,10 @@ export function ChoiceCard({
   description?: string;
 }) {
   return (
-    <label className="group relative flex cursor-pointer items-start gap-3 rounded-xl border bg-background p-3.5 transition-colors hover:bg-muted/40 has-checked:border-primary has-checked:bg-primary/5 has-focus-visible:ring-2 has-focus-visible:ring-ring/35">
+    <label className="group relative flex cursor-pointer items-start gap-3 rounded-tile border border-hairline bg-card p-3.5 transition-colors hover:bg-row-hover has-checked:border-brand has-checked:bg-pill-peach/40 has-focus-visible:ring-2 has-focus-visible:ring-ring/35">
       <input type="radio" name={name} value={value} defaultChecked={defaultChecked} className="peer sr-only" />
-      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 peer-checked:border-primary peer-checked:bg-primary">
-        <span className="size-1.5 rounded-full bg-primary-foreground opacity-0 peer-checked:opacity-100 group-has-checked:opacity-100" />
+      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border border-field-border-hover peer-checked:border-brand peer-checked:bg-brand">
+        <span className="size-1.5 rounded-full bg-brand-foreground opacity-0 peer-checked:opacity-100 group-has-checked:opacity-100" />
       </span>
       <span className="min-w-0">
         <span className="block text-sm font-medium">{title}</span>
@@ -364,7 +364,7 @@ export function SettingsForm({
             aria-label="Modifications non enregistrées"
           >
             <p className="flex items-center gap-2 text-sm font-medium sm:mr-auto">
-              <span className="size-2 rounded-full bg-amber-400" />
+              <span className="size-2 rounded-full bg-chart-5" />
               Modifications non enregistrées
             </p>
             <div className="flex gap-2">

@@ -8,7 +8,7 @@ import type { RolePath } from "@/lib/docs/types";
 export function RoleStartCard({ path, highlighted }: { path: RolePath; highlighted?: boolean }) {
   const articles = path.slugs.map((s) => getArticleBySlug(s)).filter((a) => a !== undefined);
   return (
-    <Card className={highlighted ? "border-primary/50 ring-1 ring-primary/20" : ""}>
+    <Card className={highlighted ? "ring-2 ring-brand/40" : ""}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-[15px]">
           {path.title}

@@ -82,10 +82,10 @@ export default async function IntegrationsPage() {
           {plannedRows.map(([provider, label]) => {
             const brand = PLANNED_PROVIDER_BRANDS[provider];
             return (
-              <Card key={provider} className="border-dashed bg-muted/20 shadow-none">
+              <Card key={provider} className="border border-dashed border-field-border bg-transparent shadow-none">
                 <CardHeader className="flex flex-row items-center gap-3 space-y-0">
                   {brand ? (
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-white p-1.5">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white p-1.5 ring-1 ring-hairline">
                       <BrandLogo brand={brand} label={label} className="size-full opacity-90" />
                     </span>
                   ) : (
@@ -96,7 +96,7 @@ export default async function IntegrationsPage() {
                   <CardTitle className="text-sm text-muted-foreground">{label}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-xs text-muted-foreground/80">Intégration prévue — non encore disponible.</p>
+                  <p className="text-xs text-ink-muted">Intégration prévue — non encore disponible.</p>
                 </CardContent>
               </Card>
             );

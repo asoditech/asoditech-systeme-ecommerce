@@ -36,7 +36,7 @@ export function DocSearch({ articles, autoFocus }: { articles: DocArticle[]; aut
         />
       </div>
       {query.trim() && (
-        <div className="absolute z-20 mt-1.5 w-full overflow-hidden rounded-lg border bg-popover shadow-lg">
+        <div className="absolute z-20 mt-1.5 w-full overflow-hidden rounded-2xl border border-hairline bg-popover shadow-popover">
           {results.length === 0 ? (
             <p className="px-4 py-4 text-sm text-muted-foreground">Aucun résultat pour « {query} ».</p>
           ) : (
