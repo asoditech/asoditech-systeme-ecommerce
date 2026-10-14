@@ -45,7 +45,7 @@ export function StocktakeForm({ warehouses }: { warehouses: WarehouseOption[] })
     <form onSubmit={handleSubmit} className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Nouvel inventaire</CardTitle>
+          <CardTitle accent="peach">Nouvel inventaire</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-1.5">

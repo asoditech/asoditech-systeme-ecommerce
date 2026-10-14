@@ -89,7 +89,7 @@ export default async function NouveauProduitPage() {
           return (
             <Card key={platform.provider}>
               <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
-                <div className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <div className="flex size-12 items-center justify-center rounded-xl bg-pill-peach text-pill-peach-fg">
                   <Icon className="size-6" />
                 </div>
                 <div>
@@ -127,7 +127,7 @@ export default async function NouveauProduitPage() {
           Ce produit n&apos;est pas publié sur la boutique en ligne : il est créé et géré directement dans ASODITECH.
         </p>
         {offlineChannels.length === 0 ? (
-          <p className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
+          <p className="rounded-tile bg-pill-neutral px-3 py-2 text-sm text-ink-secondary">
             Aucun canal magasin actif. Créez d&apos;abord un canal « Magasin » dans Paramètres → Canaux de vente.
           </p>
         ) : (

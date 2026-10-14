@@ -62,11 +62,11 @@ export default async function TransfertDetailPage({ params }: { params: Promise<
         }
       />
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 [&>*]:min-w-0">
         <div className="space-y-6 lg:col-span-2">
           <Card>
             <CardHeader>
-              <CardTitle>Articles</CardTitle>
+              <CardTitle accent="peach">Articles</CardTitle>
             </CardHeader>
             <CardContent>
               <Table>
@@ -106,7 +106,7 @@ export default async function TransfertDetailPage({ params }: { params: Promise<
           {canTransfer && transfer.status === "EN_TRANSIT" && (
             <Card>
               <CardHeader>
-                <CardTitle>Réception</CardTitle>
+                <CardTitle accent="purple">Réception</CardTitle>
               </CardHeader>
               <CardContent>
                 <TransferReceiveForm
@@ -126,7 +126,7 @@ export default async function TransfertDetailPage({ params }: { params: Promise<
           {transfer.notes && (
             <Card>
               <CardHeader>
-                <CardTitle>Notes</CardTitle>
+                <CardTitle accent="yellow">Notes</CardTitle>
               </CardHeader>
               <CardContent className="text-sm whitespace-pre-wrap">{transfer.notes}</CardContent>
             </Card>
@@ -134,7 +134,7 @@ export default async function TransfertDetailPage({ params }: { params: Promise<
 
           <Card>
             <CardHeader>
-              <CardTitle>Historique</CardTitle>
+              <CardTitle accent="yellow">Historique</CardTitle>
             </CardHeader>
             <CardContent>
               {timeline.length === 0 ? (
@@ -159,7 +159,7 @@ export default async function TransfertDetailPage({ params }: { params: Promise<
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Itinéraire</CardTitle>
+              <CardTitle accent="purple">Itinéraire</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <p>
@@ -176,7 +176,7 @@ export default async function TransfertDetailPage({ params }: { params: Promise<
 
           <Card>
             <CardHeader>
-              <CardTitle>Suivi</CardTitle>
+              <CardTitle accent="yellow">Suivi</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <p>

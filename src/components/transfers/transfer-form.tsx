@@ -193,7 +193,7 @@ export function TransferForm({ warehouses, mode = "create", transfer, costEntry 
     <form onSubmit={handleSubmit} className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Emplacements</CardTitle>
+          <CardTitle accent="purple">Emplacements</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -251,7 +251,7 @@ export function TransferForm({ warehouses, mode = "create", transfer, costEntry 
 
       <Card>
         <CardHeader>
-          <CardTitle>Articles</CardTitle>
+          <CardTitle accent="peach">Articles</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <Popover
@@ -288,7 +288,7 @@ export function TransferForm({ warehouses, mode = "create", transfer, costEntry 
                       key={refKey(s)}
                       type="button"
                       onClick={() => addLine(s)}
-                      className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+                      className="flex w-full flex-col rounded-lg px-2 py-1.5 text-left text-sm hover:bg-row-hover"
                     >
                       <span className="font-medium">{s.label}</span>
                       <span className="text-xs text-muted-foreground">
@@ -368,7 +368,7 @@ export function TransferForm({ warehouses, mode = "create", transfer, costEntry 
 
       <Card>
         <CardHeader>
-          <CardTitle>Notes</CardTitle>
+          <CardTitle accent="yellow">Notes</CardTitle>
         </CardHeader>
         <CardContent>
           <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />

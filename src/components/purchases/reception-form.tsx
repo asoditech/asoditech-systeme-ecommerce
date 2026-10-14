@@ -276,7 +276,7 @@ export function ReceptionForm({
     <div className="space-y-4">
       <Card>
         <CardHeader className="border-b">
-          <CardTitle>Informations de réception</CardTitle>
+          <CardTitle accent="purple">Informations de réception</CardTitle>
           {!reception && (
             <CardDescription className="text-xs">
               Une référence interne (ex. REC-000123) est générée à l&apos;enregistrement. Elle complète — sans le
@@ -405,7 +405,7 @@ export function ReceptionForm({
 
       <Card>
         <CardHeader className="border-b">
-          <CardTitle>Articles reçus</CardTitle>
+          <CardTitle accent="peach">Articles reçus</CardTitle>
           <CardDescription className="text-xs">Scannez un code-barres ou recherchez par référence / nom.</CardDescription>
           {canCreateProduct && (
             <CardAction>
@@ -452,7 +452,7 @@ export function ReceptionForm({
             <BarcodeScanButton formats={LOOKUP_SCAN_FORMATS} onDetect={onCameraDetect} label="Caméra" />
           </div>
           {hits.length > 0 && (
-            <ul className="divide-y overflow-hidden rounded-lg border bg-card text-sm shadow-popover">
+            <ul className="divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-popover text-sm shadow-popover">
               {hits.map((u) => (
                 <li key={`${u.productId}-${u.variationId}`}>
                   <button type="button" className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left outline-none hover:bg-accent focus-visible:bg-accent" onClick={() => add(u)}>
@@ -497,7 +497,7 @@ export function ReceptionForm({
                     <TableCell>
                       <Input type="number" min={0} step="0.01" className="w-36 tabular-nums" aria-label={`Prix d'achat — ${l.label}`} value={l.unitCost ?? ""} placeholder={l.unitCost === null ? (reception?.lines.some((x) => x.key === l.key) ? "Inchangé" : "Prix facture") : undefined} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, unitCost: !showPurchasePrices && e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0) } : x)))} />
                       {l.lastPurchase && (
-                        <p className="mt-1 w-44 text-[11px] leading-snug whitespace-normal text-muted-foreground">
+                        <p className="mt-1 w-44 text-xs leading-snug whitespace-normal text-muted-foreground">
                           Dernier achat : {formatCurrency(String(l.lastPurchase.unitCost))} chez {l.lastPurchase.supplierName} le{" "}
                           {formatDate(l.lastPurchase.date)}
                         </p>

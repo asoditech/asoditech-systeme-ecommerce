@@ -59,7 +59,7 @@ export default async function ReceptionDetailPage({ params }: { params: Promise<
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-[15px]">Articles</CardTitle>
+          <CardTitle accent="peach">Articles</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
@@ -108,7 +108,7 @@ export default async function ReceptionDetailPage({ params }: { params: Promise<
       {showPayments && r.payments.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-[15px]">Paiements liés</CardTitle>
+            <CardTitle accent="green">Paiements liés</CardTitle>
           </CardHeader>
           <CardContent>
             <Table>

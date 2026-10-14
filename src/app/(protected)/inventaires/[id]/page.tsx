@@ -3,7 +3,7 @@ import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StocktakeCountForm } from "@/components/stocktakes/stocktake-count-form";
 import { StocktakeLifecycleActions } from "@/components/stocktakes/stocktake-lifecycle-actions";
 import { requirePermission } from "@/lib/auth/guards";
@@ -48,11 +48,11 @@ export default async function InventaireDetailPage({ params }: { params: Promise
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 [&>*]:min-w-0">
         <div className="space-y-6 lg:col-span-2">
           <Card>
             <CardHeader>
-              <CardTitle>Comptage</CardTitle>
+              <CardTitle accent="peach">Comptage</CardTitle>
             </CardHeader>
             <CardContent>
               {isOpen && canCount ? (
@@ -69,7 +69,7 @@ export default async function InventaireDetailPage({ params }: { params: Promise
                   }))}
                 />
               ) : (
-                <div className="overflow-x-auto rounded-lg border">
+                <TableCard>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -105,7 +105,7 @@ export default async function InventaireDetailPage({ params }: { params: Promise
                       ))}
                     </TableBody>
                   </Table>
-                </div>
+                </TableCard>
               )}
             </CardContent>
           </Card>
@@ -113,7 +113,7 @@ export default async function InventaireDetailPage({ params }: { params: Promise
           {session.notes && (
             <Card>
               <CardHeader>
-                <CardTitle>Notes</CardTitle>
+                <CardTitle accent="yellow">Notes</CardTitle>
               </CardHeader>
               <CardContent className="text-sm whitespace-pre-wrap">{session.notes}</CardContent>
             </Card>
@@ -121,7 +121,7 @@ export default async function InventaireDetailPage({ params }: { params: Promise
 
           <Card>
             <CardHeader>
-              <CardTitle>Historique</CardTitle>
+              <CardTitle accent="yellow">Historique</CardTitle>
             </CardHeader>
             <CardContent>
               {timeline.length === 0 ? (
@@ -146,7 +146,7 @@ export default async function InventaireDetailPage({ params }: { params: Promise
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Détails</CardTitle>
+              <CardTitle accent="purple">Détails</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <p>
@@ -172,7 +172,7 @@ export default async function InventaireDetailPage({ params }: { params: Promise
 
           <Card>
             <CardHeader>
-              <CardTitle>Suivi</CardTitle>
+              <CardTitle accent="yellow">Suivi</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <p>

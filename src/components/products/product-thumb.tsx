@@ -14,7 +14,7 @@ export function ProductThumb({ imageUrl, className }: { imageUrl?: string | null
   ) : (
     <span
       aria-hidden="true"
-      className={cn("flex size-10 shrink-0 items-center justify-center rounded-lg border border-dashed bg-muted/50 text-muted-foreground/70", className)}
+      className={cn("flex size-10 shrink-0 items-center justify-center rounded-lg border border-dashed bg-muted/50 text-ink-muted", className)}
     >
       <Package className="size-4" />
     </span>

@@ -24,7 +24,7 @@ export function ProductMetricRow({
     <div className="flex items-center gap-2.5">
       {imageUrl && (
         // eslint-disable-next-line @next/next/no-img-element -- arbitrary merchant/WooCommerce/Shopify host, can't be allow-listed for next/image
-        <img src={imageUrl} alt="" className="size-8 shrink-0 rounded-md border object-cover" />
+        <img src={imageUrl} alt="" className="size-8 shrink-0 rounded-lg border border-hairline object-cover" />
       )}
       <div className="min-w-0">
         <p className="truncate text-sm font-medium">{name}</p>

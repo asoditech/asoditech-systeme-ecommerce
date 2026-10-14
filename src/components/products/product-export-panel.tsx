@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
 import { SegmentedControl } from "@/components/ui/segmented-control";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PRODUCT_STATUS_LABELS } from "@/lib/status-labels";
 import { EXPORT_PLATFORM_LABELS, type ExportPlatform } from "@/lib/catalog/export/model";
 import type { ExportValidation } from "@/lib/catalog/export/validate";
@@ -119,8 +119,8 @@ export function ProductExportPanel({ rows, total, limit }: { rows: ExportRow[]; 
                   reset();
                 }}
                 className={
-                  "rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors " +
-                  (platform === p ? "bg-background text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground")
+                  "inline-flex h-8 items-center rounded-full px-3.5 text-[13px] font-medium whitespace-nowrap transition-[color,background-color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/25 " +
+                  (platform === p ? "bg-segment-thumb text-ink shadow-soft" : "text-ink-secondary hover:text-ink")
                 }
               >
                 {EXPORT_PLATFORM_LABELS[p]}
@@ -141,7 +141,7 @@ export function ProductExportPanel({ rows, total, limit }: { rows: ExportRow[]; 
       {checked && (
         <div className="space-y-3 rounded-xl bg-card p-4 shadow-card ring-1 ring-border" role="status">
           {checked.validation.errors.length === 0 ? (
-            <p className="flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-400">
+            <p className="flex items-center gap-2 text-sm font-medium text-pill-green-fg">
               <CheckCircle2 className="size-4" />
               Prêt : {ids.length} produit(s), {checked.rowCount} ligne(s) — {checked.filename}
             </p>
@@ -160,7 +160,7 @@ export function ProductExportPanel({ rows, total, limit }: { rows: ExportRow[]; 
           )}
           {checked.validation.warnings.length > 0 && (
             <div>
-              <p className="mb-1 flex items-center gap-1.5 text-sm font-medium text-amber-700 dark:text-amber-400">
+              <p className="mb-1 flex items-center gap-1.5 text-sm font-medium text-pill-yellow-fg">
                 <AlertTriangle className="size-4" />
                 Avertissements
               </p>
@@ -183,7 +183,7 @@ export function ProductExportPanel({ rows, total, limit }: { rows: ExportRow[]; 
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-xl border bg-card shadow-card">
+      <TableCard>
         <Table className="text-[13px]">
           <TableHeader>
             <TableRow>
@@ -242,7 +242,7 @@ export function ProductExportPanel({ rows, total, limit }: { rows: ExportRow[]; 
             )}
           </TableBody>
         </Table>
-      </div>
+      </TableCard>
     </div>
   );
 }

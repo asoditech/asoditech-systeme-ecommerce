@@ -2,7 +2,7 @@ import { Warehouse as WarehouseIcon } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { WarehouseForm } from "@/components/inventory/warehouse-form";
 import { WarehouseRowActions } from "@/components/inventory/warehouse-row-actions";
 import { requirePermission } from "@/lib/auth/guards";
@@ -30,7 +30,7 @@ export default async function EntrepotsPage() {
       {warehouses.length === 0 ? (
         <EmptyState icon={WarehouseIcon} title="Aucun emplacement de stock." />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -86,7 +86,7 @@ export default async function EntrepotsPage() {
               })}
             </TableBody>
           </Table>
-        </div>
+        </TableCard>
       )}
 
       {canManage && (

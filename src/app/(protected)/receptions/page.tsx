@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/empty-state";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { EntityAvatar } from "@/components/entity-avatar";
@@ -61,7 +61,7 @@ export default async function ReceptionsPage({ searchParams }: { searchParams: P
           description={status ? undefined : "Enregistrez la marchandise reçue d'un fournisseur pour alimenter votre stock."}
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -77,7 +77,7 @@ export default async function ReceptionsPage({ searchParams }: { searchParams: P
               {receptions.map((r) => (
                 <ClickableTableRow key={r.id} href={`/receptions/${r.id}`}>
                   <TableCell>
-                    <Link href={`/receptions/${r.id}`} className="font-semibold text-foreground hover:text-primary hover:underline">
+                    <Link href={`/receptions/${r.id}`} className="font-semibold text-foreground hover:underline">
                       {displayReceptionNumber(r)}
                     </Link>
                     <p className="mt-0.5 text-xs text-muted-foreground">{formatDate(r.receptionDate)}</p>
@@ -110,7 +110,7 @@ export default async function ReceptionsPage({ searchParams }: { searchParams: P
             </TableBody>
           </Table>
           <DataTablePagination page={page} pageSize={pageSize} total={total} basePath="/receptions" searchParams={{ status: params.status }} />
-        </div>
+        </TableCard>
       )}
     </div>
   );

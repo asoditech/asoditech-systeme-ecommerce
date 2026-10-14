@@ -58,7 +58,7 @@ export function ProductPublishPanel({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-[15px]">Publication externe</CardTitle>
+        <CardTitle accent="purple">Publication externe</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs text-muted-foreground">

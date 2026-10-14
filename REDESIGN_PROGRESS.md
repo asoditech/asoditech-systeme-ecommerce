@@ -15,13 +15,14 @@ References: `design-reference/` (untracked, local only).
 | 3 | Dashboard (`/tableau-de-bord`) + chart tokens | Done |
 | 4 | Commandes (`/commandes`, detail, nouvelle, order dialogs) | Done |
 | 5a | Ventes: nouvelle opération, ventes magasin, confirmation, clients, livraison, suivi, retours colis | Done |
-| 5b–5e | Catalogue · Finance & analytics · Settings & others · Public/auth | To do |
+| 5b | Catalogue: produits, catégories, stock, réceptions, fournisseurs, traçabilité, transferts, inventaires, entrepôts | Done |
+| 5c–5e | Finance & analytics · Settings & others · Public/auth | To do |
 | 6 | Polish, responsiveness, AA audit | To do |
 
 ## Pages
 
 - Done (shell + shared components): every page in the app area gets the new shell, sidebar, topbar and the restyled shared components (buttons, inputs, selects, cards, tables, pills, pagination, tabs, menus, dialogs, toasts…).
-- Pages fully redesigned: `/tableau-de-bord` (Step 3); `/commandes`, `/commandes/[id]`, `/commandes/nouvelle` + order dialogs (Step 4 — the reference pattern for table pages); Ventes group (Step 5a): `/operations/nouvelle`, `/ventes` (+ detail, nouvelle), `/confirmation` (+ performance), `/clients` (+ detail, nouveau), `/livraison` (4 tabs), `/livraison/suivi` (+ detail), `/livraison/retours` (+ inspection), `/livraison/factures` (+ invoice).
+- Pages fully redesigned: `/tableau-de-bord` (Step 3); `/commandes`, `/commandes/[id]`, `/commandes/nouvelle` + order dialogs (Step 4 — the reference pattern for table pages); Ventes group (Step 5a): `/operations/nouvelle`, `/ventes` (+ detail, nouvelle), `/confirmation` (+ performance), `/clients` (+ detail, nouveau), `/livraison` (4 tabs), `/livraison/suivi` (+ detail), `/livraison/retours` (+ inspection), `/livraison/factures` (+ invoice); Catalogue group (Step 5b): `/produits` (+ detail, nouveau, exporter, étiquette), `/catalogue/categories`, `/stock`, `/receptions` (+ detail, nouveau, modifier), `/fournisseurs` (+ detail), `/tracabilite`, `/transferts` (+ detail, nouveau), `/inventaires` (+ detail, nouveau), `/entrepots`.
 - Page-specific layouts and colours not restyled yet: all other pages (Steps 4–5).
 - Review page: `/dev/components` (dev only, 404 in production builds, not linked).
 - Out of scope until decided: `src/app/platform/*` (platform admin), not touched.
@@ -76,6 +77,15 @@ References: `design-reference/` (untracked, local only).
 - Colour tokens: emerald / amber / sky text → `text-pill-*-fg` (AA in both themes); `text-[10px]` / `text-[11px]` → 12px; `text-muted-foreground/70` → `text-ink-muted`.
 - Checked: light 1280, dark 390, light 768 on all 21 URLs (no horizontal overflow); dialogs in dark: sale return, provider pricing, provider connection, blacklist, cancel reception.
 
+## Step 5b — Catalogue
+
+- Shared: `PageHeader` actions now wrap (no more clipped buttons on phones — e.g. product detail); `SyncRefreshButton` default size = the 44px button (it only sits in page headers); `MetricWithProgress` (round pastel chip, ink figure, bars on `chart-track` / brand); `EntityAvatar` = round peach chip; `LocationCostDisplay` « coût emplacement » in peach ink (orange text removed); product export platform switch = segmented thumb.
+- Lists (`/produits`, `/stock`, `/receptions`, `/fournisseurs`, `/transferts`, `/inventaires`, `/entrepots`, `/catalogue/categories`): `FilterBar` + `TableCard`, ink names (no orange hover), mobile-first filter widths; page-level buttons at 44px.
+- Detail pages: accent bars on every card title (peach = articles / images / codes, purple = itinéraire / emplacements / réception / canaux, green = paiements / coûts, yellow = notes / historique / suivi); « Rentabilité » on the product page is a `SummarySection` (its KPI tiles no longer sit inside another card) with the cost explanation as a neutral `Notice`; amber boxes (missing stock per variant, remote link, traceability cost) → `Notice`; inventory / transfer detail grids get `min-w-0` columns (fixed a 390px overflow).
+- Supplier balance bar: paid = success green, remaining = chart yellow.
+- Printable label keeps its print look (black on white); only its on-screen status lines use the token colours.
+- Checked: light 1280, dark 390, light 768 on 21 URLs (no overflow after the two fixes above); dialogs in dark: new location (1280 + 390), remove product, cancel transfer.
+
 ## Decisions (confirmed by the owner after Step 1)
 
 - AA contrast: muted text is `#707070` (switched from `#767676` after Step 2; `#9A9A9A` kept as `--text-faint`, decoration only); primary-button text is dark `#1f1206` on orange (white is 2.8:1), set once as `--brand-foreground`; focus ring uses `#D96F2D`.
@@ -95,4 +105,5 @@ References: `design-reference/` (untracked, local only).
 - `NavBadge` not connected to counts (by decision: no new queries in Step 1).
 - Pre-existing (not redesign): `/clients/[id]` logs « Only plain objects can be passed to Client Components… Decimal » in dev (a Prisma `Decimal` reaches a client component). Fixing it is a data-shape change, so it is left alone.
 - At 768px the expanded sidebar (272px) leaves a narrow content column; the shell does not auto-collapse to the rail at tablet width (Step 1 shell) — to review in Step 6.
+- Not openable on the local data during 5b checks: stock adjustment (« Ajuster ») from the product Stock tab.
 - Not openable on the local data during 5a checks (empty lists): « Créer une expédition » and the city-mapping dialog — restyled through shared tokens, not seen.

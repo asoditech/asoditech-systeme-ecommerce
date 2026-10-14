@@ -1,6 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
+import { Notice } from "@/components/ui/notice";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { AlertTriangle, Link2, RefreshCw } from "lucide-react";
@@ -86,7 +87,7 @@ export function RemoteLinkPanel({
   }
 
   return (
-    <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-3 text-sm text-amber-900 dark:text-amber-200">
+    <Notice tone="warning" role="status">
       <p className="flex items-start gap-2 font-medium">
         <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
         Produit supprimé de la boutique WooCommerce (#{externalId})
@@ -106,6 +107,6 @@ export function RemoteLinkPanel({
         />
         <CheckButton productId={productId} label="Vérifier à nouveau" />
       </div>
-    </div>
+    </Notice>
   );
 }

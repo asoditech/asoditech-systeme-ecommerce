@@ -7,7 +7,7 @@ import { updateStocktakeCountsAction } from "@/actions/stocktakes";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export interface StocktakeCountLine {
   id: string;
@@ -65,7 +65,7 @@ export function StocktakeCountForm({
 
   return (
     <div className="space-y-4">
-      <div className="overflow-x-auto rounded-lg border">
+      <TableCard>
         <Table>
           <TableHeader>
             <TableRow>
@@ -117,7 +117,7 @@ export function StocktakeCountForm({
             })}
           </TableBody>
         </Table>
-      </div>
+      </TableCard>
 
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">

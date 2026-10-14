@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FilterBar } from "@/components/filter-bar";
 import { Download, Package, PackagePlus, Plus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
@@ -17,7 +18,7 @@ import { ProductImagePreview } from "@/components/products/product-image-preview
 import { ProductThumb } from "@/components/products/product-thumb";
 import { Badge } from "@/components/ui/badge";
 import { SyncRefreshButton } from "@/components/sync-refresh-button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
@@ -149,14 +150,14 @@ export default async function ProduitsPage({
       <DisconnectedSourceBanner entity="product" />
       <MissingCostBanner user={user} showLink={!missingCostFilter} />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <FilterSearchInput placeholder="Nom ou SKU..." defaultValue={params.q} className="w-56" />
+      <FilterBar>
+        <FilterSearchInput placeholder="Nom ou SKU..." defaultValue={params.q} className="w-full sm:w-72" />
         <FilterSelect
           paramKey="status"
           value={statusFilter}
           allLabel="Tous les statuts"
           ariaLabel="Statut"
-          className="w-40"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-40"
           options={Object.entries(PRODUCT_STATUS_LABELS).map(([value, meta]) => ({ value, label: meta.label }))}
         />
         <FilterSelect
@@ -164,7 +165,7 @@ export default async function ProduitsPage({
           value={categoryFilter}
           allLabel="Toutes catégories"
           ariaLabel="Catégorie"
-          className="w-44"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-44"
           options={categories.map((c) => ({ value: c.id, label: c.name }))}
         />
         <FilterSelect
@@ -172,7 +173,7 @@ export default async function ProduitsPage({
           value={typeFilter}
           allLabel="Tous types"
           ariaLabel="Type"
-          className="w-40"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-40"
           options={Object.entries(PRODUCT_TYPE_LABELS).map(([value, label]) => ({ value, label }))}
         />
         {canViewCost && (
@@ -181,7 +182,7 @@ export default async function ProduitsPage({
             value={missingCostFilter ? "manquant" : undefined}
             allLabel="Tous les coûts"
             ariaLabel="Coût d'achat"
-            className="w-48"
+            className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-48"
             options={[{ value: "manquant", label: "Coût d'achat manquant" }]}
           />
         )}
@@ -190,17 +191,17 @@ export default async function ProduitsPage({
           value={params.sort && SORT_LABELS[params.sort as ProductSort] ? params.sort : undefined}
           allLabel={SORT_LABELS.recent}
           ariaLabel="Trier"
-          className="w-44"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-44"
           options={(Object.entries(SORT_LABELS) as [ProductSort, string][])
             .filter(([value]) => value !== "recent")
             .map(([value, label]) => ({ value, label }))}
         />
         {hasActiveFilter ? (
-          <Button variant="ghost" size="sm" render={<Link href={params.pageSize ? `/produits?pageSize=${pageSize}` : "/produits"} />}>
+          <Button variant="ghost" render={<Link href={params.pageSize ? `/produits?pageSize=${pageSize}` : "/produits"} />}>
             Réinitialiser
           </Button>
         ) : null}
-      </div>
+      </FilterBar>
 
       {products.length === 0 ? (
         <EmptyState
@@ -218,7 +219,7 @@ export default async function ProduitsPage({
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -352,7 +353,7 @@ export default async function ProduitsPage({
             searchParams={paginationParams}
             pageSizeOptions={PAGE_SIZE_OPTIONS}
           />
-        </div>
+        </TableCard>
       )}
     </div>
   );

@@ -35,7 +35,7 @@ function describe(totals: ReadonlyMap<string, { imported: number; updated: numbe
 export function SyncRefreshButton({
   resource,
   canSync,
-  size = "sm",
+  size = "default",
 }: {
   resource: "orders" | "products";
   canSync: boolean;

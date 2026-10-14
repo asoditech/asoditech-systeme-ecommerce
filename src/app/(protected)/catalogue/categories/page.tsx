@@ -1,9 +1,10 @@
 import { Tag } from "lucide-react";
+import { FilterBar } from "@/components/filter-bar";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CategoryFormDialog } from "@/components/products/category-form-dialog";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -48,9 +49,9 @@ export default async function CategoriesPage({
         actions={canCreate ? <CategoryFormDialog categoryOptions={categoryOptions} /> : undefined}
       />
 
-      <div className="mb-4">
-        <FilterSearchInput placeholder="Nom ou slug…" defaultValue={params.q} className="w-64" />
-      </div>
+      <FilterBar>
+        <FilterSearchInput placeholder="Nom ou slug…" defaultValue={params.q} className="w-full sm:w-72" />
+      </FilterBar>
 
       {filtered.length === 0 ? (
         <EmptyState
@@ -59,7 +60,7 @@ export default async function CategoriesPage({
           description={!q && canCreate ? "Créez votre première catégorie pour organiser le catalogue." : undefined}
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -104,7 +105,7 @@ export default async function CategoriesPage({
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableCard>
       )}
     </div>
   );

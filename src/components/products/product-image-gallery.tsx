@@ -69,7 +69,7 @@ export function ProductImageGallery({ productId, images }: { productId: string; 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Images</CardTitle>
+        <CardTitle accent="peach">Images</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {sorted.length === 0 ? (
@@ -89,7 +89,7 @@ export function ProductImageGallery({ productId, images }: { productId: string; 
                   className="size-20 rounded border object-cover"
                 />
                 {img.position === 0 ? (
-                  <span className="absolute -top-2 -left-2 flex items-center gap-0.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">
+                  <span className="absolute -top-2 -left-2 flex items-center gap-0.5 rounded-full bg-primary px-1.5 py-0.5 text-xs font-medium text-primary-foreground">
                     <Star className="size-2.5" />
                     Principale
                   </span>

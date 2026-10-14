@@ -125,7 +125,7 @@ export function VariantCombinationGenerator({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-[15px]">Générer des combinaisons</CardTitle>
+        <CardTitle accent="peach">Générer des combinaisons</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-muted-foreground">
