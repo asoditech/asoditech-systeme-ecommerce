@@ -35,6 +35,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // so the first client render must match that exactly to avoid a
   // hydration mismatch — only the second render (this effect) may diverge.
   useEffect(() => {
+    // Safety net for responses where ThemeScript did not run before paint
+    // (seen on notFound() pages, dev and production): re-apply the same rule
+    // — only an explicit stored `theme=dark` makes the app dark.
+    try {
+      if (localStorage.getItem("theme") === "dark") document.documentElement.classList.add("dark");
+    } catch {
+      // Blocked storage: keep whatever class is already there.
+    }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
   }, []);
