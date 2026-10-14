@@ -68,7 +68,7 @@ export default async function RapportRetoursPage({
           </div>
 
           <Card className="mt-6">
-            <CardHeader><CardTitle className="flex items-center gap-1.5">Par produit<ReportMetricInfo metric="returnsByProduct" /></CardTitle></CardHeader>
+            <CardHeader><CardTitle accent="peach">Par produit<ReportMetricInfo metric="returnsByProduct" /></CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <Table className="text-[13px]">
                 <TableHeader>
@@ -103,7 +103,7 @@ export default async function RapportRetoursPage({
           </Card>
 
           <Card className="mt-4">
-            <CardHeader><CardTitle className="flex items-center gap-1.5">Par commande<ReportMetricInfo metric="returnsByOrder" /></CardTitle></CardHeader>
+            <CardHeader><CardTitle accent="peach">Par commande<ReportMetricInfo metric="returnsByOrder" /></CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <Table className="text-[13px]">
                 <TableHeader>
@@ -161,7 +161,7 @@ export default async function RapportRetoursPage({
           </div>
 
           <Card className="mt-6">
-            <CardHeader><CardTitle className="flex items-center gap-1.5">Par produit<ReportMetricInfo metric="returnsByProduct" /></CardTitle></CardHeader>
+            <CardHeader><CardTitle accent="peach">Par produit<ReportMetricInfo metric="returnsByProduct" /></CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <Table className="text-[13px]">
                 <TableHeader>
@@ -196,7 +196,7 @@ export default async function RapportRetoursPage({
           </Card>
 
           <Card className="mt-4">
-            <CardHeader><CardTitle className="flex items-center gap-1.5">Par vente<ReportMetricInfo metric="returnsBySale" /></CardTitle></CardHeader>
+            <CardHeader><CardTitle accent="peach">Par vente<ReportMetricInfo metric="returnsBySale" /></CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <Table className="text-[13px]">
                 <TableHeader>

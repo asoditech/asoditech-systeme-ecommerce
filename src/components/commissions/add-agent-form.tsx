@@ -37,8 +37,8 @@ export function AddAgentForm({ users }: { users: { id: string; name: string }[] 
 
   return (
     <form action={formAction} className="space-y-2">
-      <div className="flex items-start gap-3">
-        <div className="flex-1 space-y-1.5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start">
+        <div className="min-w-0 flex-1 space-y-1.5 sm:min-w-48">
           <Label htmlFor="agent-user" className="whitespace-nowrap">Utilisateur</Label>
           <Select name="userId" required>
             <SelectTrigger id="agent-user" className="w-full">
@@ -55,7 +55,7 @@ export function AddAgentForm({ users }: { users: { id: string; name: string }[] 
             </SelectContent>
           </Select>
         </div>
-        <div className="flex-1 space-y-1.5">
+        <div className="min-w-0 flex-1 space-y-1.5 sm:min-w-48">
           {/* nowrap: at reduced width this label wrapping to 2 lines while
               "Utilisateur" stays 1 line threw the two inputs out of vertical
               alignment — the row itself never wraps (no flex-wrap), only

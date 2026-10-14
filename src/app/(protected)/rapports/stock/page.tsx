@@ -103,7 +103,7 @@ export default async function RapportStockPage({
       </div>
 
       <Card className="mt-6">
-        <CardHeader><CardTitle className="flex items-center gap-1.5">Détail par article<ReportMetricInfo metric="stockDetail" /></CardTitle></CardHeader>
+        <CardHeader><CardTitle accent="peach">Détail par article<ReportMetricInfo metric="stockDetail" /></CardTitle></CardHeader>
         <CardContent className="overflow-x-auto">
           <Table className="text-[13px]">
             <TableHeader>
@@ -119,7 +119,7 @@ export default async function RapportStockPage({
             </TableHeader>
             <TableBody>
               {report.rows.map((r, i) => (
-                <TableRow key={`${r.sku}-${i}`} className={r.dormant ? "bg-amber-500/5" : undefined}>
+                <TableRow key={`${r.sku}-${i}`} className={r.dormant ? "bg-pill-yellow/40" : undefined}>
                   <TableCell className="text-muted-foreground">{r.warehouseName}</TableCell>
                   <TableCell className="font-medium">
                     {r.productName}

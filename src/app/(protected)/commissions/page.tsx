@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { KpiCard } from "@/components/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { listCommissionAgentsWithTotals, listUsersEligibleForAgent } from "@/lib/queries/commissions";
@@ -44,7 +44,7 @@ export default async function CommissionsPage() {
       {canManage && (
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle className="text-[15px]">Ajouter un agent de confirmation</CardTitle>
+            <CardTitle accent="blue">Ajouter un agent de confirmation</CardTitle>
           </CardHeader>
           <CardContent>
             <AddAgentForm users={eligibleUsers.map((u) => ({ id: u.id, name: u.name }))} />
@@ -55,7 +55,7 @@ export default async function CommissionsPage() {
       {agents.length === 0 ? (
         <EmptyState icon={HandCoins} title="Aucun agent de confirmation configuré." />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -95,7 +95,7 @@ export default async function CommissionsPage() {
                     {formatCurrency(String(a.totals.remaining), a.currency)}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Link href={`/commissions/${a.id}`} className="text-sm text-primary hover:underline">
+                    <Link href={`/commissions/${a.id}`} className="text-link text-sm">
                       Détail →
                     </Link>
                   </TableCell>
@@ -103,7 +103,7 @@ export default async function CommissionsPage() {
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableCard>
       )}
     </div>
   );

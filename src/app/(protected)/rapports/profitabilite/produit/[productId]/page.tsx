@@ -79,13 +79,13 @@ export default async function ProfitabiliteProduitDetailPage({
       </p>
 
       {!row.dataComplete && (
-        <p className="mt-3 text-sm text-amber-600 dark:text-amber-400">
+        <p className="mt-3 text-sm text-pill-yellow-fg">
           Données incomplètes : {row.linesMissingCost} ligne{row.linesMissingCost > 1 ? "s" : ""} sans coût enregistré.
         </p>
       )}
 
       <Card className="mt-6">
-        <CardHeader><CardTitle className="flex items-center gap-1.5">Commandes contributrices<ReportMetricInfo metric="profitDetailOrders" /></CardTitle></CardHeader>
+        <CardHeader><CardTitle accent="green">Commandes contributrices<ReportMetricInfo metric="profitDetailOrders" /></CardTitle></CardHeader>
         <CardContent className="overflow-x-auto p-0">
           <Table className="text-[13px]">
             <TableHeader>
@@ -133,7 +133,7 @@ export default async function ProfitabiliteProduitDetailPage({
       </Card>
 
       <p className="mt-4 print:hidden">
-        <Link href={`/rapports/profitabilite?${rangeQuery(resolved)}`} className="text-sm text-primary hover:underline">
+        <Link href={`/rapports/profitabilite?${rangeQuery(resolved)}`} className="text-link text-sm">
           ← Retour au rapport de profitabilité
         </Link>
       </p>

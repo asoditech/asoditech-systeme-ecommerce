@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
 import { Receipt, Wallet, PackageMinus, TrendingUp, ReceiptText, Truck, TrendingDown, Megaphone, Percent } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
@@ -8,7 +9,7 @@ import { ExpenseForm } from "@/components/finance/expense-form";
 import { Button } from "@/components/ui/button";
 import { DateRangeFields } from "@/components/date-range-fields";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { requireChannelKind } from "@/lib/auth/channel-access";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -73,23 +74,20 @@ export default async function FinancePage({
         }
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <SegmentedControl>
             {[
               { key: "month", label: "Ce mois" },
               { key: "quarter", label: "Ce trimestre" },
               { key: "year", label: "Cette année" },
             ].map((p) => (
-              <Button
-                key={p.key}
-                variant={periodKey === p.key ? "default" : "outline"}
-                size="sm"
-                render={<Link href={`/finance?period=${p.key}`} />}
-              >
+              <SegmentedControlItem key={p.key} active={periodKey === p.key} href={`/finance?period=${p.key}`}>
                 {p.label}
-              </Button>
+              </SegmentedControlItem>
             ))}
-            <form action="/finance" className="flex items-center gap-1.5">
-              <DateRangeFields idPrefix="finance" fromName="from" toName="to" from={params.from} to={params.to} size="sm" />
-              <Button type="submit" variant={periodKey === "custom" ? "default" : "outline"} size="sm">
+            </SegmentedControl>
+            <form action="/finance" className="flex max-w-full flex-wrap items-center gap-2">
+              <DateRangeFields idPrefix="finance" fromName="from" toName="to" from={params.from} to={params.to} />
+              <Button type="submit" variant={periodKey === "custom" ? "default" : "outline"}>
                 OK
               </Button>
             </form>
@@ -98,10 +96,10 @@ export default async function FinancePage({
       />
 
       <MissingCostBanner user={user} />
-      <p className="mb-4 text-sm text-muted-foreground">
-        Période : <span className="text-foreground">{periodLabel}</span>
+      <p className="mb-5 text-sm text-ink-muted">
+        Période : <span className="font-medium text-ink">{periodLabel}</span>
         {summary.itemsMissingCost > 0 && (
-          <span className="ml-2 text-amber-600 dark:text-amber-400">
+          <span className="ml-2 text-pill-yellow-fg">
             — {summary.itemsMissingCost} article(s) vendu(s) sans coût d&apos;achat renseigné : le bénéfice est incomplet.
           </span>
         )}
@@ -168,13 +166,13 @@ export default async function FinancePage({
 
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle className="text-[15px]">Rentabilité par produit</CardTitle>
+          <CardTitle accent="green">Rentabilité par produit</CardTitle>
         </CardHeader>
         <CardContent>
           {productProfit.length === 0 ? (
             <p className="text-sm text-muted-foreground">Aucune vente sur la période.</p>
           ) : (
-            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+            <TableCard>
               <Table className="text-[13px] [&_td]:px-2.5 [&_td]:py-2 [&_th]:px-2.5">
                 <TableHeader>
                   <TableRow>
@@ -209,7 +207,7 @@ export default async function FinancePage({
                         }`}
                       >
                         {p.grossProfit === null ? (
-                          <span className="text-xs font-normal text-amber-600 dark:text-amber-400">coût manquant</span>
+                          <span className="text-xs font-normal text-pill-yellow-fg">coût manquant</span>
                         ) : (
                           formatCurrency(String(p.grossProfit))
                         )}
@@ -221,7 +219,7 @@ export default async function FinancePage({
                   ))}
                 </TableBody>
               </Table>
-            </div>
+            </TableCard>
           )}
         </CardContent>
       </Card>
@@ -238,7 +236,7 @@ export default async function FinancePage({
           description="Les dépenses sont des catégories configurables — ajoutez-en une pour commencer."
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -261,7 +259,7 @@ export default async function FinancePage({
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableCard>
       )}
     </div>
   );

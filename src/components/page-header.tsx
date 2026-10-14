@@ -40,8 +40,10 @@ export function PageHeader({
           </BreadcrumbList>
         </Breadcrumb>
       )}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
+      {/* Wide actions (period pickers, filters) wrap onto their own line
+          instead of squeezing the title column. */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+        <div className="min-w-0 sm:min-w-72 sm:flex-1">
           <h1 className="text-[26px] leading-tight font-semibold tracking-tight text-ink md:text-[32px]">{title}</h1>
           {description && <p className="mt-1.5 text-sm text-ink-secondary">{description}</p>}
         </div>

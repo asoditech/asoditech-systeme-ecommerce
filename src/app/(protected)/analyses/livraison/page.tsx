@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/page-header";
+import { CHART_BAR_CLASSES, CHART_COLORS } from "@/lib/design/chart";
 import { KpiCard } from "@/components/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -75,7 +76,7 @@ export default async function DeliveryAnalyticsPage({ searchParams }: { searchPa
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle className="flex items-center gap-1.5">
+            <CardTitle accent="purple">
                 Expéditions et issues — par date d&apos;expédition
                 <AnalyticsMetricInfo metric="deliverySeries" />
               </CardTitle>
@@ -84,17 +85,17 @@ export default async function DeliveryAnalyticsPage({ searchParams }: { searchPa
             <SeriesChart
               data={d.series}
               series={[
-                { key: "shipped", label: "Expédiées", color: "var(--color-muted-foreground)" },
-                { key: "delivered", label: "Livrées", color: "#10b981" },
-                { key: "failed", label: "Échecs", color: "#f43f5e" },
-                { key: "returned", label: "Retournées", color: "#f59e0b" },
+                { key: "shipped", label: "Expédiées", color: CHART_COLORS.neutral },
+                { key: "delivered", label: "Livrées", color: CHART_COLORS.positive },
+                { key: "failed", label: "Échecs", color: CHART_COLORS.negative },
+                { key: "returned", label: "Retournées", color: CHART_COLORS.attention },
               ]}
             />
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-1.5">
+            <CardTitle accent="purple">
                 Issue des expéditions
                 <AnalyticsMetricInfo metric="deliveryOutcomeBreakdown" />
               </CardTitle>
@@ -105,15 +106,15 @@ export default async function DeliveryAnalyticsPage({ searchParams }: { searchPa
             ) : (
               <BreakdownBarList
                 items={[
-                  { key: "delivered", count: o.delivered, label: <span className="text-sm font-medium">Livrées</span>, barColor: "bg-emerald-500" },
-                  { key: "failed", count: o.failed, label: <span className="text-sm font-medium">Échecs</span>, barColor: "bg-rose-500" },
-                  { key: "returned", count: o.returned, label: <span className="text-sm font-medium">Retournées</span>, barColor: "bg-amber-500" },
+                  { key: "delivered", count: o.delivered, label: <span className="text-sm font-medium">Livrées</span>, barColor: CHART_BAR_CLASSES.positive },
+                  { key: "failed", count: o.failed, label: <span className="text-sm font-medium">Échecs</span>, barColor: CHART_BAR_CLASSES.negative },
+                  { key: "returned", count: o.returned, label: <span className="text-sm font-medium">Retournées</span>, barColor: CHART_BAR_CLASSES.attention },
                   { key: "inProgress", count: o.inProgress, label: (
                       <span className="inline-flex items-center gap-0.5 text-sm font-medium">
                         En cours
                         <AnalyticsMetricInfo metric="deliveryInProgress" label="En cours" />
                       </span>
-                    ), barColor: "bg-slate-400" },
+                    ), barColor: CHART_BAR_CLASSES.muted },
                 ]}
               />
             )}
@@ -123,7 +124,7 @@ export default async function DeliveryAnalyticsPage({ searchParams }: { searchPa
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-1.5">
+          <CardTitle accent="purple">
                 Par transporteur
                 <AnalyticsMetricInfo metric="deliveryByProvider" />
               </CardTitle>
@@ -164,7 +165,7 @@ export default async function DeliveryAnalyticsPage({ searchParams }: { searchPa
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-1.5">
+          <CardTitle accent="purple">
                 Par origine
                 <AnalyticsMetricInfo metric="deliveryBySource" />
               </CardTitle>

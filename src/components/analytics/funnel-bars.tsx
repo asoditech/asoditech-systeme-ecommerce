@@ -17,10 +17,10 @@ export function FunnelBars({ steps }: { steps: { label: string; count: number; h
                 {base > 0 && <span className="ml-1 text-xs">({share.toFixed(1).replace(".", ",")} %)</span>}
               </span>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-              <div className="h-full rounded-full bg-primary" style={{ width: `${share}%` }} />
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-chart-track">
+              <div className="h-full rounded-full bg-chart-1" style={{ width: `${share}%` }} />
             </div>
-            {s.hint && <p className="mt-0.5 text-[11px] text-muted-foreground">{s.hint}</p>}
+            {s.hint && <p className="mt-0.5 text-xs text-muted-foreground">{s.hint}</p>}
           </div>
         );
       })}

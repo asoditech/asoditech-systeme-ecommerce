@@ -1,10 +1,9 @@
-import Link from "next/link";
+import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
 import { PageHeader } from "@/components/page-header";
 import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
 import { KpiCard } from "@/components/kpi-card";
 import { ReportMetricInfo } from "@/components/reports/report-metric-info";
 import { ReportDefinitions } from "@/components/reports/report-definitions";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ClickableTableRow } from "@/components/clickable-table-row";
@@ -46,7 +45,7 @@ const campaignHref = (campaignId: string | null) => `/rapports/profitabilite/cam
 function IncompleteBadge({ count }: { count: number }) {
   if (count === 0) return null;
   return (
-    <span className="ml-1.5 text-xs text-amber-600 dark:text-amber-400">
+    <span className="ml-1.5 text-xs text-pill-yellow-fg">
       ({count} ligne{count > 1 ? "s" : ""} sans coût)
     </span>
   );
@@ -178,7 +177,7 @@ export default async function RapportProfitabilitePage({
       </div>
 
       {!totals.dataComplete && (
-        <p className="mt-3 text-sm text-amber-600 dark:text-amber-400">
+        <p className="mt-3 text-sm text-pill-yellow-fg">
           Données incomplètes : {totals.linesMissingCost} ligne{totals.linesMissingCost > 1 ? "s" : ""} de commande
           {" "}({totals.ordersMissingCost} commande{totals.ordersMissingCost > 1 ? "s" : ""}) n&apos;ont pas de coût
           enregistré — le profit total est indicatif. Renseignez le coût des produits concernés pour un calcul exact.
@@ -186,21 +185,21 @@ export default async function RapportProfitabilitePage({
       )}
 
       {CAMPAIGN_VIEW_AVAILABLE ? (
-        <div className="mt-6 mb-4 flex gap-1.5 print:hidden">
-          <Button size="sm" variant={view === "produit" ? "default" : "outline"} render={<Link href={viewHref("produit")} />}>
+        <SegmentedControl className="mt-6 mb-5 print:hidden">
+          <SegmentedControlItem active={view === "produit"} href={viewHref("produit")}>
             Par produit
-          </Button>
-          <Button size="sm" variant={view === "campagne" ? "default" : "outline"} render={<Link href={viewHref("campagne")} />}>
+          </SegmentedControlItem>
+          <SegmentedControlItem active={view === "campagne"} href={viewHref("campagne")}>
             Par campagne / source
-          </Button>
-        </div>
+          </SegmentedControlItem>
+        </SegmentedControl>
       ) : (
         <div className="mt-6" />
       )}
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-1.5">
+          <CardTitle accent="green">
             {view === "produit" ? "Par produit" : "Par campagne / source"}
             <ReportMetricInfo metric={view === "produit" ? "profitByProduct" : "profitByCampaign"} />
           </CardTitle>

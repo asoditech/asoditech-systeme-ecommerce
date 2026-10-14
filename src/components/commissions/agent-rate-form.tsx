@@ -34,7 +34,7 @@ export function AgentRateForm({
   );
 
   return (
-    <form action={formAction} className="flex flex-wrap items-end gap-3 sm:flex-nowrap">
+    <form action={formAction} className="flex flex-wrap items-end gap-3 xl:flex-nowrap">
       <input type="hidden" name="agentId" value={agentId} />
       <div className="shrink-0 space-y-1.5">
         <Label htmlFor={`rate-${agentId}`}>Commission par commande livrée (MAD)</Label>
@@ -50,7 +50,7 @@ export function AgentRateForm({
         <p className="text-xs text-muted-foreground">Les commissions déjà calculées gardent leur ancien taux.</p>
       </div>
       <label className="flex shrink-0 items-center gap-2 pb-1.5 text-sm">
-        <input type="checkbox" name="isActive" value="true" defaultChecked={isActive} className="size-4" />
+        <input type="checkbox" name="isActive" value="true" defaultChecked={isActive} className="size-4 accent-brand" />
         Actif (peut recevoir de nouvelles commandes)
       </label>
       <Button type="submit" variant="outline" disabled={isPending} className="shrink-0">

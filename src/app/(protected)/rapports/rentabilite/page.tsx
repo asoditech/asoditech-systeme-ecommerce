@@ -40,7 +40,7 @@ function ProfitTable({ rows, label }: { rows: ProfitRow[]; label: string }) {
             <TableCell className="font-medium">
               {r.name}
               {!r.cogsComplete && (
-                <span className="ml-1.5 text-xs text-amber-600 dark:text-amber-400">
+                <span className="ml-1.5 text-xs text-pill-yellow-fg">
                   ({r.linesMissingCost} ligne{r.linesMissingCost > 1 ? "s" : ""} sans coût)
                 </span>
               )}
@@ -103,19 +103,19 @@ export default async function RapportRentabilitePage({
       </div>
 
       {!totals.cogsComplete && (
-        <p className="mt-3 text-sm text-amber-600 dark:text-amber-400">
+        <p className="mt-3 text-sm text-pill-yellow-fg">
           Certaines lignes de commande n&apos;ont pas de coût enregistré — la marge totale est indicative.
           Renseignez le coût des produits concernés pour une marge exacte.
         </p>
       )}
 
       <Card className="mt-6">
-        <CardHeader><CardTitle className="flex items-center gap-1.5">Par catégorie<ReportMetricInfo metric="marginByCategory" /></CardTitle></CardHeader>
+        <CardHeader><CardTitle accent="green">Par catégorie<ReportMetricInfo metric="marginByCategory" /></CardTitle></CardHeader>
         <CardContent className="overflow-x-auto"><ProfitTable rows={report.categories} label="Catégorie" /></CardContent>
       </Card>
 
       <Card className="mt-4">
-        <CardHeader><CardTitle className="flex items-center gap-1.5">Par produit<ReportMetricInfo metric="marginByProduct" /></CardTitle></CardHeader>
+        <CardHeader><CardTitle accent="green">Par produit<ReportMetricInfo metric="marginByProduct" /></CardTitle></CardHeader>
         <CardContent className="overflow-x-auto"><ProfitTable rows={report.products} label="Produit" /></CardContent>
       </Card>
       <ReportDefinitions report="rentabilite" />

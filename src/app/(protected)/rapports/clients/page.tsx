@@ -63,14 +63,14 @@ export default async function RapportClientsPage({
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-1.5">Meilleurs clients<ReportMetricInfo metric="customersTop" /></CardTitle></CardHeader>
+          <CardHeader><CardTitle accent="blue">Meilleurs clients<ReportMetricInfo metric="customersTop" /></CardTitle></CardHeader>
           <CardContent className="overflow-x-auto">
             <Table className="text-[13px]">
               <TableHeader><TableRow><TableHead>Client</TableHead><TableHead>Ville</TableHead><TableHead className="text-right">Cmd</TableHead><TableHead className="text-right">CA</TableHead></TableRow></TableHeader>
               <TableBody>
                 {report.topCustomers.map((c) => (
                   <TableRow key={c.customerId}>
-                    <TableCell className="font-medium">{c.name}{c.isNew && <span className="ml-1.5 rounded bg-cyan-500/10 px-1 text-[10px] text-cyan-600 dark:text-cyan-400">nouveau</span>}</TableCell>
+                    <TableCell className="font-medium">{c.name}{c.isNew && <span className="ml-1.5 rounded-full bg-pill-blue px-1.5 text-xs text-pill-blue-fg">nouveau</span>}</TableCell>
                     <TableCell className="text-muted-foreground">{c.city ?? "—"}</TableCell>
                     <TableCell className="text-right tabular-nums">{c.orders}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrency(c.revenue)}</TableCell>
@@ -85,7 +85,7 @@ export default async function RapportClientsPage({
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-1.5">Par ville<ReportMetricInfo metric="customersByCity" /></CardTitle></CardHeader>
+          <CardHeader><CardTitle accent="blue">Par ville<ReportMetricInfo metric="customersByCity" /></CardTitle></CardHeader>
           <CardContent className="overflow-x-auto">
             <Table className="text-[13px]">
               <TableHeader><TableRow><TableHead>Ville</TableHead><TableHead className="text-right">Acheteurs</TableHead><TableHead className="text-right">Cmd</TableHead><TableHead className="text-right">CA</TableHead></TableRow></TableHeader>

@@ -62,7 +62,7 @@ export default async function RapportTresoreriePage({
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-1.5">Encaissements par mode de paiement<ReportMetricInfo metric="cashByMethod" /></CardTitle></CardHeader>
+          <CardHeader><CardTitle accent="green">Encaissements par mode de paiement<ReportMetricInfo metric="cashByMethod" /></CardTitle></CardHeader>
           <CardContent className="overflow-x-auto">
             <Table className="text-[13px]">
               <TableHeader><TableRow><TableHead>Mode</TableHead><TableHead className="text-right">Encaissé</TableHead><TableHead className="text-right">À encaisser</TableHead></TableRow></TableHeader>
@@ -80,7 +80,7 @@ export default async function RapportTresoreriePage({
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-1.5">Sorties par poste<ReportMetricInfo metric="cashOutflowsByCategory" /></CardTitle></CardHeader>
+          <CardHeader><CardTitle accent="green">Sorties par poste<ReportMetricInfo metric="cashOutflowsByCategory" /></CardTitle></CardHeader>
           <CardContent className="overflow-x-auto">
             <Table className="text-[13px]">
               <TableHeader><TableRow><TableHead>Poste</TableHead><TableHead className="text-right">Montant</TableHead></TableRow></TableHeader>

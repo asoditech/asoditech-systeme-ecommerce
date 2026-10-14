@@ -26,12 +26,12 @@ export function BreakdownBarList({
           <div key={item.key}>
             <div className="mb-1 flex items-center justify-between gap-3">
               <div className="min-w-0">{item.label}</div>
-              <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
+              <span className="shrink-0 text-sm tabular-nums text-ink-secondary">
                 {item.count}
                 <span className="ml-1 text-xs">({share} %)</span>
               </span>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-chart-track">
               <div
                 className={cn("h-full rounded-full", item.barColor)}
                 style={{ width: `${(item.count / max) * 100}%` }}

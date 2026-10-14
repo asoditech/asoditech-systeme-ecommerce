@@ -16,13 +16,14 @@ References: `design-reference/` (untracked, local only).
 | 4 | Commandes (`/commandes`, detail, nouvelle, order dialogs) | Done |
 | 5a | Ventes: nouvelle opération, ventes magasin, confirmation, clients, livraison, suivi, retours colis | Done |
 | 5b | Catalogue: produits, catégories, stock, réceptions, fournisseurs, traçabilité, transferts, inventaires, entrepôts | Done |
-| 5c–5e | Finance & analytics · Settings & others · Public/auth | To do |
+| 5c | Finance & analytics: finance, dépenses, commissions, rapports (12), analyses (6) + charts on the shared chart settings | Done |
+| 5d–5e | Settings & others · Public/auth | To do |
 | 6 | Polish, responsiveness, AA audit | To do |
 
 ## Pages
 
 - Done (shell + shared components): every page in the app area gets the new shell, sidebar, topbar and the restyled shared components (buttons, inputs, selects, cards, tables, pills, pagination, tabs, menus, dialogs, toasts…).
-- Pages fully redesigned: `/tableau-de-bord` (Step 3); `/commandes`, `/commandes/[id]`, `/commandes/nouvelle` + order dialogs (Step 4 — the reference pattern for table pages); Ventes group (Step 5a): `/operations/nouvelle`, `/ventes` (+ detail, nouvelle), `/confirmation` (+ performance), `/clients` (+ detail, nouveau), `/livraison` (4 tabs), `/livraison/suivi` (+ detail), `/livraison/retours` (+ inspection), `/livraison/factures` (+ invoice); Catalogue group (Step 5b): `/produits` (+ detail, nouveau, exporter, étiquette), `/catalogue/categories`, `/stock`, `/receptions` (+ detail, nouveau, modifier), `/fournisseurs` (+ detail), `/tracabilite`, `/transferts` (+ detail, nouveau), `/inventaires` (+ detail, nouveau), `/entrepots`.
+- Pages fully redesigned: `/tableau-de-bord` (Step 3); `/commandes`, `/commandes/[id]`, `/commandes/nouvelle` + order dialogs (Step 4 — the reference pattern for table pages); Ventes group (Step 5a): `/operations/nouvelle`, `/ventes` (+ detail, nouvelle), `/confirmation` (+ performance), `/clients` (+ detail, nouveau), `/livraison` (4 tabs), `/livraison/suivi` (+ detail), `/livraison/retours` (+ inspection), `/livraison/factures` (+ invoice); Catalogue group (Step 5b): `/produits` (+ detail, nouveau, exporter, étiquette), `/catalogue/categories`, `/stock`, `/receptions` (+ detail, nouveau, modifier), `/fournisseurs` (+ detail), `/tracabilite`, `/transferts` (+ detail, nouveau), `/inventaires` (+ detail, nouveau), `/entrepots`; Finance & analytics (Step 5c): `/finance`, `/depenses`, `/commissions` (+ agent, relevé), `/rapports` + 11 reports, `/analyses` + 5 tabs.
 - Page-specific layouts and colours not restyled yet: all other pages (Steps 4–5).
 - Review page: `/dev/components` (dev only, 404 in production builds, not linked).
 - Out of scope until decided: `src/app/platform/*` (platform admin), not touched.
@@ -86,6 +87,15 @@ References: `design-reference/` (untracked, local only).
 - Printable label keeps its print look (black on white); only its on-screen status lines use the token colours.
 - Checked: light 1280, dark 390, light 768 on 21 URLs (no overflow after the two fixes above); dialogs in dark: new location (1280 + 390), remove product, cancel transfer.
 
+## Step 5c — Finance & analytics
+
+- Charts: `SeriesChart` (analyses) and `SalesChart` (rapport de ventes) now take grid, axes, tooltip (dark chip) and bar radius from `src/lib/design/chart.ts`; series colours come from new meaning keys `CHART_COLORS.brand / neutral / positive / negative / attention / secondary` (no more hex values in pages). Narrow grouped bars use `CHART_BAR_RADIUS_DENSE` (a radius wider than the bar collapsed it into a hairline). CSS bar lists (`BreakdownBarList`, `FunnelBars`) use `CHART_BAR_CLASSES` (same palette as classes) on the chart track.
+- Shared: `PageHeader` lets wide actions wrap onto their own line (the title column keeps ≥ 18rem) — fixes the squeezed description on `/finance`; analyses explanation-language toggle on the segmented tokens.
+- Toggles that were orange-filled buttons are now `SegmentedControl`s with the same links: `/finance` period, `/depenses` period, `/rapports/canaux` online/store + store pickers, `/rapports/profitabilite` product/campaign view. « Ce mois-ci » on `/depenses` = neutral pressed button.
+- Every report / analysis card title has an accent bar by subject (green = money, blue = people / confirmation, peach = products / stock / returns, purple = delivery / channels); links that were orange text use `text-link`; commission and supplier balance bars on success / chart yellow; dormant stock rows = pale yellow; « nouveau » client tag = blue pill; statement sheet keeps its paper look.
+- Commissions: « Ajouter un agent » and agent rate forms wrap instead of overflowing at 390 / 768.
+- Checked: light 1280, dark 390, light 768 on 21 URLs (no overflow after the fix above); charts scrolled into view in light and dark; dialogs in dark: new expense (1280 + 390), edit expense.
+
 ## Decisions (confirmed by the owner after Step 1)
 
 - AA contrast: muted text is `#707070` (switched from `#767676` after Step 2; `#9A9A9A` kept as `--text-faint`, decoration only); primary-button text is dark `#1f1206` on orange (white is 2.8:1), set once as `--brand-foreground`; focus ring uses `#D96F2D`.
@@ -97,7 +107,6 @@ References: `design-reference/` (untracked, local only).
 - Input border `#E8E8E8` (requested) is below the 3:1 non-text contrast guideline; the label above, the focus ring and the error state carry the meaning.
 - Some pages override sizes / colours locally (e.g. `CardTitle className="text-[15px]"`, small « Actualiser » buttons, orange settings tabs): cleaned page by page in Steps 3–5.
 - `/dev/components` to be removed or kept dev-only at Step 6.
-- Other charts (`/rapports/ventes` sales chart, `/analyses` series chart) still use their own colours: move them onto `src/lib/design/chart.ts` with their pages (Step 5).
 - `CommandHero` / `SummarySection` restyle also shows on `/rapports/ventes`, `/confirmation`, `/fournisseurs/[id]`, `/commissions/[agentId]` (shared components) before those pages get their own pass.
 - 24 other pages still wrap tables in `rounded-xl border bg-card shadow-card` and ~18 files use the amber callout: moved onto `TableCard` / `Notice` in Step 5.
 - Full suite under load: a few DB-backed tests time out (baseline run: 10 in 6 files; Step 4 run: 4 in `analytics.test.ts`) and pass when re-run alone — not redesign-related.
@@ -105,5 +114,7 @@ References: `design-reference/` (untracked, local only).
 - `NavBadge` not connected to counts (by decision: no new queries in Step 1).
 - Pre-existing (not redesign): `/clients/[id]` logs « Only plain objects can be passed to Client Components… Decimal » in dev (a Prisma `Decimal` reaches a client component). Fixing it is a data-shape change, so it is left alone.
 - At 768px the expanded sidebar (272px) leaves a narrow content column; the shell does not auto-collapse to the rail at tablet width (Step 1 shell) — to review in Step 6.
+- Not checked on the local data during 5c (no data): `/rapports/profitabilite/campagne/[id]`, commission statement `/commissions/[agentId]/releves/[id]`.
+- Pre-existing (not redesign): some percentages print « 100.0 % » (dot) next to « 100,0 % » (comma) — number formatting, not changed.
 - Not openable on the local data during 5b checks: stock adjustment (« Ajuster ») from the product Stock tab.
 - Not openable on the local data during 5a checks (empty lists): « Créer une expédition » and the city-mapping dialog — restyled through shared tokens, not seen.

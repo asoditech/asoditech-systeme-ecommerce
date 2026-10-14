@@ -23,9 +23,9 @@ export default async function RapportsPage() {
           const Icon = r.icon;
           return (
             <Link key={r.href} href={r.href} className="group">
-              <Card className="h-full transition-colors group-hover:border-primary/40">
+              <Card className="h-full transition-colors group-hover:border-field-border-hover">
                 <CardContent className="flex flex-col gap-2 pt-5">
-                  <div className="flex size-10 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                  <div className="flex size-10 items-center justify-center rounded-lg bg-pill-peach text-pill-peach-fg">
                     <Icon className="size-5" />
                   </div>
                   <p className="font-medium">{r.title}</p>

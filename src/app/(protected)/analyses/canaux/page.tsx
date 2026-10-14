@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/page-header";
+import { CHART_BAR_CLASSES } from "@/lib/design/chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AnalyticsNav } from "@/components/analytics/analytics-nav";
@@ -15,7 +16,7 @@ import { formatCurrency } from "@/lib/format";
 
 export const metadata = { title: "Analyses — Origines & magasins — ASODITECH Gestion E-commerce" };
 
-const COLORS = ["bg-primary", "bg-violet-500", "bg-cyan-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500", "bg-slate-400", "bg-fuchsia-500"];
+const COLORS = CHART_BAR_CLASSES.series;
 
 /**
  * Sources and channels (docs/adr/0051). The Online part is a lifecycle
@@ -54,7 +55,7 @@ export default async function SourcesAnalyticsPage({ searchParams }: { searchPar
         <div className="grid gap-6 lg:grid-cols-3">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-1.5">
+              <CardTitle accent="purple">
                 Commandes en ligne par origine
                 <AnalyticsMetricInfo metric="ordersByOrigin" />
               </CardTitle>
@@ -71,7 +72,7 @@ export default async function SourcesAnalyticsPage({ searchParams }: { searchPar
           </Card>
           <Card className="lg:col-span-2">
             <CardHeader>
-              <CardTitle className="flex items-center gap-1.5">
+              <CardTitle accent="purple">
                 Entonnoir par origine (commandes passées sur la période)
                 <AnalyticsMetricInfo metric="originFunnel" />
               </CardTitle>
@@ -126,7 +127,7 @@ export default async function SourcesAnalyticsPage({ searchParams }: { searchPar
           ].map((block) => (
             <Card key={block.title}>
               <CardHeader>
-                <CardTitle className="flex items-center gap-1.5">
+                <CardTitle accent="purple">
                   {block.title}
                   <AnalyticsMetricInfo metric={block.metric} />
                 </CardTitle>

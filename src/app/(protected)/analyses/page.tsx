@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CHART_COLORS } from "@/lib/design/chart";
 import { PageHeader } from "@/components/page-header";
 import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
 import { EmptyState } from "@/components/empty-state";
@@ -135,7 +136,7 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
               <div className="grid gap-6 lg:grid-cols-3">
                 <Card className="lg:col-span-2">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-1.5">
+                    <CardTitle accent="green">
                 Chiffre d&apos;affaires et commandes — {period.label}
                 <AnalyticsMetricInfo metric="revenueOrdersChart" />
               </CardTitle>
@@ -146,7 +147,7 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
                 </Card>
                 <Card>
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-1.5">
+                    <CardTitle accent="green">
                 Entonnoir des commandes
                 <AnalyticsMetricInfo metric="orderFunnel" />
               </CardTitle>
@@ -166,7 +167,7 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-1.5">
+                  <CardTitle accent="green">
                 Produits les plus vendus en ligne
                 <AnalyticsMetricInfo metric="topProducts" />
               </CardTitle>
@@ -269,13 +270,13 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
               </div>
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-1.5">
+                  <CardTitle accent="green">
                 CA brut magasin — {period.label}
                 <AnalyticsMetricInfo metric="storeGrossSales" />
               </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <SeriesChart data={store.series} series={[{ key: "revenue", label: "CA brut magasin", color: "var(--color-primary)" }]} currency />
+                  <SeriesChart data={store.series} series={[{ key: "revenue", label: "CA brut magasin", color: CHART_COLORS.brand }]} currency />
                 </CardContent>
               </Card>
             </section>

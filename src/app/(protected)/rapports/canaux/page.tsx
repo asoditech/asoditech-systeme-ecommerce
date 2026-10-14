@@ -1,11 +1,10 @@
-import Link from "next/link";
+import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
 import { Globe, Store, Sigma } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { KpiCard } from "@/components/kpi-card";
 import { ReportMetricInfo } from "@/components/reports/report-metric-info";
 import { ReportDefinitions } from "@/components/reports/report-definitions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
@@ -63,25 +62,25 @@ export default async function RapportCanauxPage({
       <ReportFilterBar basePath="/rapports/canaux" resolved={resolved} extraParams={{ kind: kind === "all" ? undefined : kind, canal: salesChannelId }} exportHref={`/rapports/export/canaux?${base}${kind === "all" ? "" : `&kind=${kind}`}${salesChannelId ? `&canal=${salesChannelId}` : ""}`} />
 
       {both && (
-        <div className="mb-4 flex flex-wrap gap-1">
+        <SegmentedControl className="mb-4">
           {(["all", "online", "offline"] as const).map((k) => (
-            <Button key={k} size="sm" variant={k === kind ? "default" : "outline"} render={<Link href={link(k === "all" ? "" : `&kind=${k}`)} />}>
+            <SegmentedControlItem key={k} active={k === kind} href={link(k === "all" ? "" : `&kind=${k}`)}>
               {k === "all" ? "Tout" : k === "online" ? "En ligne" : "Magasin"}
-            </Button>
+            </SegmentedControlItem>
           ))}
-        </div>
+        </SegmentedControl>
       )}
       {stores.length > 1 && kind !== "online" && (
-        <div className="mb-4 flex flex-wrap gap-1">
-          <Button size="sm" variant={!salesChannelId ? "default" : "outline"} render={<Link href={link(kind === "all" ? "" : `&kind=${kind}`)} />}>
+        <SegmentedControl className="mb-4">
+          <SegmentedControlItem active={!salesChannelId} href={link(kind === "all" ? "" : `&kind=${kind}`)}>
             Tous les magasins
-          </Button>
+          </SegmentedControlItem>
           {stores.map((s) => (
-            <Button key={s.id} size="sm" variant={salesChannelId === s.id ? "default" : "outline"} render={<Link href={link(`&kind=offline&canal=${s.id}`)} />}>
+            <SegmentedControlItem key={s.id} active={salesChannelId === s.id} href={link(`&kind=offline&canal=${s.id}`)}>
               {s.name}
-            </Button>
+            </SegmentedControlItem>
           ))}
-        </div>
+        </SegmentedControl>
       )}
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -98,7 +97,7 @@ export default async function RapportCanauxPage({
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-1.5 text-[15px]">Magasin — détail<ReportMetricInfo metric="channelsStoreDetail" /></CardTitle>
+              <CardTitle accent="purple">Magasin — détail<ReportMetricInfo metric="channelsStoreDetail" /></CardTitle>
             </CardHeader>
             <CardContent className="space-y-1 text-sm">
               <div className="flex justify-between"><span>Ventes brutes</span><span className="tabular-nums">{formatCurrency(report.offline.grossSales)}</span></div>
@@ -108,7 +107,7 @@ export default async function RapportCanauxPage({
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-1.5 text-[15px]">Par mode de paiement<ReportMetricInfo metric="channelsByPayment" /></CardTitle>
+              <CardTitle accent="purple">Par mode de paiement<ReportMetricInfo metric="channelsByPayment" /></CardTitle>
             </CardHeader>
             <CardContent>
               <Table>
@@ -128,7 +127,7 @@ export default async function RapportCanauxPage({
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-1.5 text-[15px]">Par magasin<ReportMetricInfo metric="channelsByStore" /></CardTitle>
+              <CardTitle accent="purple">Par magasin<ReportMetricInfo metric="channelsByStore" /></CardTitle>
             </CardHeader>
             <CardContent>
               <Table>
@@ -143,7 +142,7 @@ export default async function RapportCanauxPage({
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-1.5 text-[15px]">Par emplacement<ReportMetricInfo metric="channelsByLocation" /></CardTitle>
+              <CardTitle accent="purple">Par emplacement<ReportMetricInfo metric="channelsByLocation" /></CardTitle>
             </CardHeader>
             <CardContent>
               <Table>

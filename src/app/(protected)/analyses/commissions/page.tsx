@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/page-header";
+import { CHART_COLORS } from "@/lib/design/chart";
 import { KpiCard } from "@/components/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
@@ -63,7 +64,7 @@ export default async function CommissionAnalyticsPage({ searchParams }: { search
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-1.5">
+          <CardTitle accent="green">
                 Par période
                 <AnalyticsMetricInfo metric="commissionSeries" />
               </CardTitle>
@@ -73,8 +74,8 @@ export default async function CommissionAnalyticsPage({ searchParams }: { search
             data={c.series}
             currency
             series={[
-              { key: "earned", label: "Gagnées", color: "#10b981" },
-              { key: "reversed", label: "Annulées", color: "#f43f5e" },
+              { key: "earned", label: "Gagnées", color: CHART_COLORS.positive },
+              { key: "reversed", label: "Annulées", color: CHART_COLORS.negative },
             ]}
           />
         </CardContent>
@@ -82,7 +83,7 @@ export default async function CommissionAnalyticsPage({ searchParams }: { search
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-1.5">
+          <CardTitle accent="green">
                 Par agent
                 <AnalyticsMetricInfo metric="commissionByAgent" />
               </CardTitle>
