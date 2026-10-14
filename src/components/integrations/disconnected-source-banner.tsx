@@ -2,6 +2,7 @@ import Link from "next/link";
 import { PlugZap } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import type { RecordSource } from "@prisma/client";
+import { Notice } from "@/components/ui/notice";
 
 /**
  * Shown at the top of Produits / Commandes when a commerce integration is
@@ -30,8 +31,8 @@ export async function DisconnectedSourceBanner({ entity }: { entity: "product" |
   const noun = entity === "product" ? "produits importés" : "commandes importées";
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
-      <PlugZap className="size-4 shrink-0" />
+    <Notice tone="warning" className="mb-5 flex-wrap items-center gap-x-2 gap-y-1 [&>svg]:mt-0">
+      <PlugZap />
       <span>
         {names} {sources.length > 1 ? "sont déconnectés" : "est déconnecté"}. Les {counts} {noun} restent visibles pour
         l&apos;historique mais ne se synchronisent plus.
@@ -39,6 +40,6 @@ export async function DisconnectedSourceBanner({ entity }: { entity: "product" |
       <Link href="/integrations" className="font-medium underline">
         Reconnecter
       </Link>
-    </div>
+    </Notice>
   );
 }

@@ -19,6 +19,20 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
   )
 }
 
+/**
+ * Soft UI: the white card a list table sits in (24px radius, no border,
+ * almost flat shadow). Put the table and its `DataTablePagination` inside.
+ */
+function TableCard({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="table-card"
+      className={cn("overflow-hidden rounded-card bg-card shadow-card [&_td:first-child]:pl-6 [&_td:last-child]:pr-6 [&_th:first-child]:pl-6 [&_th:last-child]:pr-6", className)}
+      {...props}
+    />
+  )
+}
+
 function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <thead
@@ -106,6 +120,7 @@ function TableCaption({
 
 export {
   Table,
+  TableCard,
   TableHeader,
   TableBody,
   TableFooter,

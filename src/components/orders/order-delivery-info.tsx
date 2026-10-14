@@ -91,13 +91,13 @@ function PrimaryShipment({ s, currency, v }: { s: OrderDeliveryShipment; currenc
   const event = v.canViewDelivery ? lastTrackingEvent(s.trackingEvents) : null;
   const sync = v.canViewDelivery ? latestSync(s) : null;
   return (
-    <div className="space-y-3 rounded-lg border p-3" data-testid="primary-shipment">
+    <div className="space-y-3 rounded-tile border border-hairline p-4" data-testid="primary-shipment">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{s.providerName}</span>
         <Badge variant="outline">{shipmentConnectionLabel(s.providerType, s.externalId)}</Badge>
         <StatusBadge status={s.status} labels={SHIPMENT_STATUS_LABELS} />
         {v.canViewDelivery && (
-          <Link href={`/livraison/suivi/${s.id}`} className="ml-auto text-sm text-primary hover:underline">
+          <Link href={`/livraison/suivi/${s.id}`} className="text-link ml-auto text-sm">
             Voir le suivi
           </Link>
         )}
@@ -121,7 +121,7 @@ function PrimaryShipment({ s, currency, v }: { s: OrderDeliveryShipment; currenc
           <Field label="Frais de livraison">
             {s.cost !== null ? formatCurrency(s.cost, currency) : "— (inconnu)"}
             {s.costSource && (
-              <span className="block text-[11px] text-muted-foreground">
+              <span className="block text-xs text-muted-foreground">
                 {SHIPMENT_COST_SOURCE_LABELS[s.costSource] ?? s.costSource}
                 {s.costFinalized ? "" : " (estimation)"}
               </span>
@@ -146,7 +146,7 @@ function PrimaryShipment({ s, currency, v }: { s: OrderDeliveryShipment; currenc
       )}
       {s.failedReason && <p className="text-sm text-destructive">Motif d&apos;échec : {s.failedReason}</p>}
       {v.canViewDelivery && s.trackingSyncError && (
-        <p className="text-sm text-amber-600 dark:text-amber-400">Erreur de synchronisation : {s.trackingSyncError}</p>
+        <p className="text-sm text-pill-yellow-fg">Erreur de synchronisation : {s.trackingSyncError}</p>
       )}
     </div>
   );
@@ -156,9 +156,9 @@ function PreviousShipments({ shipments, currency, v }: { shipments: OrderDeliver
   return (
     <div className="space-y-2" data-testid="previous-shipments">
       <p className="text-sm font-medium">Expéditions précédentes</p>
-      <ul className="divide-y rounded-lg border">
+      <ul className="divide-y divide-hairline rounded-tile border border-hairline">
         {shipments.map((s) => (
-          <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+          <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
             <span>{s.providerName}</span>
             <TrackingValue s={s} />
             <StatusBadge status={s.status} labels={SHIPMENT_STATUS_LABELS} />
@@ -168,7 +168,7 @@ function PreviousShipments({ shipments, currency, v }: { shipments: OrderDeliver
             )}
             {s.failedReason && <span className="w-full text-xs text-destructive">Motif : {s.failedReason}</span>}
             {v.canViewDelivery && (
-              <Link href={`/livraison/suivi/${s.id}`} className="ml-auto text-primary hover:underline">
+              <Link href={`/livraison/suivi/${s.id}`} className="text-link ml-auto">
                 Voir le suivi
               </Link>
             )}

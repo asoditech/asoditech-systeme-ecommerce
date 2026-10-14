@@ -19,6 +19,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import type { ActionResult, IdResult } from "@/actions/types";
+import { Notice } from "@/components/ui/notice";
 
 type Address = {
   shippingAddressLine1: string | null;
@@ -95,14 +96,14 @@ export function EditShippingAddressDialog({
               <Input id="esa-phone" name="shippingPhone" defaultValue={address.shippingPhone ?? ""} />
             </div>
           </div>
-          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <Notice tone="warning" size="sm" className="block">
             <strong>Important :</strong> {cityGuidanceMessage(cityGuidance)}
-          </p>
-          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          </Notice>
+          <Notice tone="warning" size="sm" className="block">
             <strong>Téléphone :</strong> format local marocain à 10 chiffres, ex.{" "}
             <span className="font-mono">0612345678</span> (le connecteur convertit automatiquement{" "}
             <span className="font-mono">+212…</span>). Un numéro incomplet ou étranger est refusé par le transporteur.
-          </p>
+          </Notice>
           {state && !state.ok && <p className="text-sm text-destructive">{state.error}</p>}
           <DialogFooter>
             <Button type="submit" disabled={isPending}>

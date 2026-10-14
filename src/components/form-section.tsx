@@ -24,7 +24,7 @@ export function FormSection({
   return (
     <div className={cn("space-y-3", className)}>
       <div className="space-y-0.5">
-        <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{title}</h3>
+        <h3 className="text-sm font-semibold text-ink">{title}</h3>
         {description && <p className="text-xs text-muted-foreground/80">{description}</p>}
       </div>
       {children}

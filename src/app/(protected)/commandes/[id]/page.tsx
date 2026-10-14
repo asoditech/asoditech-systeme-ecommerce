@@ -2,20 +2,7 @@ import Link from "next/link";
 import { PhoneActions } from "@/components/phone-actions";
 import { unitImageUrl } from "@/lib/catalog/unit-image";
 import { notFound } from "next/navigation";
-import {
-  Package,
-  PackageCheck,
-  StickyNote,
-  Undo2,
-  Truck,
-  History,
-  User,
-  PhoneCall,
-  HandCoins,
-  TrendingUp,
-  MapPin,
-  CreditCard,
-} from "lucide-react";
+import { PackageCheck } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { OrderStatusControl, OrderPaymentStatusControl } from "@/components/orders/order-status-control";
@@ -27,6 +14,7 @@ import { ProductImagePreview } from "@/components/products/product-image-preview
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Notice } from "@/components/ui/notice";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { getOrderDetail, getOrderAuditTimeline } from "@/lib/queries/orders";
@@ -92,7 +80,7 @@ function Row({
         className={[
           strong ? "font-medium" : "",
           muted ? "text-muted-foreground" : "text-foreground",
-          warn ? "text-amber-600 dark:text-amber-400" : "",
+          warn ? "text-pill-yellow-fg" : "",
           negative ? "text-destructive" : "",
         ].join(" ")}
       >
@@ -278,37 +266,37 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="min-w-0 space-y-6 lg:col-span-2">
           {order.packedAt ? (
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm">
-              <PackageCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
+            <Notice tone="success" className="items-center">
+              <PackageCheck />
               <span>
                 Emballage vérifié le {formatDateTime(order.packedAt)}
                 {order.packedBy?.name ? ` par ${order.packedBy.name}` : ""} ·{" "}
                 {order.packingMethod === "MANUAL" ? "validation manuelle" : "scan"}
               </span>
-            </div>
+            </Notice>
           ) : order.status === "EN_PREPARATION" && canPack ? (
             <PackingPanel orderId={order.id} lines={lines} canPackManual={canPackManual} />
           ) : order.status === "CONFIRMEE" && packingRequired ? (
-            <p className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+            <Notice tone="hint">
               Passez la commande à « Emballage » pour vérifier son emballage : elle ne pourra être expédiée qu&apos;ensuite.
-            </p>
+            </Notice>
           ) : null}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Package className="size-4 text-muted-foreground" />Articles</CardTitle>
+              <CardTitle accent="peach">Articles</CardTitle>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Produit</TableHead>
-                    <TableHead>Prix</TableHead>
-                    <TableHead>Qté</TableHead>
-                    <TableHead>Remise</TableHead>
-                    <TableHead>Total</TableHead>
+                    <TableHead className="text-right">Prix</TableHead>
+                    <TableHead className="text-right">Qté</TableHead>
+                    <TableHead className="text-right">Remise</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -321,7 +309,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                           {productId ? (
                             <Link
                               href={`/produits/${productId}`}
-                              className="font-medium hover:underline"
+                              className="text-link"
                             >
                               {item.nameSnapshot}
                             </Link>
@@ -331,16 +319,16 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                         </ProductImagePreview>
                         <p className="text-xs text-muted-foreground">{item.skuSnapshot}</p>
                       </TableCell>
-                      <TableCell>{formatCurrency(item.unitPrice.toString(), order.currency)}</TableCell>
-                      <TableCell>{item.quantity}</TableCell>
-                      <TableCell>{formatCurrency(item.discount.toString(), order.currency)}</TableCell>
-                      <TableCell>{formatCurrency(item.total.toString(), order.currency)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatCurrency(item.unitPrice.toString(), order.currency)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{item.quantity}</TableCell>
+                      <TableCell className="text-right text-ink-secondary tabular-nums">{formatCurrency(item.discount.toString(), order.currency)}</TableCell>
+                      <TableCell className="text-right font-medium text-ink tabular-nums">{formatCurrency(item.total.toString(), order.currency)}</TableCell>
                     </TableRow>
                     );
                   })}
                 </TableBody>
               </Table>
-              <div className="mt-4 ml-auto max-w-56 space-y-1 text-sm">
+              <div className="mt-4 ml-auto max-w-64 space-y-1.5 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Sous-total</span>
                   <span>{formatCurrency(order.subtotal.toString(), order.currency)}</span>
@@ -353,7 +341,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                   <span className="text-muted-foreground">Livraison</span>
                   <span>{formatCurrency(order.shippingCost.toString(), order.currency)}</span>
                 </div>
-                <div className="flex justify-between border-t pt-1 font-medium">
+                <div className="flex justify-between border-t border-hairline pt-2 text-base font-semibold text-ink">
                   <span>Total</span>
                   <span>{formatCurrency(order.total.toString(), order.currency)}</span>
                 </div>
@@ -370,7 +358,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
           {order.notes && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2"><StickyNote className="size-4 text-muted-foreground" />Notes</CardTitle>
+                <CardTitle accent="yellow">Notes</CardTitle>
               </CardHeader>
               <CardContent className="text-sm whitespace-pre-wrap">{order.notes}</CardContent>
             </Card>
@@ -379,7 +367,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
           {canRefund && (order.status === "LIVREE" || order.status === "RETOUR" || order.refunds.length > 0) && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2"><Undo2 className="size-4 text-muted-foreground" />Remboursements</CardTitle>
+                <CardTitle accent="green">Remboursements</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {order.refunds.length > 0 && (
@@ -414,14 +402,11 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
           {order.returns.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Undo2 className="size-4 text-muted-foreground" />
-                  Retours physiques
-                </CardTitle>
+                <CardTitle accent="purple">Retours physiques</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {order.returns.map((r) => (
-                  <div key={r.id} className="rounded-md border p-3 text-sm">
+                  <div key={r.id} className="rounded-tile border border-hairline p-3.5 text-sm">
                     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                       <p className="font-medium">{r.receivedBy?.name ?? "Système"}</p>
                       <p className="text-xs text-muted-foreground">{formatDateTime(r.receivedAt)}</p>
@@ -451,7 +436,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
 
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Truck className="size-4 text-muted-foreground" />Informations de livraison</CardTitle>
+              <CardTitle accent="purple">Informations de livraison</CardTitle>
             </CardHeader>
             <CardContent>
               <OrderDeliveryInfo
@@ -499,7 +484,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
 
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><History className="size-4 text-muted-foreground" />Historique</CardTitle>
+              <CardTitle accent="yellow">Historique</CardTitle>
             </CardHeader>
             <CardContent>
               {timeline.length === 0 ? (
@@ -526,10 +511,10 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
           </Card>
         </div>
 
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><User className="size-4 text-muted-foreground" />Client</CardTitle>
+              <CardTitle accent="blue">Client</CardTitle>
             </CardHeader>
             <CardContent className="space-y-1 text-sm">
               <p className="font-medium">{displayOrderRecipient(order)}</p>
@@ -540,7 +525,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                 <PhoneActions phone={order.shippingPhone ?? order.customer.phone} whatsapp className="text-muted-foreground" />
               )}
               {order.customer.email && <p className="text-muted-foreground">{order.customer.email}</p>}
-              <p className="border-t pt-2 text-muted-foreground">
+              <p className="border-t border-hairline pt-2 text-muted-foreground">
                 Canal : <span className="text-foreground">{displayOrderChannel(order)}</span>
               </p>
             </CardContent>
@@ -549,7 +534,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
           {canViewCommissions && orderCommission && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2"><PhoneCall className="size-4 text-muted-foreground" />Confirmation</CardTitle>
+                <CardTitle accent="blue">Confirmation</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 <p className="font-medium">
@@ -576,7 +561,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                   muted={confirmationAttempts.length === 0}
                 />
                 {confirmationAttempts.length > 0 && (
-                  <a href="#historique-confirmation" className="block text-xs text-primary hover:underline">
+                  <a href="#historique-confirmation" className="text-link block text-xs">
                     Voir l&apos;historique →
                   </a>
                 )}
@@ -587,7 +572,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
           {canViewCommissions && orderCommission && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2"><HandCoins className="size-4 text-muted-foreground" />Commission</CardTitle>
+                <CardTitle accent="green">Commission</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 {canManageCommissions ? (
@@ -618,7 +603,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                 {commissionStatus === "earned" && (
                   <>
                     <p className="text-lg font-semibold">{formatCurrency(String(orderCommission.net), order.currency)}</p>
-                    <p className="text-sm text-emerald-600 dark:text-emerald-400">✓ Commission acquise</p>
+                    <p className="text-sm text-pill-green-fg">✓ Commission acquise</p>
                   </>
                 )}
 
@@ -632,7 +617,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                 )}
 
                 {orderCommission.hasEntries && (
-                  <div className="mt-2 space-y-0.5 border-t pt-2 text-xs text-muted-foreground">
+                  <div className="mt-2 space-y-0.5 border-t border-hairline pt-2 text-xs text-muted-foreground">
                     <p className="font-medium text-foreground">Pourquoi cette commission ?</p>
                     <p>
                       Confirmée par {orderCommission.agentName ?? "—"}
@@ -654,12 +639,12 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
           {confirmationAttempts.length > 0 && (
             <Card id="historique-confirmation">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2"><PhoneCall className="size-4 text-muted-foreground" />Historique de confirmation</CardTitle>
+                <CardTitle accent="blue">Historique de confirmation</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 <ul className="space-y-1.5">
                   {confirmationAttempts.map((a) => (
-                    <li key={a.id} className="border-l-2 border-muted pl-3">
+                    <li key={a.id} className="border-l-2 border-field-border pl-3">
                       <span className="font-medium">{CONFIRMATION_OUTCOME_LABELS[a.outcome] ?? a.outcome}</span>
                       {a.agent?.name ? <span className="text-muted-foreground"> — {a.agent.name}</span> : null}
                       <span className="block text-xs text-muted-foreground">{formatDateTime(a.createdAt)}</span>
@@ -674,7 +659,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
           {profit && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2"><TrendingUp className="size-4 text-muted-foreground" />Rentabilité</CardTitle>
+                <CardTitle accent="green">Rentabilité</CardTitle>
               </CardHeader>
               <CardContent className="space-y-1 text-sm">
                 {!profit.counted ? (
@@ -721,7 +706,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                       />
                     )}
                     {profit.itemsMissingCost > 0 && (
-                      <p className="border-t pt-2 text-xs text-amber-600 dark:text-amber-400">
+                      <p className="border-t border-hairline pt-2 text-xs text-pill-yellow-fg">
                         {profit.itemsMissingCost} article(s) sans coût d&apos;achat renseigné — renseignez-le sur la fiche
                         produit pour un bénéfice exact.
                       </p>
@@ -734,7 +719,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
 
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><MapPin className="size-4 text-muted-foreground" />Adresse de livraison</CardTitle>
+              <CardTitle accent="purple">Adresse de livraison</CardTitle>
             </CardHeader>
             <CardContent className="space-y-1 text-sm">
               {order.shippingAddressLine1 || order.shippingCity ? (
@@ -758,7 +743,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                 <p className="text-destructive">Aucune adresse renseignée — à compléter avant l&apos;expédition.</p>
               )}
               {order.fulfillmentWarehouse && (
-                <p className="border-t pt-2 text-muted-foreground">
+                <p className="border-t border-hairline pt-2 text-muted-foreground">
                   Préparé depuis : <span className="text-foreground">{order.fulfillmentWarehouse.name}</span>
                 </p>
               )}
@@ -783,7 +768,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
 
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><CreditCard className="size-4 text-muted-foreground" />Paiement</CardTitle>
+              <CardTitle accent="green">Paiement</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <p className="text-muted-foreground">{PAYMENT_METHOD_LABELS[order.paymentMethod]}</p>

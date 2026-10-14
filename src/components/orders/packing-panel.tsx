@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { isPackingComplete, packingCounts, type PackingLine } from "@/lib/packing";
 import { cn } from "@/lib/utils";
+import { Notice } from "@/components/ui/notice";
 
 /**
  * « Emballage » (OrderStatus EN_PREPARATION): scan each packed article — exact
@@ -137,14 +138,14 @@ export function PackingPanel({
           </Button>
           <BarcodeScanButton formats={LOOKUP_SCAN_FORMATS} onDetect={(c) => scan(c)} label="Caméra" />
         </div>
-        {lastError && <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{lastError}</p>}
+        {lastError && <Notice tone="danger">{lastError}</Notice>}
 
-        <ul className="divide-y rounded-md border text-sm">
+        <ul className="divide-y divide-hairline rounded-tile border border-hairline text-sm">
           {lines.map((l) => {
             const done = (counts[l.key] ?? 0) >= l.required;
             const manual = manualKeys.includes(l.key);
             return (
-              <li key={l.key} className="flex items-center justify-between gap-3 px-3 py-2">
+              <li key={l.key} className="flex items-center justify-between gap-3 px-3.5 py-2.5">
                 <span className="min-w-0">
                   <span className="block truncate font-medium">{l.label}</span>
                   <span className="block font-mono text-xs text-muted-foreground">{l.sku}</span>
@@ -161,7 +162,7 @@ export function PackingPanel({
                       Manuel
                     </label>
                   )}
-                  <span className={cn("inline-flex items-center gap-1 tabular-nums", done ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
+                  <span className={cn("inline-flex items-center gap-1 tabular-nums", done ? "text-pill-green-fg" : "text-muted-foreground")}>
                     {done && <CheckCircle2 className="size-4" />}
                     {counts[l.key] ?? 0}/{l.required}
                   </span>

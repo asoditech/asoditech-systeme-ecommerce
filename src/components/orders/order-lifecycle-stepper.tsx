@@ -69,24 +69,24 @@ export function OrderLifecycleStepper({
           isLast && reached && (commissionStatus === "earned" || commissionStatus === "reversed");
         return (
           <div key={step.key} className={`flex items-start ${isLast ? "" : "flex-1"}`}>
-            <div className="flex min-w-[84px] flex-col items-center gap-1 text-center">
+            <div className="flex min-w-[88px] flex-col items-center gap-1 text-center">
               <span
-                className={`size-2.5 shrink-0 rounded-full border-2 border-background ${
-                  reached ? "bg-primary" : "bg-muted-foreground/30"
+                className={`size-3 shrink-0 rounded-full ring-4 ${
+                  reached ? "bg-brand ring-pill-peach" : "bg-field-border ring-transparent"
                 }`}
                 aria-hidden="true"
               />
-              <span className={`text-[11px] font-medium whitespace-nowrap ${reached ? "text-foreground" : "text-muted-foreground"}`}>
+              <span className={`mt-1 text-xs font-medium whitespace-nowrap ${reached ? "text-ink" : "text-ink-muted"}`}>
                 {step.label}
               </span>
-              {step.date && <span className="text-[10px] whitespace-nowrap text-muted-foreground">{formatDate(step.date)}</span>}
+              {step.date && <span className="text-[11px] whitespace-nowrap text-ink-muted tabular-nums">{formatDate(step.date)}</span>}
               {step.key === "CONFIRMEE" && reached && confirmationAgentName && (
-                <span className="text-[10px] whitespace-nowrap text-muted-foreground">{confirmationAgentName}</span>
+                <span className="text-[11px] whitespace-nowrap text-ink-muted">{confirmationAgentName}</span>
               )}
               {showCommissionChip && (
                 <span
-                  className={`text-[10px] font-medium whitespace-nowrap ${
-                    commissionStatus === "earned" ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"
+                  className={`text-[11px] font-medium whitespace-nowrap ${
+                    commissionStatus === "earned" ? "text-pill-green-fg" : "text-pill-red-fg"
                   }`}
                 >
                   {commissionStatus === "earned" ? "💰 Commission acquise" : "↩ Commission reversée"}
@@ -94,7 +94,7 @@ export function OrderLifecycleStepper({
               )}
             </div>
             {!isLast && (
-              <span className={`mt-[5px] h-px flex-1 min-w-6 ${i < currentIdx ? "bg-primary" : "bg-border"}`} aria-hidden="true" />
+              <span className={`mt-[5px] h-0.5 min-w-6 flex-1 rounded-full ${i < currentIdx ? "bg-brand" : "bg-field-border"}`} aria-hidden="true" />
             )}
           </div>
         );

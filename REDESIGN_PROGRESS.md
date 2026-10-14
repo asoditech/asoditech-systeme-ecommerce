@@ -13,14 +13,14 @@ References: `design-reference/` (untracked, local only).
 | 1 | Tokens, Inter font, global CSS, floating shell, sidebar, topbar | Done |
 | 2 | Shared components (cards, buttons, inputs, pills, tables, dialogs) | Done |
 | 3 | Dashboard (`/tableau-de-bord`) + chart tokens | Done |
-| 4 | Commandes (`/commandes`, detail, confirmation) | To do |
+| 4 | Commandes (`/commandes`, detail, nouvelle, order dialogs) | Done |
 | 5a/b/c | Remaining page groups | To do |
 | 6 | Polish, responsiveness, AA audit | To do |
 
 ## Pages
 
 - Done (shell + shared components): every page in the app area gets the new shell, sidebar, topbar and the restyled shared components (buttons, inputs, selects, cards, tables, pills, pagination, tabs, menus, dialogs, toasts…).
-- Page fully redesigned: `/tableau-de-bord` (Step 3).
+- Pages fully redesigned: `/tableau-de-bord` (Step 3); `/commandes`, `/commandes/[id]`, `/commandes/nouvelle` + order dialogs (Step 4 — the reference pattern for table pages).
 - Page-specific layouts and colours not restyled yet: all other pages (Steps 4–5).
 - Review page: `/dev/components` (dev only, 404 in production builds, not linked).
 - Out of scope until decided: `src/app/platform/*` (platform admin), not touched.
@@ -54,6 +54,15 @@ References: `design-reference/` (untracked, local only).
 - Components: `CommandHero` (plain card, 48px figure, pastel stat chips), `KpiCard` new optional `size="lg"` (40px figure), `SummarySection` (sentence case — also on the 4 other pages using it), `MetricBreakdown`, `RankedMetricList`, `Sparkline`, `MissingCostBanner` (pastel yellow).
 - New: `src/components/filter-dropdown-pill.tsx`, `src/components/dashboard/stock-donut.tsx`, `src/app/(protected)/tableau-de-bord/loading.tsx` (bento skeleton, also shown on `/dev/components`).
 
+## Step 4 — what changed
+
+- New shared pieces (additive, no prop changes): `TableCard` (`ui/table.tsx`, the white 24px card a list table + its pagination sit in, 24px edge padding), `FilterBar` / `FilterChip` (`components/filter-bar.tsx`), `Notice` (`ui/notice.tsx`, the ONE callout: warning / danger / success / info / neutral / hint on the pill tokens — replaces `border-amber-500/30 bg-amber-500/10 …` boxes), `text-link` utility in `globals.css` (ink link, underline on hover — orange text is below AA).
+- `/commandes`: filter bar (search full width on mobile, status/payment side by side), table in `TableCard`, order number 15px semibold as anchor, date · items muted, ink-secondary channel/agent, row menu `data-row-actions` (revealed on row hover/focus, always visible on touch), agent filter as `FilterChip`.
+- `/commandes/[id]`: pastel accent bars instead of icons on card titles (peach = articles, purple = logistics, blue = people, green = money, yellow = notes/history), right-aligned tabular amounts, larger total, `Notice` for packing states, tokens for warn/success text, mobile overflow fixed (`min-w-0` grid columns), lifecycle stepper restyled (orange dot + peach halo, 2px rounded connector, 12px labels).
+- `/commandes/nouvelle` (`OrderForm`): peach step numbers, Notice for city guidance and blacklisted client, neutral « Clients récents » label (no uppercase), switch tile, summary tile, ink checks/links.
+- `FormSection` title: sentence case 14px (was 11px uppercase) — shows on every form using it.
+- Dialogs: purge (neutral summary tile, no uppercase, danger Notices), status change stock notice, edit address, stock override (now uses `Textarea`), shipment cost override, packing panel; `ProductChips` = neutral pills; `PhoneActions` WhatsApp = round green pill; `DisconnectedSourceBanner` = warning Notice.
+
 ## Decisions (confirmed by the owner after Step 1)
 
 - AA contrast: muted text is `#707070` (switched from `#767676` after Step 2; `#9A9A9A` kept as `--text-faint`, decoration only); primary-button text is dark `#1f1206` on orange (white is 2.8:1), set once as `--brand-foreground`; focus ring uses `#D96F2D`.
@@ -67,4 +76,7 @@ References: `design-reference/` (untracked, local only).
 - `/dev/components` to be removed or kept dev-only at Step 6.
 - Other charts (`/rapports/ventes` sales chart, `/analyses` series chart) still use their own colours: move them onto `src/lib/design/chart.ts` with their pages (Step 5).
 - `CommandHero` / `SummarySection` restyle also shows on `/rapports/ventes`, `/confirmation`, `/fournisseurs/[id]`, `/commissions/[agentId]` (shared components) before those pages get their own pass.
+- 24 other pages still wrap tables in `rounded-xl border bg-card shadow-card` and ~18 files use the amber callout: moved onto `TableCard` / `Notice` in Step 5.
+- Full suite under load: a few DB-backed tests time out (baseline run: 10 in 6 files; Step 4 run: 4 in `analytics.test.ts`) and pass when re-run alone — not redesign-related.
+- Pre-existing (not redesign): dev console error « useInsertionEffect must not schedule updates » from `src/components/top-progress-bar.tsx` on client navigation (file untouched since before the redesign).
 - `NavBadge` not connected to counts (by decision: no new queries in Step 1).

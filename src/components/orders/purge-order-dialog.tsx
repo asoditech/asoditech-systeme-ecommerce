@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import type { PurgeEvaluation } from "@/lib/orders/purge";
 import { PURGE_MIN_REASON, purgeConfirmationReady, purgeOutcome } from "@/lib/orders/purge-ui";
+import { Notice } from "@/components/ui/notice";
 
 /**
  * Short screens: the popup itself never scrolls — header and footer stay put
@@ -211,7 +212,7 @@ export function PurgeOrderPanel({
 }) {
   return (
     <div className="space-y-4 text-sm">
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-lg border bg-muted/30 px-3 py-2.5">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-tile bg-pill-neutral px-3.5 py-3">
         <dt className="text-muted-foreground">Commande</dt>
         <dd className="text-right font-semibold">{summary.orderLabel}</dd>
         <dt className="text-muted-foreground">Statut</dt>
@@ -223,10 +224,10 @@ export function PurgeOrderPanel({
       </dl>
 
       <div>
-        <p className="mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">Articles</p>
-        <ul className="divide-y rounded-lg border">
+        <p className="mb-1.5 text-xs font-medium text-muted-foreground">Articles</p>
+        <ul className="divide-y divide-hairline rounded-tile border border-hairline">
           {summary.lines.map((l, i) => (
-            <li key={`${l.sku}-${i}`} className="flex items-center justify-between gap-3 px-3 py-1.5">
+            <li key={`${l.sku}-${i}`} className="flex items-center justify-between gap-3 px-3.5 py-2">
               <span className="min-w-0 truncate">
                 {l.name} <span className="font-mono text-xs text-muted-foreground">{l.sku}</span>
               </span>
@@ -262,20 +263,20 @@ export function PurgeOrderPanel({
           </li>
         </ul>
       ) : (
-        <div role="alert" className="space-y-1 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-destructive">
+        <Notice role="alert" tone="danger" className="block space-y-1">
           <p className="font-medium">Cette commande ne peut pas être purgée :</p>
           <ul className="list-disc space-y-0.5 pl-5 text-xs">
             {evaluation.reasons.map((r) => (
               <li key={r}>{r}</li>
             ))}
           </ul>
-        </div>
+        </Notice>
       )}
 
-      <p className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5 font-medium text-destructive">
-        <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+      <Notice tone="danger" className="font-medium">
+        <TriangleAlert />
         Cette action supprime définitivement la commande. Elle ne peut pas être annulée.
-      </p>
+      </Notice>
 
       <div className="space-y-1.5">
         <Label htmlFor="purge-reason">Motif (obligatoire)</Label>
