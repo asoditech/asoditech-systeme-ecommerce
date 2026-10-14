@@ -268,11 +268,11 @@ function shopifyOrder(overrides: Record<string, unknown> = {}) {
 }
 
 describe("external sync reopening an order (K, L)", () => {
-  // Each store event is modified on the store AFTER the previous step (whole
-  // seconds apart: WooCommerce *_gmt times have 1 s precision) — the event
-  // ordering a store cancellation / reopen needs (shared/order-sync-rules.ts).
+  // Each store event is modified on the store clearly AFTER the previous step
+  // — 5 minutes apart, beyond the 2-minute clock tolerance (2026-10-14) — the
+  // event ordering a store cancellation / reopen needs (shared/order-sync-rules.ts).
   let storeEvents = 0;
-  const storeClock = () => new Date(Date.now() + ++storeEvents * 2000);
+  const storeClock = () => new Date(Date.now() + ++storeEvents * 300_000);
   const stores = [
     {
       name: "WooCommerce",

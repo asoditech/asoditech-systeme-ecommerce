@@ -73,6 +73,8 @@ export type AuditAction =
   | "order.created"
   | "order.updated"
   | "order.status_changed"
+  // A status change refused for safety (e.g. retrying a never-shipped ECHEC, 2026-10-14).
+  | "order.transition_refused"
   | "order.packed"
   | "order.purged"
   | "order.cancelled"

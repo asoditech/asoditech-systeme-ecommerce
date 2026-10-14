@@ -259,7 +259,12 @@ values):
 signal (`cancelledAt`) via an ordered priority chain (cancellation/void →
 refunded → restocked → fulfilled → shipping-in-progress → expired →
 paid-not-shipped → pending-not-shipped) into the same internal
-`OrderStatus` enum WooCommerce orders use. Every branch matches a verified
+`OrderStatus` enum WooCommerce orders use. Since 2026-10-14 (ADR 0030 addendum « 2026-10-14 »): `FULFILLED`
+maps to `EXPEDIEE` like `IN_PROGRESS` / `PARTIALLY_FULFILLED` — « all items
+fulfilled » means handed over / shipped, not delivered — and is therefore
+never auto-applied (no `LIVREE`, no `deliveredAt`, no commission from it);
+`EXPIRED` is a payment failure → `NOUVELLE` + `paymentStatus: ECHEC`
+(before: `FULFILLED` → `LIVREE`, `EXPIRED` → `ECHEC`). Every branch matches a verified
 enum value; an unrecognized or unhandled combination is **skipped and
 reported by name**, never guessed — covered by a dedicated test asserting
 `financial=null/fulfillment=null` is skipped rather than defaulted to

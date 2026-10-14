@@ -89,13 +89,18 @@ export function mapVariantFields(variant: ShopifyVariant): { sku: string; price:
  * 1. cancelledAt set, or financial VOIDED → ANNULEE
  * 2. financial REFUNDED → REMBOURSEE
  * 3. fulfillment RESTOCKED → RETOUR
- * 4. fulfillment FULFILLED → LIVREE
- * 5. fulfillment PARTIALLY_FULFILLED / IN_PROGRESS → EXPEDIEE
- * 6. financial EXPIRED → ECHEC
- * 7. financial PAID or PARTIALLY_PAID, fulfillment not yet shipped → CONFIRMEE
- * 8. financial PENDING or AUTHORIZED, fulfillment not yet shipped → NOUVELLE
+ * 4. fulfillment FULFILLED / PARTIALLY_FULFILLED / IN_PROGRESS → EXPEDIEE
+ *    (FULFILLED = all items fulfilled, i.e. handed over / shipped — NOT proof
+ *    of delivery; owner decision 2026-10-14, decisions §2. EXPEDIEE is never
+ *    auto-applied by the importer, so ASODITECH's own shipment state stays
+ *    authoritative and LIVREE comes from the carrier « Suivi » or staff;
+ *    before 2026-10-14 FULFILLED mapped to LIVREE)
+ * 5. financial EXPIRED → NOUVELLE + `paymentFailed` (a payment failure, never
+ *    ASODITECH's delivery ECHEC; decisions §1; before 2026-10-14: ECHEC)
+ * 6. financial PAID or PARTIALLY_PAID, fulfillment not yet shipped → CONFIRMEE
+ * 7. financial PENDING or AUTHORIZED, fulfillment not yet shipped → NOUVELLE
  */
-export type OrderStatusMapping = { ok: true; status: OrderStatus } | { ok: false; reason: string };
+export type OrderStatusMapping = { ok: true; status: OrderStatus; paymentFailed?: true } | { ok: false; reason: string };
 
 const UNSHIPPED_FULFILLMENT = new Set(["UNFULFILLED", "OPEN", "PENDING_FULFILLMENT", "SCHEDULED", "ON_HOLD", "REQUEST_DECLINED"]);
 
@@ -108,9 +113,8 @@ export function mapOrderStatus(
   if (financial === "VOIDED") return { ok: true, status: "ANNULEE" };
   if (financial === "REFUNDED") return { ok: true, status: "REMBOURSEE" };
   if (fulfillment === "RESTOCKED") return { ok: true, status: "RETOUR" };
-  if (fulfillment === "FULFILLED") return { ok: true, status: "LIVREE" };
-  if (fulfillment === "PARTIALLY_FULFILLED" || fulfillment === "IN_PROGRESS") return { ok: true, status: "EXPEDIEE" };
-  if (financial === "EXPIRED") return { ok: true, status: "ECHEC" };
+  if (fulfillment === "FULFILLED" || fulfillment === "PARTIALLY_FULFILLED" || fulfillment === "IN_PROGRESS") return { ok: true, status: "EXPEDIEE" };
+  if (financial === "EXPIRED") return { ok: true, status: "NOUVELLE", paymentFailed: true };
   if ((financial === "PAID" || financial === "PARTIALLY_PAID") && fulfillment && UNSHIPPED_FULFILLMENT.has(fulfillment)) {
     return { ok: true, status: "CONFIRMEE" };
   }

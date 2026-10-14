@@ -3,7 +3,7 @@ import "server-only";
 import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import type { OrderStatus, ShipmentCostSource } from "@prisma/client";
-import { canTransitionOrderStatus } from "@/lib/validation/order";
+import { canTransitionOrderStatus, unshippedFailedOrderProblem } from "@/lib/validation/order";
 import { canTransitionShipmentStatus, type ShipmentStatusValue } from "@/lib/validation/delivery";
 import { reconcileOrderCommission } from "@/lib/commissions";
 import { recordAuditEvent } from "@/lib/audit";
@@ -347,6 +347,10 @@ export async function applyShipmentStatusTransition(params: {
       // its one-time stock deduction (docs/adr/0036) — never a second time
       // (shippedAt already set = already fulfilled, e.g. an ECHEC retry).
       if (parcelMoving && AUTO_SHIP_ORDER_STATUSES.includes(orderStatus)) {
+        // A never-shipped ECHEC (legacy imported payment failure) holds no
+        // reservation: auto-shipping it would consume other orders' stock.
+        const legacyFailure = unshippedFailedOrderProblem({ status: orderStatus, shippedAt: order.shippedAt });
+        if (legacyFailure) throw new ShipmentOrderBlockedError(legacyFailure);
         if (packingRequired && !order.packedAt) throw new ShipmentOrderBlockedError(PACKING_NOT_VERIFIED_MESSAGE);
         if (order.shippedAt !== null && (await orderGoodsCameBack(tx, params.orderId))) {
           throw new ShipmentOrderBlockedError(RESHIP_AFTER_RETURN_MESSAGE);

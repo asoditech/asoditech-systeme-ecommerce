@@ -1591,10 +1591,10 @@ describe("refunds", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("sets the order's paymentStatus to REMBOURSE only when a refund reaches COMPLETE", async () => {
+  it("sets the order's paymentStatus to REMBOURSE only when COMPLETE refunds cover the total (2026-10-14 bis)", async () => {
     await loginAsTestUser({ role: "MANAGER" });
     const orderId = await createTestOrderWithTotal(100);
-    const created = await createRefundAction(formData({ orderId, amount: "50" }));
+    const created = await createRefundAction(formData({ orderId, amount: "100" }));
     if (!created.ok) throw new Error("setup failed");
 
     await updateRefundStatusAction(formData({ id: created.data.id, status: "APPROUVE" }));
@@ -1604,6 +1604,18 @@ describe("refunds", () => {
     await updateRefundStatusAction(formData({ id: created.data.id, status: "COMPLETE" }));
     order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
     expect(order.paymentStatus).toBe("REMBOURSE");
+  });
+
+  it("a PARTIAL refund reaching COMPLETE leaves paymentStatus unchanged (partial stays partial)", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const orderId = await createTestOrderWithTotal(100);
+    const before = (await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).paymentStatus;
+    const created = await createRefundAction(formData({ orderId, amount: "50" }));
+    if (!created.ok) throw new Error("setup failed");
+
+    await updateRefundStatusAction(formData({ id: created.data.id, status: "APPROUVE" }));
+    await updateRefundStatusAction(formData({ id: created.data.id, status: "COMPLETE" }));
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).paymentStatus).toBe(before);
   });
 
   it("a REJETE refund does not count against the refundable balance", async () => {

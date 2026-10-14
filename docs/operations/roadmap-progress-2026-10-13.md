@@ -32,7 +32,7 @@ Browser results for List 1: `docs/RELEASE-VERIFICATION-CHECKLIST.md` §7
 | # | Item | Status | Evidence | Remaining / acceptance | Safe now? | External? |
 |---|---|---|---|---|---|---|
 | A1 | Customer combobox, keyboard navigation | Done+tests | `src/components/ui/use-listbox-navigation.ts`, `tests/lib/listbox-navigation.test.ts` | — | — | No |
-| A2 | Preparation warehouse first | Done, validation open (UI only, no dedicated test) | checklist §7 A2 | Browser pass on a test tenant | Yes (manual check) | No |
+| A2 | Preparation warehouse first | Done+tests (browser PASS 2026-10-12, checklist §7; dedicated source test 2026-10-14) | checklist §7 A2, `tests/lib/order-form-warehouse-first.test.ts` | — | — | No |
 | A3 | Traceability purchase cost / « non enregistré » | Done+tests | `src/actions/traceability.ts`, `tests/actions/traceability-cost.test.ts` | — | — | No |
 | A4 | Unique tracking numbers | Done+tests (app-level check, no DB unique index) | `tests/actions/tracking-number-unique.test.ts` | Measure existing duplicates before any DB index | No (production data) | Yes |
 | A5 | Shared date-range picker | Done+tests | `src/components/date-range-fields.tsx`, `src/lib/date-range-query.ts`, `tests/lib/date-range-query.test.ts` | — | — | No |
@@ -311,3 +311,60 @@ then restored and hash-checked.
 **Order-sync decisions (1–4)**: matrix with current behaviour, risk,
 options and recommendation in `docs/decisions/order-sync-open-decisions.md`
 — all implementable without a migration; nothing changed until decided.
+
+## Order decisions + webhook policies sprint (2026-10-14, local only)
+
+On `feat/multi-tenant-foundation` @ `363c3c8` (uncommitted). Owner decisions
+recorded in `docs/decisions/order-sync-open-decisions.md` (« Decisions taken »)
+and ADR 0030 addendum « 2026-10-14 »; shared rules in
+`src/lib/integrations/shared/order-sync-rules.ts` + `webhook-body.ts`. No
+migration, no schema change.
+
+| Item | Status | Evidence |
+|---|---|---|
+| §1 Payment failure (Woo `failed`, Shopify `EXPIRED`) → NOUVELLE + payment ECHEC; held orders keep status (EN_ATTENTE → ECHEC only) | Done+tests | `order-sync-consistency.test.ts` « payment-failed order… », « §1 payment failure on an order already held » |
+| §1 Legacy never-shipped ECHEC: retry / shipment / carrier auto-ship refused (audited); recovery Annuler + Rétablir | Done+tests | « §1 legacy ECHEC never shipped… » (manual retry, real failed delivery kept, « À expédier » + auto-ship) |
+| §2 Shopify FULFILLED = shipped (→ EXPEDIEE, never auto-applied, no LIVREE / commission / deliveredAt); Woo `completed` unchanged | Done+tests | « §2 Shopify FULFILLED… » |
+| §3 Cancelled + fully refunded → ANNULEE + REMBOURSE (COMPLETE refunds ≥ total in cents); partial stays partial; duplicates one row | Done+tests | « §3 cancelled and refunded… », `order-sync-rules.test.ts` cents table |
+| §4 Clock tolerance 2 min (inclusive), stale / review / applied, unknown → review + alert | Done+tests | « §4 clock tolerance… » (deterministic T, −5 min … +2 min 1 s, missing / invalid), pure boundary table |
+| Webhook body limit 1 MiB, 413 before parsing / signatures, bounded stream read | Done+tests | `webhook-policies.test.ts` (exact limit, +1 byte, declared length, chunked stream cancelled) |
+| Suspended company → `SUSPENDU` + 200, never processed nor replayed; tenant isolation | Done+tests | `webhook-policies.test.ts` « suspended company » |
+| Permanent (ECHEC + 200) vs transient (ECHEC + 500) vs signature (401) vs skipped (IGNORE) vs duplicate | Confirmed, tests added for the 2 untested permanent cases | `webhook-policies.test.ts` « permanent failures… »; existing suites |
+| List 1 A2 dedicated test | Done+tests | `order-form-warehouse-first.test.ts` (source checks — no DOM harness) |
+
+Regression proof: each protection (tolerance, full-refund rule, « store
+behind » rule, FULFILLED mapping, manual retry guard, shippable + auto-ship
+guard, held payment rule, `failed` mapping, suspension check, body limit) was
+removed in turn from the source and its tests FAILED; files restored and
+SHA-256-checked.
+
+**Remaining decisions / external checks**
+
+- ~~Failed payment later paid / manual refunds of store orders / « Emballage »
+  for legacy ECHEC~~ — decided and implemented 2026-10-14 bis (next section).
+- External: real stores' `date_modified_gmt` / `updatedAt` presence and clock
+  offsets; Shopify FULFILLED timing vs delivery; providers' behaviour on 200 /
+  413 (retry, disable); hosting body limit in production.
+
+## Payment / refund safety sprint (2026-10-14 bis, local only)
+
+Same branch and HEAD (`363c3c8`), uncommitted. Owner decisions 5–8 in
+`docs/decisions/order-sync-open-decisions.md` « Payment & refund identity »;
+ADR 0030 and ADR 0007 addenda. No migration, no schema change.
+
+| Item | Status | Evidence |
+|---|---|---|
+| Store paid after ECHEC → PAYE (opt-in; newer than the recorded failure; never cancelled / refunded; idempotent; audited) | Done+tests | `tests/integration/payment-refund-safety.test.ts` (both providers: newer, duplicate, replayed failure, opt-in off, stale, ±2 min window incl. boundary, missing time, legacy ECHEC, cancelled, refund carried) |
+| Payment change never confirms / reserves / ships | Done+tests | same file: status, `confirmedAt`, ledger, shipments asserted unchanged |
+| Store refunds: one cumulative row per provider, cents, duplicate deliveries, Woo refund ids once | Done+tests | same file + `order-sync-rules.test.ts` |
+| Manual refund on a store order: INTERNE, audited as manual, not executed on store, cents cap incl. store row | Done+tests | same file « refunds recorded by hand » |
+| Store + manual refunds never added together to reach « Remboursé »; « Paiement à vérifier » alert | Done+tests | same file + `refundCoverage` table |
+| « Emballage » hidden for legacy never-shipped ECHEC without reservation (server refusal kept) | Done+tests | `hiddenOrderStatusOptions` unit + source checks |
+
+**Blocked (needs schema approval):** per-refund external identifiers (no
+column on `refunds`). **Fixed before commit:** approving a refund to
+COMPLETE (`updateRefundStatusAction`) now marks REMBOURSE only when
+`refundCoverage` = covered (tests through the action: partial, mixed,
+independently covered, duplicate approval). **External:**
+real stores' paid-after-failed sequence and refund payloads — not verified
+against a real store.

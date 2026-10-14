@@ -245,7 +245,7 @@ core status is mapped explicitly; nothing is guessed:
 | `completed` | `LIVREE` |
 | `cancelled` | `ANNULEE` |
 | `refunded` | `REMBOURSEE` (+ a `Refund` row, see below) |
-| `failed` | `ECHEC` |
+| `failed` | `NOUVELLE` + `paymentStatus: ECHEC` (a payment failure, never the delivery `ECHEC` — since 2026-10-14, ADR 0030 addendum « 2026-10-14 »; before: `ECHEC`). An order already held keeps its status; only a payment still `EN_ATTENTE` becomes `ECHEC` |
 | `checkout-draft`, `auto-draft`, `trash` | Never imported (not real orders) |
 | anything else (a third-party plugin status) | **Skipped**, reported by name in the sync summary — never guessed |
 

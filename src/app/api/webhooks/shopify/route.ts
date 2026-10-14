@@ -10,6 +10,7 @@ import { validateShopDomain } from "@/lib/integrations/shopify/ssrf";
 import { ShopifyClient } from "@/lib/integrations/shopify/client";
 import { importOrder, importProduct } from "@/lib/integrations/shopify/sync";
 import { recordWebhookEventOnce } from "@/lib/integrations/shared";
+import { isTenantSuspended, payloadTooLargeResponse, readWebhookBody } from "@/lib/integrations/shared/webhook-body";
 import { getTenantUsage } from "@/lib/entitlements/usage";
 import { checkAndNotifyUsageThreshold } from "@/lib/entitlements/alerts";
 
@@ -159,7 +160,11 @@ export async function POST(request: Request): Promise<Response> {
   // against every candidate first, then run the handler pinned to that
   // tenant so every read/write lands in the right workspace — never from
   // anything in the request body (docs/adr/0024, docs/adr/0025).
-  const rawBody = await request.text();
+  // Size limit first (1 MiB, webhook-body.ts): an oversized body is never
+  // buffered in full, parsed, signature-checked or processed.
+  const body = await readWebhookBody(request);
+  if (!body.ok) return payloadTooLargeResponse("SHOPIFY");
+  const rawBody = body.text;
   const signatureHeader = request.headers.get("x-shopify-hmac-sha256");
   const topic = request.headers.get("x-shopify-topic") ?? "inconnu";
 
@@ -213,6 +218,14 @@ async function handleShopifyWebhook(
   // it (a retry may reuse the same delivery id); only a delivery already
   // handled (or deliberately ignored) is short-circuited.
   if (alreadySeen && alreadySeen.status !== "ECHEC") {
+    return new Response(null, { status: 200 });
+  }
+
+  // Suspended company: authenticated, recorded once as « SUSPENDU », not
+  // processed; 200 so the store neither retries nor disables the webhook
+  // (webhook-body.ts `isTenantSuspended`). Never replayed on reactivation.
+  if (await isTenantSuspended(integration.tenantId)) {
+    await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, status: "SUSPENDU" });
     return new Response(null, { status: 200 });
   }
 

@@ -1,4 +1,5 @@
 import type { OrderStatus, Prisma } from "@prisma/client";
+import { unshippedFailedOrderProblem } from "@/lib/validation/order";
 
 /**
  * Packing verification — pure, client-safe rules (« Emballage » = the existing
@@ -28,18 +29,30 @@ const SHIPPABLE_WITH_PACKING: OrderStatus[] = ["EN_PREPARATION", "ECHEC"];
 export const PACKING_NOT_VERIFIED_MESSAGE = "L'emballage de cette commande n'a pas encore été vérifié.";
 const NOT_SHIPPABLE_MESSAGE = "Cette commande n'est pas dans un statut permettant de créer une expédition.";
 
+/**
+ * A legacy ECHEC that never shipped (an imported payment failure — see
+ * `unshippedFailedOrderProblem`) is never shippable: shipping it would
+ * consume stock it never reserved.
+ */
+const NOT_UNSHIPPED_ECHEC: Prisma.OrderWhereInput = { NOT: { status: "ECHEC", shippedAt: null } };
+
 /** The order part of « À expédier » (the "no active shipment" part is unchanged, see listOrdersAwaitingShipment). */
 export function shippableOrderWhere(packingRequired: boolean): Prisma.OrderWhereInput {
   return packingRequired
-    ? { status: { in: SHIPPABLE_WITH_PACKING }, packedAt: { not: null } }
-    : { status: { in: SHIPPABLE_WITHOUT_PACKING } };
+    ? { status: { in: SHIPPABLE_WITH_PACKING }, packedAt: { not: null }, ...NOT_UNSHIPPED_ECHEC }
+    : { status: { in: SHIPPABLE_WITHOUT_PACKING }, ...NOT_UNSHIPPED_ECHEC };
 }
 
 /** null = may be shipped; otherwise the French reason. Same rule as `shippableOrderWhere`. */
 export function shippableOrderProblem(
-  order: { status: OrderStatus; packedAt: Date | null },
+  /** `shippedAt` when known (every caller passes the order row): a never-shipped ECHEC is refused. */
+  order: { status: OrderStatus; packedAt: Date | null; shippedAt?: Date | null },
   packingRequired: boolean
 ): string | null {
+  if (order.shippedAt !== undefined) {
+    const legacy = unshippedFailedOrderProblem({ status: order.status, shippedAt: order.shippedAt });
+    if (legacy) return legacy;
+  }
   if (!packingRequired) return SHIPPABLE_WITHOUT_PACKING.includes(order.status) ? null : NOT_SHIPPABLE_MESSAGE;
   if (!SHIPPABLE_WITH_PACKING.includes(order.status)) {
     return order.status === "CONFIRMEE" ? PACKING_NOT_VERIFIED_MESSAGE : NOT_SHIPPABLE_MESSAGE;

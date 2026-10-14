@@ -9,6 +9,7 @@ import { importOrder, importProduct } from "@/lib/integrations/woocommerce/sync"
 import { wcOrderSchema, wcProductSchema } from "@/lib/integrations/woocommerce/types";
 import { loadWooCommerceClient } from "@/lib/integrations/woocommerce/client-loader";
 import { recordWebhookEventOnce } from "@/lib/integrations/shared";
+import { isTenantSuspended, payloadTooLargeResponse, readWebhookBody } from "@/lib/integrations/shared/webhook-body";
 import { clearRemoteMissing, handleWooProductDeletedWebhook, wooLinksForExternalId } from "@/lib/integrations/woocommerce/remote-deletion";
 import { remoteDeletionModeOf } from "@/lib/integrations/woocommerce/store-settings";
 import { getTenantUsage } from "@/lib/entitlements/usage";
@@ -120,7 +121,11 @@ export async function POST(request: Request): Promise<Response> {
   // against every candidate first, then run the handler pinned to that
   // tenant so every read/write lands in the right workspace — never from
   // anything in the request body (docs/adr/0024, docs/adr/0025).
-  const rawBody = await request.text();
+  // Size limit first (1 MiB, webhook-body.ts): an oversized body is never
+  // buffered in full, parsed, signature-checked or processed.
+  const body = await readWebhookBody(request);
+  if (!body.ok) return payloadTooLargeResponse("WOOCOMMERCE");
+  const rawBody = body.text;
   const signatureHeader = request.headers.get("x-wc-webhook-signature");
   const topic = request.headers.get("x-wc-webhook-topic") ?? "inconnu";
 
@@ -168,6 +173,14 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
   // it (a retry may reuse the same delivery id); only a delivery already
   // handled (or deliberately ignored) is short-circuited.
   if (alreadySeen && alreadySeen.status !== "ECHEC") {
+    return new Response(null, { status: 200 });
+  }
+
+  // Suspended company: authenticated, recorded once as « SUSPENDU », not
+  // processed; 200 so the store neither retries nor disables the webhook
+  // (webhook-body.ts `isTenantSuspended`). Never replayed on reactivation.
+  if (await isTenantSuspended(integration.tenantId)) {
+    await recordWebhookEventOnce({ integrationId: integration.id, provider: "WOOCOMMERCE", deliveryId, topic, status: "SUSPENDU" });
     return new Response(null, { status: 200 });
   }
 

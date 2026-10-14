@@ -80,6 +80,12 @@ function parseWcDate(value: string | null | undefined): Date | null {
  * third-party plugin) is deliberately left unmapped rather than guessed —
  * the caller must skip the order and report why, per the "never silently
  * invent a mapping" rule.
+ *
+ * `failed` is a PAYMENT failure (owner decision 2026-10-14,
+ * docs/decisions/order-sync-open-decisions.md §1): the order maps to
+ * NOUVELLE and the result carries `paymentFailed` — the importer records
+ * `paymentStatus: ECHEC`. It is never ASODITECH's ECHEC (a failed DELIVERY,
+ * only reachable after « Expédiée »). Before 2026-10-14 it mapped to ECHEC.
  */
 const ORDER_STATUS_MAP: Record<string, OrderStatus> = {
   pending: "NOUVELLE",
@@ -88,13 +94,16 @@ const ORDER_STATUS_MAP: Record<string, OrderStatus> = {
   completed: "LIVREE",
   cancelled: "ANNULEE",
   refunded: "REMBOURSEE",
-  failed: "ECHEC",
+  failed: "NOUVELLE",
 };
+
+/** Store statuses that report a failed PAYMENT (not a failed delivery). */
+const PAYMENT_FAILURE_STATUSES = new Set(["failed"]);
 
 const UNSUPPORTED_ORDER_STATUSES = new Set(["checkout-draft", "auto-draft", "trash"]);
 
 export type OrderStatusMapping =
-  | { ok: true; status: OrderStatus }
+  | { ok: true; status: OrderStatus; paymentFailed?: true }
   | { ok: false; reason: string };
 
 /** A status that is neither mapped nor a deliberately-excluded draft/trash one (e.g. a plugin's custom status). */
@@ -110,7 +119,7 @@ export function mapOrderStatus(wcStatus: string): OrderStatusMapping {
   if (!mapped) {
     return { ok: false, reason: `Statut de commande WooCommerce non pris en charge : ${wcStatus}.` };
   }
-  return { ok: true, status: mapped };
+  return PAYMENT_FAILURE_STATUSES.has(wcStatus) ? { ok: true, status: mapped, paymentFailed: true } : { ok: true, status: mapped };
 }
 
 export interface MappedCustomerFields {
@@ -202,7 +211,19 @@ export function mapPaymentMethod(wcPaymentMethod: string | null | undefined): Pa
 
 /** WC refund `total` values are negative strings (e.g. "-10.00") — the absolute amount actually refunded. */
 export function totalRefundedAmount(wc: WcOrder): number {
-  return wc.refunds.reduce((sum, r) => sum + Math.abs(Number(r.total) || 0), 0);
+  // Summed in integer cents (0.10 + 0.20 must be 0.30, not 0.30000000000000004),
+  // each WooCommerce refund id counted once even if listed twice.
+  const seen = new Set<string>();
+  let cents = 0;
+  for (const r of wc.refunds) {
+    const key = r.id !== undefined && r.id !== null ? String(r.id) : null;
+    if (key !== null) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    cents += Math.round(Math.abs(Number(r.total) || 0) * 100);
+  }
+  return cents / 100;
 }
 
 // ---------------------------------------------------------------------------

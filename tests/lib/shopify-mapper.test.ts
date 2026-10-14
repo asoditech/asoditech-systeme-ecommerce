@@ -28,8 +28,9 @@ describe("mapOrderStatus — verified against Shopify's exact enum values", () =
     expect(mapOrderStatus("REFUNDED", "FULFILLED", null)).toEqual({ ok: true, status: "REMBOURSEE" });
   });
 
-  it("maps fulfillment progress to EXPEDIEE/LIVREE/RETOUR", () => {
-    expect(mapOrderStatus("PAID", "FULFILLED", null)).toEqual({ ok: true, status: "LIVREE" });
+  it("maps fulfillment progress to EXPEDIEE/RETOUR — FULFILLED is shipping, never delivery (decisions §2, 2026-10-14)", () => {
+    expect(mapOrderStatus("PAID", "FULFILLED", null)).toEqual({ ok: true, status: "EXPEDIEE" });
+    expect(mapOrderStatus("PENDING", "FULFILLED", null)).toEqual({ ok: true, status: "EXPEDIEE" });
     expect(mapOrderStatus("PAID", "PARTIALLY_FULFILLED", null)).toEqual({ ok: true, status: "EXPEDIEE" });
     expect(mapOrderStatus("PAID", "IN_PROGRESS", null)).toEqual({ ok: true, status: "EXPEDIEE" });
     expect(mapOrderStatus("PAID", "RESTOCKED", null)).toEqual({ ok: true, status: "RETOUR" });
@@ -45,8 +46,12 @@ describe("mapOrderStatus — verified against Shopify's exact enum values", () =
     expect(mapOrderStatus("AUTHORIZED", "PENDING_FULFILLMENT", null)).toEqual({ ok: true, status: "NOUVELLE" });
   });
 
-  it("maps EXPIRED to ECHEC", () => {
-    expect(mapOrderStatus("EXPIRED", "UNFULFILLED", null)).toEqual({ ok: true, status: "ECHEC" });
+  it("EXPIRED is a payment failure: NOUVELLE + paymentFailed, never the delivery ECHEC (decisions §1, 2026-10-14)", () => {
+    expect(mapOrderStatus("EXPIRED", "UNFULFILLED", null)).toEqual({ ok: true, status: "NOUVELLE", paymentFailed: true });
+    // cancellation still wins
+    expect(mapOrderStatus("EXPIRED", "UNFULFILLED", "2026-01-01T00:00:00Z")).toEqual({ ok: true, status: "ANNULEE" });
+    // no mapped status ever carries paymentFailed except EXPIRED
+    expect(mapOrderStatus("PAID", "UNFULFILLED", null)).not.toHaveProperty("paymentFailed");
   });
 
   it("never invents a mapping for an unrecognized combination — reports it instead", () => {

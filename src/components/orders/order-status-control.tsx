@@ -27,10 +27,13 @@ export function OrderStatusControl({
   currentStatus,
   canEdit,
   stockFlags,
+  hiddenStatuses = [],
 }: {
   orderId: string;
   currentStatus: OrderStatusValue;
   canEdit: boolean;
+  /** Transitions not offered for this order (`hiddenOrderStatusOptions`) — the server still enforces its own rules. */
+  hiddenStatuses?: OrderStatusValue[];
   /** P2: stock situation at the fulfilment warehouse, shown before « → Confirmée ». */
   stockFlags?: ConfirmationStockFlags | null;
 }) {
@@ -38,7 +41,7 @@ export function OrderStatusControl({
   const [pendingStatus, setPendingStatus] = React.useState<OrderStatusValue | null>(null);
   const [isPending, startTransition] = React.useTransition();
 
-  const nextStatuses = ORDER_STATUS_TRANSITIONS[currentStatus];
+  const nextStatuses = ORDER_STATUS_TRANSITIONS[currentStatus].filter((s) => !hiddenStatuses.includes(s));
   // P2: a → « Confirmée » refused for stock opens the shortage / override dialog.
   const [shortage, setShortage] = React.useState<StockShortage | null>(null);
 

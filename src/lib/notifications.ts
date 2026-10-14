@@ -208,6 +208,31 @@ export async function notifyNewOrder(
   });
 }
 
+/**
+ * A payment or refund fact that ASODITECH could not apply safely on its own
+ * (a store payment reported after a recorded failure in an uncertain order,
+ * a store refund next to a refund recorded by hand that may be the same
+ * money — owner decision 2026-10-14 bis). Read-only: nothing was changed.
+ */
+export async function notifyPaymentReview(
+  order: { id: string; orderNumber: number; displayNumber?: number | null },
+  reason: string,
+  exceptUserId?: string | null
+): Promise<void> {
+  const business = await getReportBusinessInfo();
+  const num = formatOrderNumber(order.displayNumber ?? order.orderNumber, business.orderNumberPrefix);
+  await notify({
+    type: "PROBLEME_PAIEMENT",
+    title: `Paiement à vérifier — commande ${num}`,
+    message: reason,
+    entityType: "Order",
+    entityId: order.id,
+    dedupeKey: `paiement_a_verifier:${order.id}`,
+    recipientPermission: "orders.view",
+    exceptUserId,
+  });
+}
+
 /** An order's payment status became ECHEC. */
 export async function notifyPaymentProblem(
   order: { id: string; orderNumber: number; displayNumber?: number | null },

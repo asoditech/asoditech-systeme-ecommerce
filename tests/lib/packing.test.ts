@@ -38,8 +38,10 @@ describe("packing rules (pure)", () => {
   });
 
   it("eligibility: setting off = today's statuses exactly; on = packed EN_PREPARATION / ECHEC only", () => {
-    expect(shippableOrderWhere(false)).toEqual({ status: { in: SHIPPABLE_ORDER_STATUSES } });
-    expect(shippableOrderWhere(true)).toEqual({ status: { in: ["EN_PREPARATION", "ECHEC"] }, packedAt: { not: null } });
+    // A never-shipped ECHEC (legacy imported payment failure, 2026-10-14) is excluded everywhere.
+    const notUnshippedEchec = { NOT: { status: "ECHEC", shippedAt: null } };
+    expect(shippableOrderWhere(false)).toEqual({ status: { in: SHIPPABLE_ORDER_STATUSES }, ...notUnshippedEchec });
+    expect(shippableOrderWhere(true)).toEqual({ status: { in: ["EN_PREPARATION", "ECHEC"] }, packedAt: { not: null }, ...notUnshippedEchec });
     const at = new Date();
     expect(shippableOrderProblem({ status: "CONFIRMEE", packedAt: null }, false)).toBeNull();
     expect(shippableOrderProblem({ status: "NOUVELLE", packedAt: null }, false)).toMatch(/statut/);
@@ -47,6 +49,11 @@ describe("packing rules (pure)", () => {
     expect(shippableOrderProblem({ status: "EN_PREPARATION", packedAt: null }, true)).toMatch(/emballage/);
     expect(shippableOrderProblem({ status: "EN_PREPARATION", packedAt: at }, true)).toBeNull();
     expect(shippableOrderProblem({ status: "ECHEC", packedAt: at }, true)).toBeNull(); // re-shipping a failed delivery
+    // a real failed delivery (shipped once) is re-shippable; a never-shipped ECHEC never is
+    expect(shippableOrderProblem({ status: "ECHEC", packedAt: at, shippedAt: at }, true)).toBeNull();
+    expect(shippableOrderProblem({ status: "ECHEC", packedAt: null, shippedAt: at }, false)).toBeNull();
+    expect(shippableOrderProblem({ status: "ECHEC", packedAt: at, shippedAt: null }, true)).toMatch(/jamais été expédiée/);
+    expect(shippableOrderProblem({ status: "ECHEC", packedAt: null, shippedAt: null }, false)).toMatch(/jamais été expédiée/);
   });
 
   it("cancel / reopen clear the packing; other moves keep it", () => {

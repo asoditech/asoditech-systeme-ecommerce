@@ -118,13 +118,22 @@ describe("listOrdersAwaitingShipment", () => {
     expect(orders.map((o) => o.id)).not.toContain(orderId);
   });
 
-  it("includes an order in ECHEC status, not just CONFIRMEE/EN_PREPARATION", async () => {
+  it("includes an order in ECHEC after a real failed delivery (it shipped), not just CONFIRMEE/EN_PREPARATION", async () => {
     await loginAsTestUser({ role: "MANAGER" });
     const orderId = await seedConfirmedOrder();
-    await prisma.order.update({ where: { id: orderId }, data: { status: "ECHEC" } });
+    await prisma.order.update({ where: { id: orderId }, data: { status: "ECHEC", shippedAt: new Date("2026-03-01T12:00:00Z") } });
 
     const { orders } = await listOrdersAwaitingShipment();
     expect(orders.map((o) => o.id)).toContain(orderId);
+  });
+
+  it("excludes a legacy ECHEC that never shipped (owner decision 2026-10-14 §1 — re-shipping it would consume stock it never reserved)", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const orderId = await seedConfirmedOrder();
+    await prisma.order.update({ where: { id: orderId }, data: { status: "ECHEC", shippedAt: null } });
+
+    const { orders } = await listOrdersAwaitingShipment();
+    expect(orders.map((o) => o.id)).not.toContain(orderId);
   });
 
   it("returns the newest order first and paginates (a fresh order isn't buried behind a backlog)", async () => {

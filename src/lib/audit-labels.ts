@@ -97,6 +97,7 @@ const AUDIT_ACTION_META: Record<string, AuditActionMeta> = {
   "order.created": { label: "Commande créée", category: "commandes" },
   "order.updated": { label: "Commande mise à jour", category: "commandes" },
   "order.status_changed": { label: "Statut de commande modifié", category: "commandes" },
+  "order.transition_refused": { label: "Changement de statut refusé", category: "commandes" },
   "order.packed": { label: "Emballage vérifié", category: "commandes" },
   "order.purged": { label: "Commande de test purgée", category: "commandes" },
   "order.confirmation_attempt": { label: "Tentative de confirmation", category: "commandes" },

@@ -817,7 +817,7 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
 
     // WooCommerce's own status is still "cancelled" (or reported again via
     // a retried delivery) — confirming never pushed anything back to it.
-    const staleCancel = orderPayload({ status: "cancelled", date_modified_gmt: storeTime(+60) });
+    const staleCancel = orderPayload({ status: "cancelled", date_modified_gmt: storeTime(+300) });
     const response = await POST(
       request(staleCancel, { "x-wc-webhook-signature": sign(staleCancel), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "stale-cancel" })
     );
@@ -837,7 +837,7 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
   it("reopening and re-confirming after a webhook-driven cancellation reserves exactly 5, never 10", async () => {
     const { item, order } = await seedConfirmedOrder();
 
-    const staleCancel = orderPayload({ status: "cancelled", date_modified_gmt: storeTime(+60) });
+    const staleCancel = orderPayload({ status: "cancelled", date_modified_gmt: storeTime(+300) });
     await POST(request(staleCancel, { "x-wc-webhook-signature": sign(staleCancel), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "stale-cancel-2" }));
 
     await reopenOrderAction(formData({ id: order.id }));
@@ -857,7 +857,7 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
     let stock = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(stock.quantityReserved).toBe(5); // still held through EN_PREPARATION
 
-    const staleCancel = orderPayload({ status: "cancelled", date_modified_gmt: storeTime(+60) });
+    const staleCancel = orderPayload({ status: "cancelled", date_modified_gmt: storeTime(+300) });
     await POST(request(staleCancel, { "x-wc-webhook-signature": sign(staleCancel), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "stale-cancel-3" }));
 
     const afterOrder = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
@@ -876,7 +876,7 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
     await prisma.inventoryItem.update({ where: { id: item.id }, data: { quantityOnHand: 10, quantityReserved: 3 } });
     const movementsBefore = await prisma.inventoryMovement.count({ where: { inventoryItemId: item.id } });
 
-    const cancel = orderPayload({ status: "cancelled", date_modified_gmt: storeTime(+60) });
+    const cancel = orderPayload({ status: "cancelled", date_modified_gmt: storeTime(+300) });
     await POST(request(cancel, { "x-wc-webhook-signature": sign(cancel), "x-wc-webhook-topic": "order.updated", "x-wc-webhook-delivery-id": "shipped-cancel" }));
 
     expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("ANNULEE");

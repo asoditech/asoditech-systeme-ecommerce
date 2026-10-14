@@ -427,7 +427,10 @@ describe("POST /api/webhooks/shopify", () => {
     const response = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "d8" }));
     expect(response.status).toBe(200);
     const order = await prisma.order.findFirstOrThrow({ where: { source: "SHOPIFY", externalId: "gid://shopify/Order/7001" } });
-    expect(order.status).toBe("LIVREE");
+    // FULFILLED = shipped, not delivered (decisions §2, 2026-10-14): never LIVREE on its own;
+    // as with any store « shipped » status it is never auto-applied → the order lands NOUVELLE.
+    expect(order.status).toBe("NOUVELLE");
+    expect(order.deliveredAt).toBeNull();
   });
 
   it("resolves refunds/create by its order_id field, not its own refund id", async () => {
@@ -731,7 +734,7 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
     expect(stock).toMatchObject({ quantityOnHand: 15, quantityReserved: 5 });
 
     state.orders[0].cancelledAt = "2026-01-21T10:00:00Z";
-    state.orders[0].updatedAt = new Date(Date.now() + 60_000).toISOString(); // modified on Shopify AFTER the manual confirmation
+    state.orders[0].updatedAt = new Date(Date.now() + 300_000).toISOString(); // modified on Shopify clearly AFTER the manual confirmation (beyond the 2-minute tolerance)
     const body = orderCreatePayload();
     const response = await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "stale-cancel" }));
     expect(response.status).toBe(200);
@@ -751,7 +754,7 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
     const movementsBefore = await prisma.inventoryMovement.count({ where: { inventoryItemId: item.id } });
 
     state.orders[0].cancelledAt = "2026-01-21T10:00:00Z";
-    state.orders[0].updatedAt = new Date(Date.now() + 60_000).toISOString(); // modified on Shopify AFTER the manual confirmation
+    state.orders[0].updatedAt = new Date(Date.now() + 300_000).toISOString(); // modified on Shopify clearly AFTER the manual confirmation (beyond the 2-minute tolerance)
     const body = orderCreatePayload();
     expect((await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "shipped-cancel" }))).status).toBe(200);
 
@@ -764,7 +767,7 @@ describe("root-cause regression: a webhook demoting a CONFIRMEE/EN_PREPARATION o
     const { item, order } = await seedConfirmedOrder();
 
     state.orders[0].cancelledAt = "2026-01-21T10:00:00Z";
-    state.orders[0].updatedAt = new Date(Date.now() + 60_000).toISOString(); // modified on Shopify AFTER the manual confirmation
+    state.orders[0].updatedAt = new Date(Date.now() + 300_000).toISOString(); // modified on Shopify clearly AFTER the manual confirmation (beyond the 2-minute tolerance)
     const body = orderCreatePayload();
     await POST(request(body, { "x-shopify-hmac-sha256": sign(body), "x-shopify-topic": "orders/updated", "x-shopify-webhook-id": "stale-cancel-2" }));
 

@@ -56,6 +56,38 @@ export function orderHoldsReservation(status: OrderStatusValue): boolean {
   return RESERVED_ORDER_STATUSES.includes(status);
 }
 
+/**
+ * Legacy guard (owner decision 2026-10-14, docs/decisions/order-sync-open-decisions.md §1,
+ * option C): until 2026-10-14 a store PAYMENT failure (WooCommerce `failed`,
+ * Shopify `EXPIRED`) was imported as order status ECHEC — although
+ * ASODITECH's ECHEC means a failed DELIVERY after « Expédiée ». Such an order
+ * was never shipped (`shippedAt` null) and holds no reservation: retrying it
+ * (ECHEC → EN_PREPARATION → EXPEDIEE, a parcel for it, or a carrier
+ * reporting it in transit) would run the shipment's stock consumption on
+ * units it never reserved — other orders' reserved units. Refused instead;
+ * the recovery path already exists: « Annuler » (nothing to release), then
+ * « Rétablir » → NOUVELLE → the normal confirmation and reservation. No new
+ * transition, no stock movement, no reservation invented. A real failed
+ * delivery (shipped once, `shippedAt` set) keeps its retry. Returns the
+ * reason, or null.
+ */
+export const UNSHIPPED_ECHEC_RETRY_REFUSAL =
+  "Cette commande n'a jamais été expédiée : son statut « Échec » vient d'un paiement échoué importé de la boutique, pas d'une livraison. Elle ne détient aucune réservation de stock — la relancer consommerait le stock réservé par d'autres commandes. Annulez-la puis utilisez « Rétablir » pour la reprendre par la confirmation normale.";
+
+export function unshippedFailedOrderProblem(order: { status: OrderStatusValue; shippedAt: Date | null }): string | null {
+  return order.status === "ECHEC" && order.shippedAt === null ? UNSHIPPED_ECHEC_RETRY_REFUSAL : null;
+}
+
+/**
+ * Status-menu options hidden for this order (owner decision 2026-10-14 bis):
+ * « Emballage » for a legacy ECHEC that never shipped and holds no stock
+ * reservation — offering it only leads to the refusal above. UI only: the
+ * server keeps refusing (and auditing) the transition whatever the menu shows.
+ */
+export function hiddenOrderStatusOptions(order: { status: OrderStatusValue; shippedAt: Date | null }, reservedUnits: number): OrderStatusValue[] {
+  return unshippedFailedOrderProblem(order) !== null && reservedUnits <= 0 ? ["EN_PREPARATION"] : [];
+}
+
 export const orderPaymentStatusSchema = z.enum([
   "EN_ATTENTE",
   "PAYE",

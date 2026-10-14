@@ -29,7 +29,8 @@ export async function recordWebhookEventOnce(data: {
   deliveryId: string;
   topic: string;
   resourceId?: string;
-  status: "TRAITE" | "IGNORE" | "ECHEC";
+  /** SUSPENDU = authenticated delivery of a suspended company, deliberately not processed (webhook-body.ts). */
+  status: "TRAITE" | "IGNORE" | "ECHEC" | "SUSPENDU";
 }): Promise<"recorded" | "already_recorded"> {
   if (data.status === "ECHEC" && (data.provider === "WOOCOMMERCE" || data.provider === "SHOPIFY")) {
     // Best-effort (notify never throws) and deduplicated per day.

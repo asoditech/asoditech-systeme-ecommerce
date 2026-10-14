@@ -1,4 +1,4 @@
-import { applyStorePaymentConfirmation } from "@/lib/orders/store-payment";
+import { applyStorePaymentEvent } from "@/lib/orders/store-payment";
 import "server-only";
 
 import { REOPEN_ORDER_DATA, isReopenable } from "@/lib/order-confirmation";
@@ -10,12 +10,18 @@ import { recordAuditEvent } from "@/lib/audit";
 import { canTransitionOrderStatus, orderHoldsReservation } from "@/lib/validation/order";
 import { releaseStockForOrder } from "@/lib/inventory";
 import {
+  applyCancelledFullRefund,
+  heldOrderPaymentFailure,
+  importedPaymentStatus,
+  orderMixedRefundReview,
   orderReservedUnits,
   reserveForStoreConfirmation,
   storeEventTime,
   storeOrderingRefusal,
+  storePaymentRefreshNeeded,
   storeRefreshNeeded,
   storeTransitionDates,
+  toCents,
 } from "../../shared/order-sync-rules";
 import { isUnsupportedOrderStatus, mapCustomerFieldsFromOrder, mapOrderFields, mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
 import { historicalCutoff, patchIntegrationConfig, unsupportedStatusNote } from "../../shared/integration-config";
@@ -28,6 +34,7 @@ import { upsertCustomerAddressFromOrder } from "../../shared/customer-address";
 import {
   notifyNewOrder,
   checkAndNotifyInsufficientStockForOrder,
+  notifyPaymentReview,
   notifyWorkflowMismatch,
   resolveNotifications,
 } from "@/lib/notifications";
@@ -102,7 +109,7 @@ export async function importOrder(
     // is never dropped while the delivery is counted as handled.
     const held = await prisma.order.findFirst({ where: { source: "WOOCOMMERCE", externalId: String(wc.id) }, select: { id: true, status: true } });
     if (held) {
-      const result = await updateExistingOrder(held.id, wc, held.status, actor, options);
+      const result = await updateExistingOrder(held.id, wc, held.status, actor, options, { keepCurrentStatus: true });
       return { ...result, reason: `${statusMapping.reason} Statut inchangé ; montants et remboursements mis à jour.` };
     }
     return { outcome: "skipped", reason: statusMapping.reason };
@@ -127,8 +134,11 @@ export async function importOrder(
   const externalId = String(wc.id);
   const existing = await prisma.order.findFirst({ where: { source: "WOOCOMMERCE", externalId } });
 
+  // A store PAYMENT failure (`failed`) never moves an order we already hold:
+  // only its payment status (decisions §1, `heldOrderPaymentFailure`).
+  const paymentFailed = statusMapping.paymentFailed === true;
   if (existing) {
-    return updateExistingOrder(existing.id, wc, statusMapping.status, actor, options);
+    return updateExistingOrder(existing.id, wc, statusMapping.status, actor, options, { keepCurrentStatus: paymentFailed, paymentFailed });
   }
 
   const forcedToNouvelle = Boolean(options?.forceNouvelleOnFirstImport) && statusMapping.status === "CONFIRMEE";
@@ -138,7 +148,7 @@ export async function importOrder(
   const effectiveStatus: OrderStatus = forcedToNouvelle || viaTransition ? "NOUVELLE" : statusMapping.status;
 
   try {
-    const created = await createImportedOrder(wc, effectiveStatus, customerId, actor, forcedToNouvelle ? wc.status : undefined);
+    const created = await createImportedOrder(wc, effectiveStatus, customerId, actor, forcedToNouvelle ? wc.status : undefined, paymentFailed);
     if (!viaTransition) return { outcome: "imported" };
     // Right after creation: the « nouvelle commande » alert just sent stays (ADR 0016).
     const transition = await updateExistingOrder(created.orderId, wc, statusMapping.status, actor, options, { keepNewOrderAlert: true });
@@ -153,7 +163,7 @@ export async function importOrder(
     // docs/adr/0010-woocommerce-integration.md.
     if (isUniqueConstraintError(error)) {
       const winner = await prisma.order.findFirst({ where: { source: "WOOCOMMERCE", externalId } });
-      if (winner) return updateExistingOrder(winner.id, wc, statusMapping.status, actor, options);
+      if (winner) return updateExistingOrder(winner.id, wc, statusMapping.status, actor, options, { keepCurrentStatus: paymentFailed, paymentFailed });
     }
     throw error;
   }
@@ -209,7 +219,9 @@ async function createImportedOrder(
    * `forceNouvelleOnFirstImport` downgraded CONFIRMEE to NOUVELLE — recorded
    * on the audit event so staff can see why a "processing" order didn't
    * land as Confirmée. */
-  downgradedFromWcStatus?: string
+  downgradedFromWcStatus?: string,
+  /** The store reports a failed PAYMENT (`failed`): imported NOUVELLE with paymentStatus ECHEC. */
+  paymentFailed = false
 ): Promise<{ outcome: "imported"; orderId: string }> {
   const fields = mapOrderFields(wc, status);
 
@@ -239,7 +251,7 @@ async function createImportedOrder(
     data: {
       customerId,
       status: fields.status,
-      paymentStatus: wc.status === "refunded" ? "REMBOURSE" : wc.date_paid ? "PAYE" : "EN_ATTENTE",
+      paymentStatus: importedPaymentStatus({ paymentFailed, refundedStatus: wc.status === "refunded", paid: Boolean(wc.date_paid) }),
       paymentMethod: mapPaymentMethod(wc.payment_method),
       source: "WOOCOMMERCE",
       // Business channel (docs/adr/0038): every delivery order belongs to the
@@ -280,6 +292,8 @@ async function createImportedOrder(
         source: "WOOCOMMERCE",
       },
     });
+    // Imported already cancelled AND fully refunded → payment REMBOURSE (decisions §3).
+    await prisma.$transaction((tx) => applyCancelledFullRefund(tx, order.id));
   }
 
   await recordAuditEvent({
@@ -287,8 +301,11 @@ async function createImportedOrder(
     action: "order.created",
     entityType: "Order",
     entityId: order.id,
-    newValue: { total: fields.total.toString(), customerId },
+    // An imported payment failure is recorded with the store's own time: a
+    // later « paid » report is ordered against it (applyStorePaymentEvent).
+    newValue: { total: fields.total.toString(), customerId, ...(order.paymentStatus === "ECHEC" ? { paymentStatus: "ECHEC" } : {}) },
     metadata: {
+      ...(order.paymentStatus === "ECHEC" ? { storeModifiedAt: storeEventTimes(wc).modified?.toISOString() ?? null } : {}),
       source: "WOOCOMMERCE",
       externalId: order.externalId,
       ...(downgradedFromWcStatus ? { forcedNouvelleFromWcStatus: downgradedFromWcStatus } : {}),
@@ -340,7 +357,13 @@ async function updateExistingOrder(
   status: OrderStatus,
   actor: SyncActor,
   options?: ImportOrderOptions,
-  internal: { keepNewOrderAlert?: boolean } = {}
+  internal: {
+    keepNewOrderAlert?: boolean;
+    /** Leave the status as it is under the lock (unmappable store status, store payment failure). */
+    keepCurrentStatus?: boolean;
+    /** The store reports a failed PAYMENT: EN_ATTENTE → ECHEC, status untouched. */
+    paymentFailed?: boolean;
+  } = {}
 ): Promise<{ outcome: "updated" | "unchanged"; reason?: string }> {
   const existing = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
   const fields = mapOrderFields(wc, status);
@@ -349,6 +372,8 @@ async function updateExistingOrder(
   let changedFields = false;
   let statusSkippedReason: string | undefined;
   let workflowMismatch: string | undefined;
+  /** A payment / refund fact left for a person (decision 2026-10-14 bis) — alerted, nothing changed. */
+  let paymentReview: string | null = null;
   /** The order's status as read UNDER the row lock (another delivery may have moved it since `existing`). */
   let previousStatus: OrderStatus = existing.status;
 
@@ -360,9 +385,11 @@ async function updateExistingOrder(
     await tx.$queryRaw`SELECT id FROM "orders" WHERE id = ${orderId} FOR UPDATE`;
     const current = await tx.order.findUniqueOrThrow({
       where: { id: orderId },
-      select: { status: true, shippedAt: true, confirmedAt: true, cancelledAt: true, deliveredAt: true },
+      select: { status: true, paymentStatus: true, shippedAt: true, confirmedAt: true, cancelledAt: true, deliveredAt: true },
     });
     previousStatus = current.status;
+    // Read under the lock: never a transition computed from a stale status.
+    if (internal.keepCurrentStatus) status = current.status;
     if (current.status !== status) {
       // Same rule as first import, now enforced on every later re-sync/
       // webhook update too (2026-09-13 fix): a store's own status must
@@ -395,7 +422,9 @@ async function updateExistingOrder(
       } else if (reopenBlocked) {
         statusSkippedReason = `Commande WooCommerce #${wc.id} : déjà expédiée — elle ne peut pas revenir à "Nouvelle" depuis "Annulée".`;
       } else if (orderingRefusal) {
-        statusSkippedReason = orderingRefusal;
+        statusSkippedReason = orderingRefusal.reason;
+        // Within the clock tolerance / order unknown: a person decides — alerted.
+        if (orderingRefusal.kind === "review") workflowMismatch = wc.status;
       } else if (
         canTransitionOrderStatus(current.status, status) &&
         // Entering a reservation-holding status (NOUVELLE → CONFIRMEE, with
@@ -507,21 +536,70 @@ async function updateExistingOrder(
           data: { orderId, amount: refunded, reason: "Importé depuis WooCommerce", status: "COMPLETE", source: "WOOCOMMERCE" },
         });
         changedFields = true;
-      } else if (Number(existingRefund.amount) !== refunded) {
+      } else if (toCents(existingRefund.amount) !== toCents(refunded)) {
         await tx.refund.update({ where: { id: existingRefund.id }, data: { amount: refunded } });
         changedFields = true;
       }
+      // A refund recorded by hand next to the store's: possibly the same
+      // money — never netted automatically, a person checks.
+      if (changedFields) paymentReview = await orderMixedRefundReview(tx, orderId, label);
       if (wc.status === "refunded" && existing.paymentStatus !== "REMBOURSE") {
         await tx.order.update({ where: { id: orderId }, data: { paymentStatus: "REMBOURSE" } });
         changedFields = true;
       }
     }
 
+    // Store PAYMENT failure (decisions §1): only a payment still EN_ATTENTE
+    // becomes ECHEC; the order's status is never touched by it.
+    if (internal.paymentFailed) {
+      const failed = heldOrderPaymentFailure(current.paymentStatus);
+      if (failed) {
+        const result = await tx.order.updateMany({ where: { id: orderId, paymentStatus: current.paymentStatus }, data: { paymentStatus: failed } });
+        if (result.count > 0) {
+          // Audited with the store's own time: a later « paid » report is
+          // ordered against it (applyStorePaymentEvent).
+          await recordAuditEvent(
+            {
+              ...actorAuditFields(actor),
+              action: "order.updated",
+              entityType: "Order",
+              entityId: orderId,
+              previousValue: { paymentStatus: current.paymentStatus },
+              newValue: { paymentStatus: failed },
+              metadata: { reason: "store_reported_payment_failed", source: "WOOCOMMERCE", storeModifiedAt: eventTimes.modified?.toISOString() ?? null },
+            },
+            tx
+          );
+          changedFields = true;
+        }
+      }
+    }
+
+    // Cancelled and fully refunded (decisions §3): status stays ANNULEE, payment REMBOURSE.
+    if (await applyCancelledFullRefund(tx, orderId)) changedFields = true;
+
     // « Paiement confirmé par la boutique » (opt-in, default off): the store
-    // now reports this order paid → EN_ATTENTE becomes PAYE, audited on its
-    // own. Never from a carrier status; never overwrites a manual status.
-    if (refunded <= 0) await applyStorePaymentConfirmation(orderId, Boolean(wc.date_paid), "WOOCOMMERCE", tx);
+    // now reports this order paid → EN_ATTENTE (or, clearly after the
+    // recorded failure, ECHEC) becomes PAYE, audited on its own. Payment
+    // only — the order's status, stock and shipment are never touched.
+    // Never from a carrier status; never while the store reports a refund.
+    if (refunded <= 0) {
+      const payment = await applyStorePaymentEvent(orderId, Boolean(wc.date_paid), "WOOCOMMERCE", tx, {
+        storeModifiedAt: eventTimes.modified,
+        paymentFailed: internal.paymentFailed,
+        label,
+      });
+      if (payment.changed) changedFields = true;
+      if (payment.refusal) {
+        statusSkippedReason = statusSkippedReason ? `${statusSkippedReason} ${payment.refusal.reason}` : payment.refusal.reason;
+        if (payment.refusal.kind === "review") paymentReview ??= payment.refusal.reason;
+      }
+    }
   });
+
+  if (paymentReview) {
+    await notifyPaymentReview({ id: orderId, orderNumber: existing.orderNumber, displayNumber: existing.displayNumber }, paymentReview);
+  }
 
   if (changedFields) {
     await recordAuditEvent({
@@ -601,6 +679,8 @@ export async function syncOrders(
   // On by default — see ImportOrderOptions's doc comment. `false` is the
   // only value that opts out; unset/anything else keeps the safe default.
   const forceNouvelleOnFirstImport = config.forceNouvelleOnImport !== false;
+  // « Paiement confirmé par la boutique »: a held failed payment the store now reports paid is refreshed only when it is on.
+  const autoPaymentFromStore = (await prisma.businessSettings.findFirst({ select: { autoPaymentFromStore: true } }))?.autoPaymentFromStore ?? false;
   // « Importer l'historique » OFF: orders placed before the cutoff are left
   // out of the bulk import (pages are newest-first, so the first one older
   // than the cutoff ends the scan). Newer orders and webhooks: unchanged.
@@ -634,6 +714,7 @@ export async function syncOrders(
             createdAt: true,
             status: true,
             total: true,
+            paymentStatus: true,
             confirmedAt: true,
             cancelledAt: true,
             refunds: { where: { source: "WOOCOMMERCE" }, select: { amount: true } },
@@ -651,7 +732,8 @@ export async function syncOrders(
       const existing = held.get(String(wc.id));
       if (existing) {
         const mapped = mapOrderStatus(wc.status);
-        const needsRefresh = storeRefreshNeeded({
+        const paymentFailed = mapped.ok && mapped.paymentFailed === true;
+        const needsRefresh = storePaymentRefreshNeeded(paymentFailed, existing.paymentStatus, { storeReportsPaid: Boolean(wc.date_paid), autoPaymentFromStore }) || storeRefreshNeeded({
           held: {
             status: existing.status,
             total: Number(existing.total),
@@ -659,7 +741,8 @@ export async function syncOrders(
             confirmedAt: existing.confirmedAt,
             cancelledAt: existing.cancelledAt,
           },
-          mappedStatus: mapped.ok ? mapped.status : null,
+          // A payment failure never changes a held order's status.
+          mappedStatus: mapped.ok && !paymentFailed ? mapped.status : null,
           storeTotal: mapOrderFields(wc, existing.status).total,
           storeRefunded: totalRefundedAmount(wc),
           storeModifiedAt: storeEventTimes(wc).modified,

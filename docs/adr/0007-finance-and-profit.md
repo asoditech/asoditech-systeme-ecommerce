@@ -132,3 +132,21 @@ no writer touched.
   `getProfitabilityReport()` call the list page renders, then only adds a
   paginated (DB `skip`/`take`) list of contributing orders — so the two
   screens can't drift apart.
+
+## Addendum (2026-10-14 bis) — manual refunds on store orders
+
+`createRefundAction` now caps in integer cents (order total − every
+non-rejected refund, the store's imported row included) and writes manual
+refunds explicitly as `source: INTERNE` (audit `refundOrigin: MANUEL`,
+`executedOnStore: false`). Finance figures still net every COMPLETE refund:
+when a store order holds BOTH a store refund and a manual one, they may be
+the same money — ASODITECH cannot tell without per-refund external ids (no
+schema column), so a « Paiement à vérifier » alert asks a person to reject
+the duplicate manual row. Until that is done, finance could net both.
+`updateRefundStatusAction` (a refund reaching COMPLETE) sets
+`paymentStatus: REMBOURSE` only when `refundCoverage` says the COMPLETE
+refunds cover the order total — a partial refund leaves the payment status
+unchanged, and a manual refund is never added to a store refund to get there
+(fixed 2026-10-14 bis; before, ANY COMPLETE refund marked the order
+REMBOURSE). The order row is locked for the check; the audit records
+`refundCoverage`, `orderMarkedRefunded` and `executedOnStore: false`.

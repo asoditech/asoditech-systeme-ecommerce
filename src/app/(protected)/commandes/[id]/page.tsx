@@ -68,7 +68,9 @@ import {
   PAYMENT_METHOD_LABELS,
   REFUND_STATUS_LABELS,
 } from "@/lib/status-labels";
-import { canTransitionOrderStatus, type OrderStatusValue } from "@/lib/validation/order";
+import { canTransitionOrderStatus, hiddenOrderStatusOptions, unshippedFailedOrderProblem, type OrderStatusValue } from "@/lib/validation/order";
+import { isProviderRefund, orderReservedUnits } from "@/lib/integrations/shared/order-sync-rules";
+import { prisma } from "@/lib/prisma";
 
 function Row({
   label,
@@ -127,6 +129,10 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
           },
         ]).then((f) => ({ insufficient: f.insufficient.has(order.id), untracked: f.untracked.has(order.id) }))
       : null;
+  // A legacy never-shipped ECHEC holding no reservation: « Emballage » is not offered (server refuses it anyway).
+  const hiddenStatuses = unshippedFailedOrderProblem({ status: order.status as OrderStatusValue, shippedAt: order.shippedAt })
+    ? hiddenOrderStatusOptions({ status: order.status as OrderStatusValue, shippedAt: order.shippedAt }, await orderReservedUnits(prisma, order.id))
+    : [];
   const canCancel = userHasPermission(user, "orders.cancel");
   const canRefund = userHasPermission(user, "orders.refund");
   const canReturnPhysical = userHasPermission(user, "orders.return");
@@ -232,6 +238,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
               currentStatus={order.status as OrderStatusValue}
               canEdit={canEdit}
               stockFlags={stockFlags}
+              hiddenStatuses={hiddenStatuses}
             />
             {canCancel && canTransitionOrderStatus(order.status as OrderStatusValue, "ANNULEE") && (
               <CancelOrderButton orderId={order.id} />
@@ -388,6 +395,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                       <TableRow>
                         <TableHead>Montant</TableHead>
                         <TableHead>Motif</TableHead>
+                        <TableHead>Origine</TableHead>
                         <TableHead>Statut</TableHead>
                         <TableHead>Date</TableHead>
                       </TableRow>
@@ -397,6 +405,9 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                         <TableRow key={r.id}>
                           <TableCell>{formatCurrency(r.amount.toString(), order.currency)}</TableCell>
                           <TableCell className="text-muted-foreground">{r.reason ?? "—"}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {isProviderRefund(r.source) ? `Boutique (${r.source === "SHOPIFY" ? "Shopify" : "WooCommerce"})` : "Saisi dans ASODITECH"}
+                          </TableCell>
                           <TableCell>
                             <StatusBadge status={r.status} labels={REFUND_STATUS_LABELS} />
                           </TableCell>
@@ -405,6 +416,12 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                       ))}
                     </TableBody>
                   </Table>
+                )}
+                {isProviderRefund(order.source) && (
+                  <p className="text-xs text-muted-foreground">
+                    Un remboursement saisi ici est enregistré dans ASODITECH uniquement — il n&apos;est pas exécuté sur la boutique.
+                    Les remboursements faits sur la boutique sont importés automatiquement : ne les saisissez pas une seconde fois.
+                  </p>
                 )}
                 <RefundForm orderId={order.id} maxAmount={Number(order.total) - refundedTotal} />
               </CardContent>

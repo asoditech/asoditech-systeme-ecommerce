@@ -1,4 +1,4 @@
-import { applyStorePaymentConfirmation } from "@/lib/orders/store-payment";
+import { applyStorePaymentEvent } from "@/lib/orders/store-payment";
 import "server-only";
 
 import { REOPEN_ORDER_DATA, isReopenable } from "@/lib/order-confirmation";
@@ -11,12 +11,19 @@ import { recordAuditEvent } from "@/lib/audit";
 import { canTransitionOrderStatus, orderHoldsReservation } from "@/lib/validation/order";
 import { releaseStockForOrder } from "@/lib/inventory";
 import {
+  applyCancelledFullRefund,
+  heldOrderPaymentFailure,
+  importedPaymentStatus,
+  orderMixedRefundReview,
   orderReservedUnits,
   reserveForStoreConfirmation,
   storeEventTime,
   storeOrderingRefusal,
+  storePaymentRefreshNeeded,
   storeRefreshNeeded,
+  storeShipmentReportIsBehind,
   storeTransitionDates,
+  toCents,
 } from "../../shared/order-sync-rules";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { mapOrderStatus, mapPaymentMethod, totalRefundedAmount } from "../mapper";
@@ -27,6 +34,7 @@ import { actorAuditFields, actorPerformedById, emptySyncSummary, isRecentlyPlace
 import {
   notifyNewOrder,
   checkAndNotifyInsufficientStockForOrder,
+  notifyPaymentReview,
   notifyWorkflowMismatch,
   resolveNotifications,
 } from "@/lib/notifications";
@@ -76,7 +84,7 @@ export async function importOrder(
     // only becomes REMBOURSE on Shopify's own REFUNDED.
     const held = await prisma.order.findFirst({ where: { source: "SHOPIFY", externalId: order.id }, select: { id: true, status: true } });
     if (held) {
-      const result = await updateExistingOrder(held.id, order, held.status, actor, options);
+      const result = await updateExistingOrder(held.id, order, held.status, actor, options, { keepCurrentStatus: true });
       return { ...result, reason: `${statusMapping.reason} Statut inchangé ; montants et remboursements mis à jour.` };
     }
     return { outcome: "skipped", reason: statusMapping.reason };
@@ -99,8 +107,11 @@ export async function importOrder(
 
   const existing = await prisma.order.findFirst({ where: { source: "SHOPIFY", externalId: order.id } });
 
+  // A store PAYMENT failure (EXPIRED) never moves an order we already hold:
+  // only its payment status (decisions §1, `heldOrderPaymentFailure`).
+  const paymentFailed = statusMapping.paymentFailed === true;
   if (existing) {
-    return updateExistingOrder(existing.id, order, statusMapping.status, actor, options);
+    return updateExistingOrder(existing.id, order, statusMapping.status, actor, options, { keepCurrentStatus: paymentFailed, paymentFailed });
   }
 
   const forcedToNouvelle = Boolean(options?.forceNouvelleOnFirstImport) && statusMapping.status === "CONFIRMEE";
@@ -112,7 +123,7 @@ export async function importOrder(
   const effectiveStatus: OrderStatus = forcedToNouvelle || viaTransition ? "NOUVELLE" : statusMapping.status;
 
   try {
-    const created = await createImportedOrder(order, effectiveStatus, customerId, actor, forcedToNouvelle ? true : undefined);
+    const created = await createImportedOrder(order, effectiveStatus, customerId, actor, forcedToNouvelle ? true : undefined, paymentFailed);
     if (!viaTransition) return { outcome: "imported" };
     // Right after creation: the « nouvelle commande » alert just sent stays (ADR 0016).
     const transition = await updateExistingOrder(created.orderId, order, statusMapping.status, actor, options, { keepNewOrderAlert: true });
@@ -127,7 +138,7 @@ export async function importOrder(
     // docs/adr/0010-woocommerce-integration.md's audit addendum.
     if (isUniqueConstraintError(error)) {
       const winner = await prisma.order.findFirst({ where: { source: "SHOPIFY", externalId: order.id } });
-      if (winner) return updateExistingOrder(winner.id, order, statusMapping.status, actor, options);
+      if (winner) return updateExistingOrder(winner.id, order, statusMapping.status, actor, options, { keepCurrentStatus: paymentFailed, paymentFailed });
     }
     throw error;
   }
@@ -222,7 +233,9 @@ async function createImportedOrder(
   /** True only when `forceNouvelleOnFirstImport` downgraded CONFIRMEE to
    * NOUVELLE — recorded on the audit event so staff can see why an
    * already-paid/processing order didn't land as Confirmée. */
-  forcedNouvelleFromConfirmee?: boolean
+  forcedNouvelleFromConfirmee?: boolean,
+  /** Shopify reports a failed PAYMENT (EXPIRED): imported NOUVELLE with paymentStatus ECHEC. */
+  paymentFailed = false
 ): Promise<{ outcome: "imported"; orderId: string }> {
   const fields = mappedOrderFields(order);
 
@@ -248,7 +261,7 @@ async function createImportedOrder(
     data: {
       customerId,
       status,
-      paymentStatus: status === "REMBOURSEE" ? "REMBOURSE" : order.displayFinancialStatus === "PAID" ? "PAYE" : "EN_ATTENTE",
+      paymentStatus: importedPaymentStatus({ paymentFailed, refundedStatus: status === "REMBOURSEE", paid: order.displayFinancialStatus === "PAID" }),
       paymentMethod: mapPaymentMethod(order.paymentGatewayNames),
       source: "SHOPIFY",
       // Business channel (docs/adr/0038) — see the WooCommerce importer.
@@ -282,6 +295,8 @@ async function createImportedOrder(
     await prisma.refund.create({
       data: { orderId: createdOrder.id, amount: refunded, reason: "Importé depuis Shopify", status: "COMPLETE", source: "SHOPIFY" },
     });
+    // Imported already cancelled AND fully refunded → payment REMBOURSE (decisions §3).
+    await prisma.$transaction((tx) => applyCancelledFullRefund(tx, createdOrder.id));
   }
 
   await recordAuditEvent({
@@ -289,8 +304,11 @@ async function createImportedOrder(
     action: "order.created",
     entityType: "Order",
     entityId: createdOrder.id,
-    newValue: { total: fields.total.toString(), customerId },
+    // An imported payment failure is recorded with the store's own time: a
+    // later « paid » report is ordered against it (applyStorePaymentEvent).
+    newValue: { total: fields.total.toString(), customerId, ...(createdOrder.paymentStatus === "ECHEC" ? { paymentStatus: "ECHEC" } : {}) },
     metadata: {
+      ...(createdOrder.paymentStatus === "ECHEC" ? { storeModifiedAt: storeEventTimes(order).modified?.toISOString() ?? null } : {}),
       source: "SHOPIFY",
       externalId: createdOrder.externalId,
       ...(forcedNouvelleFromConfirmee ? { forcedNouvelleFromConfirmee: true } : {}),
@@ -348,7 +366,13 @@ async function updateExistingOrder(
   status: OrderStatus,
   actor: SyncActor,
   options?: ImportOrderOptions,
-  internal: { keepNewOrderAlert?: boolean } = {}
+  internal: {
+    keepNewOrderAlert?: boolean;
+    /** Leave the status as it is under the lock (unmappable combination, store payment failure). */
+    keepCurrentStatus?: boolean;
+    /** Shopify reports a failed PAYMENT (EXPIRED): EN_ATTENTE → ECHEC, status untouched. */
+    paymentFailed?: boolean;
+  } = {}
 ): Promise<{ outcome: "updated" | "unchanged"; reason?: string }> {
   const existing = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
   const fields = mappedOrderFields(order);
@@ -357,6 +381,8 @@ async function updateExistingOrder(
   let changedFields = false;
   let statusSkippedReason: string | undefined;
   let workflowMismatch: string | undefined;
+  /** A payment / refund fact left for a person (decision 2026-10-14 bis) — alerted, nothing changed. */
+  let paymentReview: string | null = null;
   /** The order's status as read UNDER the row lock (another delivery may have moved it since `existing`). */
   let previousStatus: OrderStatus = existing.status;
 
@@ -368,9 +394,15 @@ async function updateExistingOrder(
     await tx.$queryRaw`SELECT id FROM "orders" WHERE id = ${orderId} FOR UPDATE`;
     const current = await tx.order.findUniqueOrThrow({
       where: { id: orderId },
-      select: { status: true, shippedAt: true, confirmedAt: true, cancelledAt: true, deliveredAt: true },
+      select: { status: true, paymentStatus: true, shippedAt: true, confirmedAt: true, cancelledAt: true, deliveredAt: true },
     });
     previousStatus = current.status;
+    // Read under the lock: never a transition computed from a stale status.
+    if (internal.keepCurrentStatus) status = current.status;
+    // Shopify reports shipped / FULFILLED while ASODITECH is already at or past
+    // its own shipment (delivered by the carrier or staff, returned, …): the
+    // store is simply behind — nothing changes, no false alert (decisions §2).
+    if (status === "EXPEDIEE" && storeShipmentReportIsBehind(current.status)) status = current.status;
     if (current.status !== status) {
       // Same rule as first import, now enforced on every later re-sync/
       // webhook update too (2026-09-13 fix) — see the identical comment in
@@ -399,7 +431,11 @@ async function updateExistingOrder(
       } else if (reopenBlocked) {
         statusSkippedReason = `Commande Shopify ${order.name} : déjà expédiée — elle ne peut pas revenir à "Nouvelle" depuis "Annulée".`;
       } else if (orderingRefusal) {
-        statusSkippedReason = orderingRefusal;
+        statusSkippedReason = orderingRefusal.reason;
+        // Within the clock tolerance / order unknown: a person decides — alerted.
+        if (orderingRefusal.kind === "review") {
+          workflowMismatch = `${order.displayFulfillmentStatus ?? "?"} (exécution) / ${order.displayFinancialStatus ?? "?"} (paiement)`;
+        }
       } else if (
         canTransitionOrderStatus(current.status, status) &&
         // Entering a reservation-holding status: same strict reservation as a
@@ -491,21 +527,70 @@ async function updateExistingOrder(
       if (!existingRefund) {
         await tx.refund.create({ data: { orderId, amount: refunded, reason: "Importé depuis Shopify", status: "COMPLETE", source: "SHOPIFY" } });
         changedFields = true;
-      } else if (Number(existingRefund.amount) !== refunded) {
+      } else if (toCents(existingRefund.amount) !== toCents(refunded)) {
         await tx.refund.update({ where: { id: existingRefund.id }, data: { amount: refunded } });
         changedFields = true;
       }
+      // A refund recorded by hand next to the store's: possibly the same
+      // money — never netted automatically, a person checks.
+      if (changedFields) paymentReview = await orderMixedRefundReview(tx, orderId, label);
       if (status === "REMBOURSEE" && existing.paymentStatus !== "REMBOURSE") {
         await tx.order.update({ where: { id: orderId }, data: { paymentStatus: "REMBOURSE" } });
         changedFields = true;
       }
     }
 
+    // Store PAYMENT failure (decisions §1): only a payment still EN_ATTENTE
+    // becomes ECHEC; the order's status is never touched by it.
+    if (internal.paymentFailed) {
+      const failed = heldOrderPaymentFailure(current.paymentStatus);
+      if (failed) {
+        const result = await tx.order.updateMany({ where: { id: orderId, paymentStatus: current.paymentStatus }, data: { paymentStatus: failed } });
+        if (result.count > 0) {
+          // Audited with the store's own time: a later « paid » report is
+          // ordered against it (applyStorePaymentEvent).
+          await recordAuditEvent(
+            {
+              ...actorAuditFields(actor),
+              action: "order.updated",
+              entityType: "Order",
+              entityId: orderId,
+              previousValue: { paymentStatus: current.paymentStatus },
+              newValue: { paymentStatus: failed },
+              metadata: { reason: "store_reported_payment_failed", source: "SHOPIFY", storeModifiedAt: eventTimes.modified?.toISOString() ?? null },
+            },
+            tx
+          );
+          changedFields = true;
+        }
+      }
+    }
+
+    // Cancelled and fully refunded (decisions §3): status stays ANNULEE, payment REMBOURSE.
+    if (await applyCancelledFullRefund(tx, orderId)) changedFields = true;
+
     // « Paiement confirmé par la boutique » (opt-in, default off): the store
-    // now reports this order paid → EN_ATTENTE becomes PAYE, audited on its
-    // own. Never from a carrier status; never overwrites a manual status.
-    if (refunded <= 0) await applyStorePaymentConfirmation(orderId, order.displayFinancialStatus === "PAID", "SHOPIFY", tx);
+    // now reports this order paid → EN_ATTENTE (or, clearly after the
+    // recorded failure, ECHEC) becomes PAYE, audited on its own. Payment
+    // only — the order's status, stock and shipment are never touched.
+    // Never from a carrier status; never while the store reports a refund.
+    if (refunded <= 0) {
+      const payment = await applyStorePaymentEvent(orderId, order.displayFinancialStatus === "PAID", "SHOPIFY", tx, {
+        storeModifiedAt: eventTimes.modified,
+        paymentFailed: internal.paymentFailed,
+        label,
+      });
+      if (payment.changed) changedFields = true;
+      if (payment.refusal) {
+        statusSkippedReason = statusSkippedReason ? `${statusSkippedReason} ${payment.refusal.reason}` : payment.refusal.reason;
+        if (payment.refusal.kind === "review") paymentReview ??= payment.refusal.reason;
+      }
+    }
   });
+
+  if (paymentReview) {
+    await notifyPaymentReview({ id: orderId, orderNumber: existing.orderNumber, displayNumber: existing.displayNumber }, paymentReview);
+  }
 
   if (changedFields) {
     await recordAuditEvent({
@@ -576,6 +661,8 @@ export async function syncOrders(
   // On by default — see ImportOrderOptions's doc comment. `false` is the
   // only value that opts out; unset/anything else keeps the safe default.
   const forceNouvelleOnFirstImport = config.forceNouvelleOnImport !== false;
+  // « Paiement confirmé par la boutique »: a held failed payment the store now reports paid is refreshed only when it is on.
+  const autoPaymentFromStore = (await prisma.businessSettings.findFirst({ select: { autoPaymentFromStore: true } }))?.autoPaymentFromStore ?? false;
   // « Importer l'historique » OFF — see WooCommerce's syncOrders.
   const cutoff = historicalCutoff(config);
 
@@ -603,6 +690,7 @@ export async function syncOrders(
             createdAt: true,
             status: true,
             total: true,
+            paymentStatus: true,
             confirmedAt: true,
             cancelledAt: true,
             refunds: { where: { source: "SHOPIFY" }, select: { amount: true } },
@@ -622,7 +710,8 @@ export async function syncOrders(
         // ADR 0010/0011/0030: a later manual sync refreshes held orders too
         // (see WooCommerce's syncOrders and `storeRefreshNeeded`).
         const mapped = mapOrderStatus(order.displayFinancialStatus, order.displayFulfillmentStatus, order.cancelledAt);
-        const needsRefresh = storeRefreshNeeded({
+        const paymentFailed = mapped.ok && mapped.paymentFailed === true;
+        const needsRefresh = storePaymentRefreshNeeded(paymentFailed, existing.paymentStatus, { storeReportsPaid: order.displayFinancialStatus === "PAID", autoPaymentFromStore }) || storeRefreshNeeded({
           held: {
             status: existing.status,
             total: Number(existing.total),
@@ -630,7 +719,8 @@ export async function syncOrders(
             confirmedAt: existing.confirmedAt,
             cancelledAt: existing.cancelledAt,
           },
-          mappedStatus: mapped.ok ? mapped.status : null,
+          // A payment failure never changes a held order's status.
+          mappedStatus: mapped.ok && !paymentFailed ? mapped.status : null,
           storeTotal: mappedOrderFields(order).total,
           storeRefunded: totalRefundedAmount(order),
           storeModifiedAt: storeEventTimes(order).modified,

@@ -143,3 +143,12 @@ estimate is invented.
 
 Cost: one `GROUP BY tenantId` per table, cached 5 minutes in process
 (« Actualiser » recomputes).
+
+## Addendum (2026-10-14) — webhooks of a suspended company
+
+Suspension now also stops webhook processing (owner decision,
+docs/decisions/order-sync-open-decisions.md): an authenticated WooCommerce /
+Shopify delivery for a `SUSPENDED` tenant is recorded once as `SUSPENDU`,
+answered 200 (no provider retry, no subscription disabled) and never
+processed or replayed after reactivation — see ADR 0030 addendum
+« 2026-10-14 » and `src/lib/integrations/shared/webhook-body.ts`.

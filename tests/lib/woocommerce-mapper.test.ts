@@ -16,7 +16,9 @@ describe("mapOrderStatus", () => {
     expect(mapOrderStatus("completed")).toEqual({ ok: true, status: "LIVREE" });
     expect(mapOrderStatus("cancelled")).toEqual({ ok: true, status: "ANNULEE" });
     expect(mapOrderStatus("refunded")).toEqual({ ok: true, status: "REMBOURSEE" });
-    expect(mapOrderStatus("failed")).toEqual({ ok: true, status: "ECHEC" });
+    // « failed » is a PAYMENT failure (decisions §1, 2026-10-14): NOUVELLE + paymentFailed, never the delivery ECHEC.
+    expect(mapOrderStatus("failed")).toEqual({ ok: true, status: "NOUVELLE", paymentFailed: true });
+    expect(mapOrderStatus("pending")).not.toHaveProperty("paymentFailed");
   });
 
   it("never invents a mapping for drafts/trash — reports them as unsupported instead", () => {

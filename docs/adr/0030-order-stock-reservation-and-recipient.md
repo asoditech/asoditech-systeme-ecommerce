@@ -444,3 +444,98 @@ Shared by both providers in `src/lib/integrations/shared/order-sync-rules.ts`
 Tests: `tests/integration/order-sync-consistency.test.ts` (both providers;
 each protection was removed in turn and the suite failed), updated webhook
 suites. Store field semantics are verified against fakes only.
+
+## Addendum (2026-10-14) — owner decisions on the four order-sync semantics + webhook policies
+
+Decided by the owner (docs/decisions/order-sync-open-decisions.md, now
+« decided »), implemented for WooCommerce AND Shopify through
+`src/lib/integrations/shared/order-sync-rules.ts`. No migration.
+
+1. **Imported payment failure** (WooCommerce `failed`, Shopify `EXPIRED`):
+   a new order is imported `NOUVELLE` with `paymentStatus: ECHEC` — never the
+   order status `ECHEC`, which in ASODITECH means a failed DELIVERY after
+   « Expédiée ». For an order already held, the store's payment failure never
+   changes its status (no demotion, no release); only a payment still
+   `EN_ATTENTE` becomes `ECHEC` (`heldOrderPaymentFailure`). No stock movement
+   or reservation is created. **Legacy guard** for orders imported `ECHEC`
+   before this date (`shippedAt` null, no reservation):
+   `unshippedFailedOrderProblem` (`src/lib/validation/order.ts`) refuses their
+   retry everywhere it could consume stock — the manual ECHEC → EN_PREPARATION
+   (`updateOrderStatusAction`, audited `order.transition_refused`), shipment
+   eligibility (« À expédier », `shippableOrderWhere` / `shippableOrderProblem`)
+   and a carrier reporting an old parcel in transit (`applyShipmentStatusTransition`
+   → `order_blocked`). Recovery uses existing transitions only: « Annuler »
+   (nothing to release) then « Rétablir » → NOUVELLE → normal confirmation.
+   A real failed delivery (`shippedAt` set) keeps its retry.
+2. **Shopify `FULFILLED`** = shipped, not delivered: mapped `EXPEDIEE`, never
+   auto-applied. An order ASODITECH already shipped / delivered / returned /
+   refunded is left as is without an alert (`storeShipmentReportIsBehind`); an
+   order still before shipment gets the workflow-mismatch alert, as for
+   `IN_PROGRESS`. `LIVREE` (and the confirmation commission, ADR 0049) comes
+   only from the carrier « Suivi » or a staff action. WooCommerce `completed`
+   unchanged (→ LIVREE, only from EXPEDIEE).
+3. **Cancelled and refunded**: order status stays `ANNULEE`; the independent
+   `paymentStatus` becomes `REMBOURSE` only when `COMPLETE` refund rows (store
+   imported or recorded in ASODITECH) cover the order total, compared in
+   integer cents (`refundsCoverOrderTotal`, `applyCancelledFullRefund`, run
+   inside the order-row-locked update transaction and at import). Partial
+   stays partial; a cancellation alone never implies a refund; duplicate
+   refund deliveries keep one refund row (existing lock + per-source upsert).
+   A payment already `REMBOURSE` is never downgraded.
+4. **Clock skew**: `STORE_CLOCK_TOLERANCE_MS` = 2 minutes, `placeStoreEvent`
+   compares UTC epoch milliseconds. Store time > local + 2 min → applied
+   (transition rules unchanged); |store − local| ≤ 2 min (both boundaries
+   INCLUSIVE) → refused « à vérifier » and a workflow-mismatch alert for a
+   person; store time < local − 2 min → rejected as stale; missing / invalid
+   time → review. Applies to the two protected transitions (cancellation of a
+   locally confirmed order, reopen of a locally cancelled one). Timestamps
+   are never rewritten.
+
+**Webhook policies** (`src/lib/integrations/shared/webhook-body.ts`, both
+receivers):
+
+- **Body size**: 1 MiB application limit (1 048 576 bytes; exactly 1 MiB
+  accepted). Enforced before parsing, tenant resolution and signature checks:
+  a declared `Content-Length` above the limit is refused without reading the
+  body; otherwise the stream is read with a running byte count and cancelled
+  as soon as it passes the limit (no full buffering). Answer 413, nothing
+  recorded. Accepted bytes are decoded exactly like `Request.text()`, so
+  signatures still verify over the identical raw body. Route handlers have no
+  framework body limit of their own (Next's `bodySizeLimit` applies to Server
+  Actions); the hosting platform's request limit (Vercel functions 4.5 MB) is
+  larger, so 1 MiB is the effective limit.
+- **Suspended company**: after the signature is verified, a delivery for a
+  `SUSPENDED` tenant is recorded once as `SUSPENDU` and answered 200 (both
+  providers retry non-2xx and eventually disable the subscription — an
+  intentional suspension must not do that); nothing is processed.
+  Reactivation does not replay it (a recorded non-`ECHEC` delivery id is
+  never processed again); « Synchroniser » catches up afterwards. A bad
+  signature stays 401; other tenants are unaffected.
+- **Failure classes** (confirmed, unchanged): transient (store unreachable,
+  import error) → `ECHEC` + 500 (retry); permanent (no usable credentials,
+  resource gone on Shopify) → `ECHEC` + 200 (a retry cannot help; visible on
+  the integration card and alerted); malformed payload → 400; signature
+  failure → 401, no record, no side effect; deliberately skipped → `IGNORE`;
+  duplicate delivery → idempotent 200.
+
+Tests: `tests/integration/order-sync-consistency.test.ts` (§1–§4, both
+providers), `tests/lib/order-sync-rules.test.ts` (pure boundaries / cents),
+`tests/webhooks/webhook-policies.test.ts` (size, suspension, permanent
+failures), updated mapper / packing / webhook / commission suites. Each
+protection was removed in turn from the source and its tests failed; files
+restored and hash-checked. Fakes and the local test database only — no real
+store's timestamps, retry or disable behaviour verified.
+
+## Addendum (2026-10-14 bis) — failed payment later paid, refund identity
+
+Owner decisions 5–8 in `docs/decisions/order-sync-open-decisions.md`
+(« Payment & refund identity »). Stock invariant unchanged: a payment change
+(ECHEC → PAYE included) only writes `paymentStatus` — no confirmation, no
+RESERVATION / VENTE movement, no shipment. Store failures are audited with
+the store's own modification time so a later « paid » report can be ordered
+against them (shared 2-minute rule; stale / review otherwise). Store refunds
+remain one cumulative row per provider; a refund recorded by hand is INTERNE,
+never assumed executed on the store, and never added to a store refund to
+reach « Remboursé » (`refundCoverage`); mixed refunds raise a « Paiement à
+vérifier » alert. « Emballage » is hidden for a legacy never-shipped ECHEC
+holding no reservation (server refusal kept). No migration.

@@ -24,10 +24,12 @@ import {
   notifyNewOrder,
   notifyOrderReturned,
   notifyPaymentProblem,
+  notifyPaymentReview,
   checkAndNotifyLowStock,
   checkAndNotifyInsufficientStockForOrder,
   resolveNotifications,
 } from "@/lib/notifications";
+import { isProviderRefund, orderMixedRefundReview, refundCoverage, toCents, type RefundCoverage } from "@/lib/integrations/shared/order-sync-rules";
 import { pushStockAfterLocalChange, pushOrderPaymentToWooCommerce, pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
 import { reconcileOrderCommission, findAssignableCommissionAgent } from "@/lib/commissions";
 import {
@@ -61,6 +63,7 @@ import {
   canTransitionOrderStatus,
   canTransitionRefundStatus,
   orderHoldsReservation,
+  unshippedFailedOrderProblem,
   type CreateOrderInput,
 } from "@/lib/validation/order";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
@@ -662,6 +665,25 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
   if (!canTransitionOrderStatus(existing.status, parsed.data.status)) {
     return actionError(`Transition de statut invalide : ${existing.status} → ${parsed.data.status}.`);
   }
+  // A never-shipped ECHEC (legacy imported payment failure) holds no
+  // reservation: its retry would ship stock it never reserved. Refused with
+  // an audited reason; « Annuler » then « Rétablir » is the recovery path.
+  if (parsed.data.status === "EN_PREPARATION") {
+    const legacyFailure = unshippedFailedOrderProblem(existing);
+    if (legacyFailure) {
+      await recordAuditEvent({
+        actorType: "USER",
+        actorUserId: user.id,
+        action: "order.transition_refused",
+        entityType: "Order",
+        entityId: existing.id,
+        previousValue: { status: existing.status },
+        metadata: { requestedStatus: parsed.data.status, reason: "unshipped_echec_no_reservation" },
+      });
+      return actionError(legacyFailure);
+    }
+  }
+
   // ANNULEE → NOUVELLE through the status menu is a reopen: same rule and same
   // reset as « Rétablir la commande » (docs/adr/0049).
   const reopening = parsed.data.status === "NOUVELLE";
@@ -1174,6 +1196,7 @@ export async function createRefundAction(formData: FormData): Promise<ActionResu
   if (!order) return actionError("Commande introuvable.");
 
   let refund;
+  let mixedRefundReview: string | null = null;
   try {
     refund = await prisma.$transaction(async (tx) => {
       // Row-level lock on the order, held until this transaction commits —
@@ -1197,28 +1220,40 @@ export async function createRefundAction(formData: FormData): Promise<ActionResu
       // refunds that each individually fit under the total can together
       // exceed it. Found during the A–G audit; see
       // docs/adr/0007-finance-and-profit.md.
+      // Compared in integer cents (Decimal(12,2) money — no float drift).
+      // A store order's imported refund row (« Importé depuis … », the
+      // store's cumulative total) counts here too, so a manual refund can
+      // never push the total refunded past the order total.
       const existingRefunds = await tx.refund.aggregate({
         where: { orderId: parsed.data.orderId, status: { not: "REJETE" } },
         _sum: { amount: true },
       });
-      const alreadyCommitted = Number(existingRefunds._sum.amount ?? 0);
-      const remaining = Number(order.total) - alreadyCommitted;
-      if (parsed.data.amount > remaining) {
+      const remainingCents = toCents(order.total) - toCents(existingRefunds._sum.amount ?? 0);
+      if (toCents(parsed.data.amount) > remainingCents) {
         throw new RefundLimitError(
-          remaining > 0
-            ? `Le montant dépasse le solde remboursable (${remaining.toFixed(2)} MAD restants).`
+          remainingCents > 0
+            ? `Le montant dépasse le solde remboursable (${(remainingCents / 100).toFixed(2)} MAD restants).`
             : "Cette commande a déjà été intégralement remboursée."
         );
       }
 
-      return tx.refund.create({
+      // Recorded by hand: `source` INTERNE (never a provider source), never
+      // sent to the store and never assumed executed there.
+      const created = await tx.refund.create({
         data: {
           orderId: parsed.data.orderId,
           amount: parsed.data.amount,
           reason: normalizeOptional(parsed.data.reason),
           processedById: user.id,
+          source: "INTERNE",
         },
       });
+      // A store order that also carries the store's own refund: possibly the
+      // same money (owner decision 2026-10-14 bis) — a person checks.
+      mixedRefundReview = isProviderRefund(order.source)
+        ? await orderMixedRefundReview(tx, order.id, `Commande ${order.externalNumber ?? order.externalId ?? order.orderNumber}`)
+        : null;
+      return created;
     });
   } catch (error) {
     if (error instanceof RefundLimitError) return actionError(error.message);
@@ -1232,7 +1267,11 @@ export async function createRefundAction(formData: FormData): Promise<ActionResu
     entityType: "Order",
     entityId: order.id,
     newValue: { amount: refund.amount.toString() },
+    metadata: { refundOrigin: "MANUEL", orderSource: order.source, executedOnStore: false },
   });
+  if (mixedRefundReview) {
+    await notifyPaymentReview({ id: order.id, orderNumber: order.orderNumber, displayNumber: order.displayNumber }, mixedRefundReview);
+  }
 
   revalidatePath(`/commandes/${order.id}`);
   return actionOk({ id: refund.id });
@@ -1257,8 +1296,15 @@ export async function updateRefundStatusAction(formData: FormData): Promise<Acti
   }
 
   let refund;
+  /** Coverage seen when this refund reached COMPLETE (null for any other transition). */
+  let coverage: RefundCoverage | null = null;
+  let markedRefunded = false;
   try {
     refund = await prisma.$transaction(async (tx) => {
+      // Same order-row lock as createRefundAction: two refunds of one order
+      // completed at once each see the other's committed COMPLETE row in
+      // the coverage check below — never both missing the full coverage.
+      await tx.$queryRaw`SELECT id FROM "orders" WHERE id = ${existing.orderId} FOR UPDATE`;
       const result = await tx.refund.updateMany({
         where: { id: parsed.data.id, status: existing.status },
         data: { status: parsed.data.status },
@@ -1267,7 +1313,21 @@ export async function updateRefundStatusAction(formData: FormData): Promise<Acti
         throw new OrderConflictError();
       }
       if (parsed.data.status === "COMPLETE") {
-        await tx.order.update({ where: { id: existing.orderId }, data: { paymentStatus: "REMBOURSE" } });
+        // Owner decisions 2026-10-14 bis (§3 / §7): the payment becomes
+        // REMBOURSE only when COMPLETE refunds cover the order total
+        // (`refundCoverage`, integer cents) — a partial refund stays partial,
+        // and a refund recorded here is never added to a store refund that
+        // may be the same money. COMPLETE here is ASODITECH's own refund
+        // status: nothing is sent to, or assumed executed on, the store.
+        const order = await tx.order.findUniqueOrThrow({
+          where: { id: existing.orderId },
+          select: { total: true, paymentStatus: true, refunds: { where: { status: "COMPLETE" }, select: { amount: true, source: true } } },
+        });
+        coverage = refundCoverage(order.total, order.refunds);
+        if (coverage === "covered" && order.paymentStatus !== "REMBOURSE") {
+          await tx.order.update({ where: { id: existing.orderId }, data: { paymentStatus: "REMBOURSE" } });
+          markedRefunded = true;
+        }
       }
       return tx.refund.findUniqueOrThrow({ where: { id: parsed.data.id } });
     });
@@ -1286,6 +1346,7 @@ export async function updateRefundStatusAction(formData: FormData): Promise<Acti
     entityId: refund.orderId,
     previousValue: { status: existing.status },
     newValue: { status: refund.status },
+    ...(coverage ? { metadata: { refundCoverage: coverage, orderMarkedRefunded: markedRefunded, executedOnStore: false } } : {}),
   });
 
   revalidatePath(`/commandes/${refund.orderId}`);
