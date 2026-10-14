@@ -61,10 +61,10 @@ function ChannelCard({ channel, locations }: { channel: ChannelRow; locations: L
   return (
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-center gap-3 space-y-0">
-        <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <div className="flex size-9 items-center justify-center rounded-lg bg-pill-peach text-pill-peach-fg">
           <Icon className="size-4" />
         </div>
-        <CardTitle className="text-[15px]">{channel.name}</CardTitle>
+        <CardTitle accent="purple">{channel.name}</CardTitle>
         <Badge variant="outline">{KIND_LABEL[channel.kind]}</Badge>
         {channel.isDefault && (
           <span className="inline-flex items-center gap-0.5">
@@ -130,7 +130,7 @@ function ChannelCard({ channel, locations }: { channel: ChannelRow; locations: L
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
             {locations.map((l) => (
-              <label key={l.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">
+              <label key={l.id} className="flex items-center gap-2 rounded-xl border border-hairline p-2.5 text-sm">
                 <Checkbox
                   checked={selected.has(l.id)}
                   onCheckedChange={(checked) =>
@@ -223,7 +223,7 @@ export function ChannelsPanel({ channels, locations }: { channels: ChannelRow[];
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             {locations.map((l) => (
-              <label key={l.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">
+              <label key={l.id} className="flex items-center gap-2 rounded-xl border border-hairline p-2.5 text-sm">
                 <Checkbox
                   checked={selected.has(l.id)}
                   onCheckedChange={(checked) =>

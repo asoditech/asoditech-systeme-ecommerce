@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Notice } from "@/components/ui/notice";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Settings2 } from "lucide-react";
@@ -113,14 +114,14 @@ export function TenantPlanDialog({
           </div>
 
           {preview && preview.overLimits && (
-            <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+            <Notice tone="warning" size="sm" className="block">
               Ce tenant dépasse actuellement les limites du forfait {PLAN_CODE_LABELS[planCode]}
               {preview.overUsers && ` (${formatNumber(preview.usage.users.used)} utilisateurs actifs pour une limite de ${formatNumber(preview.plan.maxUsers ?? 0)})`}
               {preview.overUsers && preview.overWarehouses && " et"}
               {preview.overWarehouses && ` (${formatNumber(preview.usage.warehouses.used)} entrepôts actifs pour une limite de ${formatNumber(preview.plan.maxWarehouses ?? 0)})`}
               . Aucune donnée ne sera supprimée — la création de nouvelles ressources sera simplement bloquée tant que
               l&apos;utilisation dépasse la limite.
-            </p>
+            </Notice>
           )}
 
           <div className="space-y-1.5">

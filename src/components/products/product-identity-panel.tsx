@@ -106,7 +106,7 @@ export function ProductIdentityPanel({
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-[15px]">Référence du modèle</CardTitle>
+          <CardTitle accent="peach">Référence du modèle</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           <p className="text-xs text-muted-foreground">
@@ -136,7 +136,7 @@ export function ProductIdentityPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-[15px]">Codes-barres</CardTitle>
+          <CardTitle accent="peach">Codes-barres</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-xs text-muted-foreground">
@@ -145,7 +145,7 @@ export function ProductIdentityPanel({
             déduites du code.
           </p>
           {units.map((u) => (
-            <div key={unitKey(u)} className="space-y-2 rounded-lg border p-3">
+            <div key={unitKey(u)} className="space-y-2 rounded-tile border p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium">{u.label}</span>
                 <span className="text-xs text-muted-foreground">SKU {u.sku}</span>
@@ -160,7 +160,7 @@ export function ProductIdentityPanel({
                     {canEdit && !b.isPrimary && (
                       <button
                         type="button"
-                        className="text-[10px] underline"
+                        className="text-xs underline"
                         onClick={() => run(() => setPrimaryBarcodeAction({ barcodeId: b.id }), "Code principal mis à jour.")}
                       >
                         principal
@@ -210,7 +210,7 @@ export function ProductIdentityPanel({
               )}
               {/* Non-blocking: « Ajouter » stays enabled; the code is never altered. */}
               {canEdit && gs1CheckDigitWarning(drafts[unitKey(u)]) && (
-                <p role="status" className="max-w-md text-xs text-amber-600 dark:text-amber-400">
+                <p role="status" className="max-w-md text-xs text-pill-yellow-fg">
                   {gs1CheckDigitWarning(drafts[unitKey(u)])}
                 </p>
               )}
@@ -221,7 +221,7 @@ export function ProductIdentityPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-[15px]">Étiquette produit</CardTitle>
+          <CardTitle accent="peach">Étiquette produit</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-xs text-muted-foreground">
@@ -230,12 +230,12 @@ export function ProductIdentityPanel({
           </p>
           <div className="flex flex-col gap-2">
             {units.map((u) => (
-              <div key={unitKey(u)} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
+              <div key={unitKey(u)} className="flex flex-wrap items-center justify-between gap-2 rounded-tile border p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-medium">{u.label}</span>
                   <span className="text-xs text-muted-foreground">SKU {u.sku}</span>
                   {u.barcodes.length === 0 && (
-                    <Badge variant="outline" className="text-amber-600 dark:text-amber-400">
+                    <Badge variant="outline" className="text-pill-yellow-fg">
                       Sans code-barres
                     </Badge>
                   )}
@@ -262,7 +262,7 @@ export function ProductIdentityPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-[15px]">Canaux de vente</CardTitle>
+          <CardTitle accent="purple">Canaux de vente</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-xs text-muted-foreground">

@@ -34,7 +34,7 @@ export function ForceNouvelleToggle({
   const [isPending, startTransition] = useTransition();
 
   return (
-    <div className="flex items-start justify-between gap-3 rounded-lg border border-border/60 px-3 py-2.5">
+    <div className="flex items-start justify-between gap-3 rounded-lg border border-hairline px-3 py-2.5">
       <div>
         <p className="text-sm font-medium">Toujours importer en « Nouvelle »</p>
         <p className="text-xs text-muted-foreground">

@@ -63,7 +63,7 @@ export function ArticleView({ article, viewer }: { article: DocArticle; viewer: 
         {article.prerequisites && article.prerequisites.length > 0 && (
           <Card id="prerequisites">
             <CardHeader>
-              <CardTitle className="text-[15px]">Prérequis</CardTitle>
+              <CardTitle accent="blue">Prérequis</CardTitle>
             </CardHeader>
             <CardContent>
               <ul className="list-disc space-y-1 pl-5 text-sm">
@@ -78,7 +78,7 @@ export function ArticleView({ article, viewer }: { article: DocArticle; viewer: 
         {article.steps && article.steps.length > 0 && (
           <Card id="steps">
             <CardHeader>
-              <CardTitle className="text-[15px]">Étapes</CardTitle>
+              <CardTitle accent="peach">Étapes</CardTitle>
             </CardHeader>
             <CardContent>
               <StepsList steps={article.steps} />
@@ -89,7 +89,7 @@ export function ArticleView({ article, viewer }: { article: DocArticle; viewer: 
         {article.whatYouShouldSee && (
           <Card id="what-you-should-see">
             <CardHeader>
-              <CardTitle className="text-[15px]">Ce que vous devez voir</CardTitle>
+              <CardTitle accent="green">Ce que vous devez voir</CardTitle>
             </CardHeader>
             <CardContent className="text-sm text-foreground/90">{article.whatYouShouldSee}</CardContent>
           </Card>
@@ -100,7 +100,7 @@ export function ArticleView({ article, viewer }: { article: DocArticle; viewer: 
         {article.commonMistakes && article.commonMistakes.length > 0 && (
           <Card id="common-mistakes">
             <CardHeader>
-              <CardTitle className="text-[15px]">Erreurs fréquentes</CardTitle>
+              <CardTitle accent="yellow">Erreurs fréquentes</CardTitle>
             </CardHeader>
             <CardContent>
               <ul className="list-disc space-y-1 pl-5 text-sm text-foreground/90">
@@ -135,8 +135,8 @@ export function ArticleView({ article, viewer }: { article: DocArticle; viewer: 
 
       {toc.length > 0 && (
         <aside className="hidden lg:block">
-          <div className="sticky top-6 space-y-1.5 rounded-lg border p-3">
-            <p className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Sur cette page</p>
+          <div className="sticky top-6 space-y-1.5 rounded-tile border p-3">
+            <p className="mb-1 text-xs font-semibold text-muted-foreground">Sur cette page</p>
             {toc.map((t) => (
               <a key={t.id} href={`#${t.id}`} className="block rounded px-1.5 py-1 text-[13px] text-muted-foreground hover:text-foreground">
                 {t.label}

@@ -87,7 +87,7 @@ export function DeleteTenantButton({ tenantId, tenantSlug, tenantName }: { tenan
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-2">
-          <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+          <div className="rounded-tile border bg-pill-neutral p-3 text-sm">
             {previewError ? (
               <p className="text-destructive">{previewError}</p>
             ) : !preview ? (

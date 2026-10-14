@@ -19,11 +19,25 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
   )
 }
 
+/**
+ * Soft UI: the white card a list table sits in (24px radius, no border,
+ * almost flat shadow). Put the table and its `DataTablePagination` inside.
+ */
+function TableCard({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="table-card"
+      className={cn("overflow-hidden rounded-card bg-card shadow-card [&_td:first-child]:pl-6 [&_td:last-child]:pr-6 [&_th:first-child]:pl-6 [&_th:last-child]:pr-6", className)}
+      {...props}
+    />
+  )
+}
+
 function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <thead
       data-slot="table-header"
-      className={cn("bg-muted/50 [&_tr]:border-b [&_tr]:hover:bg-transparent", className)}
+      className={cn("[&_tr]:border-b [&_tr]:hover:bg-transparent", className)}
       {...props}
     />
   )
@@ -44,7 +58,7 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
     <tfoot
       data-slot="table-footer"
       className={cn(
-        "border-t bg-muted/50 font-medium [&>tr]:last:border-b-0",
+        "border-t border-hairline font-medium [&>tr]:last:border-b-0",
         className
       )}
       {...props}
@@ -57,7 +71,7 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
     <tr
       data-slot="table-row"
       className={cn(
-        "border-b border-border/60 transition-colors hover:bg-muted/40 has-aria-expanded:bg-muted/40 data-[state=selected]:bg-accent/60",
+        "group/row border-b border-hairline transition-colors duration-150 hover:bg-row-hover has-aria-expanded:bg-row-hover data-[state=selected]:bg-nav-hover motion-reduce:transition-none",
         className
       )}
       {...props}
@@ -70,7 +84,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       data-slot="table-head"
       className={cn(
-        "h-10 px-4 text-left align-middle text-[11.5px] font-semibold tracking-wide whitespace-nowrap text-muted-foreground uppercase [&:has([role=checkbox])]:pr-0",
+        "h-11 px-4 text-left align-middle text-xs font-normal whitespace-nowrap text-ink-muted [&:has([role=checkbox])]:pr-0",
         className
       )}
       {...props}
@@ -83,7 +97,7 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
     <td
       data-slot="table-cell"
       className={cn(
-        "px-4 py-3 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        "h-16 px-4 py-3 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
         className
       )}
       {...props}
@@ -98,7 +112,7 @@ function TableCaption({
   return (
     <caption
       data-slot="table-caption"
-      className={cn("mt-4 text-sm text-muted-foreground", className)}
+      className={cn("mt-4 text-sm text-ink-muted", className)}
       {...props}
     />
   )
@@ -106,6 +120,7 @@ function TableCaption({
 
 export {
   Table,
+  TableCard,
   TableHeader,
   TableBody,
   TableFooter,

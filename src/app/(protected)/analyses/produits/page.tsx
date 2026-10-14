@@ -65,7 +65,7 @@ export default async function ProductAnalyticsPage({ searchParams }: { searchPar
         <>
           <Card>
             <CardHeader>
-              <CardTitle>En ligne — par produit et variation</CardTitle>
+              <CardTitle accent="peach">En ligne — par produit et variation</CardTitle>
               <p className="text-xs text-muted-foreground">
                 {online.totals.units} unité(s) · {formatCurrency(online.totals.revenue)} · {online.totals.returnedUnits} unité(s) retournée(s) reçue(s) sur la période
               </p>
@@ -81,7 +81,7 @@ export default async function ProductAnalyticsPage({ searchParams }: { searchPar
           {online.categories.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-1.5">
+                <CardTitle accent="peach">
                 En ligne — par catégorie
                 <AnalyticsMetricInfo metric="productCategories" />
               </CardTitle>
@@ -98,7 +98,7 @@ export default async function ProductAnalyticsPage({ searchParams }: { searchPar
         <>
           <Card>
             <CardHeader>
-              <CardTitle>Magasin — par produit et variation</CardTitle>
+              <CardTitle accent="peach">Magasin — par produit et variation</CardTitle>
               <p className="text-xs text-muted-foreground">
                 Vos magasins et emplacements uniquement · {store.totals.units} unité(s) · {formatCurrency(store.totals.revenue)}
               </p>
@@ -114,7 +114,7 @@ export default async function ProductAnalyticsPage({ searchParams }: { searchPar
           {store.categories.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-1.5">
+                <CardTitle accent="peach">
                 Magasin — par catégorie
                 <AnalyticsMetricInfo metric="productCategories" />
               </CardTitle>

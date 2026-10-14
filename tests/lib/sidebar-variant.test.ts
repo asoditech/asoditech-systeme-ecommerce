@@ -84,48 +84,69 @@ describe("rendered sidebar", () => {
     expect(sections).toContain('aria-label="Favoris"');
   });
 
-  it("sections: headings per business section, items on a rail, a tinted active row instead of the solid pill", () => {
+  it("Soft UI: the active row is the neutral grey pill in both variants — never the orange", () => {
+    const activeLink = (out: string) => out.match(/<a [^>]*href="\/stock"[^>]*>/)?.[0] ?? "";
+    for (const variant of ["classic", "sections"] as const) {
+      const link = activeLink(render(variant));
+      expect(link).toContain('aria-current="page"');
+      expect(link).toContain("bg-nav-active");
+      expect(link).not.toMatch(/bg-primary|bg-brand/);
+    }
+  });
+
+  it("sections: one row per business section; its items hang off a tree with connectors; only the current page's section is open", () => {
     const html = render("sections");
     for (const label of ["Ventes", "Stock &amp; catalogue", "Finance &amp; pilotage", "Système"]) expect(html).toContain(label);
     expect(html).toContain('role="group" aria-label="Stock &amp; catalogue"');
-    expect(html).toContain("border-l border-sidebar-border");
-    const activeLink = (out: string) => out.match(/<a [^>]*href="\/stock"[^>]*>/)?.[0] ?? "";
-    expect(activeLink(html)).toContain('aria-current="page"');
-    expect(activeLink(html)).toContain("bg-primary/10");
-    expect(activeLink(render("classic"))).toContain("bg-primary text-primary-foreground");
+    expect(html).toContain("data-nav-tree-item");
+    expect(html).toContain("before:rounded-bl-[10px]");
+    const expanded = [...html.matchAll(/aria-expanded="(true|false)"/g)].map((m) => m[1]);
+    expect(expanded.filter((v) => v === "true")).toHaveLength(1); // « Stock & catalogue » (the test pathname is /stock)
+    // a closed section stays out of the tab order
+    expect(html).toMatch(/data-open="false" inert=""/);
   });
 
-  it("the active accent bar sits only on a section rail — never loose in Favoris or the collapsed (rail-less) sidebar", () => {
-    const bar = "before:-left-[5px]";
-    const activeLink = (out: string, href: string) => out.match(new RegExp(`<a [^>]*href="${href}"[^>]*>`))?.[0] ?? "";
-    expect(activeLink(render("sections"), "/stock")).toContain(bar);
-    expect(activeLink(render("sections", true), "/stock")).toContain('aria-current="page"');
-    expect(activeLink(render("sections", true), "/stock")).not.toContain(bar);
-    const favActive = renderToStaticMarkup(
-      createElement(SidebarNav, { permissions: new Set(PERMISSIONS), favorites: ["/stock"], variant: "sections" })
-    );
-    const links = [...favActive.matchAll(/<a [^>]*href="\/stock"[^>]*>/g)].map((m) => m[0]);
-    expect(links).toHaveLength(2); // favourite + its section
-    expect(links.filter((l) => l.includes(bar))).toHaveLength(1);
+  it("classic: sentence-case section labels that fold (all open by default) — no uppercase labels, no tree", () => {
+    const html = render("classic");
+    expect(html).not.toContain("uppercase");
+    expect(html).not.toContain("data-nav-tree-item");
+    const expanded = [...html.matchAll(/aria-expanded="(true|false)"/g)].map((m) => m[1]);
+    expect(expanded.length).toBeGreaterThan(0);
+    expect(expanded.every((v) => v === "true")).toBe(true);
   });
 
   it("a long « Favoris » label stops before its three controls (monter, descendre, retirer); other rows keep the single-star room", () => {
     for (const variant of ["classic", "sections"] as const) {
       const html = renderToStaticMarkup(createElement(SidebarNav, { permissions: new Set(PERMISSIONS), favorites: ["/stock"], variant }));
       const [favorite, regular] = [...html.matchAll(/<a [^>]*href="\/stock"[^>]*>/g)].map((m) => m[0]);
-      expect(favorite).toContain("pr-[4.75rem] md:pr-8 md:group-focus-within/nav:pr-[4.75rem] md:group-hover/nav:pr-[4.75rem]");
+      expect(favorite).toContain("pr-[4.75rem] md:pr-9 md:group-focus-within/nav:pr-[4.75rem] md:group-hover/nav:pr-[4.75rem]");
       expect(regular).not.toContain("4.75rem");
     }
     const collapsed = renderToStaticMarkup(createElement(SidebarNav, { permissions: new Set(PERMISSIONS), favorites: ["/stock"], variant: "classic", collapsed: true }));
     expect(collapsed).not.toContain("4.75rem");
   });
 
-  it("collapsed (icons only) still works in both variants: same links, no headings", () => {
+  it("collapsed rail: classic keeps every link as a labelled icon; « sections » is one labelled trigger per section (its links open in a floating card); no visible headings", () => {
+    const classic = render("classic", true);
+    expect(hrefsOf(classic)).toEqual(hrefsOf(render("classic")));
+    expect(classic).toContain('aria-label="Commandes"');
+
     const sections = render("sections", true);
-    expect(hrefsOf(sections)).toEqual(hrefsOf(render("classic", true)));
-    // the section name stays only as the group's accessible name; no visible heading
-    expect(sections).toContain('aria-label="Stock &amp; catalogue"');
+    for (const label of ["Ventes", "Stock &amp; catalogue", "Système"]) {
+      expect(sections).toContain(`role="group" aria-label="${label}"`);
+      expect(sections).toMatch(new RegExp(`<button[^>]*aria-label="${label}"`));
+    }
+    expect(sections).not.toContain("data-nav-tree-item");
     expect(sections).not.toMatch(/<p(?:\s[^>]*)?>(?:(?!<\/p>).)*Stock &amp; catalogue/);
+  });
+
+  it("NavBadge slot: a count shows a pastel chip on its row; none without data (not wired)", () => {
+    const withCount = renderToStaticMarkup(
+      createElement(SidebarNav, { permissions: new Set(PERMISSIONS), favorites: [], variant: "classic", badges: { "/commandes": 7 } })
+    );
+    expect(withCount).toContain('data-slot="nav-badge"');
+    expect(withCount).toMatch(/data-slot="nav-badge"[^>]*>7</);
+    expect(render("classic")).not.toContain('data-slot="nav-badge"');
   });
 });
 

@@ -34,6 +34,7 @@ import { applyShippingPrefill, customerShippingDefaults, type ShippingFields } f
 import { SelectedLineChips } from "@/components/orders/selected-line-chips";
 import { useListboxNavigation } from "@/components/ui/use-listbox-navigation";
 import type { Customer } from "@prisma/client";
+import { Notice } from "@/components/ui/notice";
 
 interface SelectableWarehouse {
   id: string;
@@ -443,7 +444,7 @@ export function OrderForm({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">1</span>
+              <span className="flex size-6 items-center justify-center rounded-full bg-pill-peach text-xs font-semibold text-pill-peach-fg">1</span>
               Entrepôt de préparation
             </CardTitle>
           </CardHeader>
@@ -484,7 +485,7 @@ export function OrderForm({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             {warehouses.length > 1 && (
-              <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">2</span>
+              <span className="flex size-6 items-center justify-center rounded-full bg-pill-peach text-xs font-semibold text-pill-peach-fg">2</span>
             )}
             Client
           </CardTitle>
@@ -492,8 +493,8 @@ export function OrderForm({
         <CardContent>
           <Popover open={customerOpen} onOpenChange={openCustomerPicker}>
             {customer ? (
-              <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2.5">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <div className="flex items-center gap-3 rounded-tile border border-hairline bg-row-hover px-3.5 py-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-pill-blue text-pill-blue-fg">
                   <UserRound className="size-4" />
                 </span>
                 <div className="min-w-0 flex-1">
@@ -558,7 +559,7 @@ export function OrderForm({
                     {...customerNav.inputProps}
                   />
                   {customerQueryEmpty && visibleCustomerResults.length > 0 && (
-                    <p className="px-2 pt-2 text-[0.7rem] font-medium tracking-wide text-muted-foreground uppercase">Clients récents</p>
+                    <p className="px-2 pt-2 text-xs font-medium text-muted-foreground">Clients récents</p>
                   )}
                   <div className="mt-1 max-h-64 overflow-y-auto" {...customerNav.listProps} aria-label="Clients">
                     {visibleCustomerResults.map((c, i) => (
@@ -568,13 +569,13 @@ export function OrderForm({
                         tabIndex={-1}
                         onClick={() => selectCustomer(c)}
                         {...customerNav.optionProps(i, customer?.id === c.id)}
-                        className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted data-[active]:bg-muted"
+                        className="flex w-full flex-col rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-row-hover data-[active]:bg-row-hover"
                       >
                         <span className="flex items-center gap-1.5">
                           <span className="font-medium">{c.fullName}</span>
-                          {customer?.id === c.id && <Check className="size-3.5 text-primary" aria-label="sélectionné" />}
+                          {customer?.id === c.id && <Check className="size-3.5 text-ink" aria-label="sélectionné" />}
                           {c.isBlacklisted && (
-                            <Badge variant="destructive" className="h-4 px-1 text-[10px]">
+                            <Badge variant="destructive" className="h-5 px-1.5 text-xs">
                               Indésirable
                             </Badge>
                           )}
@@ -605,7 +606,7 @@ export function OrderForm({
                   <button
                     type="button"
                     onClick={openNewCustomer}
-                    className="mt-1 flex w-full items-center gap-2 rounded-md border-t px-2 py-2 text-left text-sm font-medium text-primary hover:bg-muted"
+                    className="mt-1 flex w-full items-center gap-2 rounded-lg border-t border-hairline px-2 py-2 text-left text-sm font-medium text-ink hover:bg-nav-hover"
                   >
                     <Plus className="size-4" />
                     {customerQuery.trim().length >= 2
@@ -617,14 +618,14 @@ export function OrderForm({
             </PopoverContent>
           </Popover>
           {customer?.isBlacklisted && (
-            <div className="mt-2 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-              <ShieldAlert className="mt-0.5 size-3.5 shrink-0" />
+            <Notice tone="danger" size="sm" className="mt-2">
+              <ShieldAlert />
               <span>
                 Ce client est marqué comme indésirable.
                 {customer.blacklistReason ? ` Motif : ${customer.blacklistReason}` : ""} Vous pouvez tout de
                 même créer la commande si vous le souhaitez.
               </span>
-            </div>
+            </Notice>
           )}
         </CardContent>
       </Card>
@@ -669,11 +670,11 @@ export function OrderForm({
                     tabIndex={-1}
                     onClick={() => addProductLine(p, v)}
                     {...productNav.optionProps(i, isUnitInOrder(p.id, v?.id))}
-                    className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted data-[active]:bg-muted"
+                    className="flex w-full flex-col rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-row-hover data-[active]:bg-row-hover"
                   >
                     <span className="flex items-center gap-1.5 font-medium">
                       {v ? `${p.name} — ${Object.values(v.attributes as Record<string, string>).join(", ")}` : p.name}
-                      {isUnitInOrder(p.id, v?.id) && <Check className="size-3.5 text-primary" aria-label="déjà ajouté" />}
+                      {isUnitInOrder(p.id, v?.id) && <Check className="size-3.5 text-ink" aria-label="déjà ajouté" />}
                       <StockBadge stock={v ? v.stock : p.stock} />
                     </span>
                     <span className="text-xs text-muted-foreground">
@@ -745,7 +746,7 @@ export function OrderForm({
                         onChange={(e) => updateItem(i.key, { discount: Number(e.target.value) })}
                       />
                     </TableCell>
-                    <TableCell>{formatCurrency(i.unitPrice * i.quantity - i.discount)}</TableCell>
+                    <TableCell className="font-medium text-ink tabular-nums">{formatCurrency(i.unitPrice * i.quantity - i.discount)}</TableCell>
                     <TableCell>
                       <Button type="button" variant="ghost" size="icon-sm" onClick={() => removeItem(i.key)}>
                         <Trash2 className="size-4" />
@@ -781,12 +782,12 @@ export function OrderForm({
                     <Input id="ord-phone" type="tel" value={shippingPhone} onChange={(e) => setShippingPhone(e.target.value)} />
                   </Field>
                 </FieldRow>
-                <p className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-400">
-                  <AlertTriangle className="mt-px size-3.5 shrink-0" />
+                <Notice tone="warning" size="sm">
+                  <AlertTriangle />
                   <span>
                     <strong>Important :</strong> {cityGuidanceMessage(cityGuidance)}
                   </span>
-                </p>
+                </Notice>
               </FormSection>
 
               <FormSection title="Paiement & origine">
@@ -825,7 +826,7 @@ export function OrderForm({
                 {canConfirm && (
                   <label
                     htmlFor="ord-already-confirmed"
-                    className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors has-data-checked:border-primary/40 has-data-checked:bg-primary/5"
+                    className="flex cursor-pointer items-start gap-3 rounded-tile border border-field-border px-3.5 py-3 transition-colors hover:border-field-border-hover has-data-checked:border-transparent has-data-checked:bg-pill-peach/60"
                   >
                     <Switch
                       id="ord-already-confirmed"
@@ -893,14 +894,14 @@ export function OrderForm({
               <Label htmlFor="ord-notes">Notes (visibles client)</Label>
               <Textarea id="ord-notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Instructions de livraison, créneau…" />
             </Field>
-            <div className="space-y-1.5 rounded-lg bg-muted/50 p-3 text-sm">
+            <div className="space-y-1.5 rounded-tile bg-row-hover p-4 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Sous-total</span>
                 <span className="tabular-nums">{formatCurrency(subtotal)}</span>
               </div>
-              <div className="flex items-baseline justify-between border-t pt-1.5">
+              <div className="flex items-baseline justify-between border-t border-hairline pt-2">
                 <span className="font-medium">Total</span>
-                <span className="text-lg font-bold tabular-nums">{formatCurrency(total)}</span>
+                <span className="text-xl font-semibold tracking-tight text-ink tabular-nums">{formatCurrency(total)}</span>
               </div>
             </div>
           </CardContent>

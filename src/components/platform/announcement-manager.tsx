@@ -31,7 +31,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   Dialog,
   DialogBody,
@@ -112,7 +112,7 @@ export function AnnouncementManager({ announcements }: { announcements: Serializ
       {announcements.length === 0 ? (
         <EmptyState icon={Megaphone} title="Aucune annonce. Une annonce publiée s'affiche sous l'en-tête de chaque espace client." />
       ) : (
-        <div className="rounded-xl border bg-background">
+        <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -157,7 +157,7 @@ export function AnnouncementManager({ announcements }: { announcements: Serializ
                           type="button"
                           size="icon-sm"
                           variant="ghost"
-                          className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          className="text-ink-muted hover:bg-danger-soft hover:text-destructive"
                           aria-label="Supprimer l'annonce"
                           title="Supprimer"
                           onClick={() => setDeleting(a)}
@@ -171,7 +171,7 @@ export function AnnouncementManager({ announcements }: { announcements: Serializ
               })}
             </TableBody>
           </Table>
-        </div>
+        </TableCard>
       )}
 
       {editing && (

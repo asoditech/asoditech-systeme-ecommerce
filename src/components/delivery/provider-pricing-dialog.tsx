@@ -67,7 +67,7 @@ export function ProviderPricingDialog({
         <form action={formAction} className="space-y-4">
           <input type="hidden" name="id" value={providerId} />
 
-          <div className="rounded-md border bg-muted/40 p-3 text-sm">
+          <div className="rounded-tile bg-pill-neutral p-3 text-sm">
             <p className="font-medium">Livraison réussie</p>
             <p className="text-muted-foreground">
               {isApiProvider

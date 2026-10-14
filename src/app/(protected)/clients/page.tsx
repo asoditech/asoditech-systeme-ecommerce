@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -16,6 +16,7 @@ import { listCustomers, type CustomerSort } from "@/lib/queries/customers";
 import { formatDate } from "@/lib/format";
 import { CUSTOMER_SEGMENT_LABELS } from "@/lib/status-labels";
 import type { CustomerSegment } from "@prisma/client";
+import { FilterBar } from "@/components/filter-bar";
 
 export const metadata = { title: "Clients — ASODITECH Gestion E-commerce" };
 
@@ -81,15 +82,15 @@ export default async function ClientsPage({
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <FilterSearchInput placeholder="Nom, téléphone, e-mail..." defaultValue={params.q} className="w-56" />
-        <FilterSearchInput paramKey="city" placeholder="Ville" defaultValue={params.city} className="w-36" />
+      <FilterBar>
+        <FilterSearchInput placeholder="Nom, téléphone, e-mail..." defaultValue={params.q} className="w-full sm:w-72" />
+        <FilterSearchInput paramKey="city" placeholder="Ville" defaultValue={params.city} className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-36" />
         <FilterSelect
           paramKey="segment"
           value={segmentFilter}
           allLabel="Tous les segments"
           ariaLabel="Segment"
-          className="w-44"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-44"
           options={Object.entries(CUSTOMER_SEGMENT_LABELS).map(([value, label]) => ({ value, label }))}
         />
         <FilterSelect
@@ -97,17 +98,17 @@ export default async function ClientsPage({
           value={params.sort === "name" || params.sort === "orders" ? params.sort : undefined}
           allLabel={SORT_LABELS.recent}
           ariaLabel="Trier"
-          className="w-44"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-44"
           options={(Object.entries(SORT_LABELS) as [CustomerSort, string][])
             .filter(([value]) => value !== "recent")
             .map(([value, label]) => ({ value, label }))}
         />
         {hasActiveFilter ? (
-          <Button size="sm" variant="ghost" render={<Link href="/clients" />}>
+          <Button variant="ghost" render={<Link href="/clients" />}>
             Réinitialiser
           </Button>
         ) : null}
-      </div>
+      </FilterBar>
 
       {customers.length === 0 ? (
         <EmptyState
@@ -129,7 +130,7 @@ export default async function ClientsPage({
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -144,7 +145,7 @@ export default async function ClientsPage({
             <TableBody>
               {customers.map((c) => (
                 <ClickableTableRow key={c.id} href={`/clients/${c.id}`}>
-                  <TableCell className="font-medium">
+                  <TableCell className="font-medium text-ink">
                     {c.fullName}
                     {c.isBlacklisted && (
                       <Badge variant="destructive" className="ml-2">
@@ -174,7 +175,7 @@ export default async function ClientsPage({
             basePath="/clients"
             searchParams={paginationParams}
           />
-        </div>
+        </TableCard>
       )}
     </div>
   );

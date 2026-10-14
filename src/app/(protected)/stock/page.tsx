@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FilterBar } from "@/components/filter-bar";
 import { Boxes, Download, Warehouse } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
@@ -17,7 +18,7 @@ import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { ProductThumb } from "@/components/products/product-thumb";
 import { cn } from "@/lib/utils";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { listAccessibleActiveWarehouses, hasGlobalLocationAccess } from "@/lib/auth/location-access";
@@ -116,7 +117,7 @@ export default async function StockPage({
         description="Niveaux de stock par produit et par entrepôt."
         actions={
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" render={<a href={`/stock/export?${exportParams.toString()}`} />}>
+            <Button variant="outline" render={<a href={`/stock/export?${exportParams.toString()}`} />}>
               <Download className="size-4" />
               Exporter (CSV)
             </Button>
@@ -126,14 +127,14 @@ export default async function StockPage({
       />
 
       <MissingCostBanner user={user} />
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <FilterSearchInput placeholder="Produit ou SKU..." defaultValue={params.q} className="w-56" />
+      <FilterBar>
+        <FilterSearchInput placeholder="Produit ou SKU..." defaultValue={params.q} className="w-full sm:w-72" />
         <FilterSelect
           paramKey="warehouseId"
           value={warehouseId}
           allLabel="Tous les emplacements"
           ariaLabel="Emplacement"
-          className="w-48"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-48"
           options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
         />
         <FilterSelect
@@ -141,7 +142,7 @@ export default async function StockPage({
           value={categoryId}
           allLabel="Toutes catégories"
           ariaLabel="Catégorie"
-          className="w-44"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-44"
           options={categories.map((c) => ({ value: c.id, label: c.name }))}
         />
         <FilterSelect
@@ -149,7 +150,7 @@ export default async function StockPage({
           value={stockStatus !== "all" ? stockStatus : undefined}
           allLabel={STOCK_STATUS_LABELS.all}
           ariaLabel="Statut de stock"
-          className="w-44"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-44"
           options={[
             { value: "low", label: STOCK_STATUS_LABELS.low },
             { value: "out", label: STOCK_STATUS_LABELS.out },
@@ -160,18 +161,18 @@ export default async function StockPage({
           value={params.sort === "quantity-asc" || params.sort === "quantity-desc" ? params.sort : undefined}
           allLabel={SORT_LABELS.recent}
           ariaLabel="Trier"
-          className="w-48"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-48"
           options={[
             { value: "quantity-asc", label: SORT_LABELS["quantity-asc"] },
             { value: "quantity-desc", label: SORT_LABELS["quantity-desc"] },
           ]}
         />
         {hasActiveFilter ? (
-          <Button size="sm" variant="ghost" render={<Link href={params.pageSize ? `/stock?pageSize=${pageSize}` : "/stock"} />}>
+          <Button variant="ghost" render={<Link href={params.pageSize ? `/stock?pageSize=${pageSize}` : "/stock"} />}>
             Réinitialiser
           </Button>
         ) : null}
-      </div>
+      </FilterBar>
 
       {items.length === 0 ? (
         <EmptyState
@@ -181,7 +182,7 @@ export default async function StockPage({
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -214,7 +215,7 @@ export default async function StockPage({
                         </ProductImagePreview>
                         <div className="min-w-0">
                           {product ? (
-                            <Link href={`/produits/${product.id}`} className="font-semibold hover:text-primary hover:underline">
+                            <Link href={`/produits/${product.id}`} className="font-semibold hover:underline">
                               {product.name}
                             </Link>
                           ) : (
@@ -237,7 +238,7 @@ export default async function StockPage({
                     <TableCell className="text-right tabular-nums">{i.quantityOnHand}</TableCell>
                     <TableCell className="text-right text-muted-foreground tabular-nums">{i.quantityReserved}</TableCell>
                     <TableCell className="text-right text-base font-semibold tabular-nums">{availableStock(i)}</TableCell>
-                    <TableCell className={cn("text-right tabular-nums", i.quantityDamaged > 0 ? "font-medium text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
+                    <TableCell className={cn("text-right tabular-nums", i.quantityDamaged > 0 ? "font-medium text-pill-yellow-fg" : "text-muted-foreground")}>
                       {i.quantityDamaged}
                     </TableCell>
                     <TableCell>
@@ -280,7 +281,7 @@ export default async function StockPage({
             searchParams={paginationParams}
             pageSizeOptions={PAGE_SIZE_OPTIONS}
           />
-        </div>
+        </TableCard>
       )}
     </div>
   );

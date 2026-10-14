@@ -17,7 +17,8 @@ import { FilterSearchInput } from "@/components/filter-search-input";
 import { DisconnectedSourceBanner } from "@/components/integrations/disconnected-source-banner";
 import { SyncRefreshButton } from "@/components/sync-refresh-button";
 import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { FilterBar, FilterChip } from "@/components/filter-bar";
 import { ProductChips } from "@/components/orders/product-chips";
 import { OrderRowActions } from "@/components/orders/order-row-actions";
 import { isPurgeCandidate } from "@/lib/orders/purge-ui";
@@ -175,19 +176,19 @@ export default async function CommandesPage({
 
       <DisconnectedSourceBanner entity="order" />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <FilterBar>
         <FilterSearchInput
           placeholder="N° commande, client, téléphone, n° de suivi…"
           ariaLabel="Rechercher une commande par n° de commande, client, téléphone ou n° de suivi"
           defaultValue={params.q}
-          className="w-64 max-w-full"
+          className="w-full sm:w-72"
         />
         <FilterSelect
           paramKey="status"
           value={statusFilter}
           allLabel="Tous les statuts"
           ariaLabel="Statut"
-          className="w-44"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-44"
           options={Object.entries(ORDER_STATUS_LABELS).map(([value, meta]) => ({ value, label: meta.label }))}
         />
         <FilterSelect
@@ -195,15 +196,15 @@ export default async function CommandesPage({
           value={paymentStatusFilter}
           allLabel="Tous les paiements"
           ariaLabel="Paiement"
-          className="w-48"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-48"
           options={Object.entries(ORDER_PAYMENT_STATUS_LABELS).map(([value, meta]) => ({ value, label: meta.label }))}
         />
-        <form className="flex items-center gap-2" action="/commandes">
+        <form className="flex max-w-full flex-wrap items-center gap-2" action="/commandes">
           {statusFilter ? <input type="hidden" name="status" value={statusFilter} /> : null}
           {paymentStatusFilter ? <input type="hidden" name="paymentStatus" value={paymentStatusFilter} /> : null}
           {params.q ? <input type="hidden" name="q" value={params.q} /> : null}
           {params.pageSize ? <input type="hidden" name="pageSize" value={pageSize} /> : null}
-          <span className="text-xs text-muted-foreground" title="Date à laquelle la commande a été passée — pas la date d'expédition.">
+          <span className="text-xs text-ink-muted" title="Date à laquelle la commande a été passée — pas la date d'expédition.">
             Commandes passées
           </span>
           <DateRangeFields
@@ -215,7 +216,7 @@ export default async function CommandesPage({
             fromAriaLabel="Commandes passées à partir du"
             toAriaLabel="Commandes passées jusqu'au"
           />
-          <Button type="submit" size="sm" variant="outline">
+          <Button type="submit" variant="outline">
             Filtrer
           </Button>
         </form>
@@ -231,20 +232,15 @@ export default async function CommandesPage({
           </SegmentedControlItem>
         </SegmentedControl>
         {hasActiveFilter ? (
-          <Button size="sm" variant="ghost" render={<Link href={params.pageSize ? `/commandes?pageSize=${pageSize}` : "/commandes"} />}>
+          <Button variant="ghost" render={<Link href={params.pageSize ? `/commandes?pageSize=${pageSize}` : "/commandes"} />}>
             Réinitialiser
           </Button>
         ) : null}
-      </div>
+      </FilterBar>
 
       {params.confirmationAgent && (
-        <div className="mb-4">
-          <Link
-            href={clearConfirmationAgentHref()}
-            className="inline-flex items-center gap-1.5 rounded-full border bg-muted px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
-          >
-            Filtré par agent : <span className="font-medium text-foreground">{confirmationAgentName}</span> ×
-          </Link>
+        <div className="-mt-2 mb-5">
+          <FilterChip href={clearConfirmationAgentHref()} label="Filtré par agent :" value={confirmationAgentName} />
         </div>
       )}
 
@@ -266,7 +262,7 @@ export default async function CommandesPage({
           />
         )
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <TableCard>
           <Table className="[&_td]:px-3 [&_th]:px-3">
             <TableHeader>
               <TableRow>
@@ -300,26 +296,26 @@ export default async function CommandesPage({
                 <ClickableTableRow key={o.id} href={`/commandes/${o.id}`}>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold">{displayOrderNumber(o, business.orderNumberPrefix)}</span>
+                      <span className="text-[15px] font-semibold tracking-tight text-ink">{displayOrderNumber(o, business.orderNumberPrefix)}</span>
                       {returnLabel && <Badge variant="warning">↩ {returnLabel}</Badge>}
                     </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
+                    <p className="mt-0.5 text-xs text-ink-muted">
                       {formatDate(o.placedAt)} · {o._count.items} article{o._count.items > 1 ? "s" : ""}
                     </p>
                   </TableCell>
                   <TableCell>
-                    <span className="block max-w-[11rem] truncate font-medium">{displayOrderRecipient(o)}</span>
-                    <span className="block max-w-[11rem] truncate text-xs text-muted-foreground">{o.shippingCity ?? "Ville non renseignée"}</span>
+                    <span className="block max-w-[11rem] truncate font-medium text-ink">{displayOrderRecipient(o)}</span>
+                    <span className="block max-w-[11rem] truncate text-xs text-ink-muted">{o.shippingCity ?? "Ville non renseignée"}</span>
                   </TableCell>
-                  <TableCell className="text-right font-semibold tabular-nums">{formatCurrency(o.total.toString(), o.currency)}</TableCell>
+                  <TableCell className="text-right font-semibold text-ink tabular-nums">{formatCurrency(o.total.toString(), o.currency)}</TableCell>
                   <TableCell>
                     <StatusBadge status={o.status} labels={ORDER_STATUS_LABELS} />
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={o.paymentStatus} labels={ORDER_PAYMENT_STATUS_LABELS} />
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{displayOrderChannel(o)}</TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="text-ink-secondary">{displayOrderChannel(o)}</TableCell>
+                  <TableCell className="text-ink-secondary">
                     {o.confirmationAgent ? (
                       canViewCommissions ? (
                         <StopPropagationLink
@@ -339,7 +335,7 @@ export default async function CommandesPage({
                     <ProductChips lines={o.items.map((i) => ({ name: i.nameSnapshot, quantity: i.quantity, attributes: i.variation?.attributes }))} />
                   </TableCell>
                   {canPurge && (
-                    <TableCell className="w-10">
+                    <TableCell className="w-10" data-row-actions="">
                       {isPurgeCandidate(o) && (
                         <OrderRowActions
                           orderHref={`/commandes/${o.id}`}
@@ -380,7 +376,7 @@ export default async function CommandesPage({
               confirmationAgent: params.confirmationAgent,
             }}
           />
-        </div>
+        </TableCard>
       )}
     </div>
   );

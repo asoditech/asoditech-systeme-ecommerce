@@ -67,7 +67,7 @@ export function BrandTile({ brand, label, className }: { brand: BrandKey; label:
   return (
     <span
       className={cn(
-        "flex size-10 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-white p-1.5",
+        "flex size-10 shrink-0 items-center justify-center rounded-full bg-white p-1.5 ring-1 ring-hairline",
         className
       )}
     >

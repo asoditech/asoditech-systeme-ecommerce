@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { listStockTransfers } from "@/lib/queries/transfers";
@@ -43,7 +43,7 @@ export default async function TransfertsPage({
       {transfers.length === 0 ? (
         <EmptyState icon={ArrowLeftRight} title="Aucun transfert." />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -81,7 +81,7 @@ export default async function TransfertsPage({
             basePath="/transferts"
             searchParams={{ status: params.status }}
           />
-        </div>
+        </TableCard>
       )}
     </div>
   );

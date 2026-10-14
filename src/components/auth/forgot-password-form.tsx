@@ -32,7 +32,7 @@ export function ForgotPasswordForm() {
           autoComplete="email"
           required
           aria-invalid={state && !state.ok ? true : undefined}
-          className="rounded-xl border-black/10 bg-white/70"
+         
         />
       </div>
       <FieldError>{state && !state.ok ? state.error : null}</FieldError>

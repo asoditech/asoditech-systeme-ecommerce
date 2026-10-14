@@ -14,7 +14,7 @@ import { EXPLANATION_UI, type ExplanationDoc } from "@/lib/metrics/analytics-exp
 export function DefinitionsPanel({ entries }: { entries: { id: string; doc: ExplanationDoc }[] }) {
   const lang = useExplanationLanguage();
   return (
-    <details id="definitions" className="rounded-xl border bg-card p-4 text-sm shadow-card print:hidden">
+    <details id="definitions" className="rounded-card bg-card p-5 text-sm shadow-card print:hidden">
       <summary className="cursor-pointer font-medium">Définitions des indicateurs</summary>
       <div className="mt-3">
         <ExplanationLanguageToggle />

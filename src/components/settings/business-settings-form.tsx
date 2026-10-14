@@ -49,7 +49,7 @@ function Field({
 function FieldGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <fieldset className="space-y-3">
-      <legend className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{title}</legend>
+      <legend className="mb-3 text-xs font-semibold text-muted-foreground">{title}</legend>
       {children}
     </fieldset>
   );
@@ -67,7 +67,7 @@ export function CompanySettingsForm({ settings }: { settings: BusinessSettings }
     <div id="identite" className="grid scroll-mt-24 gap-5 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
       <aside className="space-y-4">
         <div className="overflow-hidden rounded-2xl border bg-card shadow-xs">
-          <div className="flex items-center gap-1 border-b bg-muted/40 px-5 py-2.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+          <div className="flex items-center gap-1 border-b border-hairline bg-pill-neutral px-5 py-2.5 text-xs font-semibold text-muted-foreground">
             Aperçu sur vos documents
             <SettingInfo setting="documentPreview" />
           </div>
@@ -104,7 +104,7 @@ export function CompanySettingsForm({ settings }: { settings: BusinessSettings }
             <span className="font-semibold tabular-nums">{completion.percent} %</span>
           </div>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={completion.percent} aria-valuemin={0} aria-valuemax={100} aria-label="Identité complète">
-            <div className={cn("h-full rounded-full transition-all", completion.percent === 100 ? "bg-emerald-500" : "bg-primary")} style={{ width: `${completion.percent}%` }} />
+            <div className={cn("h-full rounded-full transition-all", completion.percent === 100 ? "bg-success" : "bg-primary")} style={{ width: `${completion.percent}%` }} />
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             {completion.filled} sur {completion.total} éléments affichés sur vos rapports et factures.
@@ -143,7 +143,7 @@ export function CompanySettingsForm({ settings }: { settings: BusinessSettings }
               </Field>
             </div>
           </FieldGroup>
-          <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/50 px-4 py-3">
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-pill-neutral px-4 py-3">
             <div>
               <p className="flex items-center gap-1 text-sm font-medium">
                 Devise
@@ -161,7 +161,7 @@ export function CompanySettingsForm({ settings }: { settings: BusinessSettings }
 
 function PreviewLine({ icon: Icon, value, placeholder }: { icon: typeof Mail; value: string | null; placeholder: string }) {
   return (
-    <li className={cn("flex items-center gap-2.5", value ? "text-foreground" : "text-muted-foreground/70 italic")}>
+    <li className={cn("flex items-center gap-2.5", value ? "text-foreground" : "text-ink-muted italic")}>
       <Icon className="size-4 shrink-0 text-muted-foreground" />
       <span className="truncate">{value || `${placeholder} non renseigné`}</span>
     </li>
@@ -235,7 +235,7 @@ export function SupportSettingsForm({ settings }: { settings: BusinessSettings }
   return (
     <div id="contacts" className="grid scroll-mt-24 gap-5 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
       <aside className="overflow-hidden rounded-2xl border bg-card shadow-xs">
-        <div className="flex items-center gap-1 border-b bg-muted/40 px-5 py-2.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+        <div className="flex items-center gap-1 border-b border-hairline bg-pill-neutral px-5 py-2.5 text-xs font-semibold text-muted-foreground">
           Ce que voient vos équipes
           <SettingInfo setting="supportPreview" />
         </div>
@@ -253,10 +253,10 @@ export function SupportSettingsForm({ settings }: { settings: BusinessSettings }
                 key={c.label}
                 className={cn(
                   "flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm",
-                  c.value ? "border-teal-500/30 bg-teal-500/5" : "border-dashed text-muted-foreground"
+                  c.value ? "border-hairline bg-pill-green/50" : "border-dashed border-field-border text-ink-muted"
                 )}
               >
-                <c.icon className={cn("size-4 shrink-0", c.value ? "text-teal-600 dark:text-teal-400" : "")} />
+                <c.icon className={cn("size-4 shrink-0", c.value ? "text-pill-green-fg" : "")} />
                 <span className="min-w-0 flex-1">
                   <span className="block text-xs font-medium">{c.label}</span>
                   <span className="block truncate text-xs">{c.value || "Non affiché"}</span>

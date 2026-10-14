@@ -1,7 +1,8 @@
+import { cookies } from "next/headers";
+import { Lock } from "lucide-react";
 import { requirePlatformAdmin } from "@/lib/auth/guards";
-import { BrandMark } from "@/components/brand-mark";
 import { LogoutButton } from "@/components/layout/logout-button";
-import { PlatformNav } from "@/components/platform/platform-nav";
+import { PlatformShell } from "@/components/platform/platform-shell";
 import { Button } from "@/components/ui/button";
 import { lockPlatformAction } from "@/actions/platform-access";
 
@@ -11,32 +12,31 @@ import { lockPlatformAction } from "@/actions/platform-access";
  * full of tenant-scoped nav (orders, products, …) which makes no sense
  * here, and `requirePlatformAdmin` is a stricter, separate gate from the
  * regular per-tenant RBAC every other protected page uses.
+ *
+ * Soft UI: same shell as the merchant app (PlatformShell), told apart by the
+ * purple « Plateforme » badge and active pill. The sidebar collapse cookie is
+ * the same per-browser UI preference as in the merchant app.
  */
 export default async function PlatformLayout({ children }: { children: React.ReactNode }) {
   await requirePlatformAdmin();
+  const sidebarCollapsed = (await cookies()).get("sidebar-collapsed")?.value === "1";
 
   return (
-    <div className="min-h-screen bg-muted/30">
-      <header className="flex items-center justify-between border-b bg-background px-6 py-4">
-        <div className="flex items-center gap-3">
-          <BrandMark variant="wordmark" />
-          <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
-            Plateforme
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
+    <PlatformShell
+      defaultCollapsed={sidebarCollapsed}
+      actions={
+        <>
           <form action={lockPlatformAction}>
-            <Button type="submit" size="sm" variant="outline">
-              Verrouiller
+            <Button type="submit" variant="outline" className="rounded-full px-3 sm:px-4" aria-label="Verrouiller">
+              <Lock className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Verrouiller</span>
             </Button>
           </form>
           <LogoutButton />
-        </div>
-      </header>
-      <div className="mx-auto max-w-5xl px-6 pt-4">
-        <PlatformNav />
-      </div>
-      <main className="mx-auto max-w-5xl p-6 pt-2">{children}</main>
-    </div>
+        </>
+      }
+    >
+      {children}
+    </PlatformShell>
   );
 }

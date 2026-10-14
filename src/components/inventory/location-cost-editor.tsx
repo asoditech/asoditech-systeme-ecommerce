@@ -96,7 +96,7 @@ export function LocationCostEditor({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 text-sm">
-          <p className="rounded-lg border bg-muted/30 px-3 py-2">
+          <p className="rounded-lg border bg-pill-neutral px-3 py-2">
             {LOCATION_COST_LABELS.global} :{" "}
             <span className="font-medium tabular-nums">{globalCost !== null ? formatCurrency(globalCost) : LOCATION_COST_LABELS.missing}</span>
             <span className="block text-xs text-muted-foreground">

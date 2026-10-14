@@ -147,7 +147,7 @@ export function ReturnsScanLot() {
   }
 
   return (
-    <div className="space-y-3 rounded-lg border bg-card p-3">
+    <div className="space-y-3 rounded-card bg-card p-4 shadow-card sm:p-5">
       <div className="flex flex-col gap-2 sm:flex-row">
         <ScanCodeInput
           value={code}
@@ -164,7 +164,7 @@ export function ReturnsScanLot() {
         <BarcodeScanButton onDetect={lookup} label="Scanner" mode="continuous" />
       </div>
       {feedback && (
-        <p role="status" className={`flex items-start gap-1.5 text-xs ${feedback.ok ? "text-emerald-700 dark:text-emerald-400" : "text-destructive"}`}>
+        <p role="status" className={`flex items-start gap-1.5 text-xs ${feedback.ok ? "text-pill-green-fg" : "text-destructive"}`}>
           {feedback.ok ? <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" /> : <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />}
           {feedback.text}
         </p>
@@ -172,7 +172,7 @@ export function ReturnsScanLot() {
       {choices.length > 0 && (
         <ul className="space-y-1 text-sm">
           {choices.map((c) => (
-            <li key={c.shipmentId} className="flex items-center justify-between gap-2 rounded-md border px-2 py-1">
+            <li key={c.shipmentId} className="flex items-center justify-between gap-2 rounded-lg border border-hairline px-2.5 py-1.5">
               <span>
                 {c.orderLabel} · {c.trackingNumber ?? "sans n° de suivi"} · {c.providerName}
               </span>
@@ -233,7 +233,7 @@ export function ReturnsScanLot() {
                       <ReturnParcelStateBadge state={lotRowDisplayState(parcel, result)} />
                     </TableCell>
                     <TableCell className="text-xs">
-                      {outcome && <span className={outcome.ok ? "text-emerald-700 dark:text-emerald-400" : "text-destructive"}>{outcome.text}</span>}
+                      {outcome && <span className={outcome.ok ? "text-pill-green-fg" : "text-destructive"}>{outcome.text}</span>}
                       {receptionId && (
                         <Link href={`/livraison/retours/inspection/${receptionId}`} className="ml-1 underline underline-offset-2">
                           Inspecter

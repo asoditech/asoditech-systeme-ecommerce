@@ -34,7 +34,7 @@ export async function MissingCostBanner({ user, showLink = true }: { user: Pick<
   return (
     <div
       role="status"
-      className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300 print:hidden"
+      className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-tile bg-pill-yellow px-4 py-3 text-sm text-pill-yellow-fg print:hidden"
     >
       <CircleDollarSign className="size-4 shrink-0" aria-hidden="true" />
       <span>

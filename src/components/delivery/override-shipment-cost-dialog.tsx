@@ -18,6 +18,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import type { ActionResult, IdResult } from "@/actions/types";
+import { Notice } from "@/components/ui/notice";
 
 /**
  * Explicit accounting correction of a shipment's recorded cost (docs/adr/
@@ -62,10 +63,10 @@ export function OverrideShipmentCostDialog({
         </DialogHeader>
         <form action={formAction} className="space-y-3">
           <input type="hidden" name="id" value={shipmentId} />
-          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <Notice tone="warning" size="sm" className="block">
             Correction comptable exceptionnelle. Le coût normal d&apos;une livraison réussie vient de l&apos;API du
             transporteur — n&apos;utilisez ceci que pour rectifier une facture. Enregistré dans le journal d&apos;audit.
-          </p>
+          </Notice>
           <div className="space-y-1.5">
             <Label htmlFor="osc-cost">Coût réel (MAD)</Label>
             <Input

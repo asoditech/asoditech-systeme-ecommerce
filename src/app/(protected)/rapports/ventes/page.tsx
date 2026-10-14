@@ -90,7 +90,7 @@ export default async function RapportVentesPage({
       </div>
 
       <Card className="mt-6">
-        <CardHeader><CardTitle className="flex items-center gap-1.5">{seriesTitle}<ReportMetricInfo metric="salesSeries" /></CardTitle></CardHeader>
+        <CardHeader><CardTitle accent="green">{seriesTitle}<ReportMetricInfo metric="salesSeries" /></CardTitle></CardHeader>
         <CardContent>
           <SalesChart data={report.series} />
         </CardContent>
@@ -98,7 +98,7 @@ export default async function RapportVentesPage({
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-1.5">Par statut de commande<ReportMetricInfo metric="salesByStatus" /></CardTitle></CardHeader>
+          <CardHeader><CardTitle accent="green">Par statut de commande<ReportMetricInfo metric="salesByStatus" /></CardTitle></CardHeader>
           <CardContent>
             <Table className="text-[13px]">
               <TableHeader><TableRow><TableHead>Statut</TableHead><TableHead className="text-right">Commandes</TableHead><TableHead className="text-right">Montant</TableHead></TableRow></TableHeader>
@@ -116,7 +116,7 @@ export default async function RapportVentesPage({
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-1.5">Par canal<ReportMetricInfo metric="salesByChannel" /></CardTitle></CardHeader>
+          <CardHeader><CardTitle accent="green">Par canal<ReportMetricInfo metric="salesByChannel" /></CardTitle></CardHeader>
           <CardContent>
             <Table className="text-[13px]">
               <TableHeader><TableRow><TableHead>Canal</TableHead><TableHead className="text-right">Commandes</TableHead><TableHead className="text-right">CA</TableHead></TableRow></TableHeader>
@@ -135,7 +135,7 @@ export default async function RapportVentesPage({
       </div>
 
       <Card className="mt-4">
-        <CardHeader><CardTitle className="flex items-center gap-1.5">Détail chiffré<ReportMetricInfo metric="salesDetail" /></CardTitle></CardHeader>
+        <CardHeader><CardTitle accent="green">Détail chiffré<ReportMetricInfo metric="salesDetail" /></CardTitle></CardHeader>
         <CardContent className="overflow-x-auto">
           <Table className="text-[13px]">
             <TableHeader><TableRow><TableHead>{report.granularity === "month" ? "Mois" : "Jour"}</TableHead><TableHead className="text-right">Commandes</TableHead><TableHead className="text-right">CA</TableHead></TableRow></TableHeader>

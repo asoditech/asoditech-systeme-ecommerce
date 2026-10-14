@@ -14,7 +14,6 @@ import {
   PhoneCall,
   CheckCircle2,
   RotateCcw,
-  HandCoins,
   Store,
   LayoutGrid,
   LineChart,
@@ -26,7 +25,6 @@ import { PageHeader } from "@/components/page-header";
 import { MissingCostBanner } from "@/components/catalog-health/missing-cost-banner";
 import { KpiCard } from "@/components/kpi-card";
 import { SummarySection } from "@/components/summary-section";
-import { MetricWithProgress } from "@/components/metric-with-progress";
 import { MetricBreakdown } from "@/components/metric-breakdown";
 import { FadeIn } from "@/components/motion/stagger-list";
 import { CommandHero } from "@/components/dashboard/command-hero";
@@ -35,7 +33,11 @@ import { TopSellingProducts } from "@/components/dashboard/top-selling-products"
 import { DashboardMetricInfo } from "@/components/dashboard/dashboard-metric-info";
 import { DashboardDefinitions } from "@/components/dashboard/dashboard-definitions";
 import { EmptyState } from "@/components/empty-state";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { FilterDropdownPill } from "@/components/filter-dropdown-pill";
+import { StockDonut } from "@/components/dashboard/stock-donut";
+import { CHART_COLORS } from "@/lib/design/chart";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
 import { redirect } from "next/navigation";
@@ -127,15 +129,15 @@ function OrderRow({
   action?: React.ReactNode;
 }) {
   return (
-    <li className="flex items-center justify-between gap-3 py-2.5 text-sm">
-      <Link href={`/commandes/${order.id}`} className="min-w-0 flex-1 hover:underline">
-        <p className="truncate font-medium">{displayOrderNumber(order, orderNumberPrefix)}</p>
-        <p className="truncate text-xs text-muted-foreground">
+    <li className="flex items-center justify-between gap-3 py-3 text-sm">
+      <Link href={`/commandes/${order.id}`} className="min-w-0 flex-1 rounded-lg hover:underline">
+        <p className="truncate font-medium text-ink">{displayOrderNumber(order, orderNumberPrefix)}</p>
+        <p className="truncate text-xs text-ink-muted">
           {displayOrderRecipient(order)} · {displayOrderChannel(order)} · {formatDate(order.placedAt)}
         </p>
       </Link>
       <div className="flex shrink-0 items-center gap-2">
-        <span className="font-medium tabular-nums">{formatCurrency(order.total.toString(), order.currency)}</span>
+        <span className="font-semibold text-ink tabular-nums">{formatCurrency(order.total.toString(), order.currency)}</span>
         {action}
       </div>
     </li>
@@ -267,23 +269,25 @@ export default async function TableauDeBordPage({
       : null,
   ].filter((s): s is { label: string; value: string; icon: typeof ShoppingCart; explain: React.ReactElement } => s !== null);
 
+  // Bento layout (Soft UI): the overview card and the « Meilleures ventes »
+  // side list share the first row — same condition the list always had.
+  const showTopSellers = showOnline && canViewOrders;
+
   return (
     <div>
       <PageHeader
         title="Tableau de bord"
         description={`Bonjour ${user.name.split(" ")[0]}, voici l'état de votre activité.`}
         actions={
-          <SegmentedControl>
-            {(Object.keys(DASHBOARD_PERIOD_LABELS) as DashboardPeriod[]).map((key) => (
-              <SegmentedControlItem
-                key={key}
-                active={key === periodKey}
-                href={withParam(params, "periode", key === "mois" ? undefined : key)}
-              >
-                {DASHBOARD_PERIOD_LABELS[key]}
-              </SegmentedControlItem>
-            ))}
-          </SegmentedControl>
+          <FilterDropdownPill
+            ariaLabel="Période"
+            items={(Object.keys(DASHBOARD_PERIOD_LABELS) as DashboardPeriod[]).map((key) => ({
+              key,
+              label: DASHBOARD_PERIOD_LABELS[key],
+              href: withParam(params, "periode", key === "mois" ? undefined : key),
+              active: key === periodKey,
+            }))}
+          />
         }
       />
 
@@ -291,7 +295,7 @@ export default async function TableauDeBordPage({
       {canViewFinance && <MissingCostBanner user={user} />}
 
       {canFilterChannel && (
-        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2">
           <SegmentedControl>
             {(Object.keys(CHANNEL_FILTER_LABELS) as DashboardChannelFilter[]).map((key) => (
               <SegmentedControlItem key={key} active={key === canalKey} href={withParam(params, "canal", key === "total" ? undefined : key)}>
@@ -300,112 +304,144 @@ export default async function TableauDeBordPage({
             ))}
           </SegmentedControl>
           {canalKey === "magasin" && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-ink-muted">
               Vue Magasin : les sections issues des commandes en ligne (confirmation, livraison, meilleures ventes, commandes) sont masquées.
             </p>
           )}
         </div>
       )}
 
-      <SummarySection title="Aperçu" icon={LayoutGrid} className="mb-6 space-y-4">
-        {/* "Command Hero" — the one dominant (light, brand-accented)
-            surface on the page: whichever revenue figure is this viewer's
-            headline (combined total, online-only, or store-only), plus a
-            real trend sparkline from the exact same data already fetched
-            for the chart below, plus the secondary business-volume stats
-            that used to be separate compact tiles. Everything else on the
-            page stays light/restrained by contrast. */}
-        {totalRevenue !== null && (
-          <CommandHero
-            eyebrow={`Vue d'ensemble · ${suffix}`}
-            label="Chiffre d'affaires total"
-            explain={<DashboardMetricInfo metric="totalRevenue" />}
-            value={formatCurrency(totalRevenue)}
-            hint="En ligne + Magasin net"
-            sparklineData={canViewFinance && showOnline ? revenueTrend.map((d) => ({ value: d.revenue })) : undefined}
-            stats={heroStats}
-          />
-        )}
-        {showOnlineHeadline && (
-          <CommandHero
-            eyebrow={`Vue d'ensemble · ${suffix}`}
-            label={`Chiffre d'affaires${canFilterChannel ? " en ligne" : ""}`}
-            explain={<DashboardMetricInfo metric="revenue" />}
-            value={formatCurrency(data.finance.revenue)}
-            trend={trend(data.finance.revenue, data.previousFinance.revenue)}
-            sparklineData={revenueTrend.map((d) => ({ value: d.revenue }))}
-            stats={heroStats}
-          />
-        )}
-        {showOfflineHeadline && offlineSummary && (
-          <CommandHero
-            eyebrow={`Vue d'ensemble · ${suffix}`}
-            label="Ventes magasin nettes"
-            explain={<DashboardMetricInfo metric="storeNetSales" />}
-            value={formatCurrency(offlineSummary.netSales)}
-            hint={`${offlineSummary.salesCount} vente(s) · ${offlineSummary.unitsSold} article(s)`}
-            stats={heroStats}
-          />
-        )}
-        {/* No revenue-scope permission at all (a role like Entrepôt/Livraison
-            with orders.view/customers.view but neither finance.view nor
-            sales.view) — the hero has nothing honest to headline, so every
-            figure that would have been a hero stat falls back to its own
-            compact KpiCard instead of silently disappearing. */}
-        {!hasHero && heroStats.length > 0 && (
-          <FadeIn className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {canViewOrders && showOnline && (
-              <KpiCard label={`Commandes (${suffix})`} value={String(data.ordersPlaced)} icon={ShoppingCart} tone="violet" explain={<DashboardMetricInfo metric="ordersPlaced" className="-ml-1" />} />
-            )}
-            {canViewFinance && showOnline && (
-              <KpiCard
-                label={`Panier moyen (${suffix})`}
-                value={data.finance.avgOrderValue !== null ? formatCurrency(data.finance.avgOrderValue) : null}
-                unavailableReason="Aucune commande"
-                icon={ShoppingBag}
-                tone="info"
-                explain={<DashboardMetricInfo metric="averageBasket" className="-ml-1" />}
+      <SummarySection title="Aperçu" icon={LayoutGrid} className="mb-8">
+        <div className={cn("grid items-start gap-5", showTopSellers && "xl:grid-cols-[minmax(0,1fr)_380px]")}>
+          <div className="min-w-0 space-y-5">
+            {/* "Command Hero" — the large overview card: whichever revenue
+                figure is this viewer's headline (combined total, online-only,
+                or store-only), plus a real trend sparkline from the exact
+                same data already fetched for the chart below, plus the
+                secondary business-volume stats. */}
+            {totalRevenue !== null && (
+              <CommandHero
+                eyebrow={`Vue d'ensemble · ${suffix}`}
+                label="Chiffre d'affaires total"
+                explain={<DashboardMetricInfo metric="totalRevenue" />}
+                value={formatCurrency(totalRevenue)}
+                hint="En ligne + Magasin net"
+                sparklineData={canViewFinance && showOnline ? revenueTrend.map((d) => ({ value: d.revenue })) : undefined}
+                stats={heroStats}
               />
             )}
-            {canViewCustomers && (
-              <KpiCard label={`Nouveaux clients (${suffix})`} value={String(data.newCustomersThisPeriod)} icon={Users} tone="info" explain={<DashboardMetricInfo metric="newCustomers" className="-ml-1" />} />
-            )}
-          </FadeIn>
-        )}
-        {/* The revenue breakdown that ISN'T already the headline — still
-            worth showing (e.g. the total is the hero, but the online/store
-            split behind it is real information), just no longer competing
-            with it for attention. */}
-        {(( !showOnlineHeadline && canViewFinance && showOnline) || (!showOfflineHeadline && offlineSummary && showOffline)) && (
-          <FadeIn className="grid gap-4 sm:grid-cols-2">
-            {!showOnlineHeadline && canViewFinance && showOnline && (
-              <KpiCard
-                label={`Chiffre d'affaires${canFilterChannel ? " en ligne" : ""} (${suffix})`}
+            {showOnlineHeadline && (
+              <CommandHero
+                eyebrow={`Vue d'ensemble · ${suffix}`}
+                label={`Chiffre d'affaires${canFilterChannel ? " en ligne" : ""}`}
+                explain={<DashboardMetricInfo metric="revenue" />}
                 value={formatCurrency(data.finance.revenue)}
                 trend={trend(data.finance.revenue, data.previousFinance.revenue)}
-                icon={Wallet}
-                tone="primary"
-                explain={<DashboardMetricInfo metric="revenue" className="-ml-1" />}
+                sparklineData={revenueTrend.map((d) => ({ value: d.revenue }))}
+                stats={heroStats}
               />
             )}
-            {!showOfflineHeadline && offlineSummary && showOffline && (
-              <KpiCard
-                label={`Ventes magasin nettes (${suffix})`}
+            {showOfflineHeadline && offlineSummary && (
+              <CommandHero
+                eyebrow={`Vue d'ensemble · ${suffix}`}
+                label="Ventes magasin nettes"
+                explain={<DashboardMetricInfo metric="storeNetSales" />}
                 value={formatCurrency(offlineSummary.netSales)}
                 hint={`${offlineSummary.salesCount} vente(s) · ${offlineSummary.unitsSold} article(s)`}
-                icon={Store}
-                tone="primary"
-                explain={<DashboardMetricInfo metric="storeNetSales" className="-ml-1" />}
+                stats={heroStats}
               />
             )}
-          </FadeIn>
-        )}
+            {/* No revenue-scope permission at all (a role like Entrepôt/Livraison
+                with orders.view/customers.view but neither finance.view nor
+                sales.view) — the hero has nothing honest to headline, so every
+                figure that would have been a hero stat falls back to its own
+                KpiCard instead of silently disappearing. */}
+            {!hasHero && heroStats.length > 0 && (
+              <FadeIn className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                {canViewOrders && showOnline && (
+                  <KpiCard size="lg" label={`Commandes (${suffix})`} value={String(data.ordersPlaced)} icon={ShoppingCart} tone="violet" explain={<DashboardMetricInfo metric="ordersPlaced" className="-ml-1" />} />
+                )}
+                {canViewFinance && showOnline && (
+                  <KpiCard
+                    size="lg"
+                    label={`Panier moyen (${suffix})`}
+                    value={data.finance.avgOrderValue !== null ? formatCurrency(data.finance.avgOrderValue) : null}
+                    unavailableReason="Aucune commande"
+                    icon={ShoppingBag}
+                    tone="info"
+                    explain={<DashboardMetricInfo metric="averageBasket" className="-ml-1" />}
+                  />
+                )}
+                {canViewCustomers && (
+                  <KpiCard size="lg" label={`Nouveaux clients (${suffix})`} value={String(data.newCustomersThisPeriod)} icon={Users} tone="info" explain={<DashboardMetricInfo metric="newCustomers" className="-ml-1" />} />
+                )}
+              </FadeIn>
+            )}
+            {/* The revenue breakdown that ISN'T already the headline — still
+                worth showing (e.g. the total is the hero, but the online/store
+                split behind it is real information), just no longer competing
+                with it for attention. */}
+            {((!showOnlineHeadline && canViewFinance && showOnline) || (!showOfflineHeadline && offlineSummary && showOffline)) && (
+              <FadeIn className="grid gap-5 sm:grid-cols-2">
+                {!showOnlineHeadline && canViewFinance && showOnline && (
+                  <KpiCard
+                    size="lg"
+                    label={`Chiffre d'affaires${canFilterChannel ? " en ligne" : ""} (${suffix})`}
+                    value={formatCurrency(data.finance.revenue)}
+                    trend={trend(data.finance.revenue, data.previousFinance.revenue)}
+                    icon={Wallet}
+                    tone="primary"
+                    explain={<DashboardMetricInfo metric="revenue" className="-ml-1" />}
+                  />
+                )}
+                {!showOfflineHeadline && offlineSummary && showOffline && (
+                  <KpiCard
+                    size="lg"
+                    label={`Ventes magasin nettes (${suffix})`}
+                    value={formatCurrency(offlineSummary.netSales)}
+                    hint={`${offlineSummary.salesCount} vente(s) · ${offlineSummary.unitsSold} article(s)`}
+                    icon={Store}
+                    tone="primary"
+                    explain={<DashboardMetricInfo metric="storeNetSales" className="-ml-1" />}
+                  />
+                )}
+              </FadeIn>
+            )}
+          </div>
+
+          {/* Side card with lists — « Meilleures ventes » (orders.view, online scope). */}
+          {showTopSellers && (
+            <Card className="min-w-0">
+              <CardHeader>
+                <CardTitle accent="yellow">
+                  <span className="flex items-center gap-1">
+                    Meilleures ventes
+                    <DashboardMetricInfo metric="topSelling" />
+                  </span>
+                </CardTitle>
+                <CardAction>
+                  <Button variant="ghost" size="sm" render={<Link href="/analyses" />}>
+                    Voir tout <ArrowRight className="size-4" />
+                  </Button>
+                </CardAction>
+              </CardHeader>
+              <CardContent>
+                {topSellingUnits.length === 0 ? (
+                  <EmptyState icon={Trophy} title="Aucune vente enregistrée sur la période." />
+                ) : (
+                  <TopSellingProducts units={topSellingUnits} />
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </SummarySection>
 
       {canViewFinance && showOnline && (
-        <SummarySection title={offlineSummary !== null ? "Rentabilité — commandes en ligne" : "Rentabilité"} icon={TrendingUp} className="mb-6">
-          <FadeIn className="grid gap-4 sm:grid-cols-2">
+        <SummarySection title={offlineSummary !== null ? "Rentabilité — commandes en ligne" : "Rentabilité"} icon={TrendingUp} className="mb-8">
+          <FadeIn className="grid gap-5 sm:grid-cols-2">
             <KpiCard
+              size="lg"
               label={`Charges (${suffix})`}
               value={formatCurrency(data.finance.chargesTotal)}
               hint="Dépenses enregistrées + coût de livraison"
@@ -415,6 +451,7 @@ export default async function TableauDeBordPage({
               explain={<DashboardMetricInfo metric="charges" className="-ml-1" />}
             />
             <KpiCard
+              size="lg"
               label={`Bénéfice net (${suffix})`}
               value={data.finance.netProfit !== null ? formatCurrency(data.finance.netProfit) : null}
               unavailableReason="Non calculable"
@@ -427,24 +464,64 @@ export default async function TableauDeBordPage({
         </SummarySection>
       )}
 
+      {/* Wide chart card. */}
+      {canViewFinance && showOnline && (
+        <SummarySection title="Ventes" icon={LineChart} className="mb-8">
+          <Card>
+            <CardHeader>
+              <CardTitle accent="blue">
+                <span className="flex items-center gap-1">
+                  Chiffre d&apos;affaires{canFilterChannel ? " en ligne" : ""} — {REVENUE_TREND_LABELS[chartRange].toLowerCase()}
+                  <DashboardMetricInfo metric="revenueTrend" />
+                </span>
+              </CardTitle>
+              <CardAction>
+                <FilterDropdownPill
+                  ariaLabel="Graphique"
+                  items={(Object.keys(REVENUE_TREND_LABELS) as RevenueTrendRange[]).map((key) => ({
+                    key,
+                    label: REVENUE_TREND_LABELS[key],
+                    href: withParam(params, "graphique", key === "annee" ? undefined : key),
+                    active: key === chartRange,
+                  }))}
+                />
+              </CardAction>
+            </CardHeader>
+            <CardContent>
+              <RevenueTrendChart data={revenueTrend} />
+            </CardContent>
+          </Card>
+        </SummarySection>
+      )}
+
       {(canViewInventory || stockOverview) && (
-        <SummarySection title="Stock" icon={Package2} className="mb-6">
-          <FadeIn className="grid gap-4 sm:grid-cols-2">
+        <SummarySection title="Stock" icon={Package2} className="mb-8">
+          <FadeIn className="grid gap-5 sm:grid-cols-2">
             {stockOverview && (
-              <MetricWithProgress
-                label="Stock physique"
-                value={String(stockOverview.onHand)}
-                hint="Réparti entre réservé et disponible"
-                icon={Boxes}
-                explain={<DashboardMetricInfo metric="stockOnHand" className="-ml-1" />}
-                segments={[
-                  { label: "Disponible", value: stockOverview.available, className: "bg-emerald-500" },
-                  { label: "Réservé", value: stockOverview.reserved, className: "bg-amber-500" },
-                ]}
-              />
+              <Card>
+                <CardHeader>
+                  <CardTitle accent="green">
+                    <span className="flex items-center gap-1">
+                      Stock physique
+                      <DashboardMetricInfo metric="stockOnHand" />
+                    </span>
+                  </CardTitle>
+                  <CardDescription>Réparti entre réservé et disponible</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <StockDonut
+                    total={String(stockOverview.onHand)}
+                    segments={[
+                      { label: "Disponible", value: stockOverview.available, color: CHART_COLORS.series[2] },
+                      { label: "Réservé", value: stockOverview.reserved, color: CHART_COLORS.series[4] },
+                    ]}
+                  />
+                </CardContent>
+              </Card>
             )}
             {canViewInventory && (
               <KpiCard
+                size="lg"
                 label="Produits en stock faible"
                 value={String(data.lowStockCount)}
                 hint={data.lowStockCount > 0 ? "Nécessite votre attention" : undefined}
@@ -461,30 +538,28 @@ export default async function TableauDeBordPage({
         <SummarySection
           title="Opérations"
           icon={Activity}
-          className="mb-6"
+          className="mb-8"
           action={
             canViewCommissions &&
             (confirmationSummary || commissionSummary) && (
-              <Link href="/confirmation/performance" className="text-xs text-primary hover:underline">
+              <Link href="/confirmation/performance" className="text-sm font-medium text-ink-secondary underline-offset-4 hover:text-ink hover:underline">
                 Performance confirmation →
               </Link>
             )
           }
         >
           {(confirmationSummary || commissionSummary) && (
-            <p className="-mt-1 mb-3 text-xs text-muted-foreground">
+            <p className="-mt-1 text-xs text-ink-muted">
               Confirmation et commissions : file en cours et mois en cours, indépendamment de la période choisie. Taux de livraison : période choisie.
             </p>
           )}
-          <FadeIn className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {/* "Breakdown KPI" (Phase 3 pattern D): three related confirmation
-                counts read as ONE pipeline, not three unrelated tiles —
-                merges what used to be 3 separate KpiCards into one card. */}
+          <FadeIn className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {/* "Breakdown KPI": three related confirmation counts read as ONE
+                pipeline, not three unrelated tiles. */}
             {confirmationSummary && (
-              <Card size="sm" className="sm:col-span-2">
-                <CardContent className="p-0">
+              <Card>
+                <CardContent>
                   <MetricBreakdown
-                    className="px-3.5"
                     rows={[
                       { key: "toConfirm", label: "À confirmer", value: String(confirmationSummary.toConfirm), icon: PhoneCall, tone: "default", explain: <DashboardMetricInfo metric="toConfirm" /> },
                       {
@@ -501,22 +576,14 @@ export default async function TableauDeBordPage({
                 </CardContent>
               </Card>
             )}
-            {/* Commission earned + still owed are two sides of ONE ledger —
-                one card with two rows instead of two tiles that broke the
-                grid into a half-empty second row. */}
+            {/* Commission earned + still owed are two sides of ONE ledger. */}
             {commissionSummary && (
-              <Card size="sm">
+              <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <span className="flex size-6 items-center justify-center rounded-md bg-violet-500/10 text-violet-600 dark:text-violet-400">
-                      <HandCoins className="size-3.5" />
-                    </span>
-                    Commissions
-                  </CardTitle>
+                  <CardTitle accent="purple">Commissions</CardTitle>
                 </CardHeader>
-                <CardContent className="p-0">
+                <CardContent>
                   <MetricBreakdown
-                    className="px-3.5"
                     rows={[
                       {
                         key: "earned",
@@ -538,69 +605,17 @@ export default async function TableauDeBordPage({
             )}
             {canViewDelivery && (
               <KpiCard
+                size="lg"
                 label="Taux de livraison réussie"
                 value={data.deliveryStats.successRate !== null ? `${(data.deliveryStats.successRate * 100).toFixed(1)}%` : null}
                 hint={`${data.deliveryStats.delivered} livrée(s) sur ${data.deliveryStats.delivered + data.deliveryStats.failed + data.deliveryStats.returned} terminée(s) sur la période`}
                 explain={<DashboardMetricInfo metric="deliveryRate" className="-ml-1" />}
                 unavailableReason="Aucune livraison terminée sur la période"
                 icon={Truck}
-                tone="warning"
+                tone="info"
               />
             )}
           </FadeIn>
-        </SummarySection>
-      )}
-
-      {showOnline && (canViewFinance || canViewOrders) && (
-        <SummarySection title="Ventes" icon={LineChart} className="mb-6">
-          <div className="grid gap-6 lg:grid-cols-3">
-            {canViewFinance && showOnline && (
-              <Card className={canViewOrders ? "lg:col-span-2" : "lg:col-span-3"}>
-                <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-                  <CardTitle className="flex items-center gap-1">
-                    Chiffre d&apos;affaires{canFilterChannel ? " en ligne" : ""} — {REVENUE_TREND_LABELS[chartRange].toLowerCase()}
-                    <DashboardMetricInfo metric="revenueTrend" />
-                  </CardTitle>
-                  <SegmentedControl>
-                    {(Object.keys(REVENUE_TREND_LABELS) as RevenueTrendRange[]).map((key) => (
-                      <SegmentedControlItem
-                        key={key}
-                        active={key === chartRange}
-                        href={withParam(params, "graphique", key === "annee" ? undefined : key)}
-                      >
-                        {REVENUE_TREND_LABELS[key]}
-                      </SegmentedControlItem>
-                    ))}
-                  </SegmentedControl>
-                </CardHeader>
-                <CardContent>
-                  <RevenueTrendChart data={revenueTrend} />
-                </CardContent>
-              </Card>
-            )}
-
-            {canViewOrders && (
-              <Card className={canViewFinance && showOnline ? "" : "lg:col-span-3"}>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle className="flex items-center gap-1.5">
-                    <Trophy className="size-4 text-primary" />
-                    Meilleures ventes
-                    <DashboardMetricInfo metric="topSelling" />
-                  </CardTitle>
-                  <Button variant="ghost" size="sm" render={<Link href="/analyses" />}>
-                    Voir tout <ArrowRight className="size-4" />
-                  </Button>
-                </CardHeader>
-                <CardContent>
-                  {topSellingUnits.length === 0 ? (
-                    <EmptyState icon={Trophy} title="Aucune vente enregistrée sur la période." />
-                  ) : (
-                    <TopSellingProducts units={topSellingUnits} />
-                  )}
-                </CardContent>
-              </Card>
-            )}
-          </div>
         </SummarySection>
       )}
 
@@ -608,31 +623,35 @@ export default async function TableauDeBordPage({
           (e.g. STORE_SELLER) the section would be a bare heading (Phase 4B). */}
       {((canViewOrders && showOnlineOps) || canViewAudit) && (
         <SummarySection title="Activité" icon={ShoppingCart}>
-          <div className={canViewOrders && showOnlineOps && canViewAudit ? "grid gap-6 lg:grid-cols-3" : "grid gap-6 lg:grid-cols-2"}>
+          <div className={canViewOrders && showOnlineOps && canViewAudit ? "grid gap-5 lg:grid-cols-3" : "grid gap-5 lg:grid-cols-2"}>
             {canViewOrders && showOnlineOps && (
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle className="flex items-center gap-1">
-                    Commandes nécessitant une action
-                    <DashboardMetricInfo metric="ordersRequiringAction" />
+              <Card className="min-w-0">
+                <CardHeader>
+                  <CardTitle accent="peach">
+                    <span className="flex items-center gap-1">
+                      Commandes nécessitant une action
+                      <DashboardMetricInfo metric="ordersRequiringAction" />
+                    </span>
                   </CardTitle>
-                  <Button variant="ghost" size="sm" render={<Link href="/commandes" />}>
-                    Voir tout <ArrowRight className="size-4" />
-                  </Button>
+                  <CardAction>
+                    <Button variant="ghost" size="sm" render={<Link href="/commandes" />}>
+                      Voir tout <ArrowRight className="size-4" />
+                    </Button>
+                  </CardAction>
                 </CardHeader>
                 <CardContent>
                   {data.ordersRequiringAction.length === 0 ? (
                     <EmptyState icon={ShoppingCart} title="Aucune commande en attente d'action." />
                   ) : (
-                    <ul className="divide-y">
+                    <ul className="divide-y divide-hairline">
                       {data.ordersRequiringAction.map((o) => (
                         <OrderRow
                           key={o.id}
                           order={o}
                           orderNumberPrefix={business.orderNumberPrefix}
                           action={
-                            <Button size="icon-xs" variant="outline" render={<Link href={`/commandes/${o.id}`} />}>
-                              <ArrowRight className="size-3.5" />
+                            <Button size="icon-sm" variant="outline" aria-label={`Ouvrir ${displayOrderNumber(o, business.orderNumberPrefix)}`} render={<Link href={`/commandes/${o.id}`} />}>
+                              <ArrowRight className="size-4" />
                             </Button>
                           }
                         />
@@ -644,21 +663,25 @@ export default async function TableauDeBordPage({
             )}
 
             {canViewOrders && showOnlineOps && (
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle className="flex items-center gap-1">
-                    Commandes récentes
-                    <DashboardMetricInfo metric="recentOrders" />
+              <Card className="min-w-0">
+                <CardHeader>
+                  <CardTitle accent="blue">
+                    <span className="flex items-center gap-1">
+                      Commandes récentes
+                      <DashboardMetricInfo metric="recentOrders" />
+                    </span>
                   </CardTitle>
-                  <Button variant="ghost" size="sm" render={<Link href="/commandes" />}>
-                    Voir tout <ArrowRight className="size-4" />
-                  </Button>
+                  <CardAction>
+                    <Button variant="ghost" size="sm" render={<Link href="/commandes" />}>
+                      Voir tout <ArrowRight className="size-4" />
+                    </Button>
+                  </CardAction>
                 </CardHeader>
                 <CardContent>
                   {data.recentOrders.length === 0 ? (
                     <EmptyState icon={ShoppingCart} title="Aucune commande pour le moment." />
                   ) : (
-                    <ul className="divide-y">
+                    <ul className="divide-y divide-hairline">
                       {data.recentOrders.map((o) => (
                         <OrderRow key={o.id} order={o} orderNumberPrefix={business.orderNumberPrefix} />
                       ))}
@@ -669,28 +692,32 @@ export default async function TableauDeBordPage({
             )}
 
             {canViewAudit && (
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle className="flex items-center gap-1">
-                    Activité récente
-                    <DashboardMetricInfo metric="recentActivity" />
+              <Card className="min-w-0">
+                <CardHeader>
+                  <CardTitle accent="green">
+                    <span className="flex items-center gap-1">
+                      Activité récente
+                      <DashboardMetricInfo metric="recentActivity" />
+                    </span>
                   </CardTitle>
-                  <Button variant="ghost" size="sm" render={<Link href="/journal-audit" />}>
-                    Voir tout <ArrowRight className="size-4" />
-                  </Button>
+                  <CardAction>
+                    <Button variant="ghost" size="sm" render={<Link href="/journal-audit" />}>
+                      Voir tout <ArrowRight className="size-4" />
+                    </Button>
+                  </CardAction>
                 </CardHeader>
                 <CardContent>
                   {data.recentAuditEvents.length === 0 ? (
                     <EmptyState icon={Boxes} title="Aucune activité enregistrée." />
                   ) : (
-                    <ul className="divide-y">
+                    <ul className="divide-y divide-hairline">
                       {data.recentAuditEvents.map((e) => (
-                        <li key={e.id} className="py-2.5 text-sm">
+                        <li key={e.id} className="py-3 text-sm">
                           <p>
-                            <span className="font-medium">{e.actorUser?.name ?? "Système"}</span>{" "}
-                            <span className="text-muted-foreground">— {humanizeAuditAction(e.action)}</span>
+                            <span className="font-medium text-ink">{e.actorUser?.name ?? "Système"}</span>{" "}
+                            <span className="text-ink-secondary">— {humanizeAuditAction(e.action)}</span>
                           </p>
-                          <p className="text-xs text-muted-foreground">{formatDateTime(e.createdAt)}</p>
+                          <p className="mt-0.5 text-xs text-ink-muted">{formatDateTime(e.createdAt)}</p>
                         </li>
                       ))}
                     </ul>

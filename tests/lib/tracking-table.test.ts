@@ -114,12 +114,12 @@ describe("TrackingTable", () => {
     expect(html).toContain(`title="En cours de livraison">${out}</span>`);
     expect(html).toContain("Pas de réponse + SMS");
     expect(html).toContain(">Livré</span>"); // no raw text → normalized label
-    // P1: « Livré » uses the semantic success (emerald) variant like everywhere else,
-    // not the in-transit tone.
+    // P1: « Livré » uses the semantic success (green pill) variant like everywhere else,
+    // not the in-transit (blue) or in-progress (peach) tone.
     const livre = html.match(/<span[^>]*class="([^"]*)"[^>]*>Livré<\/span>/);
-    expect(livre?.[1]).toContain("bg-emerald-500/10");
-    expect(livre?.[1]).not.toContain("bg-sky-500/10");
-    expect(livre?.[1]).not.toContain("bg-primary/12");
+    expect(livre?.[1]).toContain("bg-pill-green");
+    expect(livre?.[1]).not.toContain("bg-pill-blue");
+    expect(livre?.[1]).not.toContain("bg-pill-peach");
   });
 
   it("latest event: its own text only when it adds something; date always; sync error kept visible", () => {

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FilterBar } from "@/components/filter-bar";
 import { Truck, Phone } from "lucide-react";
 import { EntityAvatar } from "@/components/entity-avatar";
 import { PageHeader } from "@/components/page-header";
@@ -7,7 +8,7 @@ import { DataTablePagination } from "@/components/data-table-pagination";
 import { FilterSearchInput } from "@/components/filter-search-input";
 import { SupplierForm } from "@/components/purchases/supplier-form";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -32,9 +33,9 @@ export default async function FournisseursPage({ searchParams }: { searchParams:
         description={showAmounts ? "Vos fournisseurs et le solde restant à leur payer (réceptions validées − paiements)." : "Vos fournisseurs."}
         actions={canManage ? <SupplierForm /> : undefined}
       />
-      <div className="mb-4">
-        <FilterSearchInput placeholder="Nom ou téléphone..." defaultValue={params.q} className="w-64" />
-      </div>
+      <FilterBar>
+        <FilterSearchInput placeholder="Nom ou téléphone..." defaultValue={params.q} className="w-full sm:w-72" />
+      </FilterBar>
       {suppliers.length === 0 ? (
         <EmptyState
           icon={Truck}
@@ -48,7 +49,7 @@ export default async function FournisseursPage({ searchParams }: { searchParams:
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -112,7 +113,7 @@ export default async function FournisseursPage({ searchParams }: { searchParams:
             </TableBody>
           </Table>
           <DataTablePagination page={page} pageSize={pageSize} total={total} basePath="/fournisseurs" searchParams={{ q: params.q }} />
-        </div>
+        </TableCard>
       )}
     </div>
   );

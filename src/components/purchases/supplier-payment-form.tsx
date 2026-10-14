@@ -52,7 +52,7 @@ export function SupplierPaymentForm({ supplierId }: { supplierId: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Enregistrer un paiement</CardTitle>
+        <CardTitle accent="green">Enregistrer un paiement</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-muted-foreground">
@@ -99,9 +99,9 @@ export function SupplierPaymentForm({ supplierId }: { supplierId: string }) {
         </div>
 
         {lastResult && (
-          <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+          <div className="rounded-tile border bg-pill-neutral p-3 text-sm">
             <div className="flex items-center gap-1.5 font-medium">
-              <CheckCircle2 className="size-4 text-emerald-600" />
+              <CheckCircle2 className="size-4 text-pill-green-fg" />
               Paiement de {formatCurrency(lastResult.amount)} affecté automatiquement
             </div>
             <ul className="mt-2 space-y-1 text-xs text-muted-foreground">

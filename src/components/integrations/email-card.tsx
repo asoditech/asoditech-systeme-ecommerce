@@ -18,7 +18,7 @@ export function EmailCard() {
   return (
     <Card className="overflow-hidden">
       <CardHeader className="flex flex-row items-center gap-3">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-sky-50 text-sky-600">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-pill-blue text-pill-blue-fg">
           <Mail className="size-5" />
         </div>
         <div>
@@ -26,7 +26,7 @@ export function EmailCard() {
           <p className="text-xs text-muted-foreground">Envoi des emails (géré par la plateforme)</p>
           <Badge
             variant="outline"
-            className={cn("mt-1 font-medium", configured ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "text-muted-foreground")}
+            className={cn("mt-1 font-medium", configured ? "border-transparent bg-pill-green text-pill-green-fg" : "text-muted-foreground")}
           >
             {configured ? "Actif" : "Non configuré"}
           </Badge>

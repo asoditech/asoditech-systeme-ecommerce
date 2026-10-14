@@ -55,7 +55,7 @@ export function OperationalSettingsForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Paramètres internes</CardTitle>
+        <CardTitle accent="purple">Paramètres internes</CardTitle>
       </CardHeader>
       <CardContent>
         <form action={formAction} className="space-y-4">

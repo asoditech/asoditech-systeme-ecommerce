@@ -19,7 +19,7 @@ export function EntityAvatar({ name, className }: { name: string; className?: st
     <span
       aria-hidden="true"
       className={cn(
-        "flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[11px] font-semibold text-accent-foreground ring-1 ring-primary/15",
+        "flex size-8 shrink-0 items-center justify-center rounded-full bg-pill-peach text-xs font-semibold text-pill-peach-fg",
         className
       )}
     >

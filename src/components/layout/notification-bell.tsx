@@ -25,14 +25,14 @@ export function NotificationBell({
     <Popover>
       <PopoverTrigger
         render={
-          <Button variant="ghost" size="icon" className="relative" aria-label="Notifications" />
+          <Button variant="ghost" size="icon" className="relative size-10 rounded-full border border-hairline bg-shell text-ink-secondary shadow-soft hover:bg-nav-hover hover:text-ink sm:size-11" aria-label="Notifications" />
         }
       >
         <Bell className="size-4" />
         {unreadCount > 0 && (
           <Badge
             variant="destructive"
-            className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] leading-none tabular-nums"
+            className="absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-shell bg-danger px-1 text-[10px] leading-none text-white tabular-nums"
           >
             {unreadCount > 9 ? "9+" : unreadCount}
           </Badge>
@@ -78,7 +78,7 @@ export function NotificationBell({
                   </div>
                   <p className="text-sm font-medium">{n.title}</p>
                   <p className="text-xs text-muted-foreground">{n.message}</p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">{formatDateTime(n.createdAt)}</p>
+                  <p className="mt-0.5 text-xs text-ink-muted">{formatDateTime(n.createdAt)}</p>
                 </button>
                 <DismissNotificationButton
                   id={n.id}
@@ -91,7 +91,7 @@ export function NotificationBell({
         <div className="border-t p-2">
           <Link
             href="/notifications"
-            className="block rounded-md px-2 py-1.5 text-center text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="block rounded-lg px-2 py-1.5 text-center text-xs text-ink-secondary transition-colors hover:bg-row-hover hover:text-ink"
           >
             Voir toutes les notifications
           </Link>

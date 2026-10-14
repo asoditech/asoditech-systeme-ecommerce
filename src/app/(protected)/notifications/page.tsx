@@ -43,19 +43,19 @@ export default async function NotificationsPage() {
       {notifications.length === 0 ? (
         <EmptyState icon={Bell} title="Aucune notification pour le moment." />
       ) : (
-        <div className="divide-y rounded-lg border">
+        <div className="divide-y divide-hairline overflow-hidden rounded-card bg-card shadow-card">
           {notifications.map((n) => (
-            <div key={n.id} className={`flex items-start justify-between gap-4 p-4 ${n.isRead ? "" : "bg-muted/40"}`}>
-              <div>
-                <div className="mb-1 flex items-center gap-2">
+            <div key={n.id} className={`flex items-start justify-between gap-3 px-4 py-4 sm:px-6 ${n.isRead ? "" : "bg-pill-peach/25"}`}>
+              <div className="min-w-0">
+                <div className="mb-1 flex flex-wrap items-center gap-2">
                   <Badge variant="outline">{NOTIFICATION_TYPE_LABELS[n.type] ?? n.type}</Badge>
                   {!n.isRead && <Badge variant="default">Non lu</Badge>}
                 </div>
-                <p className="text-sm font-medium">{n.title}</p>
-                <p className="text-sm text-muted-foreground">{n.message}</p>
+                <p className="text-sm font-semibold text-ink">{n.title}</p>
+                <p className="text-sm text-ink-secondary">{n.message}</p>
               </div>
-              <div className="flex shrink-0 items-start gap-2">
-                <span className="text-xs text-muted-foreground">{formatDateTime(n.createdAt)}</span>
+              <div className="flex shrink-0 flex-col-reverse items-end gap-1 sm:flex-row sm:items-start sm:gap-2">
+                <span className="text-xs whitespace-nowrap text-ink-muted">{formatDateTime(n.createdAt)}</span>
                 <DismissNotificationButton id={n.id} />
               </div>
             </div>

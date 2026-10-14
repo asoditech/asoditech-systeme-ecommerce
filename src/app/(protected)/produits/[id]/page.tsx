@@ -1,4 +1,6 @@
 import { notFound } from "next/navigation";
+import { Notice } from "@/components/ui/notice";
+import { SummarySection } from "@/components/summary-section";
 import Link from "next/link";
 import {
   Boxes,
@@ -8,7 +10,6 @@ import {
   Hash,
   FolderOpen,
   Receipt,
-  FileText,
   Check,
   Store,
   ExternalLink,
@@ -41,7 +42,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { productCostVisibility } from "@/lib/auth/cost-visibility";
@@ -85,8 +86,8 @@ function SpecItem({
   muted?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 sm:border-l sm:border-border/70 sm:px-5 sm:py-0 sm:first:border-l-0 sm:first:pl-0">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+    <div className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 sm:border-l sm:border-hairline sm:px-5 sm:py-0 sm:first:border-l-0 sm:first:pl-0">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-pill-neutral text-ink-secondary">
         <Icon className="size-4" />
       </div>
       <div className="min-w-0">
@@ -172,8 +173,8 @@ function DescriptionBlocks({ text }: { text: string }) {
               )}
               <ul className="grid gap-2.5 sm:grid-cols-2">
                 {checkmarks.items.map((item, j) => (
-                  <li key={j} className="flex items-start gap-2.5 rounded-lg bg-muted/50 px-3 py-2 text-[14px] leading-snug text-foreground/90">
-                    <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+                  <li key={j} className="flex items-start gap-2.5 rounded-xl bg-pill-neutral px-3 py-2 text-sm leading-snug text-ink">
+                    <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-pill-peach text-pill-peach-fg">
                       <Check className="size-3" strokeWidth={3} />
                     </span>
                     {item}
@@ -433,11 +434,7 @@ export default async function ProduitDetailPage({
       </div>
 
       {canViewFinance && profit && economics && (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-[15px]">Rentabilité</CardTitle>
-          </CardHeader>
-          <CardContent>
+        <SummarySection title="Rentabilité" className="mb-6">
             <div className="grid gap-4 sm:grid-cols-3">
               <KpiCard
                 label="Marge unitaire"
@@ -474,8 +471,8 @@ export default async function ProduitDetailPage({
               />
               <KpiCard label="Unités vendues (net des retours)" value={String(profit.unitsSold)} icon={Package} tone="violet" />
             </div>
-            <div className="mt-4 flex gap-2 rounded-lg bg-muted/40 p-3">
-              <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            <Notice tone="neutral" className="mt-4">
+              <Info />
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">
                   Le bénéfice réalisé utilise le coût figé <strong>au moment de chaque vente</strong>. Une vente enregistrée
@@ -486,9 +483,8 @@ export default async function ProduitDetailPage({
                   <BackfillCostButton productId={product.id} missingCount={profit.linesMissingCost} />
                 )}
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </Notice>
+        </SummarySection>
       )}
 
       {wooLink && wooFlag && (
@@ -551,7 +547,7 @@ export default async function ProduitDetailPage({
           {canViewPurchases && isSimpleProduct && purchaseHistory.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-[15px]">Historique des achats</CardTitle>
+                <CardTitle accent="green">Historique des achats</CardTitle>
               </CardHeader>
               <CardContent className="p-0">
                 <p className="px-6 pb-3 text-xs text-muted-foreground">
@@ -589,7 +585,7 @@ export default async function ProduitDetailPage({
           )}
 
           {isExternal && !externalEditUrl && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/8 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+            <Notice tone="warning" size="sm" className="gap-2">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
               <p>
                 Le lien de gestion {externalLabel} n&apos;est pas disponible pour le moment (intégration
@@ -599,16 +595,13 @@ export default async function ProduitDetailPage({
                 </Link>
                 .
               </p>
-            </div>
+            </Notice>
           )}
 
           {product.description && (
             <Card>
-              <CardHeader className="flex flex-row items-center gap-2.5 space-y-0">
-                <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <FileText className="size-4" />
-                </div>
-                <CardTitle>Description</CardTitle>
+              <CardHeader>
+                <CardTitle accent="peach">Description</CardTitle>
               </CardHeader>
               <CardContent>
                 <DescriptionBlocks text={product.description} />
@@ -619,7 +612,7 @@ export default async function ProduitDetailPage({
 
         <TabsContent value="variations" className="space-y-4">
           {variationsWithoutStock.length > 0 && (
-            <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-3 text-sm text-amber-900 dark:text-amber-200">
+            <Notice tone="warning" role="status">
               <p className="flex items-start gap-2 font-medium">
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
                 {variationsWithoutStock.length} variante(s) sans stock dans ASODITECH : {variationsWithoutStock.map((v) => v.sku).join(", ")}
@@ -629,7 +622,7 @@ export default async function ProduitDetailPage({
                 leur disponibilité ne peut pas être contrôlée à la vente. Enregistrez une réception d&apos;achat, ou gérez leur stock par variante sur WooCommerce puis relancez « Synchroniser les
                 produits ».
               </p>
-            </div>
+            </Notice>
           )}
           {product.variations.length === 0 ? (
             <EmptyState icon={Boxes} title="Aucune variation pour ce produit." />
@@ -642,7 +635,7 @@ export default async function ProduitDetailPage({
                   produits simples).
                 </p>
               )}
-              <div className="overflow-x-auto rounded-lg border">
+              <TableCard>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -749,7 +742,7 @@ export default async function ProduitDetailPage({
                     })}
                   </TableBody>
                 </Table>
-              </div>
+              </TableCard>
             </>
           )}
           {/* Managing variations is catalog editing — for an externally-sourced
@@ -807,7 +800,7 @@ export default async function ProduitDetailPage({
         <TabsContent value="stock">
           {isVariable ? (
             variationStockTracked ? (
-              <div className="overflow-x-auto rounded-lg border">
+              <TableCard>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -852,7 +845,7 @@ export default async function ProduitDetailPage({
                     )}
                   </TableBody>
                 </Table>
-              </div>
+              </TableCard>
             ) : (
               <EmptyState
                 icon={Boxes}
@@ -865,7 +858,7 @@ export default async function ProduitDetailPage({
           ) : product.inventoryItems.length === 0 ? (
             <EmptyState icon={Boxes} title="Aucun enregistrement de stock." />
           ) : (
-            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+            <TableCard>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -898,7 +891,7 @@ export default async function ProduitDetailPage({
                   ))}
                 </TableBody>
               </Table>
-            </div>
+            </TableCard>
           )}
         </TabsContent>
 

@@ -34,7 +34,7 @@ export function SupportContactSection({
 
   return (
     <section className="space-y-2">
-      <div className="text-xs font-semibold text-muted-foreground uppercase">Besoin d&apos;aide supplémentaire&nbsp;?</div>
+      <div className="text-xs font-semibold text-muted-foreground">Besoin d&apos;aide supplémentaire&nbsp;?</div>
 
       {config.name && <p className="text-xs text-muted-foreground">{config.name}</p>}
       {config.hours && (
@@ -81,7 +81,7 @@ export function SupportContactSection({
       </div>
 
       {!hasContact && (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Aucun contact de support n&apos;est encore configuré. Un administrateur peut l&apos;ajouter dans Paramètres →
           Support &amp; assistance.
         </p>

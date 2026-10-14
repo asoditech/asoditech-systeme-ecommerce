@@ -54,7 +54,7 @@ export default async function VenteDetailPage({ params }: { params: Promise<{ id
       />
       <Card>
         <CardHeader>
-          <CardTitle className="text-[15px]">Articles</CardTitle>
+          <CardTitle accent="peach">Articles</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
@@ -71,7 +71,7 @@ export default async function VenteDetailPage({ params }: { params: Promise<{ id
             <TableBody>
               {sale.lines.map((l) => (
                 <TableRow key={l.id}>
-                  <TableCell className="font-medium">
+                  <TableCell className="font-medium text-ink">
                     {l.nameSnapshot}
                     {variantLabel(l.variation?.attributes) && <span className="font-normal text-muted-foreground"> — {variantLabel(l.variation?.attributes)}</span>}
                     {l.variationId && <div className="font-mono text-xs font-normal text-muted-foreground">{l.skuSnapshot}</div>}
@@ -79,30 +79,30 @@ export default async function VenteDetailPage({ params }: { params: Promise<{ id
                   <TableCell className="font-mono text-xs text-muted-foreground">{l.barcodeSnapshot ?? l.skuSnapshot}</TableCell>
                   <TableCell className="text-right tabular-nums">{l.quantity}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatCurrency(l.unitPrice.toString(), sale.currency)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{Number(l.discount) > 0 ? formatCurrency(l.discount.toString(), sale.currency) : "—"}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatCurrency(l.total.toString(), sale.currency)}</TableCell>
+                  <TableCell className="text-right text-ink-secondary tabular-nums">{Number(l.discount) > 0 ? formatCurrency(l.discount.toString(), sale.currency) : "—"}</TableCell>
+                  <TableCell className="text-right font-medium text-ink tabular-nums">{formatCurrency(l.total.toString(), sale.currency)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-          <div className="mt-3 flex justify-end text-lg font-semibold tabular-nums">{formatCurrency(sale.total.toString(), sale.currency)}</div>
+          <div className="mt-4 flex justify-end border-t border-hairline pt-3 text-xl font-semibold tracking-tight text-ink tabular-nums">{formatCurrency(sale.total.toString(), sale.currency)}</div>
         </CardContent>
       </Card>
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-[15px]">Paiements</CardTitle>
+            <CardTitle accent="green">Paiements</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-1 text-sm">
+          <CardContent className="space-y-1.5 text-sm">
             {sale.payments.map((p) => (
               <div key={p.id} className="flex justify-between">
-                <span>{CASH_PAYMENT_METHOD_LABELS[p.method]}</span>
-                <span className="tabular-nums">{formatCurrency(p.amount.toString(), sale.currency)}</span>
+                <span className="text-ink-secondary">{CASH_PAYMENT_METHOD_LABELS[p.method]}</span>
+                <span className="font-medium text-ink tabular-nums">{formatCurrency(p.amount.toString(), sale.currency)}</span>
               </div>
             ))}
             {refunded > 0 && (
-              <div className="flex justify-between border-t pt-1 text-destructive">
+              <div className="flex justify-between border-t border-hairline pt-1.5 text-destructive">
                 <span>Remboursé</span>
                 <span className="tabular-nums">− {formatCurrency(String(refunded), sale.currency)}</span>
               </div>
@@ -111,13 +111,13 @@ export default async function VenteDetailPage({ params }: { params: Promise<{ id
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-[15px]">Retours</CardTitle>
+            <CardTitle accent="purple">Retours</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             {sale.returns.length === 0 && <p className="text-muted-foreground">Aucun retour.</p>}
             {sale.returns.map((r) => (
               <div key={r.id} className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-medium">{displaySaleReturnNumber(r)}</span>
+                <span className="font-medium text-ink">{displaySaleReturnNumber(r)}</span>
                 <span className="text-muted-foreground">{formatDateTime(r.receivedAt)} · {r.receivedByName ?? "—"}</span>
                 <span>
                   {r.lines.map((l) => `${l.quantitySellable} revendable${l.quantityDamaged ? ` / ${l.quantityDamaged} endommagé` : ""}`).join(", ")}
@@ -128,9 +128,9 @@ export default async function VenteDetailPage({ params }: { params: Promise<{ id
           </CardContent>
         </Card>
       </div>
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs text-ink-muted">
         Stock : chaque ligne a produit un mouvement « Vente » horodaté sur l&apos;emplacement ; consultez-les dans{" "}
-        <Link href="/tracabilite" className="underline">Traçabilité</Link>.
+        <Link href="/tracabilite" className="text-link underline">Traçabilité</Link>.
       </p>
     </div>
   );

@@ -4,14 +4,15 @@ import { formatDateTime } from "@/lib/format";
 import { SYNC_RUN_STATUS_LABELS } from "@/lib/status-labels";
 import type { SyncRun } from "@prisma/client";
 
-const DOT_TONE: Record<"default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info", string> = {
-  default: "bg-primary",
+const DOT_TONE: Record<"default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" | "purple", string> = {
+  default: "bg-brand",
   secondary: "bg-muted-foreground/40",
   destructive: "bg-destructive",
   outline: "bg-muted-foreground/40",
-  success: "bg-emerald-500",
-  warning: "bg-amber-500",
-  info: "bg-sky-500",
+  success: "bg-success",
+  warning: "bg-chart-5",
+  info: "bg-chart-2",
+  purple: "bg-chart-4",
 };
 
 function summaryLine(run: SyncRun): string {
@@ -50,7 +51,7 @@ export function SyncResourceRow({
         <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0">
           <p className="text-[13px] leading-snug font-medium text-foreground">{label}</p>
-          <p className="truncate text-[11px] text-muted-foreground">{direction}</p>
+          <p className="truncate text-xs text-muted-foreground">{direction}</p>
         </div>
       </div>
       {run && meta ? (
@@ -59,10 +60,10 @@ export function SyncResourceRow({
             <span className={cn("size-1.5 rounded-full", DOT_TONE[meta.variant])} aria-hidden="true" />
             {meta.label}
           </span>
-          <span className="text-[11px] text-muted-foreground">{formatDateTime(run.startedAt)}</span>
+          <span className="text-xs text-muted-foreground">{formatDateTime(run.startedAt)}</span>
         </div>
       ) : (
-        <span className="shrink-0 text-xs text-muted-foreground/70">Jamais synchronisé</span>
+        <span className="shrink-0 text-xs text-ink-muted">Jamais synchronisé</span>
       )}
     </div>
   );

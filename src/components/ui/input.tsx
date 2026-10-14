@@ -5,10 +5,9 @@ import { cn } from "@/lib/utils"
 
 /**
  * ASODITECH text input — see docs/adr/0014-ui-design-system.md.
- * 36px tall (UI density pass, 2026-09 — was 40px, taller than the default
- * Button next to it), rounded-lg, calm 1px border that warms on hover and
- * lifts to the orange focus ring; a distinct (not just dimmed) disabled
- * state; a red border + ring for `aria-invalid`.
+ * Soft UI: 44px tall (same as the default Button), 14px radius, a 1px
+ * #E8E8E8 edge that darkens on hover, a soft orange focus ring, a filled
+ * disabled state and a red border + ring for `aria-invalid`.
  */
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
@@ -16,15 +15,14 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
       type={type}
       data-slot="input"
       className={cn(
-        "h-9 w-full min-w-0 rounded-lg border border-input bg-card px-3 py-1 text-base shadow-xs transition-[color,box-shadow,border-color] outline-none",
-        "file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground",
-        "placeholder:text-muted-foreground/70",
-        "hover:border-ring/45",
-        "focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25",
-        "disabled:pointer-events-none disabled:cursor-not-allowed disabled:border-border/60 disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:placeholder:text-muted-foreground/50",
+        "h-11 w-full min-w-0 rounded-control border border-field-border bg-field px-4 py-1 text-base text-ink transition-[color,box-shadow,border-color] duration-150 outline-none",
+        "file:inline-flex file:h-8 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground",
+        "placeholder:text-ink-muted",
+        "hover:border-field-border-hover",
+        "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/20",
+        "disabled:pointer-events-none disabled:cursor-not-allowed disabled:border-field-border disabled:bg-nav-hover disabled:text-ink-muted disabled:shadow-none disabled:placeholder:text-ink-faint",
         "aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20",
         "md:text-sm",
-        "dark:bg-input/25 dark:hover:border-ring/50 dark:disabled:bg-input/40",
         className
       )}
       {...props}

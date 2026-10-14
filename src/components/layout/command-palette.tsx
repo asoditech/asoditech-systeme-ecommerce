@@ -105,22 +105,23 @@ export function CommandPalette({ permissions }: { permissions: Set<Permission> }
           crowd out the theme toggle/notification bell next to it) — the
           full search-bar-with-label form only appears from `sm:` up. */}
       <Button
-        variant="outline"
+        variant="ghost"
         size="icon"
-        className="shrink-0 text-muted-foreground sm:hidden"
+        className="size-10 rounded-full border border-hairline bg-shell text-ink-secondary shadow-soft hover:bg-nav-hover hover:text-ink sm:size-11 shrink-0 sm:hidden"
         onClick={() => setOpen(true)}
         aria-label="Rechercher"
       >
         <Search className="size-4" />
       </Button>
+      {/* Soft UI search field — a rounded, borderless field on a faint grey, the ⌘K shortcut as a small white chip. */}
       <Button
-        variant="outline"
-        className="hidden h-8 w-64 shrink-0 justify-start gap-2 px-2.5 text-muted-foreground sm:flex"
+        variant="ghost"
+        className="hidden h-11 w-full max-w-sm shrink justify-start gap-2.5 rounded-control bg-nav-hover px-4 font-normal text-ink-muted hover:bg-nav-active hover:text-ink-secondary sm:flex"
         onClick={() => setOpen(true)}
       >
         <Search className="size-4" />
         <span className="text-sm">Rechercher...</span>
-        <kbd className="ml-auto hidden rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium sm:inline-block">
+        <kbd className="ml-auto hidden rounded-md bg-shell px-2 py-1 text-[11px] font-medium text-ink-secondary shadow-soft sm:inline-block">
           ⌘K
         </kbd>
       </Button>

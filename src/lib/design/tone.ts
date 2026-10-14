@@ -17,48 +17,27 @@
  * here" (docs request, section 4).
  */
 
+// Soft UI (redesign/soft-ui): `badge` (the small icon chip) uses the pastel
+// pill tokens of globals.css. The unused bar/text/surface/ring entries were
+// removed (dead styles, Step 6); charts take their colours from chart.ts.
 export const TONES = {
   primary: {
-    badge: "bg-primary/12 text-primary",
-    bar: "bg-primary",
-    text: "text-primary",
-    surface: "from-primary/14 via-primary/6 to-transparent",
-    ring: "ring-primary/15",
+    badge: "bg-pill-peach text-pill-peach-fg",
   },
   success: {
-    badge: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-    bar: "bg-emerald-500",
-    text: "text-emerald-600 dark:text-emerald-400",
-    surface: "from-emerald-500/14 via-emerald-500/5 to-transparent",
-    ring: "ring-emerald-500/15",
+    badge: "bg-pill-green text-pill-green-fg",
   },
   warning: {
-    badge: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-    bar: "bg-amber-500",
-    text: "text-amber-600 dark:text-amber-400",
-    surface: "from-amber-500/14 via-amber-500/5 to-transparent",
-    ring: "ring-amber-500/15",
+    badge: "bg-pill-yellow text-pill-yellow-fg",
   },
   info: {
-    badge: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
-    bar: "bg-cyan-500",
-    text: "text-cyan-600 dark:text-cyan-400",
-    surface: "from-cyan-500/14 via-cyan-500/5 to-transparent",
-    ring: "ring-cyan-500/15",
+    badge: "bg-pill-blue text-pill-blue-fg",
   },
   violet: {
-    badge: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
-    bar: "bg-violet-500",
-    text: "text-violet-600 dark:text-violet-400",
-    surface: "from-violet-500/14 via-violet-500/5 to-transparent",
-    ring: "ring-violet-500/15",
+    badge: "bg-pill-purple text-pill-purple-fg",
   },
   danger: {
-    badge: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-    bar: "bg-rose-500",
-    text: "text-rose-600 dark:text-rose-400",
-    surface: "from-rose-500/14 via-rose-500/5 to-transparent",
-    ring: "ring-rose-500/15",
+    badge: "bg-pill-red text-pill-red-fg",
   },
 } as const;
 

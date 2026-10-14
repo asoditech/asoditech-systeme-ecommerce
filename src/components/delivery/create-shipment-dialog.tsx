@@ -204,7 +204,7 @@ export function CreateShipmentDialog({
           )}
 
           {state && !state.ok && (
-            <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+            <div className="space-y-2 rounded-tile bg-danger-soft p-3">
               <p className="text-sm text-destructive">{state.error}</p>
               {isFixableAddressError(state.error) && (
                 <div className="flex flex-wrap gap-2">

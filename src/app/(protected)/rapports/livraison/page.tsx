@@ -109,12 +109,12 @@ export default async function RapportLivraisonPage({
       </div>
 
       <Card className="mt-6">
-        <CardHeader><CardTitle className="flex items-center gap-1.5">Par transporteur<ReportMetricInfo metric="deliveryByProvider" /></CardTitle></CardHeader>
+        <CardHeader><CardTitle accent="purple">Par transporteur<ReportMetricInfo metric="deliveryByProvider" /></CardTitle></CardHeader>
         <CardContent className="overflow-x-auto"><PerfTable rows={report.byProvider} label="Transporteur" /></CardContent>
       </Card>
 
       <Card className="mt-4">
-        <CardHeader><CardTitle className="flex items-center gap-1.5">Par ville<ReportMetricInfo metric="deliveryByCity" /></CardTitle></CardHeader>
+        <CardHeader><CardTitle accent="purple">Par ville<ReportMetricInfo metric="deliveryByCity" /></CardTitle></CardHeader>
         <CardContent className="overflow-x-auto"><PerfTable rows={report.byCity} label="Ville" /></CardContent>
       </Card>
       <ReportDefinitions report="livraison" />

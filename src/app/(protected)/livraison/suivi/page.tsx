@@ -3,6 +3,8 @@ import { Radar, Truck, PackageCheck, PackageX, HelpCircle, ChevronRight } from "
 import { EmptyState } from "@/components/empty-state";
 import { FilterSelect } from "@/components/filter-select";
 import { FilterSearchInput } from "@/components/filter-search-input";
+import { TableCard } from "@/components/ui/table";
+import { FilterBar, StatChip } from "@/components/filter-bar";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { redirect } from "next/navigation";
 import { PAGE_SIZE_OPTIONS, outOfRangeHref, parsePage, parsePageSize } from "@/lib/pagination";
@@ -108,62 +110,46 @@ export default async function SuiviPage({
   const sizeSuffix = params.pageSize ? `&pageSize=${pageSize}` : "";
   // Compact statistics strip — same counts and links as before, one short row.
   const statItems = [
-    { label: "Suivies", value: stats.total, icon: Truck, href: null, tone: "text-primary" },
-    { label: "En transit", value: inTransit, icon: Radar, href: `/livraison/suivi?status=IN_TRANSIT${sizeSuffix}`, tone: "text-sky-600 dark:text-sky-400" },
-    { label: "En attente de ramassage", value: pending, icon: PackageCheck, href: `/livraison/suivi?status=CREATED${sizeSuffix}`, tone: "text-amber-600 dark:text-amber-400" },
-    { label: "Livrées", value: stats.byNormalized.DELIVERED, icon: PackageCheck, href: `/livraison/suivi?status=DELIVERED${sizeSuffix}`, tone: "text-emerald-600 dark:text-emerald-400" },
-    { label: "Retours / échecs", value: stats.byNormalized.RETURNED + stats.byNormalized.FAILED, icon: PackageX, href: `/livraison/suivi?status=RETURNED${sizeSuffix}`, tone: "text-destructive" },
+    { label: "Suivies", value: stats.total, icon: Truck, href: null, tone: "text-pill-peach-fg" },
+    { label: "En transit", value: inTransit, icon: Radar, href: `/livraison/suivi?status=IN_TRANSIT${sizeSuffix}`, tone: "text-pill-blue-fg" },
+    { label: "En attente de ramassage", value: pending, icon: PackageCheck, href: `/livraison/suivi?status=CREATED${sizeSuffix}`, tone: "text-pill-yellow-fg" },
+    { label: "Livrées", value: stats.byNormalized.DELIVERED, icon: PackageCheck, href: `/livraison/suivi?status=DELIVERED${sizeSuffix}`, tone: "text-pill-green-fg" },
+    { label: "Retours / échecs", value: stats.byNormalized.RETURNED + stats.byNormalized.FAILED, icon: PackageX, href: `/livraison/suivi?status=RETURNED${sizeSuffix}`, tone: "text-pill-red-fg" },
   ];
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h1 className="flex items-center gap-1.5 text-xl font-semibold tracking-tight">
-          <Link href="/livraison" className="text-muted-foreground transition-colors hover:text-foreground">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight text-ink">
+          <Link href="/livraison" className="text-ink-muted transition-colors hover:text-ink">
             Livraison
           </Link>
-          <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
+          <ChevronRight className="size-4 text-ink-muted" aria-hidden="true" />
           Suivi
         </h1>
         {canManage && <RefreshTrackingButton mode="batch" />}
       </div>
 
-      <div className="mb-3 flex flex-wrap gap-2">
-        {statItems.map(({ label, value, icon: Icon, href, tone }) => {
-          const body = (
-            <>
-              <Icon className={`size-4 ${tone}`} aria-hidden="true" />
-              <span className="text-muted-foreground">{label}</span>
-              <span className="font-semibold tabular-nums">{value}</span>
-            </>
-          );
-          const className = "inline-flex items-center gap-2 rounded-lg border bg-card px-3 py-1.5 text-sm shadow-xs";
-          return href ? (
-            <Link key={label} href={href} className={`${className} transition-colors hover:bg-muted`}>
-              {body}
-            </Link>
-          ) : (
-            <div key={label} className={className}>
-              {body}
-            </div>
-          );
-        })}
+      <div className="mb-4 flex flex-wrap gap-2">
+        {statItems.map(({ label, value, icon, href, tone }) => (
+          <StatChip key={label} icon={icon} iconClassName={tone} label={label} value={value} href={href} />
+        ))}
       </div>
 
-      <div className="mb-2 flex flex-wrap items-center gap-2">
+      <FilterBar>
         <FilterSearchInput
           paramKey="q"
           placeholder="N° commande, client, téléphone, n° de suivi, ville…"
           ariaLabel="Rechercher un colis par n° de commande, client, téléphone, n° de suivi ou ville"
           defaultValue={params.q}
-          className="w-72 max-w-full"
+          className="w-full sm:w-72"
         />
         <FilterSelect
           paramKey="status"
           value={params.status}
           allLabel="Tous les statuts"
           ariaLabel="Filtrer par statut de suivi"
-          className="w-48"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-48"
           options={NORMALIZED_STATUSES.map((s) => ({ value: s, label: NORMALIZED_TRACKING_LABELS[s] }))}
         />
         {providers.length > 1 && (
@@ -172,7 +158,7 @@ export default async function SuiviPage({
             value={params.provider}
             allLabel="Tous les transporteurs"
             ariaLabel="Filtrer par transporteur"
-            className="w-48"
+            className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-48"
             options={providers.map((p) => ({ value: p.id, label: p.name }))}
           />
         )}
@@ -182,7 +168,7 @@ export default async function SuiviPage({
             value={params.city}
             allLabel="Toutes les villes"
             ariaLabel="Filtrer par ville"
-            className="w-44"
+            className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-44"
             options={cities.map((c) => ({ value: c, label: c }))}
           />
         )}
@@ -192,7 +178,7 @@ export default async function SuiviPage({
             value={params.costSource}
             allLabel="Toutes les sources de coût"
             ariaLabel="Filtrer par source de coût"
-            className="w-52"
+            className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-52"
             options={COST_SOURCES.map((c) => ({ value: c, label: SHIPMENT_COST_SOURCE_LABELS[c] }))}
           />
         )}
@@ -201,15 +187,15 @@ export default async function SuiviPage({
           value={params.range}
           allLabel="Créées : toute la période"
           ariaLabel="Filtrer par date de création de l'expédition"
-          className="w-44"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-44"
           options={RANGE_PRESETS.map((p) => ({ value: p, label: DATE_RANGE_PRESET_LABELS[p] }))}
         />
         {filterActive && (
-          <Button variant="ghost" size="sm" render={<Link href={params.pageSize ? `/livraison/suivi?pageSize=${pageSize}` : "/livraison/suivi"} />}>
+          <Button variant="ghost" render={<Link href={params.pageSize ? `/livraison/suivi?pageSize=${pageSize}` : "/livraison/suivi"} />}>
             Réinitialiser
           </Button>
         )}
-      </div>
+      </FilterBar>
 
       {rows.length === 0 ? (
         <EmptyState
@@ -223,7 +209,7 @@ export default async function SuiviPage({
       ) : (
         // The table is the workspace: it takes the remaining viewport height
         // and scrolls inside (sticky header) — more rows visible at once.
-        <div className="rounded-lg border bg-card sm:[&>[data-slot=table-container]]:max-h-[max(18rem,calc(100dvh-19rem))] sm:[&>[data-slot=table-container]]:overflow-y-auto">
+        <TableCard className="sm:[&>[data-slot=table-container]]:max-h-[max(18rem,calc(100dvh-19rem))] sm:[&>[data-slot=table-container]]:overflow-y-auto">
           <TrackingTable rows={rows} />
           <DataTablePagination
             page={page}
@@ -240,10 +226,10 @@ export default async function SuiviPage({
               range: params.range,
             }}
           />
-        </div>
+        </TableCard>
       )}
 
-      <p className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
+      <p className="mt-3 flex items-start gap-1.5 text-xs text-ink-muted">
         <HelpCircle className="mt-0.5 size-3.5 shrink-0" />
         <span>
           Le statut « suivi » est normalisé à partir du statut interne et du libellé brut du transporteur. En cas

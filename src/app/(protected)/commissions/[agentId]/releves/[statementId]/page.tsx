@@ -50,7 +50,7 @@ export default async function CommissionStatementPrintPage({
 
       <div
         data-print-sheet
-        className="mx-auto max-w-3xl rounded-lg border bg-white p-8 text-[13px] text-slate-900 shadow-sm dark:bg-white"
+        className="mx-auto max-w-3xl rounded-card bg-white p-8 text-[13px] text-slate-900 shadow-card dark:bg-white"
       >
         <div className="flex items-start justify-between gap-6 border-b border-slate-200 pb-5">
           <div>
@@ -65,7 +65,7 @@ export default async function CommissionStatementPrintPage({
             {business.email && <p>{business.email}</p>}
           </div>
           <div className="text-right">
-            <p className="text-base font-semibold uppercase tracking-wide">Relevé de commission</p>
+            <p className="text-base font-semibold">Relevé de commission</p>
             <p className="text-slate-600">{ref}</p>
             <p className="text-slate-600">Émis le {formatDate(new Date())}</p>
             <p className="mt-1">Période : {period}</p>

@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { ScanCodeInput } from "@/components/returns/scan-code-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -161,7 +161,7 @@ export function ReturnInspectionForm({ receptionId, lines }: { receptionId: stri
 
   return (
     <div className="space-y-4">
-      <div className="space-y-2 rounded-md border border-dashed p-3">
+      <div className="space-y-2 rounded-tile border border-dashed border-field-border p-3">
         <div className="flex flex-col gap-2 sm:flex-row">
           <ScanCodeInput
             value={code}
@@ -178,7 +178,7 @@ export function ReturnInspectionForm({ receptionId, lines }: { receptionId: stri
           <BarcodeScanButton formats={LOOKUP_SCAN_FORMATS} onDetect={resolve} label="Scanner" />
         </div>
         {pending && (
-          <div role="group" aria-label="État de l'article scanné" className="space-y-2 rounded-md bg-muted/60 p-3">
+          <div role="group" aria-label="État de l'article scanné" className="space-y-2 rounded-tile bg-pill-neutral p-3">
             <p className="text-sm">
               Article : <span className="font-medium">{pending.label}</span> — quel est son état ?
             </p>
@@ -198,17 +198,17 @@ export function ReturnInspectionForm({ receptionId, lines }: { receptionId: stri
           </div>
         )}
         {feedback && (
-          <p role="status" className={`flex items-start gap-1.5 text-xs ${feedback.ok ? "text-emerald-700 dark:text-emerald-400" : "text-destructive"}`}>
+          <p role="status" className={`flex items-start gap-1.5 text-xs ${feedback.ok ? "text-pill-green-fg" : "text-destructive"}`}>
             {feedback.ok ? <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" /> : <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />}
             {feedback.text}
           </p>
         )}
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Un article scanné ne compte qu&apos;après le choix de son état. Vous pouvez aussi saisir les quantités ci-dessous.
         </p>
       </div>
 
-      <div className="rounded-lg border bg-card">
+      <TableCard>
         <Table>
           <TableHeader>
             <TableRow>
@@ -262,7 +262,7 @@ export function ReturnInspectionForm({ receptionId, lines }: { receptionId: stri
             })}
           </TableBody>
         </Table>
-      </div>
+      </TableCard>
 
       <div className="space-y-1.5">
         <Label htmlFor="inspection-note">Note (facultative)</Label>

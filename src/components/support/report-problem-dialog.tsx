@@ -57,7 +57,7 @@ export function ReportProblemDialog({
           />
         }
       >
-        <Flag className="size-4 text-amber-600 dark:text-amber-400" />
+        <Flag className="size-4 text-pill-yellow-fg" />
         Signaler un problème
       </DialogTrigger>
       <DialogContent>
@@ -110,7 +110,7 @@ export function ReportProblemDialog({
           </div>
 
           {context.entity && (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Contexte joint : {context.entity.type === "Order" ? "commande" : "expédition"} {context.entity.id}
             </p>
           )}

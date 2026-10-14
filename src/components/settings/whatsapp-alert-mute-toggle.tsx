@@ -37,10 +37,10 @@ export function WhatsAppAlertMuteToggle({ type, muted, label }: { type: WhatsApp
         })
       }
       className={cn(
-        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-60",
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/25 focus-visible:outline-none disabled:opacity-60",
         on
-          ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-          : "border-border text-muted-foreground line-through hover:bg-muted"
+          ? "border-transparent bg-pill-green text-pill-green-fg hover:brightness-95"
+          : "border-hairline text-ink-muted line-through hover:bg-row-hover"
       )}
     >
       {on ? <Check className="size-3" /> : <Minus className="size-3" />}

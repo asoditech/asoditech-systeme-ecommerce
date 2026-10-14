@@ -311,7 +311,7 @@ export function ProductForm({
                     <FieldError>{state && !state.ok ? state.fieldErrors?.barcode?.[0] : undefined}</FieldError>
                     {/* Non-blocking: a numeric code of a GTIN length is not necessarily a GTIN. */}
                     {gs1CheckDigitWarning(barcode) && (
-                      <p role="status" className="text-xs text-amber-600 dark:text-amber-400">{gs1CheckDigitWarning(barcode)}</p>
+                      <p role="status" className="text-xs text-pill-yellow-fg">{gs1CheckDigitWarning(barcode)}</p>
                     )}
                   </Field>
                 </div>
@@ -348,7 +348,7 @@ export function ProductForm({
               <div className="grid items-start gap-4 sm:grid-cols-2">
                 <label
                   htmlFor="trackInventory"
-                  className="flex cursor-pointer items-start gap-3 rounded-lg border bg-muted/30 p-3 transition-colors hover:border-primary/40"
+                  className="flex cursor-pointer items-start gap-3 rounded-tile border bg-pill-neutral p-3 transition-colors hover:border-field-border-hover"
                 >
                   <Checkbox id="trackInventory" name="trackInventory" defaultChecked={product?.trackInventory ?? true} className="mt-0.5" />
                   <span>
@@ -385,8 +385,8 @@ export function ProductForm({
                       <label
                         key={c.id}
                         className={cn(
-                          "flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm transition-colors hover:border-primary/40",
-                          checked && "border-primary/40 bg-accent/60"
+                          "flex cursor-pointer items-center gap-3 rounded-tile border p-3 text-sm transition-colors hover:border-field-border-hover",
+                          checked && "border-brand bg-pill-peach/40"
                         )}
                       >
                         <Checkbox
@@ -402,7 +402,7 @@ export function ProductForm({
                             })
                           }
                         />
-                        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-pill-neutral text-ink-secondary">
                           <Icon className="size-3.5" />
                         </span>
                         <span className="min-w-0">
@@ -452,8 +452,8 @@ export function ProductForm({
               <FormSection title="Variantes">
                 <label
                   className={cn(
-                    "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:border-primary/40",
-                    hasVariants && "border-primary/40 bg-accent/60"
+                    "flex cursor-pointer items-start gap-3 rounded-tile border p-3 transition-colors hover:border-field-border-hover",
+                    hasVariants && "border-brand bg-pill-peach/40"
                   )}
                 >
                   <Checkbox checked={hasVariants} onCheckedChange={(checked) => setHasVariants(checked === true)} className="mt-0.5" />
@@ -520,7 +520,7 @@ export function ProductForm({
           )}
         </div>
         {!product && identityEnabled && newCategoryOpen && (
-          <div className="flex gap-2 rounded-lg border border-primary/25 bg-accent/50 p-2">
+          <div className="flex gap-2 rounded-tile bg-pill-neutral p-2">
             <Input
               autoFocus
               value={newCategory}

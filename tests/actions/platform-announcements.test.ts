@@ -429,11 +429,13 @@ describe("app shell integration", () => {
       renderToStaticMarkup(createElement(AnnouncementBar, { announcement: { id: "a", key: "a.1", message: "m", type, actionLabel: null, actionUrl: null } }));
     expect(render("INFO")).toContain("bg-sky-600 text-white");
     expect(render("MAINTENANCE")).toContain("bg-amber-700 text-white");
-    expect(render("NEW_FEATURE")).toContain("bg-primary text-white");
+    // The orange takes the dark brand-foreground (AA), never white (≈ 2.8:1).
+    expect(render("NEW_FEATURE")).toContain("bg-brand text-brand-foreground");
+    expect(render("NEW_FEATURE")).not.toContain("text-white");
     for (const t of ["INFO", "MAINTENANCE", "NEW_FEATURE"] as const) expect(render(t)).not.toMatch(/bg-(sky|amber)-50\b|bg-primary\/5/);
   });
 
-  it("is a looping ticker: bold white text, a 2nd copy hidden from assistive tech, LTR/RTL + reduced-motion handled in CSS", () => {
+  it("is a looping ticker: bold text in the bar colour, a 2nd copy hidden from assistive tech, LTR/RTL + reduced-motion handled in CSS", () => {
     const html = renderToStaticMarkup(
       createElement(AnnouncementBar, { announcement: { id: "a", key: "a.1", message: "Maintenance ce soir", type: "INFO", actionLabel: null, actionUrl: null } })
     );
@@ -441,7 +443,10 @@ describe("app shell integration", () => {
     expect(html.match(/announcement-ticker-copy/g)).toHaveLength(2);
     expect(html.match(/Maintenance ce soir/g)).toHaveLength(2);
     expect(html).toContain('aria-hidden="true"');
-    expect(html).toMatch(/announcement-ticker-copy[^"]*font-bold[^"]*text-white/);
+    // Bold, and no colour of its own: it inherits the bar's AA text colour.
+    expect(html).toMatch(/announcement-ticker-copy[^"]*font-bold/);
+    expect(html).not.toMatch(/announcement-ticker-copy[^"]*text-white/);
+    expect(html).toContain("bg-sky-600 text-white");
     expect(html).toContain("--ticker-duration:15s");
     const css = fs.readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8");
     expect(css).toMatch(/@keyframes announcement-ticker \{[^}]*translateX\(0\)[^}]*\}[^}]*translateX\(-50%\)/);

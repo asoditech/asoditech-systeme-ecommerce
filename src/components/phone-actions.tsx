@@ -36,7 +36,7 @@ export function PhoneActions({
           href={tel}
           aria-label={`Appeler ${display}`}
           className={cn(
-            "inline-flex items-center rounded-md text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "inline-flex items-center rounded-lg text-ink underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/25",
             sm ? "gap-1 tabular-nums" : "min-h-8 gap-1.5 px-1"
           )}
         >
@@ -54,7 +54,7 @@ export function PhoneActions({
           aria-label={`Écrire sur WhatsApp à ${display}`}
           title="WhatsApp"
           className={cn(
-            "inline-flex items-center justify-center rounded-md border border-emerald-200 text-emerald-700 transition-colors hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-emerald-900/50 dark:text-emerald-400 dark:hover:bg-emerald-950/40",
+            "inline-flex items-center justify-center rounded-full bg-pill-green text-pill-green-fg transition-[filter] hover:brightness-95 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/25",
             sm ? "size-6" : "size-8"
           )}
         >

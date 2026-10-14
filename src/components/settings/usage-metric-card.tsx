@@ -17,10 +17,10 @@ const STATUS_EMOJI: Record<UsageStatus, string> = {
 };
 
 const PROGRESS_TONE: Record<UsageStatus, string> = {
-  NORMAL: "bg-primary",
-  WARNING: "bg-amber-500",
-  CRITICAL: "bg-rose-500",
-  LIMIT_REACHED: "bg-rose-700",
+  NORMAL: "bg-brand",
+  WARNING: "bg-chart-5",
+  CRITICAL: "bg-danger",
+  LIMIT_REACHED: "bg-danger-strong",
 };
 
 const STATUS_SENTENCE: Record<UsageStatus, (used: string, limit: string, unit: string) => string> = {

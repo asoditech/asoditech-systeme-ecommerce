@@ -25,7 +25,7 @@ export function BlockRenderer({ blocks }: { blocks: DocBlock[] }) {
             );
           case "code":
             return (
-              <pre key={i} className="overflow-x-auto rounded-lg border bg-muted/50 p-3 text-xs">
+              <pre key={i} className="overflow-x-auto rounded-tile border bg-pill-neutral p-3 text-xs">
                 <code>{block.code}</code>
               </pre>
             );

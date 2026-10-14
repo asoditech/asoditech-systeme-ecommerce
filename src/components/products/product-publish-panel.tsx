@@ -58,7 +58,7 @@ export function ProductPublishPanel({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-[15px]">Publication externe</CardTitle>
+        <CardTitle accent="purple">Publication externe</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs text-muted-foreground">
@@ -72,7 +72,7 @@ export function ProductPublishPanel({
         ) : (
           <div className="flex flex-col gap-2">
             {channels.map((c) => (
-              <div key={c.provider} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
+              <div key={c.provider} className="flex flex-wrap items-center justify-between gap-2 rounded-tile border p-3">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium">{c.label}</span>
                   {c.published ? (

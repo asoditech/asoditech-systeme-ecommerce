@@ -29,7 +29,7 @@ export function PendingInvitationsList({ invitations }: { invitations: PendingIn
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Invitations en attente</CardTitle>
+        <CardTitle accent="blue">Invitations en attente</CardTitle>
       </CardHeader>
       <CardContent>
         <Table>

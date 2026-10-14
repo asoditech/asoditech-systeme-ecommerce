@@ -13,6 +13,7 @@ export function ThemeToggle() {
       type="button"
       variant="ghost"
       size="icon"
+      className="hidden sm:inline-flex size-10 rounded-full border border-hairline bg-shell text-ink-secondary shadow-soft hover:bg-nav-hover hover:text-ink sm:size-11"
       aria-label="Changer de thème"
       title="Changer de thème"
       disabled={!theme}

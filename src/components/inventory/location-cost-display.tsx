@@ -11,7 +11,7 @@ export function LocationCostDisplay({ cost, source }: { cost: string | null; sou
   return (
     <span className="inline-flex flex-col leading-tight">
       <span className="tabular-nums">{formatCurrency(cost)}</span>
-      <span className={source === "location" ? "text-xs font-medium text-primary" : "text-xs text-muted-foreground"}>
+      <span className={source === "location" ? "text-xs font-medium text-pill-peach-fg" : "text-xs text-muted-foreground"}>
         {locationCostSourceLabel(source)}
       </span>
     </span>

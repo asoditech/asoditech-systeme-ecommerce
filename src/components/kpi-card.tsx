@@ -37,6 +37,7 @@ export function KpiCard({
   info,
   metric,
   explain,
+  size = "default",
 }: {
   label: string;
   value: string | null;
@@ -51,36 +52,46 @@ export function KpiCard({
   metric?: AnalyticsMetricId;
   /** Any other « ⓘ » (e.g. <ReportMetricInfo/> on /rapports). */
   explain?: React.ReactNode;
+  /** "lg": the dashboard bento tile — 40px figure, larger chip and padding. */
+  size?: "default" | "lg";
 }) {
+  const lg = size === "lg";
   const colors = TONES[tone];
   return (
-    <Card size="sm">
-      <CardContent className="flex flex-col gap-1.5">
-        <div className="flex items-center gap-2">
+    <Card size={lg ? "default" : "sm"} className={cn(lg && "h-full")}>
+      <CardContent className={cn("flex flex-col", lg ? "gap-3" : "gap-2")}>
+        <div className="flex items-center gap-2.5">
           {Icon && (
-            <span className={cn("flex size-6 shrink-0 items-center justify-center rounded-md", colors.badge)}>
-              <Icon className="size-3.5" />
+            <span className={cn("flex shrink-0 items-center justify-center", lg ? "size-10 rounded-xl" : "size-8 rounded-[10px]", colors.badge)}>
+              <Icon className={lg ? "size-[18px]" : "size-4"} />
             </span>
           )}
-          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+          <p className="truncate text-xs text-ink-muted">{label}</p>
           {info && <MetricInfo metric={info} className="-ml-1" />}
           {metric && <AnalyticsMetricInfo metric={metric} label={label} className="-ml-1" />}
           {explain}
         </div>
         {value === null ? (
           <>
-            <p className="line-clamp-2 text-sm font-medium text-muted-foreground">
+            <p className="line-clamp-2 text-sm font-medium text-ink-secondary">
               {unavailableReason ?? "Données indisponibles"}
             </p>
-            {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+            {hint && <p className="text-xs text-ink-muted">{hint}</p>}
           </>
         ) : (
           <>
-            <p className="truncate text-2xl font-bold tracking-tight tabular-nums">{value}</p>
+            <p
+              className={cn(
+                "truncate font-semibold tracking-tight text-ink tabular-nums",
+                lg ? "text-[32px] leading-none sm:text-[40px]" : "text-[28px] leading-tight"
+              )}
+            >
+              {value}
+            </p>
             {(hint || trend) && (
-              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <div className="flex items-center gap-1.5 text-xs text-ink-muted">
                 {trend && <TrendBadge trend={trend} />}
-                {hint && <span className="truncate">{hint}</span>}
+                {hint && <span className={lg ? "line-clamp-2" : "truncate"}>{hint}</span>}
               </div>
             )}
           </>
@@ -102,13 +113,13 @@ export function TrendBadge({ trend }: { trend: { direction: "up" | "down" | "fla
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-px text-[10.5px] font-semibold",
-        trend.direction === "up" && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-        trend.direction === "down" && "bg-destructive/10 text-destructive",
-        trend.direction === "flat" && "bg-muted text-muted-foreground"
+        "inline-flex shrink-0 items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums",
+        trend.direction === "up" && "bg-pill-green text-pill-green-fg",
+        trend.direction === "down" && "bg-pill-red text-pill-red-fg",
+        trend.direction === "flat" && "bg-pill-neutral text-pill-neutral-fg"
       )}
     >
-      <TrendIcon className="size-2.5" />
+      <TrendIcon className="size-3" />
       {trend.label}
     </span>
   );

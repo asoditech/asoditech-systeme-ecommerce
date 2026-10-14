@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/page-header";
+import { CHART_BAR_CLASSES, CHART_COLORS } from "@/lib/design/chart";
 import { KpiCard } from "@/components/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -20,12 +21,12 @@ import { CONFIRMATION_OUTCOME_LABELS } from "@/lib/status-labels";
 export const metadata = { title: "Analyses — Confirmation — ASODITECH Gestion E-commerce" };
 
 const OUTCOME_COLOR: Record<string, string> = {
-  CONFIRME: "bg-emerald-500",
-  ANNULE: "bg-rose-500",
-  PAS_DE_REPONSE: "bg-amber-500",
-  OCCUPE: "bg-amber-400",
-  RAPPELER: "bg-cyan-500",
-  FAUX_NUMERO: "bg-slate-400",
+  CONFIRME: CHART_BAR_CLASSES.positive,
+  ANNULE: CHART_BAR_CLASSES.negative,
+  PAS_DE_REPONSE: CHART_BAR_CLASSES.attention,
+  OCCUPE: CHART_BAR_CLASSES.secondary,
+  RAPPELER: CHART_BAR_CLASSES.neutral,
+  FAUX_NUMERO: CHART_BAR_CLASSES.muted,
 };
 
 /**
@@ -86,7 +87,7 @@ export default async function ConfirmationAnalyticsPage({ searchParams }: { sear
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle className="flex items-center gap-1.5">
+            <CardTitle accent="blue">
                 Entrées, confirmées et tentatives — {period.label}
                 <AnalyticsMetricInfo metric="confirmationSeries" />
               </CardTitle>
@@ -95,16 +96,16 @@ export default async function ConfirmationAnalyticsPage({ searchParams }: { sear
             <SeriesChart
               data={c.series}
               series={[
-                { key: "entered", label: "Entrées (date de commande)", color: "var(--color-muted-foreground)" },
-                { key: "confirmed", label: "Confirmées (même cohorte)", color: "var(--color-primary)" },
-                { key: "attempts", label: "Tentatives (date de l'appel)", color: "#8b5cf6" },
+                { key: "entered", label: "Entrées (date de commande)", color: CHART_COLORS.neutral },
+                { key: "confirmed", label: "Confirmées (même cohorte)", color: CHART_COLORS.brand },
+                { key: "attempts", label: "Tentatives (date de l'appel)", color: CHART_COLORS.secondary },
               ]}
             />
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-1.5">
+            <CardTitle accent="blue">
                 Résultats des tentatives
                 <AnalyticsMetricInfo metric="attemptOutcomes" />
               </CardTitle>
@@ -118,7 +119,7 @@ export default async function ConfirmationAnalyticsPage({ searchParams }: { sear
                   key: o.outcome,
                   count: o.count,
                   label: <span className="text-sm font-medium">{CONFIRMATION_OUTCOME_LABELS[o.outcome] ?? o.outcome}</span>,
-                  barColor: OUTCOME_COLOR[o.outcome] ?? "bg-muted-foreground",
+                  barColor: OUTCOME_COLOR[o.outcome] ?? CHART_BAR_CLASSES.muted,
                 }))}
               />
             )}
@@ -128,7 +129,7 @@ export default async function ConfirmationAnalyticsPage({ searchParams }: { sear
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-1.5">
+          <CardTitle accent="blue">
                 Par confirmateur
                 <AnalyticsMetricInfo metric="confirmationByConfirmer" />
               </CardTitle>
@@ -175,7 +176,7 @@ export default async function ConfirmationAnalyticsPage({ searchParams }: { sear
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-1.5">
+          <CardTitle accent="blue">
                 Par origine
                 <AnalyticsMetricInfo metric="confirmationBySource" />
               </CardTitle>

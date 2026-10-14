@@ -94,7 +94,7 @@ export function LoginForm() {
             autoComplete="email"
             required
             aria-invalid={state && !state.ok ? true : undefined}
-            className="rounded-xl border-black/10 bg-white/70"
+           
           />
         </div>
         <div className="space-y-2">
@@ -108,19 +108,19 @@ export function LoginForm() {
             autoComplete="current-password"
             required
             aria-invalid={state && !state.ok ? true : undefined}
-            className="rounded-xl border-black/10 bg-white/70"
+           
           />
         </div>
         <FieldError>{state && !state.ok ? state.error : null}</FieldError>
         <Button type="submit" size="lg" loading={isPending} className="w-full rounded-xl">
           {isPending ? "Connexion…" : "Se connecter"}
         </Button>
-        <a href="/mot-de-passe-oublie" className="block text-center text-sm text-muted-foreground hover:underline">
+        <a href="/mot-de-passe-oublie" className="block text-center text-sm text-ink-secondary hover:text-ink hover:underline">
           Mot de passe oublié ?
         </a>
       </form>
 
-      <div className="h-px w-full bg-black/10" />
+      <div className="h-px w-full bg-hairline" />
 
       <div className="flex justify-center gap-3">
         {CONTACT_LINKS.flatMap((contact) => (contact.href ? [{ ...contact, href: contact.href }] : [])).map((contact) => (
@@ -131,7 +131,7 @@ export function LoginForm() {
             rel={contact.external ? "noopener noreferrer" : undefined}
             aria-label={contact.name}
             title={contact.name}
-            className="flex size-11 items-center justify-center rounded-full border border-black/10 bg-white/70 shadow-sm backdrop-blur transition hover:bg-white hover:shadow-md active:scale-95"
+            className="flex size-11 items-center justify-center rounded-full bg-card shadow-soft transition hover:bg-row-hover focus-visible:ring-[3px] focus-visible:ring-ring/25 focus-visible:outline-none active:scale-95"
           >
             {contact.icon}
           </a>

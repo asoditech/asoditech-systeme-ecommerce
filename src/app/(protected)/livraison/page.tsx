@@ -25,8 +25,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DataTablePagination } from "@/components/data-table-pagination";
+import { FilterBar } from "@/components/filter-bar";
 import { redirect } from "next/navigation";
 import { PAGE_SIZE_OPTIONS, buildListHref, clampPage, parsePage, parsePageSize } from "@/lib/pagination";
 import { requirePermission } from "@/lib/auth/guards";
@@ -238,20 +239,20 @@ export default async function LivraisonPage({
           )}
 
           {(shipments.length > 0 || shipmentFilterActive) && (
-            <div className="flex flex-wrap items-center gap-2">
+            <FilterBar className="mb-2">
               <FilterSearchInput
                 paramKey="sq"
                 placeholder="N° commande, client, téléphone, n° de suivi…"
                 ariaLabel="Rechercher une expédition par n° de commande, client, téléphone ou n° de suivi"
                 defaultValue={params.sq}
-                className="w-64 max-w-full"
+                className="w-full sm:w-72"
               />
               <FilterSelect
                 paramKey="sstatus"
                 value={shipmentStatusFilter}
                 allLabel="Tous les statuts"
                 ariaLabel="Filtrer par statut"
-                className="w-44"
+                className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-44"
                 options={SHIPMENT_STATUSES.map((s) => ({ value: s, label: SHIPMENT_STATUS_LABELS[s].label }))}
               />
               {providers.length > 1 && (
@@ -260,14 +261,14 @@ export default async function LivraisonPage({
                   value={params.sprovider}
                   allLabel="Tous les transporteurs"
                   ariaLabel="Filtrer par transporteur"
-                  className="w-52"
+                  className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-52"
                   options={providers.map((p) => ({ value: p.id, label: p.name }))}
                 />
               )}
-              <Button variant="ghost" size="sm" render={<Link href={historyToggleHref} />} aria-pressed={showHistory}>
+              <Button variant="ghost" render={<Link href={historyToggleHref} />} aria-pressed={showHistory}>
                 {showHistory ? "Masquer les tentatives remplacées" : "Afficher l'historique des tentatives"}
               </Button>
-            </div>
+            </FilterBar>
           )}
 
           {shipments.length === 0 ? (
@@ -280,8 +281,8 @@ export default async function LivraisonPage({
               }
             />
           ) : (
-            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
-              <Table className="text-[13px] [&_td]:px-2.5 [&_td]:py-2 [&_th]:px-2.5">
+            <TableCard>
+              <Table className="text-[13px] [&_td]:px-2.5 [&_th]:px-2.5">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Commande</TableHead>
@@ -298,18 +299,18 @@ export default async function LivraisonPage({
                 <TableBody>
                   {shipments.map((s) => (
                     <TableRow key={s.id} className={replaced.has(s.id) ? "opacity-60" : undefined}>
-                      <TableCell className="font-medium">
-                        <Link href={`/commandes/${s.orderId}`} className="hover:underline">
+                      <TableCell>
+                        <Link href={`/commandes/${s.orderId}`} className="text-[15px] font-semibold tracking-tight text-ink hover:underline">
                           {displayOrderNumber(s.order, business.orderNumberPrefix)}
                         </Link>
                         {replaced.has(s.id) ? (
-                          <Badge variant="outline" className="ml-1 text-[10px]" title="Une expédition plus récente a remplacé celle-ci pour la même commande.">
+                          <Badge variant="outline" className="ml-1 text-xs" title="Une expédition plus récente a remplacé celle-ci pour la même commande.">
                             Remplacée
                           </Badge>
                         ) : !showHistory && previousAttemptsByOrder[s.orderId] ? (
                           <Link
                             href={`/commandes/${s.orderId}`}
-                            className="mt-0.5 block text-[11px] font-normal text-muted-foreground hover:underline"
+                            className="mt-0.5 block text-xs text-ink-muted hover:underline"
                             title="Voir les expéditions précédentes de cette commande"
                           >
                             + {previousAttemptsByOrder[s.orderId]} tentative{previousAttemptsByOrder[s.orderId] > 1 ? "s" : ""} précédente
@@ -318,7 +319,7 @@ export default async function LivraisonPage({
                         ) : null}
                       </TableCell>
                       <TableCell>
-                        <span className="block max-w-[8rem] truncate">{displayOrderRecipient(s.order)}</span>
+                        <span className="block max-w-[10rem] truncate font-medium text-ink">{displayOrderRecipient(s.order)}</span>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         <span className="block max-w-[9rem] truncate font-mono text-xs">
@@ -330,7 +331,7 @@ export default async function LivraisonPage({
                             (s.trackingNumber ?? "—")
                           )}
                         </span>
-                        <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground/70">
+                        <span className="mt-0.5 flex items-center gap-1 text-xs text-ink-muted">
                           {s.provider.providerKey && s.provider.providerKey in PROVIDER_BRANDS ? (
                             <BrandLogo
                               brand={PROVIDER_BRANDS[s.provider.providerKey]!}
@@ -369,7 +370,7 @@ export default async function LivraisonPage({
                           <>
                             <span className="text-foreground">{s.providerStatusRaw}</span>
                             {s.lastSyncedAt && (
-                              <span className="block text-[11px] text-muted-foreground/70">
+                              <span className="block text-xs text-ink-muted">
                                 {formatDateTime(s.lastSyncedAt)}
                               </span>
                             )}
@@ -392,7 +393,7 @@ export default async function LivraisonPage({
                           ) : s.status === "ECHEC" ? (
                             <div className="space-y-1">
                               {s.failedReason && (
-                                <p className="max-w-[16rem] text-[11px] leading-tight text-destructive">{s.failedReason}</p>
+                                <p className="max-w-[16rem] text-xs leading-tight text-destructive">{s.failedReason}</p>
                               )}
                               <div className="flex flex-wrap gap-1">
                                 {s.provider.type === "API" &&
@@ -451,7 +452,7 @@ export default async function LivraisonPage({
                   aexpPageSize: sizeParams.aexpPageSize,
                 }}
               />
-            </div>
+            </TableCard>
           )}
         </TabsContent>
 
@@ -460,7 +461,7 @@ export default async function LivraisonPage({
             <p className="text-sm text-muted-foreground">
               Commandes prêtes, sans expédition — créez l&apos;expédition ici avant de marquer « Expédiée ».
             </p>
-            <form className="flex flex-wrap gap-2" action="/livraison">
+            <form className="flex flex-wrap items-center gap-2" action="/livraison">
               <input type="hidden" name="tab" value="a-expedier" />
               {sizeParams.aexpPageSize ? <input type="hidden" name="aexpPageSize" value={sizeParams.aexpPageSize} /> : null}
               {sizeParams.pageSize ? <input type="hidden" name="pageSize" value={sizeParams.pageSize} /> : null}
@@ -469,7 +470,7 @@ export default async function LivraisonPage({
                 placeholder="N° commande, client, téléphone, n° de suivi…"
                 aria-label="Rechercher une commande à expédier par n° de commande, client, téléphone ou n° de suivi"
                 defaultValue={params.aexpq}
-                className="max-w-64"
+                className="w-full sm:w-72"
               />
               <Button type="submit" variant="outline">
                 Rechercher
@@ -550,7 +551,7 @@ export default async function LivraisonPage({
           {providers.length === 0 ? (
             <EmptyState icon={Truck} title="Aucun prestataire de livraison configuré." />
           ) : (
-            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+            <TableCard>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -565,7 +566,7 @@ export default async function LivraisonPage({
                 <TableBody>
                   {providers.map((p) => (
                     <TableRow key={p.id}>
-                      <TableCell className="font-medium">
+                      <TableCell className="font-medium text-ink">
                         <span className="flex items-center gap-2">
                           {p.providerKey && p.providerKey in PROVIDER_BRANDS && (
                             <BrandLogo
@@ -623,7 +624,7 @@ export default async function LivraisonPage({
                   ))}
                 </TableBody>
               </Table>
-            </div>
+            </TableCard>
           )}
           {canManage && <ProviderForm />}
         </TabsContent>

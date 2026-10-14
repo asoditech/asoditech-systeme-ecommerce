@@ -21,20 +21,20 @@ export interface ConfirmedOrderRow {
  */
 export function ConfirmedOrdersList({ orders, showAgent = false }: { orders: ConfirmedOrderRow[]; showAgent?: boolean }) {
   return (
-    <div className="divide-y rounded-lg border">
+    <div className="divide-y divide-hairline overflow-hidden rounded-card bg-card shadow-card">
       {orders.map((o) => (
         <Link
           key={o.id}
           href={`/commandes/${o.id}`}
-          className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm hover:bg-muted/50"
+          className="flex flex-wrap items-center justify-between gap-2 px-4 py-3.5 text-sm transition-colors hover:bg-row-hover focus-visible:bg-row-hover focus-visible:outline-none sm:px-6"
         >
           <div className="min-w-0">
-            <span className="font-medium">{o.displayNumber}</span>
-            <span className="ml-2 truncate text-muted-foreground">{o.customerName}</span>
+            <span className="text-[15px] font-semibold tracking-tight text-ink">{o.displayNumber}</span>
+            <span className="ml-2 truncate text-ink-secondary">{o.customerName}</span>
           </div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-ink-muted">
             {showAgent && o.agentName && <span>👤 {o.agentName}</span>}
-            <span className="tabular-nums">{formatCurrency(o.total, o.currency)}</span>
+            <span className="text-sm font-semibold text-ink tabular-nums">{formatCurrency(o.total, o.currency)}</span>
             <StatusBadge status={o.status} labels={ORDER_STATUS_LABELS} />
             <span className="whitespace-nowrap">{o.confirmedAt ? formatDateTime(o.confirmedAt) : "—"}</span>
           </div>

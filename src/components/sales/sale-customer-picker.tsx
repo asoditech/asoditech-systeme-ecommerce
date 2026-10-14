@@ -27,11 +27,11 @@ export function SaleCustomerPicker({
 
   if (value) {
     return (
-      <div className="flex h-9 items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 text-sm">
+      <div className="flex h-11 items-center justify-between gap-2 rounded-control bg-pill-neutral px-3.5 text-sm text-ink">
         <span className="truncate">
           {value.fullName} <span className="text-muted-foreground">{value.maskedPhone}</span>
         </span>
-        <button type="button" aria-label="Retirer le client" className="text-muted-foreground hover:text-foreground" onClick={() => onChange(null)}>
+        <button type="button" aria-label="Retirer le client" className="rounded-full text-ink-muted transition-colors hover:text-ink focus-visible:ring-[3px] focus-visible:ring-ring/25 focus-visible:outline-none" onClick={() => onChange(null)}>
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -88,12 +88,12 @@ export function SaleCustomerPicker({
         </Button>
       </div>
       {results !== null && (
-        <div className="space-y-1 rounded-md border p-2 text-sm">
+        <div className="space-y-1 rounded-tile border border-hairline p-2 text-sm">
           {results.map((c) => (
             <button
               key={c.id}
               type="button"
-              className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left hover:bg-muted"
+              className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-row-hover"
               onClick={() => {
                 onChange(c);
                 setPhone("");

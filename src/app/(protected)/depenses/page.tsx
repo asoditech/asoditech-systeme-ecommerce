@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
+import { FilterBar } from "@/components/filter-bar";
 import { Receipt, ReceiptText, Truck, Wallet } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
@@ -9,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { FilterSelect } from "@/components/filter-select";
 import { DateRangeFields } from "@/components/date-range-fields";
 import { FilterSearchInput } from "@/components/filter-search-input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import {
@@ -93,18 +95,17 @@ export default async function DepensesPage({
         description="Toutes les charges de l'entreprise : dépenses enregistrées et coût de livraison."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex gap-1">
+            <SegmentedControl>
               {PERIODS.map((p) => (
-                <Button
+                <SegmentedControlItem
                   key={p.key}
-                  size="sm"
-                  variant={p.key === periodEntry.key ? "default" : "outline"}
-                  render={<Link href={p.key === "mois" ? "/depenses" : `/depenses?periode=${p.key}`} />}
+                  active={p.key === periodEntry.key}
+                  href={p.key === "mois" ? "/depenses" : `/depenses?periode=${p.key}`}
                 >
                   {p.label}
-                </Button>
+                </SegmentedControlItem>
               ))}
-            </div>
+            </SegmentedControl>
             {canManage && <ExpenseForm categories={categories} />}
           </div>
         }
@@ -127,14 +128,14 @@ export default async function DepensesPage({
         <KpiCard label="Coût de livraison" value={formatCurrency(summary.deliveryCostTotal)} icon={Truck} tone="info" />
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <FilterSearchInput placeholder="Description ou fournisseur..." defaultValue={params.q} className="w-56" />
+      <FilterBar>
+        <FilterSearchInput placeholder="Description ou fournisseur..." defaultValue={params.q} className="w-full sm:w-72" />
         <FilterSelect
           paramKey="categoryId"
           value={categoryFilter}
           allLabel="Toutes les catégories"
           ariaLabel="Catégorie"
-          className="w-52"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-52"
           options={categories.map((c) => ({ value: c.id, label: c.name }))}
         />
         <FilterSelect
@@ -142,7 +143,7 @@ export default async function DepensesPage({
           value={params.sort === "amount-desc" || params.sort === "amount-asc" ? params.sort : undefined}
           allLabel={SORT_LABELS.recent}
           ariaLabel="Trier"
-          className="w-48"
+          className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-48"
           options={[
             { value: "amount-desc", label: SORT_LABELS["amount-desc"] },
             { value: "amount-asc", label: SORT_LABELS["amount-asc"] },
@@ -162,23 +163,23 @@ export default async function DepensesPage({
             fromAriaLabel="Date de début"
             toAriaLabel="Date de fin"
           />
-          <Button type="submit" size="sm" variant="outline">
+          <Button type="submit" variant="outline">
             Filtrer
           </Button>
         </form>
         <Button
-          size="sm"
-          variant={isThisMonth ? "default" : "ghost"}
+          variant={isThisMonth ? "secondary" : "ghost"}
+          aria-pressed={isThisMonth}
           render={<Link href={`/depenses${periodSuffix}${periodSuffix ? "&" : "?"}dateFrom=${monthFrom}&dateTo=${monthTo}`} />}
         >
           Ce mois-ci
         </Button>
         {hasActiveFilter ? (
-          <Button size="sm" variant="ghost" render={<Link href={params.periode ? `/depenses?periode=${params.periode}` : "/depenses"} />}>
+          <Button variant="ghost" render={<Link href={params.periode ? `/depenses?periode=${params.periode}` : "/depenses"} />}>
             Réinitialiser
           </Button>
         ) : null}
-      </div>
+      </FilterBar>
 
       {expenses.length === 0 ? (
         <EmptyState
@@ -192,7 +193,7 @@ export default async function DepensesPage({
           action={!hasActiveFilter && canManage ? <ExpenseForm categories={categories} /> : undefined}
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -245,7 +246,7 @@ export default async function DepensesPage({
               sort: params.sort,
             }}
           />
-        </div>
+        </TableCard>
       )}
     </div>
   );

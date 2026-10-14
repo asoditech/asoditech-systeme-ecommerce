@@ -196,7 +196,7 @@ export function ShopifyActions({ canManage, hasCredentials }: { canManage: boole
       </div>
 
       {showWebhookInfo && (
-        <div className="space-y-2 rounded-md border bg-muted/40 p-3 text-xs">
+        <div className="space-y-2 rounded-tile bg-pill-neutral p-3 text-xs">
           <p>
             Dans Shopify (application personnalisée → Configuration API → Webhooks, ou Notifications), créez
             des abonnements webhook vers l&apos;URL ci-dessous pour les sujets « Commande créée », « Commande

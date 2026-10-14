@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { STOCK_OVERRIDE_REASON_LIMITS, type StockShortage } from "@/lib/stock-shortage";
+import { Textarea } from "@/components/ui/textarea";
 
 /**
  * P2 — a confirmation was refused for stock. Lists exactly the rows the server
@@ -61,7 +62,7 @@ export function StockOverrideDialog({
             ces lignes. Rien n&apos;a été réservé ni modifié.
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <ul className="space-y-1 rounded-md border bg-muted/30 p-3 text-sm">
+        <ul className="space-y-1 rounded-tile bg-pill-neutral p-3.5 text-sm">
           {shortage?.lines.map((line) => (
             <li key={line} className="break-words">
               {line}
@@ -71,13 +72,12 @@ export function StockOverrideDialog({
         {shortage?.canOverride ? (
           <div className="space-y-1.5">
             <Label htmlFor="stock-override-reason">Motif de la confirmation malgré la rupture</Label>
-            <textarea
+            <Textarea
               id="stock-override-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               maxLength={STOCK_OVERRIDE_REASON_LIMITS.max}
               rows={3}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
               placeholder="Ex. : réassort fournisseur attendu demain"
             />
             <p className="text-xs text-muted-foreground">

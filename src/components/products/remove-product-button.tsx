@@ -34,7 +34,7 @@ export function RemoveProductButton({
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+      <Button type="button" variant="outline" onClick={() => setOpen(true)}>
         <Trash2 className="size-4" />
         Retirer du catalogue
       </Button>

@@ -3,7 +3,7 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { ClickableTableRow } from "@/components/clickable-table-row";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePermission } from "@/lib/auth/guards";
 import { listInvoiceableShipments } from "@/lib/queries/delivery-invoice";
 import { formatCurrency, formatDate, displayOrderNumber } from "@/lib/format";
@@ -26,7 +26,7 @@ export default async function FacturesLivraisonPage() {
       {shipments.length === 0 ? (
         <EmptyState icon={FileText} title="Aucune expédition." description="Les factures apparaîtront dès qu'une expédition sera créée." />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <TableCard>
           <Table className="text-[13px]">
             <TableHeader>
               <TableRow>
@@ -57,7 +57,7 @@ export default async function FacturesLivraisonPage() {
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TableCard>
       )}
     </div>
   );

@@ -7,7 +7,8 @@ import { FilterSearchInput } from "@/components/filter-search-input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ClickableTableRow } from "@/components/clickable-table-row";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { FilterBar } from "@/components/filter-bar";
 import { ProductChips } from "@/components/orders/product-chips";
 import { requirePermission } from "@/lib/auth/guards";
 import { requireChannelKind } from "@/lib/auth/channel-access";
@@ -39,13 +40,13 @@ export default async function VentesPage({ searchParams }: { searchParams: Promi
           ) : undefined
         }
       />
-      <div className="mb-4">
-        <FilterSearchInput placeholder="Article, code-barres, vendeur, client…" defaultValue={params.q} className="w-72" />
-      </div>
+      <FilterBar>
+        <FilterSearchInput placeholder="Article, code-barres, vendeur, client…" defaultValue={params.q} className="w-full sm:w-72" />
+      </FilterBar>
       {sales.length === 0 ? (
         <EmptyState icon={Store} title={params.q ? "Aucune vente ne correspond." : "Aucune vente pour le moment."} />
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+        <TableCard>
           <Table>
             <TableHeader>
               <TableRow>
@@ -67,29 +68,29 @@ export default async function VentesPage({ searchParams }: { searchParams: Promi
                 <ClickableTableRow key={s.id} href={`/ventes/${s.id}`}>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <Link href={`/ventes/${s.id}`} className="font-semibold hover:text-primary hover:underline">
+                      <Link href={`/ventes/${s.id}`} className="text-[15px] font-semibold tracking-tight text-ink hover:underline">
                         {displaySaleNumber(s)}
                       </Link>
                       {returnLabel && <Badge variant="warning">↩ {returnLabel}</Badge>}
                     </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{formatDateTime(s.soldAt)}</p>
+                    <p className="mt-0.5 text-xs text-ink-muted">{formatDateTime(s.soldAt)}</p>
                   </TableCell>
                   <TableCell>
                     {/* Canal and emplacement are usually the same store — show
                         the location line only when it actually differs. */}
-                    <span className="inline-flex items-center gap-1.5 font-medium">
-                      <Store className="size-3.5 text-muted-foreground" />
+                    <span className="inline-flex items-center gap-1.5 font-medium text-ink">
+                      <Store className="size-3.5 text-ink-muted" />
                       {s.salesChannel.name}
                     </span>
                     {s.warehouse.name !== s.salesChannel.name && (
-                      <p className="mt-0.5 text-xs text-muted-foreground">Stock : {s.warehouse.name}</p>
+                      <p className="mt-0.5 text-xs text-ink-muted">Stock : {s.warehouse.name}</p>
                     )}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{s.soldByName ?? "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="text-ink-secondary">{s.soldByName ?? "—"}</TableCell>
+                  <TableCell className="text-ink-secondary">
                     {[...new Set(s.payments.map((p) => CASH_PAYMENT_METHOD_LABELS[p.method]))].join(", ") || "—"}
                   </TableCell>
-                  <TableCell className="text-right font-semibold tabular-nums">{formatCurrency(s.total.toString(), s.currency)}</TableCell>
+                  <TableCell className="text-right font-semibold text-ink tabular-nums">{formatCurrency(s.total.toString(), s.currency)}</TableCell>
                   <TableCell>
                     <ProductChips lines={s.lines.map((l) => ({ name: l.nameSnapshot, quantity: l.quantity, attributes: l.variation?.attributes }))} />
                   </TableCell>
@@ -99,7 +100,7 @@ export default async function VentesPage({ searchParams }: { searchParams: Promi
             </TableBody>
           </Table>
           <DataTablePagination page={page} pageSize={pageSize} total={total} basePath="/ventes" searchParams={{ q: params.q }} />
-        </div>
+        </TableCard>
       )}
     </div>
   );

@@ -15,17 +15,17 @@ export interface BreakdownRow {
 }
 
 const TONE_ICON_CLASS: Record<NonNullable<BreakdownRow["tone"]>, string> = {
-  default: "bg-muted text-muted-foreground",
-  success: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  warning: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  danger: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+  default: "bg-pill-blue text-pill-blue-fg",
+  success: "bg-pill-green text-pill-green-fg",
+  warning: "bg-pill-yellow text-pill-yellow-fg",
+  danger: "bg-pill-red text-pill-red-fg",
 };
 
 const TONE_VALUE_CLASS: Record<NonNullable<BreakdownRow["tone"]>, string> = {
-  default: "text-foreground",
-  success: "text-emerald-600 dark:text-emerald-400",
-  warning: "text-amber-600 dark:text-amber-400",
-  danger: "text-rose-600 dark:text-rose-400",
+  default: "text-ink",
+  success: "text-ink",
+  warning: "text-pill-yellow-fg",
+  danger: "text-pill-red-fg",
 };
 
 /**
@@ -39,12 +39,12 @@ const TONE_VALUE_CLASS: Record<NonNullable<BreakdownRow["tone"]>, string> = {
  */
 export function MetricBreakdown({ rows, className }: { rows: BreakdownRow[]; className?: string }) {
   return (
-    <StaggerUl className={cn("divide-y", className)}>
+    <StaggerUl className={cn("divide-y divide-hairline", className)}>
       {rows.map((r) => (
-        <StaggerItem key={r.key} as="li" className="flex items-center justify-between gap-3 py-2.5">
+        <StaggerItem key={r.key} as="li" className="flex items-center justify-between gap-3 py-3">
           <div className="flex min-w-0 items-center gap-2.5">
             {r.icon && (
-              <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg", TONE_ICON_CLASS[r.tone ?? "default"])}>
+              <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl", TONE_ICON_CLASS[r.tone ?? "default"])}>
                 <r.icon className="size-4" />
               </span>
             )}
@@ -57,10 +57,10 @@ export function MetricBreakdown({ rows, className }: { rows: BreakdownRow[]; cla
               ) : (
                 <p className="truncate text-sm font-medium">{r.label}</p>
               )}
-              {r.meta && <p className="truncate text-[11px] text-muted-foreground">{r.meta}</p>}
+              {r.meta && <p className="truncate text-xs text-ink-muted">{r.meta}</p>}
             </div>
           </div>
-          <span className={cn("shrink-0 text-sm font-semibold tabular-nums", TONE_VALUE_CLASS[r.tone ?? "default"])}>{r.value}</span>
+          <span className={cn("shrink-0 text-base font-semibold tabular-nums", TONE_VALUE_CLASS[r.tone ?? "default"])}>{r.value}</span>
         </StaggerItem>
       ))}
     </StaggerUl>

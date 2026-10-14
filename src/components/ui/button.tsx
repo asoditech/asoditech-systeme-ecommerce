@@ -6,44 +6,40 @@ import { cn } from "@/lib/utils"
 
 /**
  * ASODITECH button system — see docs/adr/0014-ui-design-system.md.
- * One shared shape (rounded-lg, medium weight, orange focus ring), five
- * intents (default = brand orange, secondary, outline, ghost, destructive
- * = solid red), a link variant, and size steps xs..lg + icon-only. Pass
- * `loading` for an inline spinner + disabled state.
+ * Soft UI (redesign/soft-ui): 44px controls with the 14px control radius,
+ * a soft orange focus ring, icon-only sizes are round. Intents: default =
+ * THE orange primary action (text colour = the single `--brand-foreground`
+ * token), secondary = soft neutral fill, outline = white pill with a hairline
+ * border (the everyday secondary action), ghost = quiet, destructive = solid
+ * red, link. Pass `loading` for an inline spinner + disabled state.
  */
 const buttonVariants = cva(
-  "group/button relative inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-[background-color,box-shadow,border-color,color,transform] outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/35 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 disabled:shadow-none aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/25 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button relative inline-flex shrink-0 items-center justify-center rounded-control border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-[background-color,box-shadow,border-color,color,transform] duration-150 outline-none select-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/25 active:not-aria-[haspopup]:translate-y-px motion-reduce:transition-none motion-reduce:active:translate-y-0 disabled:pointer-events-none disabled:opacity-50 disabled:shadow-none aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/25 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        // Phase 5 visual QA — every variant must read as a button in its
-        // DEFAULT state (no hover needed) on both the slate-50 page and a
-        // white card. Hierarchy: default (solid brand) > secondary (brand
-        // tint, for contextual "+ Ajouter"-style actions) > outline (white +
-        // real slate-300 border, the neutral workhorse) > ghost (quiet, but
-        // still full-contrast text/icon) > link.
         default:
-          "bg-primary text-primary-foreground shadow-sm shadow-primary/25 ring-1 ring-inset ring-black/5 hover:bg-[color-mix(in_oklch,var(--primary),black_8%)] hover:shadow-md hover:shadow-primary/25 active:shadow-sm",
+          "bg-brand text-brand-foreground shadow-soft hover:bg-brand-hover",
         secondary:
-          "border-primary/25 bg-primary/10 text-accent-foreground hover:border-primary/40 hover:bg-primary/15 aria-expanded:bg-primary/15 dark:text-primary",
+          "bg-nav-active text-ink hover:bg-[color-mix(in_oklab,var(--nav-active),var(--text-primary)_6%)] aria-expanded:bg-[color-mix(in_oklab,var(--nav-active),var(--text-primary)_6%)]",
         outline:
-          "border-[color-mix(in_oklch,var(--input),var(--foreground)_12%)] bg-card text-foreground shadow-xs hover:border-primary/45 hover:bg-accent hover:text-accent-foreground aria-expanded:border-primary/45 aria-expanded:bg-accent aria-expanded:text-accent-foreground dark:border-input dark:bg-input/25 dark:hover:bg-accent",
+          "border-field-border bg-shell text-ink shadow-soft hover:border-field-border-hover hover:bg-nav-hover aria-expanded:border-field-border-hover aria-expanded:bg-nav-hover dark:bg-card",
         ghost:
-          "text-foreground/80 hover:bg-accent hover:text-accent-foreground aria-expanded:bg-accent aria-expanded:text-accent-foreground dark:hover:bg-accent",
+          "text-ink-secondary hover:bg-nav-hover hover:text-ink aria-expanded:bg-nav-hover aria-expanded:text-ink",
         destructive:
-          "bg-destructive text-white shadow-sm shadow-destructive/25 hover:bg-[color-mix(in_oklch,var(--destructive),black_8%)] focus-visible:border-destructive focus-visible:ring-destructive/30 dark:bg-[color-mix(in_oklch,var(--destructive),black_35%)] dark:hover:bg-[color-mix(in_oklch,var(--destructive),black_42%)]",
-        link: "text-primary underline-offset-4 hover:underline",
+          "bg-danger-strong text-white shadow-soft hover:bg-[color-mix(in_oklab,var(--danger-strong),black_10%)] focus-visible:border-danger focus-visible:ring-danger/30",
+        link: "text-ink underline underline-offset-4 decoration-ink-faint hover:decoration-ink",
       },
       size: {
         default:
-          "h-9 gap-1.5 px-3.5 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5",
-        xs: "h-7 gap-1 rounded-md px-2.5 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        sm: "h-8 gap-1.5 rounded-[calc(var(--radius)-1px)] px-3 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3.5",
-        lg: "h-10 gap-2 px-4.5 text-[0.9rem] has-data-[icon=inline-end]:pr-3.5 has-data-[icon=inline-start]:pl-3.5",
-        icon: "size-9",
-        "icon-xs": "size-7 rounded-md in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3.5",
-        "icon-sm": "size-8 rounded-[calc(var(--radius)-1px)] in-data-[slot=button-group]:rounded-lg",
-        "icon-lg": "size-10",
+          "h-11 gap-2 px-5 has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4",
+        xs: "h-7 gap-1 rounded-lg px-2.5 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        sm: "h-9 gap-1.5 rounded-xl px-3.5 text-[13px] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 [&_svg:not([class*='size-'])]:size-4",
+        lg: "h-12 gap-2 rounded-2xl px-6 text-[15px] has-data-[icon=inline-end]:pr-5 has-data-[icon=inline-start]:pl-5",
+        icon: "size-11 rounded-full",
+        "icon-xs": "size-7 rounded-full in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3.5",
+        "icon-sm": "size-9 rounded-full in-data-[slot=button-group]:rounded-lg",
+        "icon-lg": "size-12 rounded-full",
       },
     },
     defaultVariants: {

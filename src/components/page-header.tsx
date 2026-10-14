@@ -19,7 +19,7 @@ export function PageHeader({
   breadcrumbs?: { label: string; href?: string }[];
 }) {
   return (
-    <div className="mb-6 flex flex-col gap-3">
+    <div className="mb-8 flex flex-col gap-3">
       {breadcrumbs && breadcrumbs.length > 0 && (
         <Breadcrumb>
           <BreadcrumbList>
@@ -27,7 +27,7 @@ export function PageHeader({
               <span key={crumb.label} className="flex items-center gap-1.5">
                 <BreadcrumbItem>
                   {crumb.href ? (
-                    <Link href={crumb.href} className="transition-colors hover:text-foreground">
+                    <Link href={crumb.href} className="transition-colors hover:text-ink">
                       {crumb.label}
                     </Link>
                   ) : (
@@ -40,12 +40,14 @@ export function PageHeader({
           </BreadcrumbList>
         </Breadcrumb>
       )}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-          {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+      {/* Wide actions (period pickers, filters) wrap onto their own line
+          instead of squeezing the title column. */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+        <div className="min-w-0 sm:min-w-72 sm:flex-1">
+          <h1 className="text-[26px] leading-tight font-semibold tracking-tight text-ink md:text-[32px]">{title}</h1>
+          {description && <p className="mt-1.5 text-sm text-ink-secondary">{description}</p>}
         </div>
-        {actions && <div className="flex max-w-full min-w-0 shrink-0 items-center gap-2">{actions}</div>}
+        {actions && <div className="flex max-w-full min-w-0 shrink-0 flex-wrap items-center gap-2">{actions}</div>}
       </div>
     </div>
   );

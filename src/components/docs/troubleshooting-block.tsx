@@ -10,9 +10,9 @@ export function TroubleshootingBlock({ entries }: { entries: TroubleshootingEntr
   return (
     <div className="space-y-2.5">
       {entries.map((entry, i) => (
-        <details key={i} className="group rounded-lg border" open={entries.length === 1}>
+        <details key={i} className="group rounded-tile border" open={entries.length === 1}>
           <summary className="flex cursor-pointer items-center gap-2 px-3.5 py-2.5 text-sm font-medium select-none">
-            <AlertTriangle className="size-4 shrink-0 text-amber-500" />
+            <AlertTriangle className="size-4 shrink-0 text-pill-yellow-fg" />
             <span>{entry.symptom}</span>
           </summary>
           <div className="space-y-2.5 border-t px-3.5 py-3 text-sm">
@@ -35,7 +35,7 @@ export function TroubleshootingBlock({ entries }: { entries: TroubleshootingEntr
             {entry.errorStrings && entry.errorStrings.length > 0 && (
               <div className="flex flex-wrap gap-1.5 pt-1">
                 {entry.errorStrings.map((err, j) => (
-                  <Badge key={j} variant="outline" className="font-mono text-[11px] font-normal whitespace-normal">
+                  <Badge key={j} variant="outline" className="font-mono text-xs font-normal whitespace-normal">
                     « {err} »
                   </Badge>
                 ))}

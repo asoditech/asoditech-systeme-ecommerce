@@ -160,7 +160,7 @@ export function CityMappingDialog({
         )}
 
         {ctx && !ctx.catalogueSupported && (
-          <p className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+          <p className="rounded-tile bg-pill-neutral p-3 text-sm text-muted-foreground">
             Ce prestataire n&apos;expose pas de catalogue de villes sélectionnable via l&apos;intégration actuelle.
             Aucune correspondance de ville ne peut être enregistrée ici.
           </p>
@@ -184,7 +184,7 @@ export function CityMappingDialog({
               {ctx.mappings.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Aucune correspondance enregistrée pour le moment.</p>
               ) : (
-                <ul className="divide-y rounded-md border">
+                <ul className="divide-y divide-hairline rounded-tile border border-hairline">
                   {ctx.mappings.map((m) => (
                     <li key={m.id} className="flex items-center gap-2 px-3 py-2 text-sm">
                       <span className="min-w-0 flex-1 truncate font-medium" title={m.localCityLabel}>
@@ -226,7 +226,7 @@ export function CityMappingDialog({
               )}
             </div>
 
-            <div className="space-y-2 rounded-md border p-3">
+            <div className="space-y-2 rounded-tile border border-hairline p-3">
               <p className="text-sm font-medium">Ajouter une correspondance</p>
               <div className="space-y-1.5">
                 <Label htmlFor="mapping-local-city">Ville locale (telle qu&apos;elle apparaît sur la commande)</Label>

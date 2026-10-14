@@ -19,8 +19,8 @@ export default async function ScanPage({ params }: { params: Promise<{ token: st
   const result = await resolveScanToken(token);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <div className="w-full max-w-sm rounded-2xl border bg-card p-6 shadow-sm">
+    <div className="flex min-h-screen items-center justify-center bg-page p-4">
+      <div className="w-full max-w-sm rounded-card bg-card p-6 shadow-card">
         <div className="mb-6 flex justify-center">
           <BrandMark variant="wordmark" />
         </div>
@@ -50,13 +50,13 @@ export default async function ScanPage({ params }: { params: Promise<{ token: st
               </Badge>
             </div>
             {result.primaryBarcode && (
-              <div className="flex items-center justify-center gap-1.5 rounded-md border bg-muted/40 px-3 py-2 text-xs">
+              <div className="flex items-center justify-center gap-1.5 rounded-xl border border-hairline bg-pill-neutral/40 px-3 py-2 text-xs">
                 <Tag className="size-3.5 text-muted-foreground" />
                 <span className="font-mono">{result.primaryBarcode}</span>
               </div>
             )}
             {result.companyName && (
-              <p className="pt-2 text-center text-[11px] text-muted-foreground">{result.companyName}</p>
+              <p className="pt-2 text-center text-xs text-muted-foreground">{result.companyName}</p>
             )}
           </div>
         )}

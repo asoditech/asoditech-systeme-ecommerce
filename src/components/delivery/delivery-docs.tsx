@@ -1,4 +1,5 @@
 import { HelpCircle, Workflow } from "lucide-react";
+import { Notice } from "@/components/ui/notice";
 
 /**
  * The Livraison → « Documentation » tab. Plain-French, non-technical
@@ -19,7 +20,7 @@ export function DeliveryDocs() {
 
 function FlowOverview() {
   return (
-    <section className="rounded-lg border p-4 text-sm">
+    <section className="rounded-card bg-card p-5 text-sm shadow-card">
       <h2 className="flex items-center gap-2 font-medium">
         <Workflow className="size-4" />
         Comment tout se connecte : commande → boutique → livraison
@@ -104,7 +105,7 @@ function FlowOverview() {
 
 function OzonExpressGuide() {
   return (
-    <details className="rounded-lg border bg-muted/30 p-4 text-sm [&_summary]:cursor-pointer">
+    <details className="rounded-card bg-card p-5 text-sm shadow-card [&_summary]:cursor-pointer">
       <summary className="flex items-center gap-2 font-medium">
         <HelpCircle className="size-4" />
         Guide : OzonExpress
@@ -182,18 +183,18 @@ function OzonExpressGuide() {
 
 function AramexGuide() {
   return (
-    <details className="rounded-lg border bg-muted/30 p-4 text-sm [&_summary]:cursor-pointer">
+    <details className="rounded-card bg-card p-5 text-sm shadow-card [&_summary]:cursor-pointer">
       <summary className="flex items-center gap-2 font-medium">
         <HelpCircle className="size-4" />
         Guide : Aramex
       </summary>
 
       <div className="mt-3 space-y-4 text-muted-foreground">
-        <p className="rounded-md border border-amber-300/60 bg-amber-50 p-2 text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-200">
+        <Notice tone="warning" className="block">
           Connecteur Aramex disponible mais pas encore validé sur un compte réel. Les points de terminaison proviennent
           de la documentation officielle Aramex ; testez d&apos;abord avec une commande réelle avant de l&apos;utiliser en
           production.
-        </p>
+        </Notice>
 
         <section className="space-y-1">
           <p className="font-medium text-foreground">1. Obtenir vos accès API</p>
@@ -226,7 +227,7 @@ function AramexGuide() {
             Aramex exige une adresse d&apos;origine complète sur chaque envoi. Dans le champ{" "}
             <span className="text-foreground">Configuration (JSON)</span> du prestataire, indiquez au minimum :
           </p>
-          <pre className="overflow-x-auto rounded-md border bg-background p-2 text-xs text-foreground">
+          <pre className="overflow-x-auto rounded-xl bg-pill-neutral p-3 text-xs text-ink">
 {`{
   "shipperName": "Votre société",
   "shipperPhone": "0522000000",

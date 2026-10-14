@@ -42,7 +42,7 @@ export function ExplanationInfo({
     <Popover>
       <PopoverTrigger
         className={
-          "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring " +
+          "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring " +
           (className ?? "")
         }
         aria-label={EXPLANATION_UI.howComputed.fr(label)}
@@ -56,7 +56,7 @@ export function ExplanationInfo({
         </div>
         <ExplanationBody text={text} lang={lang} compact={compact} titles={titles}>
           {detailsAnchor && (
-            <a href={`#${detailsAnchor}`} onClick={() => openDefinition(detailsAnchor)} className="block pt-1 text-primary hover:underline">
+            <a href={`#${detailsAnchor}`} onClick={() => openDefinition(detailsAnchor)} className="text-link block pt-1">
               {EXPLANATION_UI.fullDetails[lang]}
             </a>
           )}

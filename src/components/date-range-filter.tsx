@@ -58,7 +58,7 @@ function DateRangeFilterInner({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <label className="text-xs text-muted-foreground" title={labelTitle}>
+      <label className="text-xs text-ink-muted" title={labelTitle}>
         {label}
       </label>
       <Select value={range} onValueChange={(v) => v && setRange(v as DateRangePreset)}>

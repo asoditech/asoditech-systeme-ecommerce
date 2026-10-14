@@ -25,7 +25,7 @@ export function GuidedTourViewer({ tour }: { tour: GuidedTour }) {
         {tour.steps.map((_, i) => (
           <span
             key={i}
-            className={`h-1.5 flex-1 rounded-full ${done.has(i) ? "bg-primary" : i === current ? "bg-primary/40" : "bg-muted"}`}
+            className={`h-1.5 flex-1 rounded-full ${done.has(i) ? "bg-brand" : i === current ? "bg-brand/40" : "bg-chart-track"}`}
           />
         ))}
       </div>
@@ -36,12 +36,12 @@ export function GuidedTourViewer({ tour }: { tour: GuidedTour }) {
         {tour.steps.map((step, i) => (
           <div
             key={i}
-            className={`rounded-lg border p-3.5 ${i === current ? "border-primary/50 bg-primary/[0.03]" : "opacity-70"}`}
+            className={`rounded-tile border p-3.5 ${i === current ? "border-brand/60 bg-pill-peach/30" : "border-hairline opacity-70"}`}
           >
             <div className="flex items-center gap-2">
               <span
-                className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
-                  done.has(i) ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                className={`flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                  done.has(i) ? "bg-brand text-brand-foreground" : "bg-pill-neutral text-ink-secondary"
                 }`}
               >
                 {done.has(i) ? <Check className="size-3" /> : i + 1}

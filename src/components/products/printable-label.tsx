@@ -155,14 +155,14 @@ export function PrintableLabel({
 
       <div className="space-y-2 print:hidden">
         {fit && !fit.legible && (
-          <p role="status" className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+          <p role="status" className="flex items-start gap-1.5 text-xs text-pill-yellow-fg">
             <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
             Code-barres trop long pour une lecture fiable sur {LABEL_MM.width} mm (barres de {fit.moduleMm.toFixed(2)} mm,
             minimum conseillé {MIN_MODULE_MM} mm). Raccourcissez le SKU ou ajoutez le code-barres fournisseur.
           </p>
         )}
         {qrFit && !qrFit.legible && (
-          <p role="status" className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+          <p role="status" className="flex items-start gap-1.5 text-xs text-pill-yellow-fg">
             <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
             QR très dense pour {LABEL_MM.qr} mm (modules de {qrFit.moduleMm.toFixed(2)} mm, minimum conseillé{" "}
             {MIN_QR_MODULE_MM} mm) : sa lecture au téléphone peut être difficile.

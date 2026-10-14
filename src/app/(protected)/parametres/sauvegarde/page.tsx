@@ -39,10 +39,10 @@ export default async function SauvegardePage({
         {notice && (
           <p
             className={
-              "mb-4 rounded-md border px-3 py-2 text-xs " +
+              "mb-4 rounded-tile px-3 py-2 text-xs " +
               (notice.tone === "ok"
-                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400")
+                ? "bg-pill-green text-pill-green-fg"
+                : "bg-pill-yellow text-pill-yellow-fg")
             }
           >
             {notice.text}

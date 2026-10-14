@@ -15,7 +15,7 @@ export function SelectedLineChips({
   return (
     <div className="flex flex-wrap gap-1" aria-label="Articles sélectionnés">
       {lines.map((l) => (
-        <span key={l.key} className={`${CHIP} border-primary/30 bg-primary/10`}>
+        <span key={l.key} className={`${CHIP} border-transparent bg-pill-peach text-pill-peach-fg`}>
           <span className="truncate">{l.label}</span>
           <span className="shrink-0 text-muted-foreground">×{l.quantity}</span>
           {onRemove && (

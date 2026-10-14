@@ -15,16 +15,21 @@ const STAT_COLS: Record<1 | 2 | 3 | 4, string> = {
   4: "sm:grid-cols-4",
 };
 
+const STAT_CHIPS = [
+  "bg-pill-peach text-pill-peach-fg",
+  "bg-pill-blue text-pill-blue-fg",
+  "bg-pill-green text-pill-green-fg",
+  "bg-pill-purple text-pill-purple-fg",
+] as const;
+
 /**
- * "Command Hero" — the dashboard's headline surface.
+ * "Command Hero" — the dashboard's headline surface (the large overview card
+ * of the bento grid).
  *
- * Phase 5 visual QA: LIGHT by construction. The Phase 4 version was a dark
- * panel; ASODITECH is a light SaaS interface, so the headline now earns its
- * prominence through scale and hierarchy (the page's only 4xl figure, a
- * soft brand-tinted wash, a brand accent rail) instead of a black surface.
- * The number itself stays in dark foreground text — large orange text on
- * white fails contrast — and the brand color is carried by the accent rail,
- * the sparkline and the stat icons.
+ * Soft UI (redesign/soft-ui): a plain white card — the eyebrow is the card
+ * title with its pastel bar, the headline figure is the page's one 48px
+ * number (dark text, tabular), the sparkline is a smooth orange line, and
+ * the secondary stats sit in soft grey tiles with pastel icon chips.
  *
  * Real data only: every number is exactly what the caller already
  * computed elsewhere on the page (no second query, no fabricated trend).
@@ -54,50 +59,49 @@ export function CommandHero({
   stats: { label: string; value: string; icon: LucideIcon; explain?: React.ReactNode }[];
 }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-card shadow-card ring-1 ring-border">
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-linear-to-br from-primary/8 via-transparent to-transparent" />
-      <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1 bg-primary" />
-      <div className="relative flex flex-col gap-5 p-5 sm:p-6">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold tracking-wide text-accent-foreground uppercase">{eyebrow}</p>
-            <p className="mt-2 flex items-center gap-1 text-sm font-medium text-muted-foreground">
-              {label}
-              {info && <MetricInfo metric={info} />}
-              {explain}
-            </p>
-            <div className="mt-1 flex flex-wrap items-center gap-3">
-              <p className="truncate text-3xl font-bold tracking-tight text-foreground tabular-nums sm:text-4xl">{value}</p>
-              {trend && <TrendBadge trend={trend} />}
-            </div>
-            {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+    <div className="flex flex-col gap-6 rounded-card bg-card p-5 shadow-card sm:p-6">
+      <div className="flex flex-col gap-6 2xl:flex-row 2xl:items-end 2xl:justify-between">
+        <div className="min-w-0">
+          <p className="flex items-center gap-3 text-lg leading-snug font-semibold text-ink">
+            <span aria-hidden="true" className="h-6 w-1.5 shrink-0 rounded-full bg-pastel-peach" />
+            {eyebrow}
+          </p>
+          <p className="mt-5 flex items-center gap-1 text-sm text-ink-secondary">
+            {label}
+            {info && <MetricInfo metric={info} />}
+            {explain}
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-3">
+            <p className="text-[32px] leading-none font-semibold tracking-tight break-words text-ink tabular-nums sm:text-[48px]">{value}</p>
+            {trend && <TrendBadge trend={trend} />}
           </div>
-          {sparklineData && sparklineData.length > 1 && (
-            <div className="w-full shrink-0 lg:w-64">
-              <Sparkline id="command-hero-spark" data={sparklineData} color="var(--color-primary)" height={64} />
-            </div>
-          )}
+          {hint && <p className="mt-2 text-xs text-ink-muted">{hint}</p>}
         </div>
-
-        {stats.length > 0 && (
-          <div className={cn("grid grid-cols-1 gap-3", STAT_COLS[Math.min(stats.length, 4) as 1 | 2 | 3 | 4])}>
-            {stats.map((s) => (
-              <div key={s.label} className="flex items-center gap-3 rounded-xl border border-border/80 bg-background/70 px-3.5 py-2.5">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
-                  <s.icon className="size-4" />
-                </span>
-                <div className="min-w-0">
-                  <p className="flex items-center gap-0.5 truncate text-xs text-muted-foreground">
-                    {s.label}
-                    {s.explain}
-                  </p>
-                  <p className="truncate text-base font-semibold tabular-nums">{s.value}</p>
-                </div>
-              </div>
-            ))}
+        {sparklineData && sparklineData.length > 1 && (
+          <div className="w-full shrink-0 2xl:w-72">
+            <Sparkline id="command-hero-spark" data={sparklineData} color="var(--chart-1)" height={80} />
           </div>
         )}
       </div>
+
+      {stats.length > 0 && (
+        <div className={cn("grid grid-cols-1 gap-3", STAT_COLS[Math.min(stats.length, 4) as 1 | 2 | 3 | 4])}>
+          {stats.map((s, i) => (
+            <div key={s.label} className="flex min-w-0 items-center gap-3 rounded-tile bg-content p-4 sm:flex-col sm:items-start">
+              <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl", STAT_CHIPS[i % STAT_CHIPS.length])}>
+                <s.icon className="size-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="flex items-start gap-0.5 text-xs text-ink-muted">
+                  <span className="line-clamp-2">{s.label}</span>
+                  {s.explain}
+                </p>
+                <p className="mt-1 truncate text-xl font-semibold text-ink tabular-nums sm:text-2xl">{s.value}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

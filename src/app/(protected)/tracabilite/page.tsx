@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Notice } from "@/components/ui/notice";
 import { ChevronRight, ScanBarcode } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
@@ -61,11 +62,11 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
       {q && candidates.length > 1 && !trace && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-[15px]">{candidates.length} articles correspondent</CardTitle>
+            <CardTitle accent="peach">{candidates.length} articles correspondent</CardTitle>
           </CardHeader>
           <CardContent className="p-2">
             <p className="px-2 pb-2 text-xs text-muted-foreground">Choisissez l&apos;article à tracer.</p>
-            <ul className="divide-y rounded-lg border" aria-label="Articles correspondants">
+            <ul className="divide-y divide-hairline overflow-hidden rounded-tile border" aria-label="Articles correspondants">
               {candidates.map((u) => {
                 const key = u.variationId ? `v:${u.variationId}` : `p:${u.productId}`;
                 return (
@@ -79,7 +80,7 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
                           {u.name}
                           {u.variantLabel && <span className="font-normal text-muted-foreground">— {u.variantLabel}</span>}
                           {inactiveUnitLabel(u.status) && (
-                            <Badge variant="outline" className="h-4 px-1 text-[10px]">
+                            <Badge variant="outline" className="h-4 px-1 text-xs">
                               {inactiveUnitLabel(u.status)}
                             </Badge>
                           )}
@@ -126,17 +127,17 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
           {trace.referenceCost && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-[15px]">Coût d&apos;achat actuel</CardTitle>
+                <CardTitle accent="green">Coût d&apos;achat actuel</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 {trace.referenceCost.global === null && trace.referenceCost.locations.length === 0 ? (
-                  <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-800 dark:text-amber-400">
+                  <Notice tone="warning" className="block">
                     Coût d&apos;achat non renseigné pour cet article.{" "}
                     <Link href={trace.productHref} className="font-medium underline underline-offset-2">
                       Renseignez-le sur la fiche produit
                     </Link>{" "}
                     — les marges et la valorisation du stock restent incomplètes tant qu&apos;il manque.
-                  </p>
+                  </Notice>
                 ) : (
                   <>
                     <p>
@@ -154,7 +155,7 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
                     {trace.referenceCost.locations.length > 0 && (
                       <ul className="flex flex-wrap gap-2 text-xs">
                         {trace.referenceCost.locations.map((l) => (
-                          <li key={l.warehouseId} className="rounded-md border px-2 py-1">
+                          <li key={l.warehouseId} className="rounded-lg border border-hairline px-2.5 py-1.5">
                             {l.warehouseName} : <span className="font-medium tabular-nums">{formatCurrency(String(l.cost))}</span>
                           </li>
                         ))}
@@ -172,7 +173,7 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-[15px]">Où est le stock maintenant</CardTitle>
+              <CardTitle accent="purple">Où est le stock maintenant</CardTitle>
             </CardHeader>
             <CardContent>
               {trace.stock.length === 0 ? (
@@ -208,7 +209,7 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-[15px]">Historique des mouvements</CardTitle>
+              <CardTitle accent="yellow">Historique des mouvements</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="mb-3 text-xs text-muted-foreground">
@@ -235,7 +236,7 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
                         <TableCell className="whitespace-nowrap text-muted-foreground">{formatDateTime(m.at)}</TableCell>
                         <TableCell>
                           {INVENTORY_MOVEMENT_TYPE_LABELS[m.type] ?? m.type}
-                          {m.legacy && <Badge variant="outline" className="ml-2 text-[10px]">historique ancien</Badge>}
+                          {m.legacy && <Badge variant="outline" className="ml-2 text-xs">historique ancien</Badge>}
                         </TableCell>
                         <TableCell className="text-muted-foreground">{m.location}</TableCell>
                         <TableCell className="text-right tabular-nums">

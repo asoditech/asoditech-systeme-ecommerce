@@ -16,14 +16,14 @@ function Label({
     <label
       data-slot="label"
       className={cn(
-        "flex items-center gap-1.5 text-sm leading-none font-medium text-foreground select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50",
+        "flex items-center gap-1.5 text-sm leading-none font-medium text-ink select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50",
         className
       )}
       {...props}
     >
       {children}
       {required && (
-        <span className="text-destructive" aria-hidden="true">
+        <span className="text-danger" aria-hidden="true">
           *
         </span>
       )}

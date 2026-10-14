@@ -24,7 +24,7 @@ export function DismissNotificationButton({ id, className = "" }: { id: string; 
           router.refresh();
         });
       }}
-      className={`rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50 ${className}`}
+      className={`rounded-full p-1.5 text-ink-muted transition-colors hover:bg-row-hover hover:text-ink focus-visible:ring-[3px] focus-visible:ring-ring/25 focus-visible:outline-none disabled:opacity-50 ${className}`}
     >
       <X className="size-3.5" />
     </button>

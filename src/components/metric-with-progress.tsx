@@ -52,20 +52,20 @@ export function MetricWithProgress({
         <div className="flex min-w-0 flex-col gap-1.5">
           <div className="flex items-center gap-2">
             {Icon && (
-              <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/12 text-primary">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-pill-peach text-pill-peach-fg">
                 <Icon className="size-3.5" />
               </span>
             )}
             <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
             {explain}
           </div>
-          <p className="truncate text-2xl font-bold tracking-tight tabular-nums">{value}</p>
-          {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+          <p className="truncate text-2xl font-semibold tracking-tight text-ink tabular-nums">{value}</p>
+          {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
         </div>
 
         {segments && segments.length > 0 && (
           <div className="space-y-2">
-            <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-chart-track">
               {segments.map((s) =>
                 s.value > 0 ? (
                   <div
@@ -78,7 +78,7 @@ export function MetricWithProgress({
             </div>
             <div className="flex flex-wrap gap-x-3 gap-y-1">
               {segments.map((s) => (
-                <span key={s.label} className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <span key={s.label} className="flex items-center gap-1 text-xs text-muted-foreground">
                   <span className={cn("size-1.5 shrink-0 rounded-full", s.className)} />
                   {s.label} <span className="font-medium text-foreground">{s.value}</span>
                 </span>
@@ -88,9 +88,9 @@ export function MetricWithProgress({
         )}
 
         {percent !== undefined && (
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-chart-track">
             <div
-              className={cn("h-full rounded-full bg-primary", barClassName)}
+              className={cn("h-full rounded-full bg-brand", barClassName)}
               style={{ width: `${Math.max(0, Math.min(100, percent))}%` }}
             />
           </div>

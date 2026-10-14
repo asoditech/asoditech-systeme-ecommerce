@@ -1,4 +1,5 @@
 import { Globe, Clock, AlertCircle, Tags, Package, ShoppingCart, Boxes } from "lucide-react";
+import { Notice } from "@/components/ui/notice";
 import { BrandTile } from "@/components/brand-logo";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConnectIntegrationDialog } from "@/components/integrations/connect-integration-dialog";
@@ -65,14 +66,14 @@ export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
 
       <CardContent className="space-y-4">
         {config?.siteUrl && (
-          <div className="flex items-center gap-1.5 truncate rounded-md bg-muted/50 px-2.5 py-1.5 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5 truncate rounded-xl bg-pill-neutral px-2.5 py-1.5 text-xs text-muted-foreground">
             <Globe className="size-3.5 shrink-0" />
             <span className="truncate">{config.siteUrl}</span>
           </div>
         )}
 
         {integration?.lastError && status === "ERREUR" && (
-          <div className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/8 px-3 py-2 text-xs text-destructive">
+          <div className="flex items-start gap-2 rounded-tile bg-pill-red px-3 py-2 text-xs text-pill-red-fg">
             <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
             <p>{integration.lastError}</p>
           </div>
@@ -95,13 +96,13 @@ export async function WooCommerceCard({ canManage }: { canManage: boolean }) {
         )}
 
         {webhookFailure && (
-          <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+          <Notice tone="warning" size="sm" className="gap-2">
             <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
             <p>{webhookFailure}</p>
-          </div>
+          </Notice>
         )}
 
-        <div className="divide-y divide-border/60 rounded-lg border border-border/60 px-3">
+        <div className="divide-y divide-hairline rounded-lg border border-hairline px-3">
           {RESOURCES.map((resource) => (
             <SyncResourceRow
               key={resource.key}

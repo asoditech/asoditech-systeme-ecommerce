@@ -7,7 +7,7 @@ import { KpiCard } from "@/components/kpi-card";
 import { MetricBreakdown } from "@/components/metric-breakdown";
 import { MetricWithProgress } from "@/components/metric-with-progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ConfirmActionButton } from "@/components/confirm-action-button";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -52,7 +52,7 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
         breadcrumbs={[{ label: "Commissions", href: "/commissions" }, { label: agent.userName }]}
         description={`Taux actuel : ${formatCurrency(String(agent.ratePerOrder), agent.currency)} par commande livrée.`}
         actions={
-          <Link href={`/commandes?confirmationAgent=${agent.id}`} className="text-sm text-primary hover:underline">
+          <Link href={`/commandes?confirmationAgent=${agent.id}`} className="text-link text-sm">
             Voir les commandes confirmées →
           </Link>
         }
@@ -60,7 +60,7 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
 
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle className="text-[15px]">Performance confirmation</CardTitle>
+          <CardTitle accent="blue">Performance confirmation</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <MetricBreakdown
@@ -117,8 +117,8 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
             hint="Payé vs restant à payer, toutes périodes confondues"
             icon={Scale}
             segments={[
-              { label: "Payé", value: Math.max(0, Number(totals.paidTotal)), className: "bg-emerald-500" },
-              { label: "Restant", value: Math.max(0, Number(totals.remaining)), className: "bg-amber-500" },
+              { label: "Payé", value: Math.max(0, Number(totals.paidTotal)), className: "bg-success" },
+              { label: "Restant", value: Math.max(0, Number(totals.remaining)), className: "bg-chart-5" },
             ]}
           />
         </div>
@@ -133,7 +133,7 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
 
       {canManage && (
         <Card className="mb-6">
-          <CardHeader><CardTitle className="text-[15px]">Configuration</CardTitle></CardHeader>
+          <CardHeader><CardTitle accent="purple">Configuration</CardTitle></CardHeader>
           <CardContent>
             <AgentRateForm agentId={agent.id} ratePerOrder={agent.ratePerOrder} isActive={agent.isActive} />
           </CardContent>
@@ -141,12 +141,12 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
       )}
 
       <Card className="mb-6">
-        <CardHeader><CardTitle className="text-[15px]">Périodes non clôturées</CardTitle></CardHeader>
+        <CardHeader><CardTitle accent="yellow">Périodes non clôturées</CardTitle></CardHeader>
         <CardContent>
           {openMonths.length === 0 ? (
             <p className="text-sm text-muted-foreground">Aucune commission en attente de clôture.</p>
           ) : (
-            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+            <TableCard>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -191,18 +191,18 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
                   })}
                 </TableBody>
               </Table>
-            </div>
+            </TableCard>
           )}
         </CardContent>
       </Card>
 
       <Card className="mb-6">
-        <CardHeader><CardTitle className="text-[15px]">Relevés mensuels</CardTitle></CardHeader>
+        <CardHeader><CardTitle accent="green">Relevés mensuels</CardTitle></CardHeader>
         <CardContent>
           {statements.length === 0 ? (
             <EmptyState icon={FileText} title="Aucun relevé clôturé." />
           ) : (
-            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+            <TableCard>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -242,7 +242,7 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
                         <div className="flex items-center justify-end gap-2">
                           <Link
                             href={`/commissions/${agent.id}/releves/${s.id}`}
-                            className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                            className="text-link inline-flex items-center gap-1 text-sm"
                           >
                             <FileText className="size-3.5" />
                             Facture
@@ -264,18 +264,18 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
                   ))}
                 </TableBody>
               </Table>
-            </div>
+            </TableCard>
           )}
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader><CardTitle className="text-[15px]">Écritures récentes (non clôturées)</CardTitle></CardHeader>
+        <CardHeader><CardTitle accent="yellow">Écritures récentes (non clôturées)</CardTitle></CardHeader>
         <CardContent>
           {openEntries.length === 0 ? (
             <p className="text-sm text-muted-foreground">Rien pour l&apos;instant.</p>
           ) : (
-            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+            <TableCard>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -316,7 +316,7 @@ export default async function CommissionAgentDetailPage({ params }: { params: Pr
                   ))}
                 </TableBody>
               </Table>
-            </div>
+            </TableCard>
           )}
         </CardContent>
       </Card>

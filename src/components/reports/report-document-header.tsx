@@ -36,7 +36,7 @@ export function ReportDocumentHeader({
           </div>
         </div>
         <div className="text-right text-[12px] leading-tight text-slate-700">
-          <p className="text-sm font-semibold uppercase tracking-wide text-slate-900">{title}</p>
+          <p className="text-sm font-semibold text-slate-900">{title}</p>
           <p>Période : {periodLabel}</p>
           <p>Généré le {generatedAt}</p>
         </div>

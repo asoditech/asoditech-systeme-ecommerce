@@ -95,7 +95,7 @@ export function SaleReturnDialog({ saleId, lines, refundable }: { saleId: string
             <DialogTitle>Retour de vente</DialogTitle>
           </DialogHeader>
           <ReturnScanField scope="sale" onUnit={applyScan} />
-          <div className="divide-y rounded-md border text-sm">
+          <div className="divide-y divide-hairline rounded-tile border border-hairline text-sm">
             {lines.map((l) => {
               const remaining = l.sold - l.returned;
               return (

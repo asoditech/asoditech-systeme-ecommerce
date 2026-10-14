@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Notice } from "@/components/ui/notice";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
 import { LOOKUP_SCAN_FORMATS } from "@/lib/barcode-scanner/support";
 import { useDismissOnOutside } from "@/lib/use-dismiss-on-outside";
@@ -251,9 +252,9 @@ export function SaleForm({
       <div className="space-y-4">
         <Card>
           <CardHeader>
-            <CardTitle>Point de vente</CardTitle>
+            <CardTitle accent="blue">Point de vente</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-3">
+          <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <div className="space-y-1.5">
               <Label htmlFor="sale-channel">Canal</Label>
               <NativeSelect
@@ -292,7 +293,7 @@ export function SaleForm({
 
         <Card>
           <CardHeader>
-            <CardTitle>Articles</CardTitle>
+            <CardTitle accent="peach">Articles</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div ref={pickerRef} className="space-y-3">
@@ -335,19 +336,19 @@ export function SaleForm({
               </div>
             )}
             {hits.length > 0 && (
-              <ul className="divide-y rounded-md border text-sm">
+              <ul className="divide-y divide-hairline overflow-hidden rounded-tile border border-hairline text-sm">
                 {hits.map((h) => (
                   <li key={`${h.unit.productId}-${h.unit.variationId}`}>
-                    <button type="button" className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-muted/50 disabled:opacity-50" disabled={!h.tracked || h.available <= 0} onClick={() => addUnit(h, true)}>
+                    <button type="button" className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-row-hover disabled:opacity-50" disabled={!h.tracked || h.available <= 0} onClick={() => addUnit(h, true)}>
                       <span>
                         {lines.some((l) => l.key === (h.unit.variationId ? `v:${h.unit.variationId}` : `p:${h.unit.productId}`)) && (
-                          <Check className="mr-1 inline size-3.5 text-primary" aria-label="déjà ajouté" />
+                          <Check className="mr-1 inline size-3.5 text-pill-green-fg" aria-label="déjà ajouté" />
                         )}
                         {h.unit.name}
                         {h.unit.variantLabel && <span className="text-muted-foreground"> — {h.unit.variantLabel}</span>}
                         <span className="ml-2 font-mono text-xs text-muted-foreground">{h.unit.primaryBarcode ?? h.unit.sku}</span>
                       </span>
-                      <span className="text-xs">
+                      <span className="shrink-0 text-xs text-ink-secondary tabular-nums">
                         {h.tracked ? `${h.available} dispo · ${formatCurrency(String(h.unit.price))}` : "non suivi ici"}
                       </span>
                     </button>
@@ -358,29 +359,29 @@ export function SaleForm({
             </div>
 
             {lines.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed bg-muted/30 py-8 text-center text-sm text-muted-foreground">
+              <div className="flex flex-col items-center gap-2 rounded-tile border border-dashed border-field-border py-8 text-center text-sm text-ink-muted">
                 <ShoppingBasket className="size-5" />
                 Le panier est vide — scannez ou recherchez un article.
               </div>
             ) : (
-              <div className="divide-y rounded-md border">
+              <div className="divide-y divide-hairline rounded-tile border border-hairline">
                 {lines.map((l) => (
                   <div key={l.key} className="grid items-center gap-2 p-3 sm:grid-cols-[1fr_6rem_8rem_7rem_2rem]">
                     <div>
-                      <div className="text-sm font-medium">{l.label}</div>
-                      <div className="font-mono text-xs text-muted-foreground">{l.sku} · dispo {l.available}</div>
+                      <div className="text-sm font-medium text-ink">{l.label}</div>
+                      <div className="font-mono text-xs text-ink-muted">{l.sku} · dispo {l.available}</div>
                     </div>
                     <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)] gap-2 sm:contents">
                       <div className="space-y-1">
-                        <span className="block text-[11px] text-muted-foreground sm:hidden">Quantité</span>
+                        <span className="block text-xs text-ink-muted sm:hidden">Quantité</span>
                         <Input type="number" min={1} max={l.available} value={l.quantity} aria-label="Quantité" onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, quantity: Math.min(x.available, Math.max(1, Number(e.target.value) || 1)) } : x)))} />
                       </div>
                       <div className="space-y-1">
-                        <span className="block text-[11px] text-muted-foreground sm:hidden">Prix unitaire</span>
+                        <span className="block text-xs text-ink-muted sm:hidden">Prix unitaire</span>
                         <Input type="number" min={0} step="0.01" value={l.unitPrice} disabled={!canOverridePrice} aria-label="Prix unitaire" title={canOverridePrice ? undefined : "Modification du prix non autorisée"} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, unitPrice: Math.max(0, Number(e.target.value) || 0) } : x)))} />
                       </div>
                       <div className="space-y-1">
-                        <span className="block text-[11px] text-muted-foreground sm:hidden">Remise</span>
+                        <span className="block text-xs text-ink-muted sm:hidden">Remise</span>
                         <Input type="number" min={0} step="0.01" value={l.discount} disabled={!canOverridePrice} aria-label="Remise" placeholder="Remise" title={canOverridePrice ? undefined : "Remise non autorisée"} onChange={(e) => setLines((p) => p.map((x) => (x.key === l.key ? { ...x, discount: Math.max(0, Number(e.target.value) || 0) } : x)))} />
                       </div>
                     </div>
@@ -397,12 +398,12 @@ export function SaleForm({
 
       <Card className="h-fit">
         <CardHeader>
-          <CardTitle>Paiement</CardTitle>
+          <CardTitle accent="green">Paiement</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-baseline justify-between gap-2 pr-10 sm:pr-0">
-            <span className="text-sm text-muted-foreground">Total</span>
-            <span className="text-xl font-semibold tabular-nums sm:text-2xl">{formatCurrency(String(total))}</span>
+            <span className="text-sm text-ink-muted">Total</span>
+            <span className="text-2xl font-semibold tracking-tight text-ink tabular-nums sm:text-[28px]">{formatCurrency(String(total))}</span>
           </div>
           {payments.map((p) => (
             <div key={p.key} className="flex gap-2">
@@ -418,20 +419,20 @@ export function SaleForm({
             </div>
           ))}
           <div className="flex gap-2">
-            <Button type="button" variant="outline" size="sm" className="flex-1" disabled={total <= 0} onClick={() => setPayments([{ key: crypto.randomUUID(), method: "ESPECES", amount: total }])}>
+            <Button type="button" variant="outline" className="flex-1" disabled={total <= 0} onClick={() => setPayments([{ key: crypto.randomUUID(), method: "ESPECES", amount: total }])}>
               <Banknote className="size-3.5" />
               Tout en espèces
             </Button>
-            <Button type="button" variant="secondary" size="sm" className="flex-1" onClick={() => setPayments((p) => [...p, { key: crypto.randomUUID(), method: "CARTE", amount: Math.max(0, total - paid) }])}>
+            <Button type="button" variant="secondary" className="flex-1" onClick={() => setPayments((p) => [...p, { key: crypto.randomUUID(), method: "CARTE", amount: Math.max(0, total - paid) }])}>
               <Plus className="size-3.5" />
               Paiement
             </Button>
           </div>
           {Math.abs(paid - total) > 0.005 && lines.length > 0 && (
-            <p className="flex items-center gap-1.5 text-xs text-amber-600">
-              <AlertTriangle className="size-3.5" />
+            <Notice tone="warning" size="sm">
+              <AlertTriangle />
               Reste à encaisser : {formatCurrency(String(total - paid))}
-            </p>
+            </Notice>
           )}
           <Button type="button" className="w-full" size="lg" loading={isPending} disabled={lines.length === 0} onClick={submit}>
             {!isPending && <CheckCircle2 className="size-4" />}

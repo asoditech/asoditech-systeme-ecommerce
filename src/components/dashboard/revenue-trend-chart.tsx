@@ -1,7 +1,8 @@
 "use client";
 
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { formatCurrency } from "@/lib/format";
+import { CHART_AXIS_PROPS, CHART_BAR_RADIUS, CHART_COLORS, CHART_GRID_PROPS, chartTooltipProps } from "@/lib/design/chart";
 
 interface Bucket {
   key: string;
@@ -15,13 +16,13 @@ function shortAmount(n: number): string {
 }
 
 /**
- * Gross-revenue chart for the dashboard — Phase 3 (Premium Visual SaaS
- * Transformation, section 8): replaces the earlier hand-rolled div/CSS bar
- * chart with a recharts gradient-area treatment (the app's one chart
- * language). Same data, same numbers — only the rendering
- * changed. The "chart + insight" pairing (total for the range, peak month)
- * is computed here from the exact array the page already fetched — never a
- * second query, never an invented figure.
+ * Gross-revenue chart for the dashboard. Soft UI (redesign/soft-ui): rounded
+ * pastel bars with ONE highlighted bar — the peak bucket, the same « Pic »
+ * named above the chart — on hairline horizontal grid lines, dark tooltip
+ * chip; colours from src/lib/design/chart.ts. Same data, same numbers — only
+ * the rendering changed. The "chart + insight" pairing (total for the range,
+ * peak month) is computed here from the exact array the page already fetched
+ * — never a second query, never an invented figure.
  */
 export function RevenueTrendChart({ data }: { data: Bucket[] }) {
   const total = data.reduce((sum, d) => sum + d.revenue, 0);
@@ -30,43 +31,35 @@ export function RevenueTrendChart({ data }: { data: Bucket[] }) {
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <p className="text-2xl font-bold tracking-tight tabular-nums">{formatCurrency(total)}</p>
+      <div className="mb-5 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <p className="text-[32px] leading-tight font-semibold tracking-tight text-ink tabular-nums">{formatCurrency(total)}</p>
         {hasData && (
-          <p className="text-xs text-muted-foreground">
-            Pic : <span className="font-medium text-foreground capitalize">{peak.label}</span> ({shortAmount(peak.revenue)} MAD)
+          <p className="flex items-center gap-1.5 text-xs text-ink-muted">
+            <span aria-hidden="true" className="size-2 rounded-full bg-chart-highlight" />
+            Pic : <span className="font-medium text-ink capitalize">{peak.label}</span> ({shortAmount(peak.revenue)} MAD)
           </p>
         )}
       </div>
       {hasData ? (
-        <ResponsiveContainer width="100%" height={240}>
-          <AreaChart data={data} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
-            <defs>
-              <linearGradient id="dashboardRevenueFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.28} />
-                <stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
-            <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={16} className="capitalize" />
-            <YAxis tickFormatter={(v: number) => shortAmount(v)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={36} />
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={data} margin={{ top: 4, right: 0, left: 0, bottom: 0 }} barCategoryGap="22%">
+            <CartesianGrid {...CHART_GRID_PROPS} />
+            <XAxis dataKey="label" {...CHART_AXIS_PROPS} minTickGap={8} className="capitalize" />
+            <YAxis tickFormatter={(v: number) => shortAmount(v)} {...CHART_AXIS_PROPS} width={36} />
             <Tooltip
-              formatter={(value: number) => formatCurrency(value)}
+              {...chartTooltipProps("bar")}
+              formatter={(value: number) => [formatCurrency(value), ""]}
               labelFormatter={(label: string) => label}
-              contentStyle={{ fontSize: 12, borderRadius: 8, textTransform: "capitalize" }}
             />
-            <Area
-              type="monotone"
-              dataKey="revenue"
-              stroke="var(--color-primary)"
-              fill="url(#dashboardRevenueFill)"
-              strokeWidth={2}
-              activeDot={{ r: 4 }}
-            />
-          </AreaChart>
+            <Bar dataKey="revenue" radius={CHART_BAR_RADIUS} maxBarSize={40} isAnimationActive={false}>
+              {data.map((d) => (
+                <Cell key={d.key} fill={d.key === peak.key ? CHART_COLORS.highlight : CHART_COLORS.bar} />
+              ))}
+            </Bar>
+          </BarChart>
         </ResponsiveContainer>
       ) : (
-        <div className="flex h-[240px] items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
+        <div className="flex h-[260px] items-center justify-center rounded-tile border border-dashed border-field-border-hover text-sm text-ink-muted">
           Aucun chiffre d&apos;affaires sur cette période.
         </div>
       )}

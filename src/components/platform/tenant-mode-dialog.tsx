@@ -70,9 +70,9 @@ export function TenantModeDialog({ tenantId, tenantName, currentMode }: { tenant
           {BUSINESS_MODES.map((m) => (
             <label
               key={m}
-              className={"flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm " + (mode === m ? "border-primary bg-primary/5" : "")}
+              className={"flex cursor-pointer items-start gap-3 rounded-tile border p-3 text-sm " + (mode === m ? "border-brand bg-pill-peach/40" : "border-hairline")}
             >
-              <input type="radio" name="businessMode" className="mt-1" checked={mode === m} onChange={() => choose(m)} />
+              <input type="radio" name="businessMode" className="mt-1 accent-brand" checked={mode === m} onChange={() => choose(m)} />
               <span>
                 <span className="font-medium">{BUSINESS_MODE_LABELS[m]}</span>
                 {m === currentMode && <span className="ml-2 text-xs text-muted-foreground">(actuel)</span>}
@@ -81,7 +81,7 @@ export function TenantModeDialog({ tenantId, tenantName, currentMode }: { tenant
             </label>
           ))}
         </div>
-        {refusal && <p className="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-sm text-destructive">{refusal}</p>}
+        {refusal && <p className="rounded-tile bg-pill-red px-3 py-2 text-sm text-pill-red-fg">{refusal}</p>}
         {!refusal && mode === "ONLINE_AND_OFFLINE" && mode !== currentMode && (
           <p className="text-xs text-muted-foreground">
             Débloque : ventes magasin, achats et fournisseurs, canaux de vente, codes-barres, traçabilité. Rien n&apos;est créé ni modifié dans les données existantes.

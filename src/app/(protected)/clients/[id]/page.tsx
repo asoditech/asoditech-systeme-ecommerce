@@ -10,10 +10,11 @@ import { ConfirmActionButton } from "@/components/confirm-action-button";
 import { CustomerForm } from "@/components/customers/customer-form";
 import { CustomerAddressForm } from "@/components/customers/customer-address-form";
 import { CustomerBlacklistControl } from "@/components/customers/blacklist-control";
+import { Notice } from "@/components/ui/notice";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -57,19 +58,13 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
       />
 
       {canEdit && (customer.isBlacklisted || (canSeeOrders && stats.cancelledOrders >= 2)) && (
-        <div
-          className={
-            customer.isBlacklisted
-              ? "mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
-              : "mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/8 p-3 text-sm text-amber-700 dark:text-amber-400"
-          }
-        >
+        <Notice tone={customer.isBlacklisted ? "danger" : "warning"} className="mb-5 flex-wrap items-center justify-between gap-3">
           <div>
             {customer.isBlacklisted ? (
               <>
-                <p className="font-medium text-destructive">Ce client est marqué comme indésirable.</p>
+                <p className="font-medium">Ce client est marqué comme indésirable.</p>
                 {customer.blacklistReason && (
-                  <p className="text-muted-foreground">Motif : {customer.blacklistReason}</p>
+                  <p>Motif : {customer.blacklistReason}</p>
                 )}
               </>
             ) : (
@@ -80,11 +75,11 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
             )}
           </div>
           <CustomerBlacklistControl customerId={customer.id} isBlacklisted={customer.isBlacklisted} />
-        </div>
+        </Notice>
       )}
 
       {canSeeOrders && (
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           label="Total dépensé"
           value={stats.totalSpent ? formatCurrency(stats.totalSpent.toString()) : "0,00 MAD"}
@@ -121,7 +116,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           {customer.orders.length === 0 ? (
             <EmptyState icon={Plus} title="Aucune commande pour ce client." />
           ) : (
-            <div className="overflow-hidden rounded-xl border bg-card shadow-card">
+            <TableCard>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -134,17 +129,17 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
                 <TableBody>
                   {customer.orders.map((o) => (
                     <ClickableTableRow key={o.id} href={`/commandes/${o.id}`}>
-                      <TableCell className="font-medium">{displayOrderNumber(o, business.orderNumberPrefix)}</TableCell>
+                      <TableCell className="text-[15px] font-semibold tracking-tight text-ink">{displayOrderNumber(o, business.orderNumberPrefix)}</TableCell>
                       <TableCell>
                         <StatusBadge status={o.status} labels={ORDER_STATUS_LABELS} />
                       </TableCell>
-                      <TableCell>{formatCurrency(o.total.toString(), o.currency)}</TableCell>
+                      <TableCell className="font-semibold text-ink tabular-nums">{formatCurrency(o.total.toString(), o.currency)}</TableCell>
                       <TableCell className="text-muted-foreground">{formatDate(o.createdAt)}</TableCell>
                     </ClickableTableRow>
                   ))}
                 </TableBody>
               </Table>
-            </div>
+            </TableCard>
           )}
         </TabsContent>
         )}
@@ -159,7 +154,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
                   <CardContent className="flex items-start justify-between gap-2 pt-5">
                     <div className="text-sm">
                       <div className="flex items-center gap-2">
-                        <p className="font-medium">{a.label ?? "Adresse"}</p>
+                        <p className="font-semibold text-ink">{a.label ?? "Adresse"}</p>
                         {a.isDefault && <Badge variant="default">Par défaut</Badge>}
                       </div>
                       <p className="text-muted-foreground">{a.addressLine1}</p>
@@ -195,8 +190,8 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
             <div className="max-w-2xl">
               <CustomerForm customer={customer} />
             </div>
-            <div className="max-w-2xl space-y-1.5 border-t pt-4">
-              <p className="text-sm font-medium">Liste indésirable</p>
+            <div className="max-w-2xl space-y-1.5 border-t border-hairline pt-5">
+              <p className="text-sm font-semibold text-ink">Liste indésirable</p>
               <p className="text-sm text-muted-foreground">
                 {customer.isBlacklisted
                   ? "Ce client est actuellement marqué comme indésirable."

@@ -154,13 +154,13 @@ export function CityInput({ value, defaultValue, onValueChange, className, onFoc
                         onMouseEnter={() => setActive(i)}
                         onClick={() => choose(city)}
                         className={cn(
-                          "flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 select-none",
+                          "flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 select-none",
                           i === active && "bg-accent text-accent-foreground"
                         )}
                       >
                         <MapPin className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                         <span className="min-w-0 flex-1 truncate">{city}</span>
-                        {selected && <Check className="size-4 shrink-0 text-primary" aria-hidden="true" />}
+                        {selected && <Check className="size-4 shrink-0 text-ink" aria-hidden="true" />}
                       </li>
                     );
                   })}

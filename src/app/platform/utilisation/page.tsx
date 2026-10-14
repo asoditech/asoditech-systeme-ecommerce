@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Notice } from "@/components/ui/notice";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,27 +38,27 @@ export default async function PlatformUsagePage({ searchParams }: { searchParams
         title="Utilisation par client"
         description={`Volume de données par client et taille de la base, calculés le ${formatDateTime(usage.computedAt)} (cache 5 min ; « Actualiser » recalcule, en lecture seule).`}
         actions={
-          <Button size="sm" variant="outline" render={<Link href="/platform/utilisation?actualiser=1" />}>
+          <Button variant="outline" render={<Link href="/platform/utilisation?actualiser=1" />}>
             Actualiser
           </Button>
         }
       />
 
-      <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+      <Notice tone="neutral" size="sm" className="block">
         Cette page mesure l&apos;utilisation (nombre d&apos;enregistrements, croissance, taille de la base). Elle ne vérifie
         ni la disponibilité de l&apos;application, ni la connexion à la base, ni les déploiements : voir{" "}
-        <Link href="/platform/sante" className="font-medium text-foreground underline-offset-4 hover:underline">
+        <Link href="/platform/sante" className="text-link">
           Santé
         </Link>
         .
-      </p>
+      </Notice>
 
       <Card>
         <CardHeader>
-          <CardTitle>Clients — du plus actif au moins actif</CardTitle>
+          <CardTitle accent="blue">Clients — du plus actif au moins actif</CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto p-0">
-          <Table className="text-[12px]">
+          <Table className="text-[13px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Client</TableHead>
@@ -76,9 +77,9 @@ export default async function PlatformUsagePage({ searchParams }: { searchParams
                 const u = usage.rows.get(t.id);
                 return (
                   <TableRow key={t.id}>
-                    <TableCell className="font-medium">
-                      <Link href={`/platform/utilisation?tenant=${t.id}`} className="hover:underline">{t.name}</Link>
-                      <div className="text-[11px] text-muted-foreground">{t.slug}</div>
+                    <TableCell>
+                      <Link href={`/platform/utilisation?tenant=${t.id}`} className="font-semibold text-ink hover:underline">{t.name}</Link>
+                      <div className="text-xs text-ink-muted">{t.slug}</div>
                     </TableCell>
                     <TableCell>
                       <Badge variant={t.tenantStatus === "ACTIVE" ? "secondary" : "destructive"}>{t.tenantStatus === "ACTIVE" ? "Actif" : "Suspendu"}</Badge>
@@ -105,7 +106,7 @@ export default async function PlatformUsagePage({ searchParams }: { searchParams
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Modules les plus utilisés (tous clients)</CardTitle>
+            <CardTitle accent="peach">Modules les plus utilisés (tous clients)</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <Table className="text-[13px]">
@@ -132,7 +133,7 @@ export default async function PlatformUsagePage({ searchParams }: { searchParams
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Taille réelle de la base (Postgres)</CardTitle>
+            <CardTitle accent="purple">Taille réelle de la base (Postgres)</CardTitle>
           </CardHeader>
           <CardContent>
             {usage.database ? (
@@ -162,7 +163,7 @@ export default async function PlatformUsagePage({ searchParams }: { searchParams
       {selected && (
         <Card>
           <CardHeader>
-            <CardTitle>Utilisateurs — {selected.name}</CardTitle>
+            <CardTitle accent="blue">Utilisateurs — {selected.name}</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <Table className="text-[13px]">
@@ -179,7 +180,7 @@ export default async function PlatformUsagePage({ searchParams }: { searchParams
               <TableBody>
                 {users.map((u) => (
                   <TableRow key={u.id}>
-                    <TableCell className="font-medium">{u.name}</TableCell>
+                    <TableCell className="font-medium text-ink">{u.name}</TableCell>
                     <TableCell>{u.email}</TableCell>
                     <TableCell>{u.role}</TableCell>
                     <TableCell>{u.status}</TableCell>

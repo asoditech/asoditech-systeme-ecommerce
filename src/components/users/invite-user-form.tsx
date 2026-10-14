@@ -208,7 +208,7 @@ export function InviteUserForm({ channelsEnabled = false }: { channelsEnabled?: 
                   <legend className="text-sm font-medium">Canaux magasin</legend>
                   <div className="grid gap-1.5 sm:grid-cols-2">
                     {offlineChannels.map((c) => (
-                      <label key={c.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">
+                      <label key={c.id} className="flex items-center gap-2 rounded-xl border border-hairline p-2.5 text-sm">
                         <Checkbox
                           checked={channelIds.includes(c.id)}
                           onCheckedChange={(checked) => setChannelIds((prev) => toggle(prev, c.id, checked === true))}
@@ -232,7 +232,7 @@ export function InviteUserForm({ channelsEnabled = false }: { channelsEnabled?: 
                   <legend className="text-sm font-medium">Emplacements</legend>
                   <div className="grid gap-1.5 sm:grid-cols-2">
                     {offerableWarehouses.map((w) => (
-                      <label key={w.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">
+                      <label key={w.id} className="flex items-center gap-2 rounded-xl border border-hairline p-2.5 text-sm">
                         <Checkbox
                           checked={selectedWarehouseIds.includes(w.id)}
                           onCheckedChange={(checked) => setWarehouseIds((prev) => toggle(prev, w.id, checked === true))}

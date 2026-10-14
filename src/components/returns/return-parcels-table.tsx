@@ -86,7 +86,7 @@ export function ReturnParcelsTable({
   return (
     <>
       {(selectedIds.length > 0 || summary) && (
-        <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-3 py-2 text-sm" role="region" aria-label="Actions sur la sélection">
+        <div className="flex flex-wrap items-center gap-2 border-b border-hairline bg-pill-neutral px-6 py-2.5 text-sm" role="region" aria-label="Actions sur la sélection">
           {selectedIds.length > 0 && (
             <>
               <span className="font-medium">{selectedIds.length} colis sélectionné(s)</span>
@@ -100,7 +100,7 @@ export function ReturnParcelsTable({
             </>
           )}
           {summary && (
-            <div className={`flex w-full items-start justify-between gap-2 text-xs ${summary.allOk ? "text-emerald-700 dark:text-emerald-400" : "text-destructive"}`} role="status">
+            <div className={`flex w-full items-start justify-between gap-2 text-xs ${summary.allOk ? "text-pill-green-fg" : "text-destructive"}`} role="status">
               <div>
                 <p className="font-medium">{summary.message}</p>
                 {summary.failed.length > 0 && (
@@ -159,7 +159,7 @@ export function ReturnParcelsTable({
                   )}
                 </TableCell>
                 <TableCell>
-                  <Link href={`/commandes/${p.orderId}`} className="font-medium underline-offset-2 hover:underline">
+                  <Link href={`/commandes/${p.orderId}`} className="text-[15px] font-semibold tracking-tight text-ink underline-offset-2 hover:underline">
                     {p.orderLabel}
                   </Link>
                 </TableCell>

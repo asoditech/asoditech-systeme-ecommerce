@@ -76,7 +76,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
           identity block, not a replacement for it. */}
       <Card size="sm">
         <CardContent className="flex flex-wrap items-center gap-4">
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-pill-peach text-pill-peach-fg">
             <Building2 className="size-5" />
           </span>
           <div className="min-w-0 flex-1">
@@ -115,8 +115,8 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
               }
               icon={Scale}
               segments={[
-                { label: "Payé", value: Math.max(0, Number(balance.totalPaid)), className: "bg-emerald-500" },
-                { label: "Restant", value: Math.max(0, Number(balance.balance)), className: "bg-amber-500" },
+                { label: "Payé", value: Math.max(0, Number(balance.totalPaid)), className: "bg-success" },
+                { label: "Restant", value: Math.max(0, Number(balance.balance)), className: "bg-chart-5" },
               ]}
             />
           </div>
@@ -128,7 +128,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
 
       <Card>
         <CardHeader>
-          <CardTitle>Réceptions</CardTitle>
+          <CardTitle accent="purple">Réceptions</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
@@ -180,7 +180,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
       {canViewPurchases && (
         <Card>
           <CardHeader>
-            <CardTitle>Produits achetés</CardTitle>
+            <CardTitle accent="peach">Produits achetés</CardTitle>
             <CardDescription className="text-xs">
               {purchaseHistory.length > 0
                 ? `Lignes des réceptions validées — les ${purchaseHistory.length} plus récentes.`
@@ -211,7 +211,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
                       <TableCell>
                         <Link
                           href={`/receptions/${l.receptionId}`}
-                          className="font-medium hover:text-primary hover:underline"
+                          className="font-medium hover:underline"
                         >
                           {displayReceptionNumber({ receptionNumber: l.receptionNumber, displayNumber: l.receptionDisplayNumber })}
                         </Link>
@@ -235,7 +235,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
       {showAmounts && (
         <Card>
           <CardHeader>
-            <CardTitle>Paiements</CardTitle>
+            <CardTitle accent="green">Paiements</CardTitle>
           </CardHeader>
           <CardContent>
             <Table>

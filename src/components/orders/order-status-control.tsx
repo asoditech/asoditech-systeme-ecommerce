@@ -21,6 +21,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { StockOverrideDialog } from "@/components/orders/stock-override-dialog";
 import { confirmationStockNotice, stockShortageOf, type ConfirmationStockFlags, type StockShortage } from "@/lib/stock-shortage";
 import type { OrderPaymentStatus } from "@prisma/client";
+import { Notice } from "@/components/ui/notice";
 
 export function OrderStatusControl({
   orderId,
@@ -102,12 +103,9 @@ export function OrderStatusControl({
           </AlertDialogHeader>
           {pendingStatus === "CONFIRMEE" &&
             confirmationStockNotice(stockFlags).map((line) => (
-              <p
-                key={line}
-                className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400"
-              >
+              <Notice key={line} tone="warning" size="sm">
                 {line}
-              </p>
+              </Notice>
             ))}
           <AlertDialogFooter>
             <AlertDialogCancel type="button">Annuler</AlertDialogCancel>

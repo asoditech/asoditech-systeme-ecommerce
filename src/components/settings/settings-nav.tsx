@@ -26,7 +26,7 @@ export function SettingsNav({
     ...(canManage ? [{ href: "/parametres/sauvegarde", label: "Sauvegarde & Portabilité" }] : []),
   ];
   return (
-    <nav className="mb-6 flex gap-1 overflow-x-auto border-b [scrollbar-width:none]">
+    <nav className="mb-6 flex gap-1 overflow-x-auto border-b border-hairline [scrollbar-width:none]">
       {items.map((item) => {
         const active = pathname === item.href;
         return (
@@ -34,10 +34,10 @@ export function SettingsNav({
             key={item.href}
             href={item.href}
             className={cn(
-              "shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+              "-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/25",
               active
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
+                ? "border-ink text-ink"
+                : "border-transparent text-ink-secondary hover:text-ink"
             )}
           >
             {item.label}

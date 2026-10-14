@@ -45,7 +45,7 @@ export async function WhatsAppCard({ canManage }: { canManage: boolean }) {
           ensuite de recevoir ou non ses alertes.
         </p>
         {!configured && (
-          <p className="rounded-md bg-muted/60 px-3 py-2">Le numéro d&apos;envoi ASODITECH n&apos;est pas configuré sur ce serveur.</p>
+          <p className="rounded-xl bg-pill-neutral px-3 py-2">Le numéro d&apos;envoi ASODITECH n&apos;est pas configuré sur ce serveur.</p>
         )}
         {config?.displayPhoneNumber && status === "CONNECTE" && (
           <div className="flex items-center gap-1.5">
@@ -54,7 +54,7 @@ export async function WhatsAppCard({ canManage }: { canManage: boolean }) {
           </div>
         )}
         {integration?.lastError && status === "ERREUR" && (
-          <div className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/8 px-3 py-2 text-destructive">
+          <div className="flex items-start gap-2 rounded-tile bg-pill-red px-3 py-2 text-pill-red-fg">
             <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
             <p>{integration.lastError}</p>
           </div>
