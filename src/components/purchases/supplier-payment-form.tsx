@@ -99,7 +99,7 @@ export function SupplierPaymentForm({ supplierId }: { supplierId: string }) {
         </div>
 
         {lastResult && (
-          <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+          <div className="rounded-tile border bg-pill-neutral p-3 text-sm">
             <div className="flex items-center gap-1.5 font-medium">
               <CheckCircle2 className="size-4 text-pill-green-fg" />
               Paiement de {formatCurrency(lastResult.amount)} affecté automatiquement

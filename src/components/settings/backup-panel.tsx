@@ -211,7 +211,7 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
   return (
     <div className="space-y-6">
       {/* État de la dernière sauvegarde */}
-      <section className="rounded-lg border p-4">
+      <section className="rounded-tile border p-4">
         <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
           <FileArchive className="size-4" /> État de la dernière sauvegarde
           <SettingInfo setting="lastBackup" />
@@ -260,7 +260,7 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
       </section>
 
       {/* Restauration */}
-      <section className="rounded-lg border p-4">
+      <section className="rounded-tile border p-4">
         <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold">
           <Upload className="size-4" /> Restaurer une sauvegarde
           <SettingInfo setting="restoreBackup" />
@@ -311,7 +311,7 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
 
       {/* Instantanés de sécurité */}
       {status.recentSafetySnapshots.length > 0 && (
-        <section className="rounded-lg border p-4">
+        <section className="rounded-tile border p-4">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
             <ShieldAlert className="size-4" /> Instantanés de sécurité (avant restauration)
             <SettingInfo setting="safetySnapshots" />
@@ -340,7 +340,7 @@ export function BackupPanel({ status }: { status: BackupStatusView }) {
 
       {/* Google Drive (Phase 2) */}
       {gd.connection.configured && (
-        <section className="rounded-lg border p-4">
+        <section className="rounded-tile border p-4">
           <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold">
             <Cloud className="size-4" /> Google Drive
             <SettingInfo setting="googleDrive" />

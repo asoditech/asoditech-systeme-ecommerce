@@ -135,7 +135,7 @@ export function ArticleView({ article, viewer }: { article: DocArticle; viewer: 
 
       {toc.length > 0 && (
         <aside className="hidden lg:block">
-          <div className="sticky top-6 space-y-1.5 rounded-lg border p-3">
+          <div className="sticky top-6 space-y-1.5 rounded-tile border p-3">
             <p className="mb-1 text-xs font-semibold text-muted-foreground">Sur cette page</p>
             {toc.map((t) => (
               <a key={t.id} href={`#${t.id}`} className="block rounded px-1.5 py-1 text-[13px] text-muted-foreground hover:text-foreground">

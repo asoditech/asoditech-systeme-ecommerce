@@ -62,7 +62,7 @@ export function ConfigSearch({ index, currentSection }: { index: SettingIndexEnt
             setQuery("");
           }
         }}
-        className="h-10 w-full rounded-xl border bg-background/80 pr-3 pl-9 text-sm shadow-xs backdrop-blur outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/35"
+        className="h-10 w-full rounded-xl border bg-card pr-3 pl-9 text-sm shadow-xs backdrop-blur outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/35"
       />
       {open && (
         <ul

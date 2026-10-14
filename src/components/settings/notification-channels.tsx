@@ -76,7 +76,7 @@ export function EmailChannelCard({ address, available }: { address: string; avai
         </div>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-hairline px-3 py-2">
           <span className="text-muted-foreground">Adresse :</span>
           <span className="break-all font-medium">{address}</span>
         </div>
@@ -127,7 +127,7 @@ export function AlertPreferencesCard({
         {alerts.length === 0 ? (
           <p className="text-sm text-muted-foreground">Votre rôle ne reçoit aucune alerte automatique pour le moment.</p>
         ) : (
-          <ul className="divide-y divide-border/60 rounded-lg border border-border/70">
+          <ul className="divide-y divide-hairline rounded-lg border border-hairline">
             {alerts.map((a) => (
               <li key={a.key} className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">

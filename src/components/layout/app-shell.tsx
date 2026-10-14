@@ -55,7 +55,7 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
       {/* Soft UI topbar: no bottom border — separated from the page by spacing and the background change (white shell → grey content). */}
       <header className="z-30 flex h-[72px] shrink-0 items-center gap-2 bg-shell px-3 sm:gap-3 md:px-8">
         <MobileNav permissions={permissions} favorites={user.navFavorites} variant={sidebarVariant} />
-        <div className="md:hidden">
+        <div className="lg:hidden">
           <Link href="/tableau-de-bord" aria-label="Tableau de bord">
             <BrandMark variant="icon" />
           </Link>
@@ -66,7 +66,7 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
             <Link
               href="/operations/nouvelle"
               aria-label="Nouvelle opération"
-              className="inline-flex h-10 items-center gap-2 rounded-control bg-brand px-3 sm:h-11 text-sm font-semibold text-primary-foreground shadow-soft transition-colors duration-150 hover:bg-brand-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:px-4"
+              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-control bg-brand px-3 text-sm font-semibold whitespace-nowrap sm:h-11 text-primary-foreground shadow-soft transition-colors duration-150 hover:bg-brand-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:px-4"
             >
               <Plus className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">Nouvelle opération</span>

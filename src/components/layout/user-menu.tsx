@@ -45,7 +45,7 @@ export function UserMenu({ name, role, sidebarVariant = "classic" }: { name: str
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button type="button" variant="ghost" className="h-11 gap-2 rounded-full p-0.5 hover:bg-nav-hover lg:pr-3" />}>
         <Avatar size="lg">
-          <AvatarFallback className="bg-pastel-peach text-sm font-semibold text-[#1a1a1a]">
+          <AvatarFallback className="bg-pill-peach text-sm font-semibold text-pill-peach-fg">
             {initials(name) || <UserIcon className="size-4" />}
           </AvatarFallback>
         </Avatar>

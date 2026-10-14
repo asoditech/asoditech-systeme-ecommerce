@@ -8,7 +8,7 @@ export function PrevNextNav({ prev, next }: { prev: DocArticle | null; next: Doc
   return (
     <div className="flex items-stretch justify-between gap-3 border-t pt-4">
       {prev ? (
-        <Link href={articleHref(prev)} className="flex-1 rounded-lg border px-3.5 py-2.5 text-sm hover:bg-muted/50">
+        <Link href={articleHref(prev)} className="flex-1 rounded-lg border px-3.5 py-2.5 text-sm hover:bg-pill-neutral">
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <ArrowLeft className="size-3.5" /> Précédent
           </span>
@@ -18,7 +18,7 @@ export function PrevNextNav({ prev, next }: { prev: DocArticle | null; next: Doc
         <div className="flex-1" />
       )}
       {next ? (
-        <Link href={articleHref(next)} className="flex-1 rounded-lg border px-3.5 py-2.5 text-right text-sm hover:bg-muted/50">
+        <Link href={articleHref(next)} className="flex-1 rounded-lg border px-3.5 py-2.5 text-right text-sm hover:bg-pill-neutral">
           <span className="flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
             Suivant <ArrowRight className="size-3.5" />
           </span>

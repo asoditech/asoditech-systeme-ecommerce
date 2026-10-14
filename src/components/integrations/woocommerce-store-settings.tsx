@@ -52,7 +52,7 @@ function ChoiceSetting<T extends string>({
   }
 
   return (
-    <fieldset className="space-y-2 rounded-lg border border-border/60 px-3 py-2.5" disabled={isPending}>
+    <fieldset className="space-y-2 rounded-lg border border-hairline px-3 py-2.5" disabled={isPending}>
       <legend className="px-1 text-sm font-medium">{title}</legend>
       <div className="grid gap-2 sm:grid-cols-2">
         {choices.map((choice) => (

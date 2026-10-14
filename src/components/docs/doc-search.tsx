@@ -43,7 +43,7 @@ export function DocSearch({ articles, autoFocus }: { articles: DocArticle[]; aut
             <ul className="max-h-96 divide-y overflow-y-auto">
               {results.map((r) => (
                 <li key={r.article.slug}>
-                  <Link href={hrefFor(r.article)} className="flex items-start justify-between gap-3 px-4 py-3 hover:bg-muted/50">
+                  <Link href={hrefFor(r.article)} className="flex items-start justify-between gap-3 px-4 py-3 hover:bg-pill-neutral">
                     <div>
                       <p className="text-sm font-medium">{r.article.title}</p>
                       <p className="text-xs text-muted-foreground">

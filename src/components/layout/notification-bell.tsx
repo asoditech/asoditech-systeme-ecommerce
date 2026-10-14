@@ -78,7 +78,7 @@ export function NotificationBell({
                   </div>
                   <p className="text-sm font-medium">{n.title}</p>
                   <p className="text-xs text-muted-foreground">{n.message}</p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">{formatDateTime(n.createdAt)}</p>
+                  <p className="mt-0.5 text-xs text-ink-muted">{formatDateTime(n.createdAt)}</p>
                 </button>
                 <DismissNotificationButton
                   id={n.id}
@@ -91,7 +91,7 @@ export function NotificationBell({
         <div className="border-t p-2">
           <Link
             href="/notifications"
-            className="block rounded-md px-2 py-1.5 text-center text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="block rounded-lg px-2 py-1.5 text-center text-xs text-ink-secondary transition-colors hover:bg-row-hover hover:text-ink"
           >
             Voir toutes les notifications
           </Link>

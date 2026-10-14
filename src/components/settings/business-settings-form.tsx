@@ -143,7 +143,7 @@ export function CompanySettingsForm({ settings }: { settings: BusinessSettings }
               </Field>
             </div>
           </FieldGroup>
-          <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/50 px-4 py-3">
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-pill-neutral px-4 py-3">
             <div>
               <p className="flex items-center gap-1 text-sm font-medium">
                 Devise

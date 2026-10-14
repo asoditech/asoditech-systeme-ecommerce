@@ -86,7 +86,7 @@ function SpecItem({
   muted?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 sm:border-l sm:border-border/70 sm:px-5 sm:py-0 sm:first:border-l-0 sm:first:pl-0">
+    <div className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 sm:border-l sm:border-hairline sm:px-5 sm:py-0 sm:first:border-l-0 sm:first:pl-0">
       <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-pill-neutral text-ink-secondary">
         <Icon className="size-4" />
       </div>

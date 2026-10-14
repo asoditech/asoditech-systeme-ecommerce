@@ -469,7 +469,7 @@ export function ReceptionForm({
           </div>
 
           {lines.length === 0 && (
-            <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed bg-muted/30 px-4 py-8 text-sm text-muted-foreground">
+            <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed bg-pill-neutral px-4 py-8 text-sm text-muted-foreground">
               <PackagePlus className="size-4" />
               Aucun article pour l&apos;instant — ajoutez la marchandise reçue ci-dessus.
             </div>

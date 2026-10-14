@@ -73,7 +73,7 @@ export function SidebarShell({
       <div data-app-shell="" className="flex h-full min-h-0 overflow-hidden bg-shell md:rounded-shell md:shadow-shell">
         <aside
           className={cn(
-            "hidden h-full shrink-0 flex-col bg-shell transition-[width] duration-200 ease-out motion-reduce:transition-none md:flex",
+            "hidden h-full shrink-0 flex-col bg-shell transition-[width] duration-200 ease-out motion-reduce:transition-none lg:flex",
             collapsed ? "w-[72px]" : "w-[272px]"
           )}
         >

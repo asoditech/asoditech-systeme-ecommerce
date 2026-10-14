@@ -348,7 +348,7 @@ export function ProductForm({
               <div className="grid items-start gap-4 sm:grid-cols-2">
                 <label
                   htmlFor="trackInventory"
-                  className="flex cursor-pointer items-start gap-3 rounded-lg border bg-muted/30 p-3 transition-colors hover:border-field-border-hover"
+                  className="flex cursor-pointer items-start gap-3 rounded-tile border bg-pill-neutral p-3 transition-colors hover:border-field-border-hover"
                 >
                   <Checkbox id="trackInventory" name="trackInventory" defaultChecked={product?.trackInventory ?? true} className="mt-0.5" />
                   <span>
@@ -385,7 +385,7 @@ export function ProductForm({
                       <label
                         key={c.id}
                         className={cn(
-                          "flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm transition-colors hover:border-field-border-hover",
+                          "flex cursor-pointer items-center gap-3 rounded-tile border p-3 text-sm transition-colors hover:border-field-border-hover",
                           checked && "border-brand bg-pill-peach/40"
                         )}
                       >
@@ -452,7 +452,7 @@ export function ProductForm({
               <FormSection title="Variantes">
                 <label
                   className={cn(
-                    "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:border-field-border-hover",
+                    "flex cursor-pointer items-start gap-3 rounded-tile border p-3 transition-colors hover:border-field-border-hover",
                     hasVariants && "border-brand bg-pill-peach/40"
                   )}
                 >

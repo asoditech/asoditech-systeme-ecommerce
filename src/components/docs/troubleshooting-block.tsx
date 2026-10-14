@@ -10,7 +10,7 @@ export function TroubleshootingBlock({ entries }: { entries: TroubleshootingEntr
   return (
     <div className="space-y-2.5">
       {entries.map((entry, i) => (
-        <details key={i} className="group rounded-lg border" open={entries.length === 1}>
+        <details key={i} className="group rounded-tile border" open={entries.length === 1}>
           <summary className="flex cursor-pointer items-center gap-2 px-3.5 py-2.5 text-sm font-medium select-none">
             <AlertTriangle className="size-4 shrink-0 text-pill-yellow-fg" />
             <span>{entry.symptom}</span>

@@ -163,7 +163,7 @@ export function WhatsAppNotificationsCard({
               </div>
             </form>
           ) : (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-hairline px-3 py-2">
               <div className="flex items-center gap-2">
                 <span className="font-mono text-sm">{maskedPhone}</span>
                 {verified ? (
@@ -254,7 +254,7 @@ export function WhatsAppNotificationsCard({
         )}
 
         {/* Opt-in */}
-        <div className="flex items-start justify-between gap-3 rounded-lg border border-border/70 px-3 py-2.5">
+        <div className="flex items-start justify-between gap-3 rounded-lg border border-hairline px-3 py-2.5">
           <div>
             <p className="flex items-center gap-1 text-sm font-medium">
               {optedIn ? "Notifications activées" : "Notifications désactivées"}

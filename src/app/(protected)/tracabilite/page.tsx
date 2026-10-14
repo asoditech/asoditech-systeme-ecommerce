@@ -66,7 +66,7 @@ export default async function TracabilitePage({ searchParams }: { searchParams: 
           </CardHeader>
           <CardContent className="p-2">
             <p className="px-2 pb-2 text-xs text-muted-foreground">Choisissez l&apos;article à tracer.</p>
-            <ul className="divide-y rounded-lg border" aria-label="Articles correspondants">
+            <ul className="divide-y divide-hairline overflow-hidden rounded-tile border" aria-label="Articles correspondants">
               {candidates.map((u) => {
                 const key = u.variationId ? `v:${u.variationId}` : `p:${u.productId}`;
                 return (

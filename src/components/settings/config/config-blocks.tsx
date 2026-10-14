@@ -120,7 +120,7 @@ export function ConfigHero({
         </div>
         <ul className="grid gap-2 sm:grid-cols-3">
           {stats.map((s) => (
-            <li key={s.label} className="flex items-center gap-3 rounded-xl border border-border/70 bg-background/70 px-3.5 py-2.5 backdrop-blur">
+            <li key={s.label} className="flex items-center gap-3 rounded-xl border border-hairline bg-card px-3.5 py-2.5 backdrop-blur">
               <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg", s.tone)}>
                 <s.icon className="size-4" />
               </span>

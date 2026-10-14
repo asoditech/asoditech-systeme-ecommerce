@@ -123,9 +123,9 @@ export function ToggleTile({
           {info}
         </div>
         <p className="text-sm text-muted-foreground">{summary}</p>
-        {detail && <p className="text-xs leading-relaxed text-muted-foreground/90">{detail}</p>}
+        {detail && <p className="text-xs leading-relaxed text-ink-muted">{detail}</p>}
       </div>
-      <div className="relative mt-5 flex items-center justify-between gap-3 border-t border-border/60 pt-4">
+      <div className="relative mt-5 flex items-center justify-between gap-3 border-t border-hairline pt-4">
         <p className="min-w-0 text-xs text-muted-foreground">{note ?? (value ? "S'applique immédiatement" : "Sans effet tant que désactivé")}</p>
         <Switch id={switchId} aria-label={title} checked={value} disabled={isPending} onCheckedChange={(v) => change(v === true)} className="scale-110" />
       </div>

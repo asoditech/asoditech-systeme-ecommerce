@@ -25,7 +25,7 @@ export function MobileNav({
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger render={<Button type="button" variant="ghost" size="icon" className="size-11 rounded-full hover:bg-nav-hover md:hidden" aria-label="Ouvrir le menu" />}>
+      <SheetTrigger render={<Button type="button" variant="ghost" size="icon" className="size-11 rounded-full hover:bg-nav-hover lg:hidden" aria-label="Ouvrir le menu" />}>
         <Menu className="size-5" />
       </SheetTrigger>
       <SheetContent side="left" className="flex w-[288px] flex-col border-0 bg-shell p-0 sm:max-w-[288px]">

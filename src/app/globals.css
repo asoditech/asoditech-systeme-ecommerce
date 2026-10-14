@@ -399,13 +399,6 @@
     background-color: var(--scrollbar-thumb);
   }
 
-  /* Opt-out — for scroll containers where any visible bar would be noise. */
-  .no-scrollbar {
-    scrollbar-width: none;
-  }
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
 }
 
 /* Sidebar sub-menu expand/collapse — smooth, and instant with reduced motion. */

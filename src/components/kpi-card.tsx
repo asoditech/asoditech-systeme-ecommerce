@@ -113,7 +113,7 @@ export function TrendBadge({ trend }: { trend: { direction: "up" | "down" | "fla
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums",
+        "inline-flex shrink-0 items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums",
         trend.direction === "up" && "bg-pill-green text-pill-green-fg",
         trend.direction === "down" && "bg-pill-red text-pill-red-fg",
         trend.direction === "flat" && "bg-pill-neutral text-pill-neutral-fg"

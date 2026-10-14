@@ -569,13 +569,13 @@ export function OrderForm({
                         tabIndex={-1}
                         onClick={() => selectCustomer(c)}
                         {...customerNav.optionProps(i, customer?.id === c.id)}
-                        className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted data-[active]:bg-muted"
+                        className="flex w-full flex-col rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-row-hover data-[active]:bg-row-hover"
                       >
                         <span className="flex items-center gap-1.5">
                           <span className="font-medium">{c.fullName}</span>
                           {customer?.id === c.id && <Check className="size-3.5 text-ink" aria-label="sélectionné" />}
                           {c.isBlacklisted && (
-                            <Badge variant="destructive" className="h-4 px-1 text-[10px]">
+                            <Badge variant="destructive" className="h-5 px-1.5 text-xs">
                               Indésirable
                             </Badge>
                           )}
@@ -670,7 +670,7 @@ export function OrderForm({
                     tabIndex={-1}
                     onClick={() => addProductLine(p, v)}
                     {...productNav.optionProps(i, isUnitInOrder(p.id, v?.id))}
-                    className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted data-[active]:bg-muted"
+                    className="flex w-full flex-col rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-row-hover data-[active]:bg-row-hover"
                   >
                     <span className="flex items-center gap-1.5 font-medium">
                       {v ? `${p.name} — ${Object.values(v.attributes as Record<string, string>).join(", ")}` : p.name}

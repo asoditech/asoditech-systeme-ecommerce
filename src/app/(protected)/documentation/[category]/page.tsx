@@ -40,7 +40,7 @@ export default async function DocCategoryPage({ params }: { params: Promise<{ ca
         />
         <div className="space-y-2">
           {articles.map((a) => (
-            <Link key={a.slug} href={articleHref(a)} className="flex items-center justify-between gap-3 rounded-lg border p-3.5 hover:bg-muted/50">
+            <Link key={a.slug} href={articleHref(a)} className="flex items-center justify-between gap-3 rounded-tile border p-3.5 hover:bg-pill-neutral">
               <div>
                 <p className="text-sm font-medium">{a.title}</p>
                 <p className="text-xs text-muted-foreground">{a.tagline}</p>

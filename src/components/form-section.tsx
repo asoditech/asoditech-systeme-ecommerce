@@ -25,7 +25,7 @@ export function FormSection({
     <div className={cn("space-y-3", className)}>
       <div className="space-y-0.5">
         <h3 className="text-sm font-semibold text-ink">{title}</h3>
-        {description && <p className="text-xs text-muted-foreground/80">{description}</p>}
+        {description && <p className="text-xs text-ink-muted">{description}</p>}
       </div>
       {children}
     </div>
@@ -34,7 +34,7 @@ export function FormSection({
 
 /** Stacks several `FormSection`s with a consistent divider rhythm between them. */
 export function FormSectionGroup({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn("space-y-5 [&>*+*]:border-t [&>*+*]:border-border/60 [&>*+*]:pt-5", className)}>{children}</div>;
+  return <div className={cn("space-y-5 [&>*+*]:border-t [&>*+*]:border-hairline [&>*+*]:pt-5", className)}>{children}</div>;
 }
 
 /**

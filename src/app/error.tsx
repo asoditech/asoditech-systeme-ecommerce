@@ -32,7 +32,7 @@ export default function GlobalRouteError({
           persiste, contactez l&apos;administrateur.
         </p>
         {error.digest && (
-          <p className="pt-1 font-mono text-xs text-muted-foreground/70">Réf. : {error.digest}</p>
+          <p className="pt-1 font-mono text-xs text-ink-muted">Réf. : {error.digest}</p>
         )}
       </div>
       <Button onClick={reset}>Réessayer</Button>

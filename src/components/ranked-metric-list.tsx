@@ -34,7 +34,7 @@ export function RankedMetricList({
     <StaggerUl className="space-y-1">
       {items.map((item, i) => (
         <StaggerItem key={item.key} as="li" className="flex items-center gap-3 rounded-tile px-2 py-2.5 transition-colors duration-150 hover:bg-row-hover">
-          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-nav-active text-[11px] font-semibold text-ink-secondary tabular-nums">
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-nav-active text-xs font-semibold text-ink-secondary tabular-nums">
             {i + 1}
           </span>
           {item.imageUrl ? (

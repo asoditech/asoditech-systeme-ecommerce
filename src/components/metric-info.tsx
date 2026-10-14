@@ -16,7 +16,7 @@ export function MetricInfo({ metric, className }: { metric: MetricKey; className
     <Popover>
       <PopoverTrigger
         className={
-          "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring " +
+          "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring " +
           (className ?? "")
         }
         aria-label={`Comment est calculé « ${m.label} » ?`}
@@ -34,7 +34,7 @@ export function MetricInfo({ metric, className }: { metric: MetricKey; className
           <p className="font-medium text-foreground">Exemple</p>
           <p className="text-muted-foreground">{m.example}</p>
         </div>
-        {"limit" in m && m.limit ? <p className="rounded-md bg-muted px-2 py-1.5 text-muted-foreground">À savoir : {m.limit}</p> : null}
+        {"limit" in m && m.limit ? <p className="rounded-lg bg-pill-neutral px-2 py-1.5 text-ink-secondary">À savoir : {m.limit}</p> : null}
       </PopoverContent>
     </Popover>
   );

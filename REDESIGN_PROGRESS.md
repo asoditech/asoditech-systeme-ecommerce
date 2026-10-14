@@ -19,7 +19,7 @@ References: `design-reference/` (untracked, local only).
 | 5c | Finance & analytics: finance, dépenses, commissions, rapports (12), analyses (6) + charts on the shared chart settings | Done |
 | 5d | Settings & others: paramètres (5), utilisateurs, intégrations, marketing, notifications, journal-audit, assistant-IA, documentation, scan (+ shell bits: support widget, announcement badge) | Done |
 | 5e | Public/auth: connexion, mot de passe oublié, réinitialiser, invitations, accès refusé, accès plateforme (home `/` only redirects) | Done |
-| 6 | Polish, responsiveness, AA audit | To do |
+| 6 | Polish: tablet layout, leftover sweep, dead styles, dark-mode pass, final checks | Done |
 
 ## Pages
 
@@ -115,6 +115,16 @@ References: `design-reference/` (untracked, local only).
 - `/acces-refuse`: centred card with a red pastel icon chip and a full-width button.
 - Checked: logged out at 1280 light (connexion, mot de passe oublié, réinitialiser / invitation / scan with an invalid token) and 390 (connexion, invitation — always light by design); `/acces-refuse` at 390 dark.
 
+## Step 6 — polish
+
+- Tablet layout: below 1024px (`lg`) the sidebar is hidden and the existing drawer (hamburger + icon logo in the topbar) takes over — at 768px the content now uses the full width. Same navigation, permissions and collapse cookie; only the breakpoint moved from `md` to `lg`. Topbar « Nouvelle opération » no longer wraps.
+- Leftover sweep (grep + screenshots): no uppercase label in the app; last orange fills / orange text moved to tokens (selected order-line chips, usage and sync bars, explanation links); hard-coded hex moved to tokens where a token exists (avatar fallback, tooltip chip → chart tooltip tokens, skeleton → segment track, switch off-state → field border); 10–11px text raised to 12px (KPI trend pill, ranked list, notification menu, footer, order-form badge); panels on the 16px tile radius; faded `text-muted-foreground/70–90` → `text-ink-muted` (AA).
+- Dead styles removed: the unused `bar / text / surface / ring` entries of `TONES` (`src/lib/design/tone.ts`), the unused `.no-scrollbar` utility (and the login blob keyframes in 5e).
+- Kept on purpose (documented, not leftovers): printed documents (delivery invoice, commission statement, report print header, product label) stay black-on-white paper; camera scanner overlays stay black; dialog scrims `bg-black/30`; WhatsApp brand green; `global-error.tsx` inline colours (it renders without the app CSS); the announcement bar's solid colours (pinned by `platform-announcements.test.ts`); `NavBadge` dark text on pastel (pinned by `nav-badge.test.ts`); the lifecycle stepper's 11px dates (narrow columns).
+- `/dev/components`: verified 404 on a production server (`next start`).
+- Dark mode: 84 URLs captured at 1280 dark (no horizontal overflow) and reviewed as contact sheets; dialogs in dark this step: stock adjustment, user access, user locations, password reset; mobile drawer at 768 dark.
+- Separate fix commits (not redesign): `fix(top-progress-bar)` and `fix(theme)` (a `notFound()` page ignored the stored dark theme — ThemeProvider now re-applies the same rule on mount).
+
 ## Decisions (confirmed by the owner after Step 1)
 
 - AA contrast: muted text is `#707070` (switched from `#767676` after Step 2; `#9A9A9A` kept as `--text-faint`, decoration only); primary-button text is dark `#1f1206` on orange (white is 2.8:1), set once as `--brand-foreground`; focus ring uses `#D96F2D`.
@@ -123,19 +133,16 @@ References: `design-reference/` (untracked, local only).
 
 ## Known issues
 
-- Input border `#E8E8E8` (requested) is below the 3:1 non-text contrast guideline; the label above, the focus ring and the error state carry the meaning.
-- Some pages override sizes / colours locally (e.g. `CardTitle className="text-[15px]"`, small « Actualiser » buttons, orange settings tabs): cleaned page by page in Steps 3–5.
-- `/dev/components` to be removed or kept dev-only at Step 6.
-- `CommandHero` / `SummarySection` restyle also shows on `/rapports/ventes`, `/confirmation`, `/fournisseurs/[id]`, `/commissions/[agentId]` (shared components) before those pages get their own pass.
-- 24 other pages still wrap tables in `rounded-xl border bg-card shadow-card` and ~18 files use the amber callout: moved onto `TableCard` / `Notice` in Step 5.
-- Full suite under load: a few DB-backed tests time out (baseline run: 10 in 6 files; Step 4 run: 4 in `analytics.test.ts`) and pass when re-run alone — not redesign-related.
-- Pre-existing (not redesign): dev console error « useInsertionEffect must not schedule updates » from `src/components/top-progress-bar.tsx` on client navigation (file untouched since before the redesign).
-- `NavBadge` not connected to counts (by decision: no new queries in Step 1).
-- Pre-existing (not redesign): `/clients/[id]` logs « Only plain objects can be passed to Client Components… Decimal » in dev (a Prisma `Decimal` reaches a client component). Fixing it is a data-shape change, so it is left alone.
-- At 768px the expanded sidebar (272px) leaves a narrow content column; the shell does not auto-collapse to the rail at tablet width (Step 1 shell) — to review in Step 6.
-- Not seen during 5e: the `/acces-plateforme` unlock form (the local owner is redirected straight to `/platform`); valid reset / invitation tokens (only the invalid-token screens).
-- Not opened during 5d checks: « Nouvelle campagne » (button hidden without a marketing channel), user access / locations dialogs (restyled through shared tokens).
-- Not checked on the local data during 5c (no data): `/rapports/profitabilite/campagne/[id]`, commission statement `/commissions/[agentId]/releves/[id]`.
-- Pre-existing (not redesign): some percentages print « 100.0 % » (dot) next to « 100,0 % » (comma) — number formatting, not changed.
-- Not openable on the local data during 5b checks: stock adjustment (« Ajuster ») from the product Stock tab.
-- Not openable on the local data during 5a checks (empty lists): « Créer une expédition » and the city-mapping dialog — restyled through shared tokens, not seen.
+- Pre-existing, left on purpose: `/clients/[id]` logs « Only plain objects can be passed to Client Components… Decimal » in dev (a Prisma `Decimal` reaches a client component) — a data-handling change, separate task.
+- Pre-existing: some percentages print « 100.0 % » (dot) next to « 100,0 % » (comma) — number formatting, not changed.
+- Announcement bar « Nouveauté » = white text on the orange (≈ 2.8:1, below AA); colours are pinned by a test as a product decision — owner to decide.
+- Input border `#E8E8E8` (requested) is below the 3:1 non-text contrast guideline; the label, focus ring and error state carry the meaning.
+- Between 1024 and 1279px the full 272px sidebar stays open (wide tables scroll inside their card); it can still be reduced to the rail with « Réduire ».
+- `NavBadge` not connected to counts (by decision: no new queries).
+- Full test suite: DB-backed tests can time out when the machine is busy (seen in the baseline and 5a runs) and pass alone; the final run is done with nothing else running.
+- Not verified on local data (no safe way to create and remove it — tenant row-level security, no delete in the UI for marketing, real financial records for statements / shipments), to check by hand:
+  - « Créer une expédition » dialog (`/livraison` → À expédier, needs a confirmed order without shipment) and the city-mapping dialog (needs an API carrier with city lookup);
+  - « Nouvelle campagne » (`/marketing`, needs a marketing channel) and `/rapports/profitabilite/campagne/[id]`;
+  - a commission statement `/commissions/[agentId]/releves/[id]`;
+  - `/acces-plateforme` unlock form (needs PLATFORM_ACCESS_KEY_SHA256 — env, not touched);
+  - valid password-reset and invitation links (only the invalid-link screens were seen).

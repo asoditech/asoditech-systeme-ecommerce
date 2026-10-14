@@ -5,7 +5,7 @@ import { SYNC_RUN_STATUS_LABELS } from "@/lib/status-labels";
 import type { SyncRun } from "@prisma/client";
 
 const DOT_TONE: Record<"default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" | "purple", string> = {
-  default: "bg-primary",
+  default: "bg-brand",
   secondary: "bg-muted-foreground/40",
   destructive: "bg-destructive",
   outline: "bg-muted-foreground/40",

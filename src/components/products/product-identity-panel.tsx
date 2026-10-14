@@ -145,7 +145,7 @@ export function ProductIdentityPanel({
             déduites du code.
           </p>
           {units.map((u) => (
-            <div key={unitKey(u)} className="space-y-2 rounded-lg border p-3">
+            <div key={unitKey(u)} className="space-y-2 rounded-tile border p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium">{u.label}</span>
                 <span className="text-xs text-muted-foreground">SKU {u.sku}</span>
@@ -230,7 +230,7 @@ export function ProductIdentityPanel({
           </p>
           <div className="flex flex-col gap-2">
             {units.map((u) => (
-              <div key={unitKey(u)} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
+              <div key={unitKey(u)} className="flex flex-wrap items-center justify-between gap-2 rounded-tile border p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-medium">{u.label}</span>
                   <span className="text-xs text-muted-foreground">SKU {u.sku}</span>

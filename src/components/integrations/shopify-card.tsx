@@ -67,7 +67,7 @@ export async function ShopifyCard({ canManage }: { canManage: boolean }) {
           </div>
         )}
 
-        <div className="divide-y divide-border/60 rounded-lg border border-border/60 px-3">
+        <div className="divide-y divide-hairline rounded-lg border border-hairline px-3">
           {RESOURCES.map((resource) => (
             <SyncResourceRow
               key={resource.key}

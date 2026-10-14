@@ -39,7 +39,7 @@ export default async function InventaireDetailPage({ params }: { params: Promise
       />
 
       {session.summary.stale > 0 && isOpen && (
-        <div className="mb-4 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
+        <div className="mb-4 rounded-tile bg-danger-soft p-3 text-sm">
           <span className="font-medium text-destructive">
             {session.summary.stale} ligne(s) périmée(s) :
           </span>{" "}

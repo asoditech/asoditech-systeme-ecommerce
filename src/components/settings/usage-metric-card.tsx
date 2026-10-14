@@ -17,7 +17,7 @@ const STATUS_EMOJI: Record<UsageStatus, string> = {
 };
 
 const PROGRESS_TONE: Record<UsageStatus, string> = {
-  NORMAL: "bg-primary",
+  NORMAL: "bg-brand",
   WARNING: "bg-chart-5",
   CRITICAL: "bg-danger",
   LIMIT_REACHED: "bg-danger-strong",
