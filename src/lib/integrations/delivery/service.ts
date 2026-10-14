@@ -22,6 +22,7 @@ import {
   DeliveryProviderError,
   DeliveryUnsupportedCapabilityError,
   DeliveryConfigError,
+  DeliveryOutcomeUnknownError,
 } from "./errors";
 import type {
   DeliveryCredentials,
@@ -32,7 +33,13 @@ import type {
   DeliveryManifestDocument,
 } from "./types";
 import type { Shipment, ShippingProvider, Order, DeliveryManifest, Prisma } from "@prisma/client";
-import { canTransitionShipmentStatus, type ShipmentStatusValue } from "@/lib/validation/delivery";
+import {
+  canTransitionShipmentStatus,
+  isShipmentOutcomeUnknown,
+  SHIPMENT_OUTCOME_UNKNOWN_HINT,
+  SHIPMENT_OUTCOME_UNKNOWN_PREFIX,
+  type ShipmentStatusValue,
+} from "@/lib/validation/delivery";
 import { SHIPMENT_STATUS_LABELS } from "@/lib/status-labels";
 import { recordAuditEvent } from "@/lib/audit";
 
@@ -168,12 +175,17 @@ export async function reserveShipmentSlot(
 
     const existingActive = await tx.shipment.findFirst({
       where: { orderId, status: { in: ACTIVE_SHIPMENT_STATUSES } },
-      select: { providerId: true, provider: { select: { name: true } } },
+      select: { providerId: true, status: true, externalId: true, failedReason: true, provider: { select: { name: true } } },
     });
     // Goods of this order already came back: no new parcel on the same
     // order (stock would be overstated) — see orderGoodsCameBack.
     if (await orderGoodsCameBack(tx, orderId)) {
       throw new DuplicateActiveShipmentError(RESHIP_AFTER_RETURN_MESSAGE);
+    }
+    if (existingActive && isShipmentOutcomeUnknown(existingActive)) {
+      throw new DuplicateActiveShipmentError(
+        `Une création de colis chez « ${existingActive.provider.name} » est à vérifier pour cette commande (le colis existe peut-être déjà). ${SHIPMENT_OUTCOME_UNKNOWN_HINT}`
+      );
     }
     if (existingActive) {
       throw new DuplicateActiveShipmentError(
@@ -200,6 +212,11 @@ export async function reserveShipmentSlot(
     });
   });
 }
+
+/** The pre-call « à vérifier » text — only seen if nothing replaced it (the
+ * process stopped while the creation request was in flight). */
+const CREATION_INTERRUPTED_MESSAGE = (providerName: string) =>
+  `la création du colis chez « ${providerName} » a été envoyée mais son résultat n'a pas été enregistré (traitement en cours ou interrompu). Le colis existe peut-être : vérifiez sur le portail du transporteur avant toute nouvelle tentative.`;
 
 interface LoadedApiProvider {
   row: ShippingProvider;
@@ -479,10 +496,33 @@ export async function createShipmentViaProvider(params: {
     parcelContents: parcelContents || null,
   };
 
+  // Written BEFORE the carrier call: if the process dies mid-request (function
+  // timeout, crash, a failed write below), the row is already « à vérifier »
+  // instead of a bare EN_ATTENTE that looks like an ordinary pending parcel.
+  // Replaced on every normal outcome: cleared on success, the carrier's reason
+  // on a definite failure (ECHEC), the precise message on an unknown outcome.
+  // If this write fails, no request has been sent.
+  await prisma.shipment.update({
+    where: { id: pending.id },
+    data: { failedReason: `${SHIPMENT_OUTCOME_UNKNOWN_PREFIX}${CREATION_INTERRUPTED_MESSAGE(row.name)}` },
+  });
+
   let result;
   try {
     result = await adapter.createShipment!(input, credentials, config);
   } catch (error) {
+    // Sent, outcome unknown: the carrier may have created the parcel. The
+    // reserved row stays EN_ATTENTE (active — reserveShipmentSlot then
+    // refuses any further parcel for this order, whatever the carrier) and is
+    // flagged « à vérifier » until a person checks the carrier's portal.
+    // Never ECHEC here: ECHEC frees the order for a retry → a second parcel.
+    if (error instanceof DeliveryOutcomeUnknownError) {
+      await prisma.shipment.update({
+        where: { id: pending.id },
+        data: { failedReason: `${SHIPMENT_OUTCOME_UNKNOWN_PREFIX}${error.message}` },
+      });
+      throw error;
+    }
     // The provider call failed — the shipment must not be left looking
     // like a normal pending row forever with no explanation. Mark it
     // ECHEC with a safe message rather than silently leaving EN_ATTENTE
@@ -514,6 +554,7 @@ export async function createShipmentViaProvider(params: {
   const created = await prisma.shipment.update({
     where: { id: pending.id },
     data: {
+      failedReason: null,
       externalId: result.externalId,
       trackingNumber: result.trackingNumber,
       trackingUrl: result.trackingUrl,

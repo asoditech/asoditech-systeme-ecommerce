@@ -5,6 +5,7 @@ import {
   DeliveryConfigError,
   DeliveryMalformedResponseError,
   DeliveryNotFoundError,
+  DeliveryOutcomeUnknownError,
   DeliveryProviderError,
   DeliveryRateLimitError,
   DeliveryTimeoutError,
@@ -112,6 +113,77 @@ describe("OzonExpressClient", () => {
       state.hang = true;
       await expect(client().post("tracking", {})).rejects.toBeInstanceOf(DeliveryTimeoutError);
     }, 8000);
+  });
+
+  describe("one-shot requests ({ once: true } — parcel creation): never retried", () => {
+    const calls = () => state.seenUrls.filter((u) => u.includes("/add-parcel")).length;
+
+    it("a timeout -> DeliveryOutcomeUnknownError after exactly one attempt", async () => {
+      state.hang = true;
+      await expect(client().post("add-parcel", {}, { once: true })).rejects.toBeInstanceOf(DeliveryOutcomeUnknownError);
+      expect(calls()).toBe(1);
+    }, 8000);
+
+    it("a 5xx -> DeliveryOutcomeUnknownError after exactly one attempt", async () => {
+      state.forceHttpStatus = 503;
+      await expect(client().post("add-parcel", {}, { once: true })).rejects.toBeInstanceOf(DeliveryOutcomeUnknownError);
+      expect(calls()).toBe(1);
+    });
+
+    it("a 429 -> DeliveryOutcomeUnknownError after exactly one attempt (OzonExpress documents no rate limiting: no evidence a 429 means « not executed »)", async () => {
+      state.forceHttpStatus = 429;
+      await expect(client().post("add-parcel", {}, { once: true })).rejects.toBeInstanceOf(DeliveryOutcomeUnknownError);
+      expect(calls()).toBe(1);
+    });
+
+    it("read requests (default) keep the 429 behaviour: retried, then DeliveryRateLimitError", async () => {
+      state.forceHttpStatus = 429;
+      await expect(client().post("tracking", {})).rejects.toBeInstanceOf(DeliveryRateLimitError);
+      expect(state.seenUrls.filter((u) => u.includes("/tracking")).length).toBe(3);
+    });
+
+    it("a connection lost mid-request (ECONNRESET) -> DeliveryOutcomeUnknownError, one attempt", async () => {
+      state.networkErrorCode = "ECONNRESET";
+      await expect(client().post("add-parcel", {}, { once: true })).rejects.toBeInstanceOf(DeliveryOutcomeUnknownError);
+      expect(calls()).toBe(1);
+    });
+
+    it("a connection never established (ECONNREFUSED / ENOTFOUND) is a definite failure, one attempt", async () => {
+      for (const code of ["ECONNREFUSED", "ENOTFOUND"]) {
+        state.seenUrls = [];
+        state.networkErrorCode = code;
+        const error = await client().post("add-parcel", {}, { once: true }).catch((e: unknown) => e);
+        expect(error).toBeInstanceOf(DeliveryUnavailableError);
+        expect(error).not.toBeInstanceOf(DeliveryOutcomeUnknownError);
+        expect(calls()).toBe(1);
+      }
+    });
+
+    it("an unreadable 2xx body -> DeliveryOutcomeUnknownError", async () => {
+      state.malformedBody = true;
+      await expect(client().post("add-parcel", {}, { once: true })).rejects.toBeInstanceOf(DeliveryOutcomeUnknownError);
+    });
+
+    it("an HTTP-200 RESULT:ERROR stays a definite, classified error", async () => {
+      state.forcePathErrorMessage = "City Not Found";
+      const error = await client().post("add-parcel", {}, { once: true }).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(DeliveryProviderError);
+      expect(error).not.toBeInstanceOf(DeliveryOutcomeUnknownError);
+    });
+
+    it("the outcome-unknown error never carries the credential-bearing URL", async () => {
+      state.forceHttpStatus = 502;
+      const error = (await client().post("add-parcel", {}, { once: true }).catch((e: unknown) => e)) as Error;
+      expect(error.message).not.toContain(FAKE_OZ_API_KEY);
+      expect(error.message).not.toContain(FAKE_OZ_CUSTOMER_ID);
+      expect(error.message).not.toContain("example.com");
+    });
+
+    it("read requests (default) still retry: a 5xx on `tracking` is attempted 3 times", async () => {
+      state.forceHttpStatus = 503;
+      await expect(client().post("tracking", {})).rejects.toBeInstanceOf(DeliveryUnavailableError);
+      expect(state.seenUrls.filter((u) => u.includes("/tracking")).length).toBe(3);
+    });
   });
 
   describe("HTTP-200-with-RESULT:ERROR unwrapping (assertNoApiError)", () => {

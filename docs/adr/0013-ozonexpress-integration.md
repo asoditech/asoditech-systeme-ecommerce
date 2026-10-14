@@ -591,3 +591,31 @@ build-status note.
   typecheck clean, lint 0 errors (2 pre-existing preloader `<img>`
   warnings), `next build` exit 0, `git diff --check` clean, secrets scan
   clean. Not committed.
+
+## Addendum 2026-10-14 — no automatic retry of side-effecting calls
+
+Supersedes the « Idempotency / custom tracking number » notes above: no
+custom tracking number is sent (see `buildAddParcelForm`), so OzonExpress
+cannot dedupe a repeated `add-parcel`.
+- `add-parcel` is sent exactly once (`OzonExpressClient.post(…, { once: true })`).
+  Timeout, connection lost mid-request, 5xx, **429**, or an accepted reply
+  without a readable tracking number → `DeliveryOutcomeUnknownError`.
+- **429 is treated as unknown, not as « not executed »**: OzonExpress
+  documents no rate limiting (table above, « Rate limits: Undocumented »), so
+  nothing shows a 429 is produced before the parcel is created (it could come
+  from a gateway after the backend acted). Revisit if OzonExpress confirms
+  its 429 semantics in writing.
+- Definite failures stay ordinary errors: connection never established
+  (DNS / refused), other 4xx, HTTP-200 `RESULT:ERROR`.
+- The local shipment then stays `EN_ATTENTE` with no `externalId` and a
+  `failedReason` starting « À vérifier : » (`isShipmentOutcomeUnknown`, no new
+  status, no migration). `EN_ATTENTE` is active, so `reserveShipmentSlot`
+  refuses every new parcel for the order (single, bulk, link, manual) until a
+  person resolves it: « Échec » (no parcel on the portal) or « Annulé » then
+  « Lier un colis existant » (parcel present).
+- The « À vérifier » marker is written just BEFORE the `add-parcel` call
+  and replaced on every normal outcome (cleared on success, the carrier's
+  reason on a definite failure). If the process stops mid-request, the row
+  is already explained and blocking.
+- Read calls (`tracking`, `GET /cities`) keep their 3 attempts. The current
+  adapter does not call `parcel-info`.

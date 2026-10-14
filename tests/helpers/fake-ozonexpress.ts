@@ -53,6 +53,18 @@ export interface FakeOzonExpressState {
   malformedBody?: boolean;
   /** Every request hangs until aborted (timeout test). */
   hang?: boolean;
+  /** Every request fails at the network level like undici's `fetch failed`
+   * with this `cause.code` (ECONNRESET = may have been sent; ECONNREFUSED /
+   * ENOTFOUND = never sent). */
+  networkErrorCode?: string;
+  /** add-parcel CREATES the parcel, then the answer is lost: "hang" (until
+   * the client aborts), "reset" (connection reset) or an HTTP status — the
+   * realistic case where a blind retry would create a second parcel. */
+  addParcelFaultAfterCreate?: "hang" | "reset" | number;
+  /** This credentialed action (e.g. "add-delivery-note") fails with the
+   * given fault — "hang", "reset" or an HTTP status — every other action
+   * behaves normally. */
+  actionFault?: { action: string; fault: "hang" | "reset" | number };
   /** Bad-credentials simulation: when true, any credentialed request with
    * non-matching customerId/apiKey path segments returns HTTP 200
    * RESULT:ERROR "Invalid API Key". */
@@ -122,6 +134,10 @@ export function installFakeOzonExpress(state: FakeOzonExpressState) {
       const urlStr = input.toString();
       state.seenUrls.push(urlStr);
 
+      if (state.networkErrorCode) {
+        throw new TypeError("fetch failed", { cause: Object.assign(new Error("network"), { code: state.networkErrorCode }) });
+      }
+
       if (state.hang) {
         return new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
@@ -146,6 +162,19 @@ export function installFakeOzonExpress(state: FakeOzonExpressState) {
       if (state.enforceAuth && (decodeURIComponent(cid) !== FAKE_OZ_CUSTOMER_ID || decodeURIComponent(key) !== FAKE_OZ_API_KEY)) {
         // Real shape: the auth failure comes back in the CHECK_API block.
         return json({ CHECK_API: { RESULT: "ERROR", MESSAGE: "Invalid API Key" } });
+      }
+
+      if (state.actionFault && state.actionFault.action === action) {
+        const { fault } = state.actionFault;
+        if (fault === "hang") {
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+          });
+        }
+        if (fault === "reset") {
+          throw new TypeError("fetch failed", { cause: Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }) });
+        }
+        return json({ error: "forced" }, fault);
       }
 
       if (state.forceHttpStatus) return json({ RESULT: "ERROR", MESSAGE: "forced" }, state.forceHttpStatus);
@@ -173,6 +202,17 @@ export function installFakeOzonExpress(state: FakeOzonExpressState) {
           deliveredPrice: 25,
           codPrice: String(form.get("parcel-price") ?? "0"),
         });
+        if (state.addParcelFaultAfterCreate === "hang") {
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+          });
+        }
+        if (state.addParcelFaultAfterCreate === "reset") {
+          throw new TypeError("fetch failed", { cause: Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }) });
+        }
+        if (typeof state.addParcelFaultAfterCreate === "number") {
+          return json({ error: "forced" }, state.addParcelFaultAfterCreate);
+        }
         const bodyFields: Record<string, unknown> = state.omitTrackingNumber
           ? { RECEIVER: form.get("parcel-receiver"), "DELIVERED-PRICE": "25.00" }
           : {

@@ -1,6 +1,10 @@
 import "server-only";
 
-import { DeliveryConfigError } from "@/lib/integrations/delivery/errors";
+import {
+  DeliveryConfigError,
+  DeliveryMalformedResponseError,
+  DeliveryOutcomeUnknownError,
+} from "@/lib/integrations/delivery/errors";
 import type {
   CreateShipmentAdapterInput,
   CreateShipmentAdapterResult,
@@ -16,7 +20,10 @@ import type {
   GenerateManifestAdapterResult,
 } from "@/lib/integrations/delivery/types";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
-import { OzonExpressClient } from "./client";
+import { OUTCOME_UNKNOWN_MESSAGE, OzonExpressClient } from "./client";
+
+const MANIFEST_OUTCOME_UNKNOWN_MESSAGE =
+  "OzonExpress n'a pas confirmé une étape du bon de livraison (pas de réponse ou erreur serveur). Le bon a peut-être été créé ou complété : vérifiez sur le portail OzonExpress avant d'en générer un nouveau.";
 import {
   buildAddParcelForm,
   buildDeliveryNoteDocuments,
@@ -213,8 +220,19 @@ export const ozonExpressAdapter: DeliveryProviderAdapter = {
     const resolvedCityId = input.resolvedProviderCityId?.trim() || resolveCity(input.city, cfg, catalogue).id;
     const resolvedDeliveredPrice = providerCityDeliveredPrice(catalogue, resolvedCityId);
     const form = buildAddParcelForm(input, cfg, catalogue);
-    const raw = await client.post("add-parcel", form);
-    const parsed = parseAddParcelResponse(raw);
+    // One attempt only — never retried (a retry after a lost response can
+    // create a second parcel); an unknown outcome surfaces as
+    // DeliveryOutcomeUnknownError and the shipment stays « à vérifier ».
+    const raw = await client.post("add-parcel", form, { once: true });
+    let parsed;
+    try {
+      parsed = parseAddParcelResponse(raw);
+    } catch (error) {
+      // OzonExpress accepted the request (no RESULT:ERROR) but the body
+      // carries no usable parcel: it may still have been created.
+      if (error instanceof DeliveryMalformedResponseError) throw new DeliveryOutcomeUnknownError(OUTCOME_UNKNOWN_MESSAGE);
+      throw error;
+    }
 
     return {
       externalId: parsed.externalId,
@@ -280,15 +298,42 @@ export const ozonExpressAdapter: DeliveryProviderAdapter = {
   ): Promise<GenerateManifestAdapterResult> {
     const { cfg, client } = clientFor(credentials, config);
 
-    const ref = parseDeliveryNoteRef(await client.post("add-delivery-note", {}));
+    // Every step changes state at OzonExpress and none documents an
+    // idempotency key: one attempt each, never retried (a retried
+    // add-delivery-note can mint a second note — docs/adr/0015 « Deferred »).
+    // An unknown outcome surfaces as DeliveryOutcomeUnknownError; the
+    // caller marks the local manifest ECHEC with that message.
+    let rawRef: unknown;
+    try {
+      rawRef = await client.post("add-delivery-note", {}, { once: true });
+    } catch (error) {
+      if (error instanceof DeliveryOutcomeUnknownError) throw new DeliveryOutcomeUnknownError(MANIFEST_OUTCOME_UNKNOWN_MESSAGE);
+      throw error;
+    }
+    let ref: string;
+    try {
+      ref = parseDeliveryNoteRef(rawRef);
+    } catch (error) {
+      // Accepted (no RESULT:ERROR) but no readable ref: a note may exist.
+      if (error instanceof DeliveryMalformedResponseError) throw new DeliveryOutcomeUnknownError(MANIFEST_OUTCOME_UNKNOWN_MESSAGE);
+      throw error;
+    }
 
     const addForm: Record<string, string> = { Ref: ref };
     input.externalIds.forEach((code, i) => {
       addForm[`Codes[${i}]`] = code;
     });
-    await client.post("add-parcel-to-delivery-note", addForm);
-
-    await client.post("save-delivery-note", { Ref: ref });
+    try {
+      await client.post("add-parcel-to-delivery-note", addForm, { once: true });
+      await client.post("save-delivery-note", { Ref: ref }, { once: true });
+    } catch (error) {
+      // The note exists at OzonExpress from here on: name its reference so
+      // the operator can find it on the portal (not a secret).
+      if (error instanceof DeliveryOutcomeUnknownError) {
+        throw new DeliveryOutcomeUnknownError(`${MANIFEST_OUTCOME_UNKNOWN_MESSAGE} Référence du bon chez OzonExpress : ${ref}.`);
+      }
+      throw error;
+    }
 
     return {
       externalRef: ref,

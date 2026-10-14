@@ -49,6 +49,7 @@ import { notifyShipmentFailed, notifyShipmentsFailed, notifyConnectionError } fr
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
 import {
   DeliveryMalformedResponseError,
+  DeliveryOutcomeUnknownError,
   DeliveryTimeoutError,
   DeliveryUnavailableError,
 } from "@/lib/integrations/delivery/errors";
@@ -69,6 +70,11 @@ function normalizeOptional(value: string | null | undefined): string | null {
  */
 function shipmentCreationErrorMessage(error: unknown): string {
   const message = friendlyDeliveryError(error);
+  // The adapter knew the request was sent: the shipment was kept « à
+  // vérifier » (EN_ATTENTE) and blocks any new parcel for the order.
+  if (error instanceof DeliveryOutcomeUnknownError) {
+    return `${message} L'expédition reste « En attente » (à vérifier) : aucun nouveau colis ne peut être créé pour cette commande tant qu'elle n'est pas résolue.`;
+  }
   const uncertain =
     error instanceof DeliveryTimeoutError ||
     error instanceof DeliveryUnavailableError ||
@@ -565,7 +571,7 @@ export async function createShipmentViaProviderAction(formData: FormData): Promi
       action: "shipment.creation_failed",
       entityType: "Order",
       entityId: order.id,
-      metadata: { providerId: parsed.data.providerId, error: message },
+      metadata: { providerId: parsed.data.providerId, error: message, outcomeUnknown: error instanceof DeliveryOutcomeUnknownError },
     });
     return actionError(message);
   }
@@ -736,7 +742,7 @@ export async function createShipmentsBulkAction(
         action: "shipment.creation_failed",
         entityType: "Order",
         entityId: order.id,
-        metadata: { providerId, error: message, bulk: true },
+        metadata: { providerId, error: message, bulk: true, outcomeUnknown: error instanceof DeliveryOutcomeUnknownError },
       });
       results.push({
         orderId,

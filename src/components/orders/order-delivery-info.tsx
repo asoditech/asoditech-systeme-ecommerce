@@ -12,7 +12,7 @@ import {
   shipmentConnectionLabel,
   splitShipmentsForDisplay,
 } from "@/lib/orders/delivery-info";
-import type { ShipmentStatusValue } from "@/lib/validation/delivery";
+import { isShipmentOutcomeUnknown, SHIPMENT_OUTCOME_UNKNOWN_HINT, type ShipmentStatusValue } from "@/lib/validation/delivery";
 
 /**
  * « Informations de livraison » on the order page — what is STORED about the
@@ -144,7 +144,13 @@ function PrimaryShipment({ s, currency, v }: { s: OrderDeliveryShipment; currenc
           ) : null}
         </p>
       )}
-      {s.failedReason && <p className="text-sm text-destructive">Motif d&apos;échec : {s.failedReason}</p>}
+      {isShipmentOutcomeUnknown(s) ? (
+        <p className="text-sm text-pill-yellow-fg">
+          {s.failedReason} {SHIPMENT_OUTCOME_UNKNOWN_HINT}
+        </p>
+      ) : (
+        s.failedReason && <p className="text-sm text-destructive">Motif d&apos;échec : {s.failedReason}</p>
+      )}
       {v.canViewDelivery && s.trackingSyncError && (
         <p className="text-sm text-pill-yellow-fg">Erreur de synchronisation : {s.trackingSyncError}</p>
       )}

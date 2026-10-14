@@ -7,7 +7,7 @@ import {
 import {
   DeliveryAuthError,
   DeliveryConfigError,
-  DeliveryMalformedResponseError,
+  DeliveryOutcomeUnknownError,
 } from "@/lib/integrations/delivery/errors";
 import { assertCapability } from "@/lib/integrations/delivery/registry";
 import {
@@ -177,11 +177,58 @@ describe("ozonExpressAdapter (fixture)", () => {
       ).rejects.toBeInstanceOf(DeliveryConfigError);
     });
 
-    it("throws (never returns a fake success) when OzonExpress omits the tracking number", async () => {
+    it("throws (never returns a fake success) when OzonExpress omits the tracking number — outcome unknown, the parcel may exist", async () => {
       state.omitTrackingNumber = true;
       await expect(
         ozonExpressAdapter.createShipment!(shipmentInput, credentials, config)
-      ).rejects.toBeInstanceOf(DeliveryMalformedResponseError);
+      ).rejects.toBeInstanceOf(DeliveryOutcomeUnknownError);
+      expect(addParcelCalls()).toHaveLength(1);
+    });
+
+    describe("add-parcel is never retried (a retry after a lost answer would create a second parcel)", () => {
+      it("success: exactly one add-parcel call", async () => {
+        await ozonExpressAdapter.createShipment!(shipmentInput, credentials, config);
+        expect(addParcelCalls()).toHaveLength(1);
+        expect(state.parcels.size).toBe(1);
+      });
+
+      it.each([
+        ["timeout after the parcel was created", "hang" as const],
+        ["connection reset after the parcel was created", "reset" as const],
+        ["HTTP 500 after the parcel was created", 500],
+        ["HTTP 503 after the parcel was created", 503],
+      ])("%s -> DeliveryOutcomeUnknownError, one call, one parcel", async (_label, fault) => {
+        state.addParcelFaultAfterCreate = fault;
+        await expect(ozonExpressAdapter.createShipment!(shipmentInput, credentials, config)).rejects.toBeInstanceOf(
+          DeliveryOutcomeUnknownError
+        );
+        expect(addParcelCalls()).toHaveLength(1);
+        expect(state.parcels.size).toBe(1);
+      }, 8000);
+
+      it("HTTP 429 -> DeliveryOutcomeUnknownError (not proven « not executed »), one call", async () => {
+        state.forceHttpStatus = 429;
+        await expect(ozonExpressAdapter.createShipment!(shipmentInput, credentials, config)).rejects.toBeInstanceOf(
+          DeliveryOutcomeUnknownError
+        );
+        expect(addParcelCalls()).toHaveLength(1);
+      });
+
+      it("HTTP 429 after the parcel was created -> DeliveryOutcomeUnknownError, one call, one parcel", async () => {
+        state.addParcelFaultAfterCreate = 429;
+        await expect(ozonExpressAdapter.createShipment!(shipmentInput, credentials, config)).rejects.toBeInstanceOf(
+          DeliveryOutcomeUnknownError
+        );
+        expect(addParcelCalls()).toHaveLength(1);
+        expect(state.parcels.size).toBe(1);
+      });
+
+      it("a failure while reading the city catalogue happens BEFORE add-parcel — a definite failure, no parcel call", async () => {
+        state.forceCitiesHttpStatus = 503;
+        const error = await ozonExpressAdapter.createShipment!(shipmentInput, credentials, config).catch((e: unknown) => e);
+        expect(error).not.toBeInstanceOf(DeliveryOutcomeUnknownError);
+        expect(addParcelCalls()).toHaveLength(0);
+      });
     });
 
     it("does not send a custom tracking number — OzonExpress assigns its own OZE… number", async () => {

@@ -4,6 +4,7 @@ import { assertPublicHost, InvalidHostError } from "@/lib/integrations/shared";
 import {
   DeliveryConfigError,
   DeliveryMalformedResponseError,
+  DeliveryOutcomeUnknownError,
   DeliveryTimeoutError,
   DeliveryUnavailableError,
 } from "@/lib/integrations/delivery/errors";
@@ -35,6 +36,18 @@ const MAX_RETRIES = 3;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export const OUTCOME_UNKNOWN_MESSAGE =
+  "OzonExpress n'a pas confirmé la création du colis (pas de réponse ou erreur serveur). Le colis a peut-être été créé : vérifiez sur le portail OzonExpress avant toute nouvelle tentative.";
+
+/** Connection-establishment failures (undici `fetch failed` causes): the
+ * request never left this server, so nothing can exist at OzonExpress. */
+const NEVER_SENT_CODES = new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "UND_ERR_CONNECT_TIMEOUT"]);
+
+function isNeverSentNetworkError(error: unknown): boolean {
+  const cause = (error as { cause?: { code?: unknown } } | null)?.cause;
+  return typeof cause?.code === "string" && NEVER_SENT_CODES.has(cause.code);
 }
 
 /** `unknown` → number | null without ever coercing a missing / empty /
@@ -99,8 +112,24 @@ export class OzonExpressClient {
    * returns the parsed JSON body. Throws a typed DeliveryProviderError for
    * every failure mode, including an HTTP-200 body of
    * `{"RESULT":"ERROR","MESSAGE":...}` (flat or nested one level).
+   *
+   * `{ once: true }` is for requests with a side effect at OzonExpress
+   * (`add-parcel`, and the three Bon de Livraison steps): exactly one
+   * attempt, never retried — a retry after a timeout / 5xx / dropped
+   * connection can repeat an action that actually went through (a second
+   * parcel, a second delivery note). When the request may have reached
+   * OzonExpress but its outcome is unknown, it throws
+   * DeliveryOutcomeUnknownError; failures known to happen before sending
+   * (DNS, connection refused) and definite refusals (4xx other than 429,
+   * HTTP-200 RESULT:ERROR) keep their regular typed error.
+   *
+   * 429 counts as UNKNOWN on a one-shot request: OzonExpress documents no
+   * rate limiting at all (docs/adr/0013, « Rate limits: Undocumented »), so
+   * nothing establishes that a 429 is produced before the action runs — it
+   * could come from a gateway or proxy after the backend already acted.
    */
-  async post(action: string, form: Record<string, string>): Promise<unknown> {
+  async post(action: string, form: Record<string, string>, options: { once?: boolean } = {}): Promise<unknown> {
+    const once = options.once === true;
     // Re-validate SSRF immediately before the call, not just at construction
     // — DNS can change between the two (rebinding). Shared logic with
     // WooCommerce/Shopify (src/lib/integrations/shared/private-ip.ts).
@@ -127,8 +156,9 @@ export class OzonExpressClient {
       for (const [key, value] of Object.entries(form)) body.append(key, value);
     }
 
+    const maxAttempts = once ? 1 : MAX_RETRIES;
     let lastWasRetriable = false;
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
       let response: Response;
@@ -143,11 +173,19 @@ export class OzonExpressClient {
       } catch (error) {
         clearTimeout(timer);
         if (error instanceof DOMException && error.name === "AbortError") {
+          if (once) throw new DeliveryOutcomeUnknownError(OUTCOME_UNKNOWN_MESSAGE);
           throw new DeliveryTimeoutError("OzonExpress n'a pas répondu à temps.");
+        }
+        // A one-shot request is only "definitely not sent" when the
+        // connection was never established; anything else (reset, TLS
+        // drop…) may have reached OzonExpress.
+        if (once) {
+          if (isNeverSentNetworkError(error)) throw new DeliveryUnavailableError("Impossible de joindre OzonExpress.");
+          throw new DeliveryOutcomeUnknownError(OUTCOME_UNKNOWN_MESSAGE);
         }
         // Network-level failure (DNS/TLS/refused) — retry with backoff.
         lastWasRetriable = true;
-        if (attempt < MAX_RETRIES - 1) {
+        if (attempt < maxAttempts - 1) {
           await sleep(500 * 2 ** attempt);
           continue;
         }
@@ -155,8 +193,14 @@ export class OzonExpressClient {
       }
       clearTimeout(timer);
 
+      // 5xx / 429 on a one-shot request: the server may have acted before
+      // failing (429: see the doc comment above — no evidence it is a
+      // pre-execution refusal).
+      if (once && (response.status >= 500 || response.status === 429)) {
+        throw new DeliveryOutcomeUnknownError(OUTCOME_UNKNOWN_MESSAGE);
+      }
       if (response.status === 429 || response.status >= 500) {
-        if (attempt < MAX_RETRIES - 1) {
+        if (attempt < maxAttempts - 1) {
           const retryAfter = Number(response.headers.get("retry-after"));
           await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 500 * 2 ** attempt);
           lastWasRetriable = true;
@@ -172,6 +216,9 @@ export class OzonExpressClient {
       try {
         parsed = await response.json();
       } catch {
+        // A 2xx we can't read: on a one-shot request it may still mean
+        // « créé ».
+        if (once) throw new DeliveryOutcomeUnknownError(OUTCOME_UNKNOWN_MESSAGE);
         throw new DeliveryMalformedResponseError("Réponse illisible reçue d'OzonExpress.");
       }
       assertNoApiError(parsed, this.redact);

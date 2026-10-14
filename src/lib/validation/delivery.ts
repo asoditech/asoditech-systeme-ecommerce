@@ -38,6 +38,27 @@ export const SHIPMENT_STATUS_TRANSITIONS: Record<ShipmentStatusValue, ShipmentSt
   ANNULE: [],
 };
 
+/**
+ * « Création à vérifier » — a carrier parcel-creation request was sent but
+ * its outcome is unknown (timeout, 5xx, 429, lost connection; see
+ * DeliveryOutcomeUnknownError), or is still in flight / was interrupted: the
+ * marker is written just before the carrier call and replaced on every
+ * normal outcome. No new status: the shipment stays EN_ATTENTE
+ * — an ACTIVE status, so reserveShipmentSlot refuses any further parcel for
+ * the order — with no externalId and a `failedReason` starting with this
+ * prefix. A person resolves it after checking the carrier's portal: « Échec »
+ * (no parcel there — the order can be shipped again) or « Annulé » then
+ * « Lier un colis existant » (the parcel exists).
+ */
+export const SHIPMENT_OUTCOME_UNKNOWN_PREFIX = "À vérifier : ";
+
+export function isShipmentOutcomeUnknown(s: { status: string; externalId: string | null; failedReason: string | null }): boolean {
+  return s.status === "EN_ATTENTE" && !s.externalId && (s.failedReason?.startsWith(SHIPMENT_OUTCOME_UNKNOWN_PREFIX) ?? false);
+}
+
+export const SHIPMENT_OUTCOME_UNKNOWN_HINT =
+  "Vérifiez sur le portail du transporteur. Colis absent : passez cette expédition en « Échec » pour pouvoir la recréer. Colis présent : passez-la en « Annulé » puis utilisez « Lier un colis existant » avec son numéro de suivi.";
+
 export function canTransitionShipmentStatus(from: ShipmentStatusValue, to: ShipmentStatusValue): boolean {
   if (from === to) return false;
   return SHIPMENT_STATUS_TRANSITIONS[from].includes(to);

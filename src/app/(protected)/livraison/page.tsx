@@ -43,7 +43,12 @@ import {
 import { deleteShippingProviderAction, deleteFailedShipmentAction } from "@/actions/delivery";
 import { formatCurrency, formatDateTime, displayOrderNumber, displayOrderRecipient, formatPercent } from "@/lib/format";
 import { SHIPMENT_STATUS_LABELS, SHIPPING_PROVIDER_TYPE_LABELS } from "@/lib/status-labels";
-import { canCancelCarrierShipment, type ShipmentStatusValue } from "@/lib/validation/delivery";
+import {
+  canCancelCarrierShipment,
+  isShipmentOutcomeUnknown,
+  SHIPMENT_OUTCOME_UNKNOWN_HINT,
+  type ShipmentStatusValue,
+} from "@/lib/validation/delivery";
 import { resolveDateRangePreset, DATE_RANGE_PRESET_LABELS, type DateRangePreset } from "@/lib/date-range-presets";
 import { buildParcelContentsSummary } from "@/lib/delivery";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
@@ -390,6 +395,11 @@ export default async function LivraisonPage({
                                 providerCapabilities(s.provider).includes("CANCEL_SHIPMENT")
                               )}
                             />
+                          ) : isShipmentOutcomeUnknown(s) ? (
+                            <div className="space-y-1" data-testid="shipment-outcome-unknown">
+                              <p className="max-w-[16rem] text-xs leading-tight text-pill-yellow-fg">{s.failedReason}</p>
+                              <p className="max-w-[16rem] text-xs leading-tight text-muted-foreground">{SHIPMENT_OUTCOME_UNKNOWN_HINT}</p>
+                            </div>
                           ) : s.status === "ECHEC" ? (
                             <div className="space-y-1">
                               {s.failedReason && (

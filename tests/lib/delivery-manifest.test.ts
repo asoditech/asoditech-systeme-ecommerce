@@ -14,6 +14,7 @@ import { referenceDeliveryProvider, REFERENCE_PROVIDER_KEY } from "../helpers/re
 import { assertCapability } from "@/lib/integrations/delivery/registry";
 import {
   DeliveryMalformedResponseError,
+  DeliveryOutcomeUnknownError,
   DeliveryProviderError,
   DeliveryUnsupportedCapabilityError,
 } from "@/lib/integrations/delivery/errors";
@@ -128,9 +129,46 @@ describe("OzonExpress adapter.generateManifest (fake HTTP)", () => {
     }
   });
 
-  it("a create response with no ref is a malformed response, not a fabricated ref", async () => {
+  it("a create response with no ref is never a fabricated ref — outcome unknown (a note may exist)", async () => {
     state.deliveryNoteOmitRef = true;
-    await expect(ozExpressGenerate(["OZE1"])).rejects.toBeInstanceOf(DeliveryMalformedResponseError);
+    await expect(ozExpressGenerate(["OZE1"])).rejects.toBeInstanceOf(DeliveryOutcomeUnknownError);
+  });
+
+  describe("no automatic retry of any Bon de Livraison step (each changes state at OzonExpress)", () => {
+    const STEPS = ["add-delivery-note", "add-parcel-to-delivery-note", "save-delivery-note"] as const;
+    const callsTo = (action: string) => state.seenUrls.filter((u) => u.endsWith(`/${action}`)).length;
+
+    for (const step of STEPS) {
+      for (const fault of ["hang", "reset", 500, 503, 429] as const) {
+        it(`${step}: ${fault} -> DeliveryOutcomeUnknownError after exactly one call, later steps never run`, async () => {
+          state.actionFault = { action: step, fault };
+          const error = await ozExpressGenerate(["OZE1"]).catch((e: unknown) => e);
+          expect(error).toBeInstanceOf(DeliveryOutcomeUnknownError);
+          expect(callsTo(step)).toBe(1);
+          for (const later of STEPS.slice(STEPS.indexOf(step) + 1)) expect(callsTo(later)).toBe(0);
+          const message = (error as Error).message;
+          expect(message).toMatch(/vérifiez sur le portail OzonExpress/);
+          // once the note exists (steps 2–3), its reference is named for the operator
+          if (step !== "add-delivery-note") expect(message).toMatch(/Référence du bon chez OzonExpress : BL/);
+          expect(message).not.toContain(FAKE_OZ_API_KEY);
+        }, 8000);
+      }
+    }
+
+    it("a connection never established (ECONNREFUSED) is a definite failure, not « à vérifier »", async () => {
+      state.networkErrorCode = "ECONNREFUSED";
+      const error = await ozExpressGenerate(["OZE1"]).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(DeliveryProviderError);
+      expect(error).not.toBeInstanceOf(DeliveryOutcomeUnknownError);
+      expect(callsTo("add-delivery-note")).toBe(1);
+    });
+
+    it("a carrier RESULT:ERROR stays a definite error (not « à vérifier »)", async () => {
+      state.deliveryNoteFailStep = "save-delivery-note";
+      const error = await ozExpressGenerate(["OZE1"]).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(DeliveryProviderError);
+      expect(error).not.toBeInstanceOf(DeliveryOutcomeUnknownError);
+    });
   });
 
   async function ozExpressGenerate(externalIds: string[]) {

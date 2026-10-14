@@ -14,6 +14,9 @@ import { resetDb } from "../helpers/db";
 import { createTestUser } from "../helpers/auth";
 import { registerDeliveryProvider, __resetDeliveryProviderRegistryForTests } from "@/lib/integrations/delivery/registry";
 import { createHmac } from "node:crypto";
+import { DuplicateActiveShipmentError } from "@/lib/integrations/delivery/service";
+import { DeliveryOutcomeUnknownError } from "@/lib/integrations/delivery/errors";
+import { isShipmentOutcomeUnknown, SHIPMENT_OUTCOME_UNKNOWN_PREFIX } from "@/lib/validation/delivery";
 
 let carrierState: FakeCarrierState;
 let testUserId: string;
@@ -131,6 +134,61 @@ describe("delivery integration service (against the reference fixture adapter)",
       expect(shipments).toHaveLength(1);
       expect(shipments[0].status).toBe("ECHEC");
       expect(shipments[0].externalId).toBeNull();
+      // the pre-call « à vérifier » marker is replaced by the definite reason
+      expect(isShipmentOutcomeUnknown(shipments[0])).toBe(false);
+    });
+
+    describe("« à vérifier » is recorded BEFORE the carrier call (process death mid-request)", () => {
+      async function snapshotDuringCall(behaviour: "succeed" | "unknown") {
+        let duringCall: { status: string; externalId: string | null; failedReason: string | null } | null = null;
+        __resetDeliveryProviderRegistryForTests();
+        registerDeliveryProvider({
+          ...referenceDeliveryProvider,
+          createShipment: async (input, credentials, config) => {
+            duringCall = await prisma.shipment.findUniqueOrThrow({
+              where: { id: input.localShipmentId },
+              select: { status: true, externalId: true, failedReason: true },
+            });
+            if (behaviour === "unknown") throw new DeliveryOutcomeUnknownError("Résultat inconnu (test).");
+            return referenceDeliveryProvider.createShipment!(input, credentials, config);
+          },
+        });
+        const provider = await seedApiProvider();
+        const order = await seedOrderWithAddress();
+        const outcome = await createShipmentViaProvider({ order, providerId: provider.id, updatedById: testUserId, notes: null }).catch(
+          (e: unknown) => e
+        );
+        const after = await prisma.shipment.findFirstOrThrow({ where: { orderId: order.id } });
+        return { duringCall: duringCall!, outcome, after, provider, order };
+      }
+
+      it("while the request is in flight the row is already EN_ATTENTE « à vérifier » — a crash leaves it blocking and explained", async () => {
+        const { duringCall, provider, order } = await snapshotDuringCall("succeed");
+        expect(isShipmentOutcomeUnknown(duringCall)).toBe(true);
+        expect(duringCall.failedReason).toMatch(/vérifiez sur le portail du transporteur/);
+        // what a later attempt would face had the process died at that point
+        await prisma.shipment.updateMany({ where: { orderId: order.id }, data: { externalId: null, failedReason: duringCall.failedReason } });
+        const second = await createShipmentViaProvider({ order, providerId: provider.id, updatedById: testUserId, notes: null }).catch(
+          (e: unknown) => e
+        );
+        expect(second).toBeInstanceOf(DuplicateActiveShipmentError);
+        expect((second as Error).message).toMatch(/à vérifier/);
+      });
+
+      it("a successful creation clears the marker", async () => {
+        const { after, outcome } = await snapshotDuringCall("succeed");
+        expect(outcome).not.toBeInstanceOf(Error);
+        expect(after.externalId).toBe("ref-1");
+        expect(after.failedReason).toBeNull();
+        expect(isShipmentOutcomeUnknown(after)).toBe(false);
+      });
+
+      it("an unknown outcome replaces it with the adapter's precise message, still EN_ATTENTE", async () => {
+        const { after, outcome } = await snapshotDuringCall("unknown");
+        expect(outcome).toBeInstanceOf(DeliveryOutcomeUnknownError);
+        expect(after.status).toBe("EN_ATTENTE");
+        expect(after.failedReason).toBe(`${SHIPMENT_OUTCOME_UNKNOWN_PREFIX}Résultat inconnu (test).`);
+      });
     });
 
     it("marks the shipment ECHEC on a malformed provider response rather than persisting a fabricated result", async () => {

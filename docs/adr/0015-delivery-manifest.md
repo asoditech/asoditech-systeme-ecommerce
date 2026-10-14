@@ -207,3 +207,21 @@ its fake HTTP gained a `generateManifest` / `/manifests` implementation
 `MANIFEST_LIVE_TESTED = NO`. `FIXTURE_TESTED = YES` (full flow, real test
 DB, mocked HTTP). `CONTRACT_SOURCE = owner-provided portal documentation,
 2026-09-01`.
+
+## Addendum 2026-10-14 — retry-induced duplicates closed
+
+The « Retry-induced duplicate delivery notes » item under « Deferred » is
+resolved by the second option it lists: `add-delivery-note`,
+`add-parcel-to-delivery-note` and `save-delivery-note` are each sent exactly
+once (`{ once: true }`), never retried. A timeout, lost connection, 5xx or 429
+(rate limits undocumented — see docs/adr/0013 addendum), or an accepted
+`add-delivery-note` reply with no readable ref, raises
+`DeliveryOutcomeUnknownError`; later steps are not run. The local manifest is
+marked `ECHEC` (unchanged flow) with a message asking the operator to check
+the OzonExpress portal before generating another one, naming the note's
+reference once it is known (steps 2–3). Re-generation is not blocked
+automatically: that would mean linking shipments to an unconfirmed manifest
+(a shipment state change), deliberately left out. Exposure today is
+limited: the « Bon de livraison » builder (`manifest-builder.tsx`) has not
+been mounted on any page since commit `4b260a2` (2026-09-05), so the flow is
+not reachable from the UI. Decide the guard before mounting it again.

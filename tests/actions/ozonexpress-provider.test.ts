@@ -6,6 +6,8 @@ import {
   testDeliveryProviderConnectionAction,
   createShipmentViaProviderAction,
   createShipmentsBulkAction,
+  createShipmentAction,
+  updateShipmentStatusAction,
   deleteFailedShipmentAction,
   linkExistingShipmentAction,
   refreshShipmentStatusesAction,
@@ -14,6 +16,7 @@ import {
   generateDeliveryManifestAction,
 } from "@/actions/delivery";
 import { updateOrderStatusAction, createOrderAction } from "@/actions/orders";
+import { isShipmentOutcomeUnknown, SHIPMENT_OUTCOME_UNKNOWN_PREFIX } from "@/lib/validation/delivery";
 import { getCurrentUser } from "@/lib/auth/session";
 import { hasGlobalLocationAccess } from "@/lib/auth/location-access";
 import { resetDb } from "../helpers/db";
@@ -271,6 +274,129 @@ describe("OzonExpress connector — Server Action layer", () => {
 
       expect(state.seenUrls.some((u) => u.includes("/add-parcel"))).toBe(false);
       expect(await prisma.shipment.count({ where: { orderId } })).toBe(0);
+    });
+  });
+
+  describe("uncertain creation outcome — « à vérifier », never a second parcel", () => {
+    const addParcelCalls = () => state.seenUrls.filter((u) => u.includes("/add-parcel")).length;
+
+    async function createUncertain(fault: "hang" | "reset" | number) {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await configuredProvider();
+      const orderId = await seedShippableOrder();
+      state.addParcelFaultAfterCreate = fault;
+      const result = await createShipmentViaProviderAction(formData({ orderId, providerId: provider.id }));
+      state.addParcelFaultAfterCreate = undefined;
+      return { provider, orderId, result };
+    }
+
+    it.each([
+      ["a timeout", "hang" as const],
+      ["a connection reset", "reset" as const],
+      ["an HTTP 502", 502],
+    ])("%s after OzonExpress created the parcel keeps the shipment EN_ATTENTE « à vérifier » (one call, no retry)", async (_l, fault) => {
+      const { orderId, result } = await createUncertain(fault);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/à vérifier/);
+
+      const shipments = await prisma.shipment.findMany({ where: { orderId } });
+      expect(shipments).toHaveLength(1);
+      expect(shipments[0].status).toBe("EN_ATTENTE");
+      expect(shipments[0].externalId).toBeNull();
+      expect(shipments[0].failedReason?.startsWith(SHIPMENT_OUTCOME_UNKNOWN_PREFIX)).toBe(true);
+      expect(isShipmentOutcomeUnknown(shipments[0])).toBe(true);
+      expect(addParcelCalls()).toBe(1);
+      expect(state.parcels.size).toBe(1);
+
+      const audit = await prisma.auditEvent.findFirstOrThrow({ where: { action: "shipment.creation_failed", entityId: orderId } });
+      expect((audit.metadata as { outcomeUnknown?: boolean }).outcomeUnknown).toBe(true);
+      expect(JSON.stringify(audit)).not.toContain(FAKE_OZ_API_KEY);
+    }, 10000);
+
+    it("blocks every later creation path for the order while unresolved — no second add-parcel call", async () => {
+      const { provider, orderId } = await createUncertain(503);
+
+      const again = await createShipmentViaProviderAction(formData({ orderId, providerId: provider.id }));
+      expect(again.ok).toBe(false);
+      if (!again.ok) expect(again.error).toMatch(/à vérifier/);
+
+      const bulk = await createShipmentsBulkAction(formData({ providerId: provider.id, orderIds: orderId }));
+      expect(bulk.ok && bulk.data.results[0].ok).toBe(false);
+
+      const tracking = [...state.parcels.keys()][0];
+      const linked = await linkExistingShipmentAction(formData({ orderId, providerId: provider.id, trackingNumber: tracking }));
+      expect(linked.ok).toBe(false);
+
+      const manual = await createShippingProviderAction(formData({ name: "Coursier", type: "MANUEL" }));
+      if (!manual.ok) throw new Error("setup failed");
+      const manualShipment = await createShipmentAction(formData({ orderId, providerId: manual.data.id, trackingNumber: "M-1" }));
+      expect(manualShipment.ok).toBe(false);
+
+      expect(addParcelCalls()).toBe(1);
+      expect(state.parcels.size).toBe(1);
+      expect(await prisma.shipment.count({ where: { orderId } })).toBe(1);
+    });
+
+    it("an HTTP 429 is NOT proof that nothing was created: « à vérifier », one call, no automatic recreation", async () => {
+      const { provider, orderId, result } = await createUncertain(429);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/à vérifier/);
+      const pending = await prisma.shipment.findFirstOrThrow({ where: { orderId } });
+      expect(pending.status).toBe("EN_ATTENTE");
+      expect(isShipmentOutcomeUnknown(pending)).toBe(true);
+
+      const again = await createShipmentViaProviderAction(formData({ orderId, providerId: provider.id }));
+      expect(again.ok).toBe(false);
+      expect(addParcelCalls()).toBe(1);
+      expect(state.parcels.size).toBe(1);
+    });
+
+    it("a definite refusal (HTTP-200 RESULT:ERROR) is still ECHEC and the order can be shipped again", async () => {
+      await loginAsTestUser({ role: "MANAGER" });
+      const provider = await configuredProvider();
+      const orderId = await seedShippableOrder();
+      state.forceAddParcelErrorMessage = "Parcel refused";
+      const first = await createShipmentViaProviderAction(formData({ orderId, providerId: provider.id }));
+      expect(first.ok).toBe(false);
+      const failed = await prisma.shipment.findFirstOrThrow({ where: { orderId } });
+      expect(failed.status).toBe("ECHEC");
+      expect(isShipmentOutcomeUnknown(failed)).toBe(false);
+
+      state.forceAddParcelErrorMessage = undefined;
+      const retry = await createShipmentViaProviderAction(formData({ orderId, providerId: provider.id }));
+      expect(retry.ok).toBe(true);
+      expect(addParcelCalls()).toBe(2);
+    });
+
+    it("resolved « colis absent »: « Échec » with a reason frees the order for a new parcel", async () => {
+      const { provider, orderId } = await createUncertain(503);
+      const pending = await prisma.shipment.findFirstOrThrow({ where: { orderId } });
+      state.parcels.clear(); // checked the portal: nothing there
+
+      const resolved = await updateShipmentStatusAction(formData({ id: pending.id, status: "ECHEC", failedReason: "Absent du portail OzonExpress" }));
+      expect(resolved.ok).toBe(true);
+
+      const again = await createShipmentViaProviderAction(formData({ orderId, providerId: provider.id }));
+      expect(again.ok).toBe(true);
+      expect(addParcelCalls()).toBe(2);
+      const live = await prisma.shipment.findMany({ where: { orderId, status: "EN_ATTENTE" } });
+      expect(live).toHaveLength(1);
+      expect(live[0].externalId).toBeTruthy();
+    });
+
+    it("resolved « colis présent »: « Annulé » then « Lier un colis existant » attaches the real parcel — still one add-parcel call", async () => {
+      const { provider, orderId } = await createUncertain(503);
+      const pending = await prisma.shipment.findFirstOrThrow({ where: { orderId } });
+      const tracking = [...state.parcels.keys()][0];
+
+      const cancelled = await updateShipmentStatusAction(formData({ id: pending.id, status: "ANNULE" }));
+      expect(cancelled.ok).toBe(true);
+      const linked = await linkExistingShipmentAction(formData({ orderId, providerId: provider.id, trackingNumber: tracking }));
+      expect(linked.ok).toBe(true);
+
+      const live = await prisma.shipment.findFirstOrThrow({ where: { orderId, externalId: tracking } });
+      expect(live.trackingNumber).toBe(tracking);
+      expect(addParcelCalls()).toBe(1);
     });
   });
 
