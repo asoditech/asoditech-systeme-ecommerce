@@ -16,12 +16,13 @@ import { openSupportWidget } from "@/lib/support/open-support";
 import type { ActiveAnnouncement } from "@/lib/queries/announcements";
 
 // Solid top-bar colours per type (the same in light AND dark mode): a system
-// announcement, not page text. Text is always bold white, so each background
-// is dark enough for white (maintenance uses a deeper amber than before).
+// announcement, not page text. Bold text in the colour that passes AA on each
+// background: white on the blue and the deep amber, the dark brand-foreground
+// on the orange (same pair as the orange buttons — white on it is ≈ 2.8:1).
 const TYPE_STYLE = {
   INFO: { icon: Info, className: "bg-sky-600 text-white dark:bg-sky-700", iconClass: "text-white" },
   MAINTENANCE: { icon: Wrench, className: "bg-amber-700 text-white", iconClass: "text-white" },
-  NEW_FEATURE: { icon: Sparkles, className: "bg-primary text-white", iconClass: "text-white" },
+  NEW_FEATURE: { icon: Sparkles, className: "bg-brand text-brand-foreground", iconClass: "text-brand-foreground" },
 } as const;
 
 function readCookie(name: string): string | null {
@@ -85,7 +86,7 @@ export function AnnouncementBar({ announcement }: { announcement: ActiveAnnounce
               style={{ "--ticker-duration": `${Math.max(15, Math.round(announcement.message.length * 0.25))}s` } as React.CSSProperties}
             >
               {[false, true].map((duplicate) => (
-                <p key={String(duplicate)} className="announcement-ticker-copy text-sm leading-snug font-bold break-words text-white" aria-hidden={duplicate || undefined}>
+                <p key={String(duplicate)} className="announcement-ticker-copy text-sm leading-snug font-bold break-words" aria-hidden={duplicate || undefined}>
                   <span className="me-1.5 inline-block rounded bg-black/20 px-1.5 py-px text-xs font-bold">
                     {ANNOUNCEMENT_TYPE_LABELS[announcement.type]}
                   </span>
