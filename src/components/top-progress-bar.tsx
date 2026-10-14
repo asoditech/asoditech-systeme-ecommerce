@@ -53,7 +53,11 @@ export function TopProgressBar() {
     const begin = () => {
       clearTimers();
       navigating.current = true;
-      setWidth(8);
+      // Deferred: the App Router calls history.pushState from inside a
+      // useInsertionEffect, where React forbids scheduling state updates
+      // (« useInsertionEffect must not schedule updates »). `finish` clears
+      // this timer if the route commits first.
+      timers.current.push(setTimeout(() => setWidth(8), 0));
       for (const step of TRICKLE) {
         timers.current.push(setTimeout(() => setWidth(step.to), step.at));
       }
