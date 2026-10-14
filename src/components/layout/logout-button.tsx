@@ -11,12 +11,13 @@ export function LogoutButton() {
     <Button
       type="button"
       variant="ghost"
-      size="sm"
       disabled={isPending}
+      aria-label="Se déconnecter"
+      className="rounded-full px-3 sm:px-4"
       onClick={() => startTransition(() => void logoutAction())}
     >
       <LogOut className="size-4" />
-      Se déconnecter
+      <span className="hidden sm:inline">Se déconnecter</span>
     </Button>
   );
 }

@@ -20,6 +20,7 @@ References: `design-reference/` (untracked, local only).
 | 5d | Settings & others: paramètres (5), utilisateurs, intégrations, marketing, notifications, journal-audit, assistant-IA, documentation, scan (+ shell bits: support widget, announcement badge) | Done |
 | 5e | Public/auth: connexion, mot de passe oublié, réinitialiser, invitations, accès refusé, accès plateforme (home `/` only redirects) | Done |
 | 6 | Polish: tablet layout, leftover sweep, dead styles, dark-mode pass, final checks | Done |
+| P | Platform admin (`src/app/platform/*`, 5 pages) | Done |
 
 ## Pages
 
@@ -27,7 +28,7 @@ References: `design-reference/` (untracked, local only).
 - Pages fully redesigned: `/tableau-de-bord` (Step 3); `/commandes`, `/commandes/[id]`, `/commandes/nouvelle` + order dialogs (Step 4 — the reference pattern for table pages); Ventes group (Step 5a): `/operations/nouvelle`, `/ventes` (+ detail, nouvelle), `/confirmation` (+ performance), `/clients` (+ detail, nouveau), `/livraison` (4 tabs), `/livraison/suivi` (+ detail), `/livraison/retours` (+ inspection), `/livraison/factures` (+ invoice); Catalogue group (Step 5b): `/produits` (+ detail, nouveau, exporter, étiquette), `/catalogue/categories`, `/stock`, `/receptions` (+ detail, nouveau, modifier), `/fournisseurs` (+ detail), `/tracabilite`, `/transferts` (+ detail, nouveau), `/inventaires` (+ detail, nouveau), `/entrepots`; Finance & analytics (Step 5c): `/finance`, `/depenses`, `/commissions` (+ agent, relevé), `/rapports` + 11 reports, `/analyses` + 5 tabs; Settings & others (Step 5d): `/parametres` (configuration, notifications, abonnement, canaux, sauvegarde), `/utilisateurs`, `/integrations`, `/marketing`, `/notifications`, `/journal-audit`, `/assistant-ia`, `/documentation` (+ catégorie, article, démo), `/scan/[token]`. « catalogue » and « opérations » of this group were done in 5b (`/catalogue/categories`) and 5a (`/operations/nouvelle`); Public / auth (Step 5e): `/connexion`, `/mot-de-passe-oublie`, `/reinitialiser-mot-de-passe/[token]`, `/invitations/[token]`, `/acces-refuse`, `/acces-plateforme` (the home page `/` is a redirect, nothing to draw).
 - Page-specific layouts and colours not restyled yet: all other pages (Steps 4–5).
 - Review page: `/dev/components` (dev only, 404 in production builds, not linked).
-- Out of scope until decided: `src/app/platform/*` (platform admin), not touched.
+- Platform admin (`src/app/platform/*`): redesigned in step P — same shell, purple « Plateforme » identity.
 
 ## Step 1 — what changed
 
@@ -124,6 +125,16 @@ References: `design-reference/` (untracked, local only).
 - `/dev/components`: verified 404 on a production server (`next start`).
 - Dark mode: 84 URLs captured at 1280 dark (no horizontal overflow) and reviewed as contact sheets; dialogs in dark this step: stock adjustment, user access, user locations, password reset; mobile drawer at 768 dark.
 - Separate fix commits (not redesign): `fix(top-progress-bar)` and `fix(theme)` (a `notFound()` page ignored the stored dark theme — ThemeProvider now re-applies the same rule on mount).
+
+## Step P — platform admin
+
+- Shell: `/platform` now uses the merchant Soft UI frame through a new `PlatformShell` (client) — `SidebarShell` + `MobileNav` gained optional, backward-compatible props (`nav`, `brandBadge`, `homeHref`, `showHelp`; defaults = merchant behaviour, unchanged). 272px sidebar / 72px rail (same collapse cookie), drawer below 1024px, 72px topbar with theme toggle, « Verrouiller » and « Se déconnecter » (icon-only on phones). Same guards (`requirePlatformAdmin`), same lock action, no route change.
+- Distinguishable from a merchant space without new tokens: purple « Plateforme » pill (pastel purple pair) beside the logo — in the topbar when the sidebar is a rail or a drawer — and the active nav item = purple pill + purple rail (`bg-pastel-purple`), where merchant spaces use a neutral pill.
+- `SidebarShell` exposes `data-sidebar-collapsed` + `group/shell` (additive) so the topbar can react to the rail.
+- Pages: Tenants (KPI grid 1 → 2 → 4 columns, tenants table in `TableCard`, ink names), Forfaits (plan forms = 24px cards with an accent title, hairline module tiles), Utilisation (neutral `Notice`, accent card titles, 13px dense tables kept), Annonces (`TableCard`, soft delete hover), Santé (check states = Badge success / warning / destructive / secondary instead of hard-coded emerald / amber / red, accent titles, `text-link` external links). Dialogs: business-mode radio tiles on brand, refusal = red tile; plan warning = `Notice`.
+- `LogoutButton` (only used here): 44px ghost, label hidden below `sm`.
+- Checked: light + dark at 1280, light at 768, dark at 390 on 6 URLs (no overflow); rail mode in dark; drawer at 768 (light, dark) and 390; dialogs in dark: Nouveau tenant, Mode, Gérer le forfait (1280 + 390), Nouvelle annonce (1280 + 390); no console errors; merchant dashboard and drawer re-checked (unchanged).
+- Not verified: « Purger l'essai » (hidden for the only local tenant, `default`), « Forcer la réinitialisation » (native confirm, then sends a reset link — not clicked), `/acces-plateforme` unlock form (no platform key configured locally), the announcements table with rows (no announcement locally).
 
 ## Decisions (confirmed by the owner after Step 1)
 

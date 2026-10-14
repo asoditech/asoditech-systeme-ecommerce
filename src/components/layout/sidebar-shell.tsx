@@ -37,6 +37,10 @@ export function SidebarShell({
   favorites = [],
   defaultCollapsed = false,
   variant = "classic",
+  nav: CustomNav,
+  brandBadge,
+  homeHref = "/tableau-de-bord",
+  showHelp = true,
   children,
 }: {
   permissions: Set<Permission>;
@@ -44,6 +48,13 @@ export function SidebarShell({
   defaultCollapsed?: boolean;
   /** Sidebar presentation experiment (src/lib/navigation/sidebar-variant.ts), read server-side from its cookie. */
   variant?: SidebarVariant;
+  /** Optional other navigation (the /platform area) in place of the merchant SidebarNav. */
+  nav?: React.ComponentType<{ collapsed?: boolean }>;
+  /** Small pill shown beside the logo when the sidebar is expanded (e.g. « Plateforme »). */
+  brandBadge?: React.ReactNode;
+  homeHref?: string;
+  /** « Centre d'aide » row — off where the support widget is not mounted. */
+  showHelp?: boolean;
   children: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
@@ -70,25 +81,30 @@ export function SidebarShell({
 
   return (
     <div className="h-dvh overflow-hidden bg-page md:p-4 lg:p-5">
-      <div data-app-shell="" className="flex h-full min-h-0 overflow-hidden bg-shell md:rounded-shell md:shadow-shell">
+      <div data-app-shell="" data-sidebar-collapsed={collapsed || undefined} className="group/shell flex h-full min-h-0 overflow-hidden bg-shell md:rounded-shell md:shadow-shell">
         <aside
           className={cn(
             "hidden h-full shrink-0 flex-col bg-shell transition-[width] duration-200 ease-out motion-reduce:transition-none lg:flex",
             collapsed ? "w-[72px]" : "w-[272px]"
           )}
         >
-          <div className={cn("flex h-[72px] shrink-0 items-center", collapsed ? "justify-center" : "px-7")}>
-            <Link href="/tableau-de-bord" aria-label="Tableau de bord" className="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">
+          <div className={cn("flex h-[72px] shrink-0 items-center gap-2.5", collapsed ? "justify-center" : "px-7")}>
+            <Link href={homeHref} aria-label="Tableau de bord" className="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">
               <BrandMark variant={collapsed ? "icon" : "compact"} />
             </Link>
+            {!collapsed && brandBadge}
           </div>
 
           <div className="sidebar-scroll min-h-0 flex-1 overflow-y-auto pb-2">
-            <SidebarNav permissions={permissions} favorites={favorites} collapsed={collapsed} variant={variant} />
+            {CustomNav ? (
+              <CustomNav collapsed={collapsed} />
+            ) : (
+              <SidebarNav permissions={permissions} favorites={favorites} collapsed={collapsed} variant={variant} />
+            )}
           </div>
 
           <div className={cn("flex shrink-0 flex-col gap-2 border-t border-hairline", collapsed ? "items-center px-3 py-3" : "px-4 py-4")}>
-            {collapsed ? (
+            {!showHelp ? null : collapsed ? (
               <Tooltip>
                 <TooltipTrigger
                   render={<button type="button" onClick={() => openSupportWidget()} aria-label="Centre d'aide" className={cn(bottomRow, "size-11 justify-center")} />}

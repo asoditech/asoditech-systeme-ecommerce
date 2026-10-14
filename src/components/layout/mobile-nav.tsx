@@ -16,10 +16,19 @@ export function MobileNav({
   permissions,
   favorites = [],
   variant = "classic",
+  nav: CustomNav,
+  brandBadge,
+  homeHref = "/tableau-de-bord",
+  showHelp = true,
 }: {
   permissions: Set<Permission>;
   favorites?: string[];
   variant?: SidebarVariant;
+  /** Optional other navigation (the /platform area) in place of the merchant SidebarNav. */
+  nav?: React.ComponentType<{ onNavigate?: () => void }>;
+  brandBadge?: React.ReactNode;
+  homeHref?: string;
+  showHelp?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -29,16 +38,23 @@ export function MobileNav({
         <Menu className="size-5" />
       </SheetTrigger>
       <SheetContent side="left" className="flex w-[288px] flex-col border-0 bg-shell p-0 sm:max-w-[288px]">
-        <SheetHeader className="px-7 py-5">
+        <SheetHeader className="flex-row items-center gap-2.5 px-7 py-5">
           <SheetTitle className="sr-only">Menu de navigation</SheetTitle>
-          <Link href="/tableau-de-bord" onClick={() => setOpen(false)}>
-            <BrandMark />
+          <Link href={homeHref} onClick={() => setOpen(false)}>
+            {/* With a badge, the icon mark keeps the header clear of the close button. */}
+            <BrandMark variant={brandBadge ? "icon" : undefined} />
           </Link>
+          {brandBadge}
         </SheetHeader>
         <div className="min-h-0 flex-1 overflow-y-auto pb-2">
-          <SidebarNav permissions={permissions} favorites={favorites} variant={variant} onNavigate={() => setOpen(false)} />
+          {CustomNav ? (
+            <CustomNav onNavigate={() => setOpen(false)} />
+          ) : (
+            <SidebarNav permissions={permissions} favorites={favorites} variant={variant} onNavigate={() => setOpen(false)} />
+          )}
         </div>
         <div className="flex shrink-0 flex-col gap-2 border-t border-hairline px-4 py-4">
+          {showHelp && (
           <button
             type="button"
             onClick={() => {
@@ -50,6 +66,7 @@ export function MobileNav({
             <LifeBuoy className="size-5" aria-hidden="true" />
             Centre d&apos;aide
           </button>
+          )}
           <ThemeSegmented />
         </div>
       </SheetContent>

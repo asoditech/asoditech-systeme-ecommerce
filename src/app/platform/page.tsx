@@ -8,7 +8,7 @@ import { TenantModeDialog } from "@/components/platform/tenant-mode-dialog";
 import { BUSINESS_MODE_LABELS } from "@/lib/tenant/business-mode";
 import { KpiCard } from "@/components/kpi-card";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { listTenantsWithUsage, summarizePlatformOverview } from "@/lib/queries/platform";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import { PLAN_CODE_LABELS, SUBSCRIPTION_STATUS_LABELS, USAGE_STATUS_LABELS } from "@/lib/status-labels";
@@ -34,7 +34,7 @@ export default async function PlatformPage() {
         actions={<CreateTenantForm />}
       />
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard label="Tenants actifs" value={formatNumber(overview.activeTenants)} icon={Building2} hint={`sur ${overview.totalTenants}`} tone="primary" />
         <KpiCard label="Business" value={formatNumber(overview.businessTenants)} icon={CheckCircle2} tone="info" />
         <KpiCard label="Pro" value={formatNumber(overview.proTenants)} icon={CheckCircle2} tone="violet" />
@@ -45,7 +45,7 @@ export default async function PlatformPage() {
         <KpiCard label="Limite atteinte" value={formatNumber(overview.overLimitTenants)} icon={Gauge} tone="danger" />
       </div>
 
-      <div className="overflow-x-auto rounded-lg border bg-background">
+      <TableCard>
         <Table>
           <TableHeader>
             <TableRow>
@@ -65,9 +65,9 @@ export default async function PlatformPage() {
           <TableBody>
             {rows.map((row) => (
               <TableRow key={row.id}>
-                <TableCell className="font-medium">
-                  {row.name}
-                  <div className="text-xs font-normal text-muted-foreground">{row.slug}</div>
+                <TableCell>
+                  <span className="text-[15px] font-semibold tracking-tight text-ink">{row.name}</span>
+                  <div className="text-xs text-ink-muted">{row.slug}</div>
                 </TableCell>
                 <TableCell>
                   <Badge variant={row.businessMode === "ONLINE_AND_OFFLINE" ? "default" : "outline"}>
@@ -77,17 +77,17 @@ export default async function PlatformPage() {
                 <TableCell>
                   <Badge variant={row.planCode === "PRO" ? "default" : "secondary"}>{PLAN_CODE_LABELS[row.planCode] ?? row.planCode}</Badge>
                 </TableCell>
-                <TableCell className="text-sm">
+                <TableCell className="text-sm text-ink tabular-nums">
                   {formatNumber(row.orders.used)}
-                  {row.orders.limit !== null && <span className="text-muted-foreground"> / {formatNumber(row.orders.limit)}</span>}
+                  {row.orders.limit !== null && <span className="text-ink-muted"> / {formatNumber(row.orders.limit)}</span>}
                 </TableCell>
-                <TableCell className="text-sm">
+                <TableCell className="text-sm text-ink tabular-nums">
                   {formatNumber(row.users.used)}
-                  {row.users.limit !== null && <span className="text-muted-foreground"> / {formatNumber(row.users.limit)}</span>}
+                  {row.users.limit !== null && <span className="text-ink-muted"> / {formatNumber(row.users.limit)}</span>}
                 </TableCell>
-                <TableCell className="text-sm">
+                <TableCell className="text-sm text-ink tabular-nums">
                   {formatNumber(row.warehouses.used)}
-                  {row.warehouses.limit !== null && <span className="text-muted-foreground"> / {formatNumber(row.warehouses.limit)}</span>}
+                  {row.warehouses.limit !== null && <span className="text-ink-muted"> / {formatNumber(row.warehouses.limit)}</span>}
                 </TableCell>
                 <TableCell>
                   <Badge variant={SUBSCRIPTION_STATUS_LABELS[row.subscriptionStatus]?.variant ?? "secondary"}>
@@ -99,7 +99,7 @@ export default async function PlatformPage() {
                     {USAGE_STATUS_LABELS[row.overallStatus]?.label ?? row.overallStatus}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
+                <TableCell className="text-xs whitespace-nowrap text-ink-muted">
                   {row.lastActivityAt ? formatDateTime(row.lastActivityAt) : "—"}
                 </TableCell>
                 <TableCell>
@@ -116,7 +116,7 @@ export default async function PlatformPage() {
             ))}
           </TableBody>
         </Table>
-      </div>
+      </TableCard>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { CardTitle } from "@/components/ui/card";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { updatePlanAction } from "@/actions/plans";
@@ -88,9 +89,9 @@ export function PlanEditForm({ plan, features }: { plan: SerializedPlan; feature
   }
 
   return (
-    <div className="space-y-6 rounded-lg border bg-background p-5">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">{plan.name}</h3>
+    <div className="space-y-6 rounded-card bg-card p-5 shadow-card sm:p-6">
+      <div className="flex items-center justify-between gap-3">
+        <CardTitle accent="green">{plan.name}</CardTitle>
         <Button type="button" onClick={save} disabled={isPending}>
           Enregistrer
         </Button>
@@ -125,7 +126,7 @@ export function PlanEditForm({ plan, features }: { plan: SerializedPlan; feature
       </div>
 
       <div className="space-y-3">
-        <p className="text-sm font-medium">Niveau des fonctionnalités</p>
+        <p className="text-sm font-semibold text-ink">Niveau des fonctionnalités</p>
         <p className="text-xs text-muted-foreground">
           Indicatif : le niveau est affiché au client mais ne bloque encore aucune fonction (pas de restriction « avancé »
           en place).
@@ -149,14 +150,14 @@ export function PlanEditForm({ plan, features }: { plan: SerializedPlan; feature
       </div>
 
       <div className="space-y-3">
-        <p className="text-sm font-medium">Intégrations & modules</p>
+        <p className="text-sm font-semibold text-ink">Intégrations & modules</p>
         <p className="text-xs text-muted-foreground">
           Les modules marqués « indicatif » sont affichés au client comme inclus ou non, mais les désactiver ne bloque
           pas encore leur accès.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           {(Object.keys(booleanFeatures) as (keyof typeof booleanFeatures)[]).map((key) => (
-            <label key={key} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+            <label key={key} className="flex items-center justify-between gap-2 rounded-xl border border-hairline px-3 py-2.5 text-sm">
               <span>
                 {FEATURE_KEY_LABELS[key] ?? key}
                 {!ENFORCED_FEATURE_KEYS.includes(key) && <span className="ml-2 text-xs text-muted-foreground">indicatif</span>}

@@ -12,11 +12,11 @@ export const metadata = { title: "Santé — Plateforme ASODITECH" };
 // Every visit re-runs the (read-only, bounded) checks — never a cached status.
 export const dynamic = "force-dynamic";
 
-const STATE_BADGE: Record<CheckState, { label: string; className: string }> = {
-  ok: { label: "OK", className: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-400" },
-  warning: { label: "Attention", className: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-400" },
-  error: { label: "Erreur", className: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400" },
-  unknown: { label: "Non vérifié", className: "text-muted-foreground" },
+const STATE_BADGE: Record<CheckState, { label: string; variant: "success" | "warning" | "destructive" | "secondary" }> = {
+  ok: { label: "OK", variant: "success" },
+  warning: { label: "Attention", variant: "warning" },
+  error: { label: "Erreur", variant: "destructive" },
+  unknown: { label: "Non vérifié", variant: "secondary" },
 };
 
 /**
@@ -37,26 +37,26 @@ export default async function PlatformHealthPage() {
         description={`Vérifié le ${formatDateTime(report.checkedAt)} par ce serveur, à l'ouverture de la page.`}
         actions={
           // A plain anchor: a full reload re-runs every check.
-          <Button size="sm" variant="outline" render={<a href="/platform/sante" />}>
-            <RefreshCw className="size-3.5" />
+          <Button variant="outline" render={<a href="/platform/sante" />}>
+            <RefreshCw className="size-4" />
             Revérifier
           </Button>
         }
       />
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 [&>*]:min-w-0">
         {report.checks.map((c) => (
           <Card key={c.key}>
             <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
-              <CardTitle className="text-[15px]">{c.title}</CardTitle>
-              <Badge variant="outline" className={STATE_BADGE[c.state].className}>
+              <CardTitle accent="purple">{c.title}</CardTitle>
+              <Badge variant={STATE_BADGE[c.state].variant}>
                 {STATE_BADGE[c.state].label}
               </Badge>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <p>{c.summary}</p>
               {c.details.length > 0 && (
-                <ul className="list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+                <ul className="list-disc space-y-0.5 pl-5 text-xs text-ink-secondary">
                   {c.details.map((line) => (
                     <li key={line} className="break-words">{line}</li>
                   ))}
@@ -69,7 +69,7 @@ export default async function PlatformHealthPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-[15px]">Déploiement en cours</CardTitle>
+          <CardTitle accent="purple">Déploiement en cours</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-2 text-sm sm:grid-cols-2">
           <Fact label="Environnement" value={d.environment} />
@@ -82,7 +82,7 @@ export default async function PlatformHealthPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-[15px]">Journaux et tableaux de bord externes</CardTitle>
+          <CardTitle accent="blue">Journaux et tableaux de bord externes</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           <p className="text-xs text-muted-foreground">
@@ -96,7 +96,7 @@ export default async function PlatformHealthPage() {
           {report.links.supabase ? (
             <LinkGroup title="Supabase — la base de données" links={report.links.supabase} />
           ) : (
-            <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+            <div className="rounded-tile border border-dashed border-field-border p-3 text-xs text-muted-foreground">
               Supabase : lien non disponible. La base configurée pour ce serveur n&apos;est pas reconnue comme un projet
               Supabase hébergé (par exemple une base locale), donc aucun identifiant de projet fiable n&apos;est connu.
             </div>
@@ -106,7 +106,7 @@ export default async function PlatformHealthPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-[15px]">Que faire selon le problème ?</CardTitle>
+          <CardTitle accent="yellow">Que faire selon le problème ?</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <Guidance title="Problème d'application">
@@ -140,11 +140,11 @@ export default async function PlatformHealthPage() {
 function Fact({ label, value, missing, mono }: { label: string; value: string | null; missing?: string; mono?: boolean }) {
   return (
     <div className="min-w-0">
-      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-xs text-ink-muted">{label}</p>
       {value ? (
         <p className={mono ? "break-all font-mono text-xs" : ""}>{value}</p>
       ) : (
-        <p className="text-xs text-muted-foreground italic">{missing ?? "—"}</p>
+        <p className="text-xs text-ink-muted italic">{missing ?? "—"}</p>
       )}
     </div>
   );
@@ -153,7 +153,7 @@ function Fact({ label, value, missing, mono }: { label: string; value: string | 
 function LinkGroup({ title, links }: { title: string; links: ExternalLink[] }) {
   return (
     <div className="space-y-2">
-      <p className="font-medium">{title}</p>
+      <p className="font-medium text-ink">{title}</p>
       <ul className="space-y-2">
         {links.map((l) => (
           <li key={l.href} className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3">
@@ -161,7 +161,7 @@ function LinkGroup({ title, links }: { title: string; links: ExternalLink[] }) {
               href={l.href}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 font-medium text-primary underline-offset-4 hover:underline"
+              className="text-link inline-flex items-center gap-1.5"
             >
               {l.label}
               <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
@@ -178,8 +178,8 @@ function LinkGroup({ title, links }: { title: string; links: ExternalLink[] }) {
 function Guidance({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="font-medium">{title}</p>
-      <p className="text-muted-foreground">{children}</p>
+      <p className="font-medium text-ink">{title}</p>
+      <p className="text-ink-secondary">{children}</p>
     </div>
   );
 }
