@@ -22,6 +22,33 @@
   --radius-control: 0.875rem; /* 14px — inputs, buttons, nav items */
 }
 
+/* The merchant / platform app shell (sidebar-shell.tsx): the gap between the
+   browser edges and the floating white shell, and the shell's own radius.
+   Below 768px the shell is full-bleed (drawer sidebar, no gap, no radius);
+   tablets keep their 16px gap; desktop stays tight so the shell uses the
+   screen. Separate from --radius-shell, which the auth cards also use. */
+:root {
+  --shell-gap: 0px;
+  --shell-radius: 0px;
+}
+@media (min-width: 768px) {
+  :root {
+    --shell-gap: 1rem; /* 16px */
+    --shell-radius: var(--radius-shell); /* 32px */
+  }
+}
+@media (min-width: 1024px) {
+  :root {
+    --shell-gap: 6px;
+    --shell-radius: 1.5rem; /* 24px */
+  }
+}
+@media (min-width: 1280px) {
+  :root {
+    --shell-gap: 8px;
+  }
+}
+
 @theme inline {
   /* Soft UI surfaces, text tones and pastels (values per theme below). */
   --color-page: var(--bg-page);

@@ -20,7 +20,8 @@ const bottomRow =
 
 /**
  * The Soft UI app frame (redesign/soft-ui): the whole app sits in a white,
- * rounded (32px) shell floating on the grey page (full-bleed on mobile), the
+ * rounded shell floating on the grey page (gap and radius: --shell-gap /
+ * --shell-radius in globals.css; full-bleed on mobile), the
  * sidebar on its left and the content column (children: topbar, page, footer)
  * on its right — only the content column scrolls.
  *
@@ -80,8 +81,8 @@ export function SidebarShell({
   );
 
   return (
-    <div className="h-dvh overflow-hidden bg-page md:p-4 lg:p-5">
-      <div data-app-shell="" data-sidebar-collapsed={collapsed || undefined} className="group/shell flex h-full min-h-0 overflow-hidden bg-shell md:rounded-shell md:shadow-shell">
+    <div className="h-dvh overflow-hidden bg-page p-(--shell-gap)">
+      <div data-app-shell="" data-sidebar-collapsed={collapsed || undefined} className="group/shell flex h-full min-h-0 overflow-hidden rounded-(--shell-radius) bg-shell md:shadow-shell">
         <aside
           className={cn(
             "hidden h-full shrink-0 flex-col bg-shell transition-[width] duration-200 ease-out motion-reduce:transition-none lg:flex",
