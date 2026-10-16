@@ -44,6 +44,8 @@ export async function resetDb() {
     await tx.usageAlertState.deleteMany();
     await tx.tenantSubscription.deleteMany();
     await tx.notification.deleteMany();
+    // Staff WhatsApp outbox (docs/adr/0058 addendum): RESTRICT fk to tenants.
+    await tx.whatsAppOutboxMessage.deleteMany();
     await tx.webhookEvent.deleteMany();
     await tx.syncRun.deleteMany();
     await tx.integration.deleteMany();
@@ -133,12 +135,19 @@ export async function resetDb() {
       // (docs/adr/0041). A suite that needs the Offline capabilities opts in with
       // `setTestBusinessMode("ONLINE_AND_OFFLINE")`.
       businessMode: "ONLINE_ONLY",
+      // A test that suspends the bootstrap tenant must not leak into the next.
+      status: "ACTIVE",
       nextOrderNumber: 1,
       nextTransferNumber: 1,
       nextStocktakeNumber: 1,
       nextReceptionNumber: 1,
       nextSaleNumber: 1,
       nextSaleReturnNumber: 1,
+      // Automatic customer codes (docs/adr/0060): not granted, counter at 1.
+      customerBarcodesGranted: false,
+      nextCustomerBarcodeNumber: 1,
+      // Generated product / variation barcodes (docs/adr/0061).
+      nextProductBarcodeNumber: 1,
     },
     create: { id: DEFAULT_TENANT_ID, name: "ASODITECH", slug: "default" },
   });

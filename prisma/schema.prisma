@@ -84,6 +84,24 @@ model Tenant {
   nextReceptionNumber  Int @default(1)
   nextSaleNumber       Int @default(1)
   nextSaleReturnNumber Int @default(1)
+  // Automatic customer codes (« CL-000001 », docs/adr/0060). The grant is set
+  // ONLY by a platform admin (setTenantCustomerBarcodeGrantAction) — no tenant
+  // action writes it; the tenant's own on/off switch is
+  // BusinessSettings.customerBarcodeEnabled and only counts while granted.
+  // The counter is the next number to hand out, claimed atomically like the
+  // display numbers above; never reset, so codes are never reused.
+  customerBarcodesGranted   Boolean @default(false)
+  nextCustomerBarcodeNumber Int     @default(1)
+  // Generated PRODUCT / VARIATION barcodes (docs/adr/0061): the next number
+  // to hand out, claimed atomically like the display numbers above; never
+  // reset, so a generated code is never handed out twice.
+  nextProductBarcodeNumber BigInt @default(1)
+  // In-app branding (docs/decisions/platform-order-sync-and-branding.md,
+  // option A): set ONLY by a platform admin (setTenantBrandLogoGrantAction).
+  // While true, the app shell shows the company's own logo
+  // (BusinessSettings.logoUrl, edited by the company in Paramètres) instead
+  // of the ASODITECH mark. Default false = ASODITECH branding, unchanged.
+  brandLogoGranted Boolean @default(false)
 
   users                     User[]
   customers                 Customer[]
@@ -149,6 +167,7 @@ model Tenant {
   supportTickets            SupportTicket[]
   subscription              TenantSubscription?
   usageAlertStates          UsageAlertState[]
+  whatsappOutboxMessages    WhatsAppOutboxMessage[]
 
   @@map("tenants")
 }
@@ -344,6 +363,47 @@ model UsageAlertState {
   @@map("usage_alert_states")
 }
 
+enum WhatsAppOutboxStatus {
+  EN_ATTENTE // queued, or waiting for its next retry (nextAttemptAt)
+  EN_COURS // claimed by one sender; a stale claim is re-claimable
+  ENVOYE // Meta accepted the message
+  ECHEC // retries exhausted or permanent refusal — needs manual attention
+  IGNORE // not sendable (template not approved, recipient no longer ready, category off)
+}
+
+// Staff WhatsApp alerts outbox (docs/adr/0058 addendum): one row per
+// (business event, recipient). The (tenantId, userId, dedupeKey) unique key
+// makes enqueueing idempotent — a replayed webhook or a repeated status
+// update never sends twice. The recipient's number is NEVER stored here: it
+// is read from the user's verified profile at send time. `lastError` holds a
+// sanitized code/message only (no token, no number, no parameters).
+model WhatsAppOutboxMessage {
+  id                String               @id @default(cuid())
+  tenantId          String               @default("default")
+  userId            String
+  alertType         String?
+  dedupeKey         String
+  templateName      String
+  // The template message (language + body parameters) — business data only.
+  payload           Json
+  status            WhatsAppOutboxStatus @default(EN_ATTENTE)
+  attempts          Int                  @default(0)
+  nextAttemptAt     DateTime             @default(now())
+  lastError         String?
+  providerMessageId String?
+  sentAt            DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId, dedupeKey])
+  @@index([tenantId, status, nextAttemptAt])
+  @@index([tenantId, createdAt])
+  @@map("whatsapp_outbox")
+}
+
 // ---------------------------------------------------------------------------
 // Auth & RBAC — see docs/adr/0003-auth-and-rbac.md
 // ---------------------------------------------------------------------------
@@ -464,6 +524,7 @@ model User {
   stocktakesCounted          StocktakeLine[]            @relation("StocktakeCountedBy")
   orderReturnsReceived       OrderReturn[]              @relation("OrderReturnReceivedBy")
   returnReceptionsReceived   ReturnReception[]          @relation("ReturnReceptionReceivedBy")
+  whatsappOutboxMessages     WhatsAppOutboxMessage[]
   returnReceptionsInspected  ReturnReception[]          @relation("ReturnReceptionInspectedBy")
   commissionAgent            CommissionAgent?
   commissionStatementsClosed CommissionStatement[]      @relation("CommissionStatementClosedBy")
@@ -659,6 +720,10 @@ model Customer {
   // missing/invalid. A customer IS normalized name + this key — see
   // src/lib/customers/find-or-create.ts. Maintained on every create/update.
   phoneKey        String?
+  // Automatic customer code « CL-000001 » (docs/adr/0060), assigned once at
+  // creation by findOrCreateCustomer when the feature is on; never written
+  // by any edit path. Null = no code (feature off, or created before it).
+  barcode         String?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
@@ -673,6 +738,8 @@ model Customer {
   @@index([source, externalId])
   @@index([tenantId])
   @@index([tenantId, phoneKey])
+  // Postgres treats NULLs as distinct: any number of customers without a code.
+  @@unique([tenantId, barcode])
   @@map("customers")
 }
 
@@ -2838,6 +2905,26 @@ model BusinessSettings {
   // carrier delivery status (delivered ≠ cash collected). Default false =
   // payment stays manual, unchanged.
   autoPaymentFromStore Boolean @default(false)
+  // « Code-barres client automatique » (docs/adr/0060): new customers receive
+  // a « CL-000001 » code. Effective only while the platform has granted it
+  // (Tenant.customerBarcodesGranted). Default false = no codes, unchanged.
+  customerBarcodeEnabled Boolean @default(false)
+  // « Génération automatique des codes-barres produits » (docs/adr/0061):
+  // shows « Générer » next to product / variation barcode inputs and lets the
+  // variation generator give each new variation its own code. Default false =
+  // manual entry only, unchanged. Manual entry always works either way.
+  productBarcodeAutoEnabled Boolean @default(false)
+  // « Marquer automatiquement les commandes comme payées à la livraison »:
+  // when true, an order whose payment is still EN_ATTENTE becomes PAYE at the
+  // moment it validly becomes LIVREE (any path: carrier, manual parcel or
+  // order status), audited. It records the tenant's business rule "delivered
+  // = paid"; it never creates a cash-collection or courier-remittance record.
+  // Default false = delivery never changes the payment, unchanged.
+  autoPaidOnDelivery Boolean @default(false)
+  // WhatsApp alert categories the COMPANY switched off for everyone
+  // (src/lib/whatsapp/alert-types.ts). Empty = every category the user did
+  // not mute themselves (User.whatsappMutedAlerts). In-app alerts unchanged.
+  whatsappDisabledAlerts String[] @default([])
 
   updatedAt DateTime @updatedAt
 
