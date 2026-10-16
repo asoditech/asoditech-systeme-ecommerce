@@ -23,6 +23,8 @@ import { prisma, prismaBase } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
 import { loadEffectiveAccessMany } from "@/lib/auth/access-loader";
 import { ALERT_RULES, alertsForUser, getMyNotificationSettings, whatsAppStatus } from "@/lib/notification-settings";
+import { isTemplateSendable } from "@/lib/whatsapp/outbox-rules";
+import { templateForAlertType } from "@/lib/whatsapp/templates";
 import { checkAndNotifyLowStock, notifyConnectionError, notifyNewOrder, notifyShipmentFailed, notifySupportTicket } from "@/lib/notifications";
 import { checkAndNotifyUsageThreshold } from "@/lib/entitlements/alerts";
 import { saveMyWhatsAppNumberAction, setMyWhatsAppOptInAction } from "@/actions/whatsapp";
@@ -149,9 +151,26 @@ describe("the alert list shown to a user = the alerts the engine actually delive
     }
   });
 
-  it("only the alerts with an approved WhatsApp template offer WhatsApp (sync failures since 2026-10-12); email also covers the plan limit", () => {
+  it("WhatsApp catalogue: 8 categories; by default only the 4 V1 templates are sendable (the rest wait for Meta approval); email also covers the plan limit", () => {
+    // Since 2026-10-16 the rules list every category that HAS a WhatsApp
+    // template (docs/adr/0058 addendum); whether it is offered right now is
+    // decided at render time by the template's approval
+    // (getMyNotificationSettings → whatsappUnavailable = "template").
     const whatsapp = ALERT_RULES.filter((r) => r.channels.includes("whatsapp")).map((r) => r.key).sort();
-    expect(whatsapp).toEqual(["echec_livraison", "erreur_integration", "rupture", "synchronisation"]);
+    expect(whatsapp).toEqual([
+      "commande_confirmee",
+      "commande_retournee",
+      "echec_livraison",
+      "erreur_integration",
+      "nouvelle_commande",
+      "rupture",
+      "stock_faible",
+      "synchronisation",
+    ]);
+    const sendableByDefault = ALERT_RULES.filter(
+      (r) => r.whatsappType && isTemplateSendable(templateForAlertType(r.whatsappType).name, new Set<string>())
+    ).map((r) => r.key).sort();
+    expect(sendableByDefault).toEqual(["echec_livraison", "erreur_integration", "rupture", "synchronisation"]);
     const email = ALERT_RULES.filter((r) => r.channels.includes("email")).map((r) => r.key).sort();
     expect(email).toEqual(["echec_livraison", "erreur_integration", "limite_forfait", "rupture"]);
   });

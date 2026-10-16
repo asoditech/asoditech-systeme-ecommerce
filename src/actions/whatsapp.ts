@@ -10,6 +10,7 @@ import { recordAuditEvent } from "@/lib/audit";
 import { notifyConnectionError } from "@/lib/notifications";
 import { checkWhatsAppSender, isWhatsAppConfigured, sendTemplateMessage } from "@/lib/whatsapp/client";
 import { isWhatsAppEnabledForTenant } from "@/lib/whatsapp/dispatch";
+import { retryWhatsAppOutboxMessage } from "@/lib/whatsapp/outbox";
 import { normalizeStaffWhatsAppPhone } from "@/lib/whatsapp/phone";
 import { verificationCodeTemplate } from "@/lib/whatsapp/templates";
 import {
@@ -251,4 +252,70 @@ export async function setMyWhatsAppAlertMutedAction(type: string, muted: boolean
   await auditOwn(user.id, `${muted ? "alert_muted" : "alert_unmuted"}:${type}`);
   revalidatePath("/parametres/notifications");
   return actionOk({ muted: next });
+}
+
+// ---------------------------------------------------------------------------
+// 3. Company-level operations (docs/adr/0058 addendum) — `integrations.manage`,
+//    the same permission as the tenant switch above.
+// ---------------------------------------------------------------------------
+
+/**
+ * Switches ONE WhatsApp alert category on/off for the whole company
+ * (`BusinessSettings.whatsappDisabledAlerts`). Off = no WhatsApp for that
+ * category to anyone of this company; in-app / email unchanged; each user's
+ * own mutes are kept. Audited.
+ */
+export async function setCompanyWhatsAppAlertEnabledAction(
+  type: string,
+  enabled: boolean
+): Promise<ActionResult<{ disabled: string[] }>> {
+  const user = await requirePermissionForAction("integrations.manage");
+  if (!isWhatsAppAlertType(type)) return actionError("Type d'alerte inconnu.");
+  const previous = await prisma.businessSettings.findUnique({ where: { tenantId: user.tenantId }, select: { whatsappDisabledAlerts: true } });
+  const before = previous?.whatsappDisabledAlerts ?? [];
+  const next = nextMutedAlerts(before, type, !enabled);
+  const settings = await prisma.businessSettings.upsert({
+    where: { tenantId: user.tenantId },
+    update: { whatsappDisabledAlerts: next },
+    create: { whatsappDisabledAlerts: next },
+    select: { id: true },
+  });
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "whatsapp.alert_category_updated",
+    entityType: "BusinessSettings",
+    entityId: settings.id,
+    previousValue: { whatsappDisabledAlerts: before },
+    newValue: { whatsappDisabledAlerts: next },
+    metadata: { type, enabled },
+  });
+  revalidatePath("/integrations");
+  revalidatePath("/parametres/notifications");
+  return actionOk({ disabled: next });
+}
+
+/**
+ * « Réessayer » one WhatsApp alert that ended ECHEC — current tenant only
+ * (tenant-scoped client: another company's row is not found). Resets its
+ * attempt budget and sends now. Audited (row id + category, never the number).
+ */
+export async function retryWhatsAppOutboxMessageAction(id: string): Promise<ActionResult<{ status: string }>> {
+  const user = await requirePermissionForAction("integrations.manage");
+  if (typeof id !== "string" || id.length === 0 || id.length > 64) return actionError("Envoi introuvable.");
+  const row = await prisma.whatsAppOutboxMessage.findUnique({ where: { id }, select: { id: true, status: true, alertType: true } });
+  if (!row) return actionError("Envoi introuvable.");
+  if (row.status !== "ECHEC") return actionError("Seul un envoi en échec peut être réessayé.");
+  const status = await retryWhatsAppOutboxMessage(row.id);
+  if (!status) return actionError("Cet envoi vient d'être traité ailleurs. Rechargez la page.");
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "whatsapp.outbox_retried",
+    entityType: "WhatsAppOutboxMessage",
+    entityId: row.id,
+    metadata: { alertType: row.alertType, status },
+  });
+  revalidatePath("/integrations");
+  return actionOk({ status });
 }

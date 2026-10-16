@@ -14,6 +14,10 @@ import { sendWhatsAppToUsers } from "@/lib/whatsapp/dispatch";
 import {
   deliveryFailureSummaryTemplate,
   integrationDownTemplate,
+  newOrderTemplate,
+  orderConfirmedTemplate,
+  orderReturnedTemplate,
+  stockLowTemplate,
   stockOutTemplate,
   type WhatsAppTemplateMessage,
 } from "@/lib/whatsapp/templates";
@@ -80,43 +84,56 @@ interface NotifyInput {
    * dedupeKey idempotency — a reprocessed event emails nobody twice.
    * Requires `dedupeKey`. */
   email?: NotificationEmail;
-  /** Set ONLY for the WhatsApp V1 critical events (docs/adr/0058): out of
-   * stock and integration down. Same newly-inserted-row rule as `email`;
-   * further narrowed to tenants with WhatsApp enabled and users with a
-   * verified, opted-in number. Requires `dedupeKey`. */
+  /** Set ONLY for the staff WhatsApp alert categories (docs/adr/0058 +
+   * addendum, src/lib/whatsapp/alert-types.ts). Same newly-inserted-row rule
+   * as `email`; further narrowed to tenants with WhatsApp enabled, users with
+   * a verified, opted-in number, and categories not switched off. Enqueued
+   * in the outbox under the same `dedupeKey`. Requires `dedupeKey`. */
   whatsapp?: WhatsAppTemplateMessage;
+}
+
+type RecipientSelection = Pick<NotifyInput, "recipientPermission" | "exceptUserId" | "warehouseId">;
+
+/**
+ * THE recipient rule of every alert (in-app, email, WhatsApp): the current
+ * tenant's ACTIVE users holding the EFFECTIVE permission, minus the actor,
+ * and — for a location-bound event — only those who may read that location.
+ */
+async function selectRecipients(input: RecipientSelection) {
+  const users = await prisma.user.findMany({
+    where: { status: "ACTIVE" },
+    select: { id: true, role: true, tenantId: true, email: true },
+  });
+  // EFFECTIVE permissions (role + per-user overrides, filtered by channel
+  // scope — docs/adr/0039), not the bare role: an Offline-only manager must
+  // not receive an Online order notification, and a user granted an extra
+  // permission should. Two batched queries for the whole tenant.
+  const access = await loadEffectiveAccessMany(users);
+  let recipients = users.filter((u) => u.id !== input.exceptUserId && access.get(u.id)?.permissions.has(input.recipientPermission));
+  if (input.warehouseId && recipients.length > 0) {
+    // Location-bound event: one batched query for the candidates' assignment to THIS location.
+    const assigned = new Set(
+      (
+        await prisma.userLocation.findMany({
+          where: { warehouseId: input.warehouseId, userId: { in: recipients.filter((u) => !isGlobalRole(u.role)).map((u) => u.id) } },
+          select: { userId: true },
+        })
+      ).map((r) => r.userId)
+    );
+    recipients = recipients.filter((u) =>
+      canReadWarehouse(
+        { locations: { global: isGlobalRole(u.role), ids: assigned.has(u.id) ? [input.warehouseId!] : [] } },
+        input.warehouseId!
+      )
+    );
+  }
+  return recipients;
 }
 
 /** Returns the users newly notified by THIS call (a duplicate is not one). */
 export async function notify(input: NotifyInput): Promise<string[]> {
   try {
-    const users = await prisma.user.findMany({
-      where: { status: "ACTIVE" },
-      select: { id: true, role: true, tenantId: true, email: true },
-    });
-    // EFFECTIVE permissions (role + per-user overrides, filtered by channel
-    // scope — docs/adr/0039), not the bare role: an Offline-only manager must
-    // not receive an Online order notification, and a user granted an extra
-    // permission should. Two batched queries for the whole tenant.
-    const access = await loadEffectiveAccessMany(users);
-    let recipients = users.filter((u) => u.id !== input.exceptUserId && access.get(u.id)?.permissions.has(input.recipientPermission));
-    if (input.warehouseId && recipients.length > 0) {
-      // Location-bound event: one batched query for the candidates' assignment to THIS location.
-      const assigned = new Set(
-        (
-          await prisma.userLocation.findMany({
-            where: { warehouseId: input.warehouseId, userId: { in: recipients.filter((u) => !isGlobalRole(u.role)).map((u) => u.id) } },
-            select: { userId: true },
-          })
-        ).map((r) => r.userId)
-      );
-      recipients = recipients.filter((u) =>
-        canReadWarehouse(
-          { locations: { global: isGlobalRole(u.role), ids: assigned.has(u.id) ? [input.warehouseId!] : [] } },
-          input.warehouseId!
-        )
-      );
-    }
+    const recipients = await selectRecipients(input);
     const recipientIds = recipients.map((u) => u.id);
     if (recipientIds.length === 0) return [];
 
@@ -144,12 +161,33 @@ export async function notify(input: NotifyInput): Promise<string[]> {
       );
     }
     if (input.whatsapp && input.dedupeKey) {
-      await sendWhatsAppToUsers([...newlyNotified].map((userId) => ({ userId, message: input.whatsapp!, alertType: input.type })));
+      await sendWhatsAppToUsers(
+        [...newlyNotified].map((userId) => ({ userId, message: input.whatsapp!, alertType: input.type, dedupeKey: input.dedupeKey! }))
+      );
     }
     return [...newlyNotified];
   } catch (error) {
     console.error("notify() failed (non-fatal):", error);
     return [];
+  }
+}
+
+/**
+ * A WhatsApp-only staff alert (no in-app row) — for events the bell does not
+ * show, e.g. an order confirmation. Same recipient rule as `notify()`
+ * (`selectRecipients`), then the same WhatsApp narrowing; idempotent through
+ * the outbox's unique (tenant, user, dedupeKey). Best-effort, never throws.
+ */
+export async function notifyWhatsAppOnly(
+  input: RecipientSelection & { alertType: string; dedupeKey: string; whatsapp: WhatsAppTemplateMessage }
+): Promise<void> {
+  try {
+    const recipients = await selectRecipients(input);
+    await sendWhatsAppToUsers(
+      recipients.map((u) => ({ userId: u.id, message: input.whatsapp, alertType: input.alertType, dedupeKey: input.dedupeKey }))
+    );
+  } catch (error) {
+    console.error(`notifyWhatsAppOnly() failed (non-fatal): ${error instanceof Error ? error.name : "unknown"}`);
   }
 }
 
@@ -194,9 +232,10 @@ export async function notifyNewOrder(
 ): Promise<void> {
   const src = SOURCE_LABEL[order.source];
   const business = await getReportBusinessInfo();
+  const num = formatOrderNumber(order.displayNumber ?? order.orderNumber, business.orderNumberPrefix);
   await notify({
     type: "NOUVELLE_COMMANDE",
-    title: `Nouvelle commande ${formatOrderNumber(order.displayNumber ?? order.orderNumber, business.orderNumberPrefix)}`,
+    title: `Nouvelle commande ${num}`,
     message:
       `${order.customerName} — ${formatCurrency(order.total, order.currency)}` +
       (src ? ` (importée de ${src})` : ""),
@@ -205,6 +244,8 @@ export async function notifyNewOrder(
     dedupeKey: `nouvelle_commande:${order.id}`,
     recipientPermission: "orders.view",
     exceptUserId,
+    // Once per order (same key as the in-app row). Opt-out per company / user.
+    whatsapp: newOrderTemplate({ orderNumber: num, sourceLabel: src ?? "saisie ASODITECH" }),
   });
 }
 
@@ -268,7 +309,36 @@ export async function notifyOrderReturned(
     dedupeKey: `commande_retournee:${order.id}`,
     recipientPermission: "orders.view",
     exceptUserId,
+    whatsapp: orderReturnedTemplate({ orderNumber: num }),
   });
+}
+
+/**
+ * An order just became CONFIRMEE inside ASODITECH (docs/adr/0045: the
+ * confirmation queue or a direct status change). WhatsApp-only — there is no
+ * in-app notification for it. Same recipients as a new order (`orders.view`),
+ * confirmer excluded. One alert per confirmation (`confirmedAt` in the key:
+ * a reopened then re-confirmed order is a new event). Never throws.
+ */
+export async function notifyOrderConfirmed(orderId: string, exceptUserId?: string | null): Promise<void> {
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, orderNumber: true, displayNumber: true, status: true, confirmedAt: true },
+    });
+    if (!order || order.status !== "CONFIRMEE") return;
+    const business = await getReportBusinessInfo();
+    const num = formatOrderNumber(order.displayNumber ?? order.orderNumber, business.orderNumberPrefix);
+    await notifyWhatsAppOnly({
+      alertType: "COMMANDE_CONFIRMEE",
+      dedupeKey: `commande_confirmee:${order.id}:${order.confirmedAt?.toISOString() ?? "?"}`,
+      recipientPermission: "orders.view",
+      exceptUserId,
+      whatsapp: orderConfirmedTemplate({ orderNumber: num }),
+    });
+  } catch (error) {
+    console.error(`notifyOrderConfirmed() failed (non-fatal): ${error instanceof Error ? error.name : "unknown"}`);
+  }
 }
 
 interface ShipmentFailure {
@@ -319,6 +389,8 @@ export async function notifyShipmentsFailed(shipments: ShipmentFailure[], except
       userId,
       message: deliveryFailureSummaryTemplate({ count: providerNames.length, providerNames }),
       alertType: "ECHEC_LIVRAISON",
+      // Suffixed with the user's daily claim by the dispatcher (one summary per user per UTC day).
+      dedupeKey: `resume_echec_livraison:${dayBucket()}`,
     })),
     { oncePerDay: "delivery_failure" }
   );
@@ -556,13 +628,17 @@ export async function checkAndNotifyLowStock(
         recipientPermission: "inventory.view",
         // One stock item = one location: only users who may read that location (docs/adr/0056).
         warehouseId: item.warehouseId,
-        // Out of stock is critical (email docs/adr/0057, WhatsApp 0058); low stock stays in-app only.
+        // Out of stock is critical (email docs/adr/0057, WhatsApp 0058). Low
+        // stock: WhatsApp too (0058 addendum), never email — once per item
+        // (product × location) per UTC day, through the same dedupe key; the
+        // outbox key survives the in-app row being resolved/dismissed, so a
+        // stock oscillating around its threshold alerts once a day at most.
         ...(isRupture
           ? {
               email: outOfStockEmail({ productName: name, sku, locationName: item.warehouse.name }),
               whatsapp: stockOutTemplate({ productName: name, locationName: item.warehouse.name }),
             }
-          : {}),
+          : { whatsapp: stockLowTemplate({ productName: name, available, locationName: item.warehouse.name }) }),
       });
     }
   } catch (error) {

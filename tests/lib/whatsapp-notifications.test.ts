@@ -216,8 +216,14 @@ describe("delivery failures (bundled)", () => {
   });
 });
 
-describe("excluded events never use WhatsApp", () => {
-  it("low stock, new order, payment problem, usage 80/90/100 % stay off WhatsApp", async () => {
+// Superseded 2026-10-16 (docs/adr/0058 addendum): low stock and new orders
+// now have WhatsApp categories, but their templates (asoditech_stock_low,
+// asoditech_new_order) are not approved until listed in
+// WHATSAPP_ENABLED_TEMPLATES — so still nothing is SENT, and the outbox
+// records them IGNORE with the configuration reason. Payment problems and
+// usage thresholds remain WhatsApp-free (no row at all).
+describe("events without an approved template are never sent", () => {
+  it("low stock and new order are recorded IGNORE (template not enabled); payment problem, usage 80/90/100 % stay off WhatsApp", async () => {
     const w = await world();
     await checkAndNotifyLowStock({ productIds: [w.product.id], variationIds: [] }); // itemA out → sends; reset below
     meta.sendTemplateMessage.mockClear();
@@ -231,6 +237,10 @@ describe("excluded events never use WhatsApp", () => {
     }
     expect(sent()).toEqual([]);
     expect(await prismaBase.notification.count({ where: { type: { in: ["STOCK_FAIBLE", "NOUVELLE_COMMANDE", "USAGE_LIMIT_ALERT"] } } })).toBeGreaterThan(0);
+    const outbox = await prismaBase.whatsAppOutboxMessage.findMany({ where: { alertType: { in: ["STOCK_FAIBLE", "NOUVELLE_COMMANDE"] } } });
+    expect(outbox.length).toBeGreaterThan(0);
+    expect(outbox.every((r) => r.status === "IGNORE" && /non approuvé\/configuré/.test(r.lastError ?? ""))).toBe(true);
+    expect(await prismaBase.whatsAppOutboxMessage.count({ where: { alertType: { in: ["PROBLEME_PAIEMENT", "USAGE_LIMIT_ALERT"] } } })).toBe(0);
   });
 });
 

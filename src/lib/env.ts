@@ -69,6 +69,17 @@ const envSchema = z.object({
   // refuses every other recipient without calling Meta. Unset = no
   // restriction (current behaviour).
   WHATSAPP_ALLOWED_RECIPIENTS: z.string().optional(),
+  // Staff WhatsApp templates added after V1 (docs/adr/0058 addendum):
+  // comma-separated names the operator confirms Meta APPROVED (e.g.
+  // "asoditech_new_order,asoditech_stock_low"). The four V1 templates are
+  // always sendable; any other one is recorded as IGNORE (« modèle non
+  // approuvé/configuré ») until listed here. Not a secret.
+  WHATSAPP_ENABLED_TEMPLATES: z.string().optional(),
+  // Bearer secret of the protected cron routes (src/app/api/cron/*), e.g.
+  // the WhatsApp outbox retry processor. Unset = those routes refuse every
+  // call (503). Vercel Cron sends it automatically as
+  // `Authorization: Bearer <CRON_SECRET>` when the project defines it.
+  CRON_SECRET: z.string().optional(),
 });
 
 function loadEnv() {

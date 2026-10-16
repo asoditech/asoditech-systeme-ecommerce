@@ -83,6 +83,8 @@ const PLATFORM_ONLY_ACCESSORS: readonly string[] = [
   "supportTicket",
   "backupRun",
   "googleDriveConnection",
+  // Operational WhatsApp send log — not business data, never in a backup.
+  "whatsAppOutboxMessage",
 ];
 
 // Per-user access configuration (docs/adr/0037, 0038, 0039). Not part of a backup,

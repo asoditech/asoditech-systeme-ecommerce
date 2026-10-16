@@ -1,106 +1,128 @@
 import "server-only";
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { isWhatsAppConfigured, sendTemplateMessage } from "@/lib/whatsapp/client";
-import { normalizeStaffWhatsAppPhone } from "@/lib/whatsapp/phone";
-import type { WhatsAppTemplateMessage } from "@/lib/whatsapp/templates";
+import { isWhatsAppConfigured } from "@/lib/whatsapp/client";
+import { WHATSAPP_TEMPLATE_LANGUAGE, type WhatsAppTemplateMessage } from "@/lib/whatsapp/templates";
 import { isWhatsAppAlertMuted } from "@/lib/whatsapp/alert-types";
+import { getEnabledWhatsAppTemplates } from "@/lib/whatsapp/template-config";
+import { IGNORE_REASONS, isTemplateSendable } from "@/lib/whatsapp/outbox-rules";
+import { processDueWhatsAppOutbox, type OutboxPayload } from "@/lib/whatsapp/outbox";
+import {
+  claimDailyDeliveryFailure,
+  isWhatsAppEnabledForTenant,
+  isWhatsAppRecipientReady,
+  loadCompanyDisabledWhatsAppAlerts,
+  releaseDailyDeliveryFailure,
+  WHATSAPP_RECIPIENT_SELECT,
+} from "@/lib/whatsapp/recipients";
+
+export { isWhatsAppEnabledForTenant, isWhatsAppRecipientReady, type WhatsAppRecipientState } from "@/lib/whatsapp/recipients";
 
 /**
- * WhatsApp delivery of a critical notification — docs/adr/0058.
+ * WhatsApp delivery of a staff alert — docs/adr/0058 (+ 2026-10-16 outbox
+ * addendum).
  *
- * Called by `notify()` (and the delivery-failure bundler) with users it
- * ALREADY selected — same tenant, ACTIVE, effective permission, location
- * scope (ADR 0056) — and only those whose in-app row was newly inserted
- * (the dedupe key is the idempotency key, no send log). This module only
+ * Called by `notify()` / `notifyWhatsAppOnly()` (and the delivery-failure
+ * bundler) with users they ALREADY selected — same tenant, ACTIVE,
+ * effective permission, location scope (ADR 0056). This module only
  * NARROWS that set; it never adds a recipient:
  *   - the tenant enabled WhatsApp (Integration WHATSAPP = CONNECTE) and the
- *     central sender is configured;
+ *     central sender is configured — otherwise nothing is recorded at all;
  *   - the user verified their own number and explicitly opted in;
- *   - the user did not mute this alert type for WhatsApp
- *     (`User.whatsappMutedAlerts`, Paramètres → Notifications).
- * Best-effort: never throws, runs after the business transaction commits.
+ *   - the company did not switch the category off
+ *     (`BusinessSettings.whatsappDisabledAlerts`), the user did not mute it
+ *     (`User.whatsappMutedAlerts`).
+ * Each remaining (event, recipient) becomes ONE `whatsapp_outbox` row keyed
+ * by the event's dedupe key — a replay inserts nothing (`skipDuplicates`).
+ * A row whose template is not approved/enabled is recorded IGNORE with a
+ * configuration reason (visible to the admin), never sent. The new rows are
+ * then sent right away (src/lib/whatsapp/outbox.ts), and a few other due
+ * retries of the same tenant ride along. Best-effort: never throws, runs
+ * after the business transaction commits.
  */
 
-export interface WhatsAppRecipientState {
-  whatsappPhone: string | null;
-  whatsappVerifiedAt: Date | null;
-  whatsappOptInAt: Date | null;
-}
+/** How many OTHER due rows of the tenant an enqueue also processes. */
+const OPPORTUNISTIC_RETRY_LIMIT = 5;
 
-/** Verified number + explicit opt-in (opt-in is only possible once verified). */
-export function isWhatsAppRecipientReady(u: WhatsAppRecipientState): boolean {
-  return Boolean(u.whatsappVerifiedAt && u.whatsappOptInAt && normalizeStaffWhatsAppPhone(u.whatsappPhone));
-}
-
-/** The current tenant switched WhatsApp on, and the central sender exists. */
-export async function isWhatsAppEnabledForTenant(): Promise<boolean> {
-  if (!isWhatsAppConfigured()) return false;
-  const row = await prisma.integration.findFirst({ where: { provider: "WHATSAPP" }, select: { status: true } });
-  return row?.status === "CONNECTE";
-}
-
-function startOfUtcDay(now = new Date()): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-}
-
-/**
- * Atomic "first delivery-failure WhatsApp of the UTC day" claim on the
- * user's own row: a conditional UPDATE, so two concurrent bundles cannot
- * both win. Claimed before sending (no retries in V1); returns the claim
- * time, or null when another bundle already holds today's claim.
- */
-async function claimDailyDeliveryFailure(userId: string): Promise<Date | null> {
-  const claimedAt = new Date();
-  const { count } = await prisma.user.updateMany({
-    where: {
-      id: userId,
-      OR: [{ whatsappDeliveryFailureNotifiedAt: null }, { whatsappDeliveryFailureNotifiedAt: { lt: startOfUtcDay() } }],
-    },
-    data: { whatsappDeliveryFailureNotifiedAt: claimedAt },
-  });
-  return count === 1 ? claimedAt : null;
-}
-
-/** Gives today's claim back after a send Meta refused, so a later failure summary can still go out today. */
-async function releaseDailyDeliveryFailure(userId: string, claimedAt: Date): Promise<void> {
-  await prisma.user.updateMany({
-    where: { id: userId, whatsappDeliveryFailureNotifiedAt: claimedAt },
-    data: { whatsappDeliveryFailureNotifiedAt: null },
-  });
+export interface WhatsAppDispatchItem {
+  userId: string;
+  message: WhatsAppTemplateMessage;
+  alertType?: string;
+  /** The event's idempotency key (notify()'s dedupeKey, or the bundle's). */
+  dedupeKey: string;
 }
 
 export async function sendWhatsAppToUsers(
-  items: { userId: string; message: WhatsAppTemplateMessage; alertType?: string }[],
+  items: WhatsAppDispatchItem[],
   options: { oncePerDay?: "delivery_failure" } = {}
 ): Promise<void> {
   try {
     if (items.length === 0) return;
+    if (!isWhatsAppConfigured()) return;
     const users = await prisma.user.findMany({
       where: { id: { in: items.map((i) => i.userId) }, status: "ACTIVE" },
-      select: { id: true, whatsappPhone: true, whatsappVerifiedAt: true, whatsappOptInAt: true, whatsappMutedAlerts: true },
+      select: WHATSAPP_RECIPIENT_SELECT,
     });
-    const ready = new Map(users.filter(isWhatsAppRecipientReady).map((u) => [u.id, normalizeStaffWhatsAppPhone(u.whatsappPhone)!]));
+    const ready = new Set(users.filter(isWhatsAppRecipientReady).map((u) => u.id));
     const muted = new Map(users.map((u) => [u.id, u.whatsappMutedAlerts]));
     if (ready.size === 0) return;
     if (!(await isWhatsAppEnabledForTenant())) return;
+    const companyDisabled = await loadCompanyDisabledWhatsAppAlerts();
+    const enabledTemplates = getEnabledWhatsAppTemplates();
 
+    const rows: Prisma.WhatsAppOutboxMessageCreateManyInput[] = [];
+    const claims: { userId: string; claimedAt: Date; dedupeKey: string }[] = [];
     for (const item of items) {
-      const to = ready.get(item.userId);
-      if (!to) continue;
+      if (!ready.has(item.userId)) continue;
       if (isWhatsAppAlertMuted(muted.get(item.userId), item.alertType)) continue;
-      let claimedAt: Date | null = null;
-      if (options.oncePerDay === "delivery_failure") {
-        claimedAt = await claimDailyDeliveryFailure(item.userId);
+      if (isWhatsAppAlertMuted(companyDisabled, item.alertType)) continue;
+      const sendable = isTemplateSendable(item.message.templateName, enabledTemplates);
+      let dedupeKey = item.dedupeKey;
+      const payload: OutboxPayload = {
+        language: WHATSAPP_TEMPLATE_LANGUAGE,
+        parameters: item.message.parameters,
+        ...(item.message.buttonParameter ? { buttonParameter: item.message.buttonParameter } : {}),
+      };
+      if (sendable && options.oncePerDay === "delivery_failure") {
+        // One summary per recipient per UTC day (V1 rule): the user-row claim
+        // decides; its timestamp makes the row key unique per claim, so a
+        // summary that definitively failed (claim released) lets a later one go.
+        const claimedAt = await claimDailyDeliveryFailure(item.userId);
         if (!claimedAt) continue;
+        dedupeKey = `${item.dedupeKey}:${claimedAt.toISOString()}`;
+        payload.dailyClaimAt = claimedAt.toISOString();
+        claims.push({ userId: item.userId, claimedAt, dedupeKey });
       }
-      const result = await sendTemplateMessage(to, item.message);
-      if (!result.ok) {
-        // Template name only — never the number or the message parameters.
-        console.error(`[whatsapp] send refused (non-fatal): template=${item.message.templateName}`);
-        if (claimedAt) await releaseDailyDeliveryFailure(item.userId, claimedAt);
-      }
+      rows.push({
+        userId: item.userId,
+        alertType: item.alertType ?? null,
+        dedupeKey,
+        templateName: item.message.templateName,
+        payload: payload as unknown as Prisma.InputJsonValue,
+        status: sendable ? "EN_ATTENTE" : "IGNORE",
+        lastError: sendable ? null : IGNORE_REASONS.templateNotEnabled(item.message.templateName),
+        // App clock, so the immediate claim below (same clock) sees the row as due.
+        nextAttemptAt: new Date(),
+      });
     }
+    if (rows.length === 0) return;
+
+    const created = await prisma.whatsAppOutboxMessage.createManyAndReturn({
+      data: rows,
+      skipDuplicates: true,
+      select: { id: true, status: true, dedupeKey: true, userId: true },
+    });
+    // A claim whose row was not inserted (its key is unique per claim, so this
+    // should never happen): give the day back rather than lose it.
+    const inserted = new Set(created.map((r) => `${r.userId}|${r.dedupeKey}`));
+    for (const c of claims) {
+      if (!inserted.has(`${c.userId}|${c.dedupeKey}`)) await releaseDailyDeliveryFailure(c.userId, c.claimedAt);
+    }
+
+    const fresh = created.filter((r) => r.status === "EN_ATTENTE").map((r) => r.id);
+    if (fresh.length > 0) await processDueWhatsAppOutbox({ onlyIds: fresh, limit: fresh.length });
+    await processDueWhatsAppOutbox({ limit: OPPORTUNISTIC_RETRY_LIMIT });
   } catch (error) {
     console.error(`[whatsapp] dispatch failed (non-fatal): ${error instanceof Error ? error.name : "unknown"}`);
   }

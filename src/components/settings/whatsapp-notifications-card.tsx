@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { SettingInfo } from "@/components/settings/setting-info";
 import { cn } from "@/lib/utils";
+import { personalOptInSwitchState } from "@/lib/whatsapp/ui-state";
 
 type Status = "unavailable" | "no_number" | "pending" | "active" | "disabled";
 
@@ -89,6 +90,7 @@ export function WhatsAppNotificationsCard({
   }
 
   const s = STATUS[status];
+  const optIn = personalOptInSwitchState({ optedIn, channelAvailable });
   return (
     <Card>
       <CardHeader className="flex flex-row items-start gap-3 space-y-0">
@@ -257,11 +259,13 @@ export function WhatsAppNotificationsCard({
         <div className="flex items-start justify-between gap-3 rounded-lg border border-hairline px-3 py-2.5">
           <div>
             <p className="flex items-center gap-1 text-sm font-medium">
-              {optedIn ? "Notifications activées" : "Notifications désactivées"}
+              {optIn.label}
               <SettingInfo setting="whatsappOptIn" label={optedIn ? "Notifications activées" : "Notifications désactivées"} />
             </p>
             <p className="text-xs text-muted-foreground">
-              {verified
+              {optIn.reason
+                ? `Votre choix est conservé, mais aucune alerte n'est envoyée : ${optIn.reason}.`
+                : verified
                 ? "Recevoir les alertes critiques sur WhatsApp. Désactivable à tout moment."
                 : "Disponible après la vérification de votre numéro."}
             </p>

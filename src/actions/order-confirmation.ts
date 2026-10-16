@@ -6,7 +6,7 @@ import { requirePermissionForAction } from "@/lib/auth/guards";
 import { recordAuditEvent } from "@/lib/audit";
 import { confirmOnlineOrderInTx, OrderConfirmationConflictError, OrderNotConfirmableError } from "@/lib/order-confirmation";
 import { confirmationFailureResult, orderStockShortageResult, prepareStockOverride } from "@/lib/stock-validation";
-import { resolveNotifications } from "@/lib/notifications";
+import { notifyOrderConfirmed, resolveNotifications } from "@/lib/notifications";
 import { pushStockAfterLocalChange, pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
 import { reconcileOrderCommission } from "@/lib/commissions";
 import { recordConfirmationAttemptSchema } from "@/lib/validation/order";
@@ -142,6 +142,8 @@ export async function recordConfirmationAttemptAction(
     await reconcileOrderCommission(id, user.id);
   }
   if (terminal === "CONFIRMEE") {
+    // Staff WhatsApp « commande confirmée » (docs/adr/0058 addendum), confirmer excluded.
+    await notifyOrderConfirmed(id, user.id);
     // Confirmation just reserved stock — push the new sellable number
     // outward for every order source now (docs/adr/0036): WooCommerce/
     // Shopify stock is never authoritative after onboarding, so there is

@@ -71,6 +71,14 @@ describe("WhatsApp verification card", () => {
     expect(html).not.toContain("Renvoyer le code");
   });
 
+  it("opted in while the channel is unavailable: the switch keeps the choice but says it is inactive", () => {
+    const html = render({ status: "unavailable", unavailableReason: "tenant_disabled", verified: true, optedIn: true });
+    expect(html).toContain("Notifications activées — inactives");
+    expect(html).toContain("aucune alerte n&#x27;est envoyée : canal WhatsApp indisponible");
+    const live = render({ status: "active", verified: true, optedIn: true });
+    expect(live).not.toContain("inactives");
+  });
+
   it("verified number: no verification block", () => {
     const html = render({ status: "active", verified: true, optedIn: true });
     expect(html).not.toContain("Vérifier le numéro");

@@ -74,10 +74,25 @@ describe("unsupported WooCommerce statuses are counted, never guessed", () => {
 });
 
 describe("per-alert WhatsApp mutes (User.whatsappMutedAlerts)", () => {
-  it("only alert types with an approved template can be muted", () => {
-    expect([...WHATSAPP_ALERT_TYPES]).toEqual(["RUPTURE_STOCK", "ECHEC_LIVRAISON", "ERREUR_INTEGRATION", "ECHEC_SYNCHRONISATION"]);
-    expect(isWhatsAppAlertType("COMMANDE_RETOURNEE")).toBe(false);
-    expect(isWhatsAppAlertType("STOCK_FAIBLE")).toBe(false);
+  // Superseded 2026-10-16 (docs/adr/0058 addendum): the WhatsApp categories
+  // grew from the 4 V1 alerts to 8 (new orders, confirmations, low stock,
+  // returns). The V1 four keep their place first so stored lists keep their
+  // order; the new ones are mutable even before their template is approved.
+  it("the mutable WhatsApp categories: the V1 four first, then the 2026-10-16 additions", () => {
+    expect([...WHATSAPP_ALERT_TYPES]).toEqual([
+      "RUPTURE_STOCK",
+      "ECHEC_LIVRAISON",
+      "ERREUR_INTEGRATION",
+      "ECHEC_SYNCHRONISATION",
+      "NOUVELLE_COMMANDE",
+      "COMMANDE_CONFIRMEE",
+      "STOCK_FAIBLE",
+      "COMMANDE_RETOURNEE",
+    ]);
+    expect(isWhatsAppAlertType("COMMANDE_RETOURNEE")).toBe(true);
+    expect(isWhatsAppAlertType("STOCK_FAIBLE")).toBe(true);
+    expect(isWhatsAppAlertType("PROBLEME_PAIEMENT")).toBe(false);
+    expect(isWhatsAppAlertType("STOCK_INSUFFISANT_COMMANDE")).toBe(false);
   });
 
   it("mute / unmute: known types only, no duplicates, stable order", () => {

@@ -9,6 +9,12 @@ import { getMyNotificationSettings } from "@/lib/notification-settings";
 
 export const metadata = { title: "Notifications — Paramètres — ASODITECH Gestion E-commerce" };
 
+// What this page actually controls — only the signed-in user's own settings
+// (channel/provider setup stays in Intégrations, see the doc comment below).
+const NOTIFICATIONS_PAGE_DESCRIPTION = "Vos notifications personnelles et la sécurité de votre compte.";
+const NOTIFICATIONS_SECTION_SUBTITLE =
+  "Ces réglages ne concernent que votre compte : alertes dans l'application (avec son), par email et sur WhatsApp, alertes reçues selon votre rôle et coupure d'une alerte sur WhatsApp uniquement.";
+
 /**
  * Paramètres → Notifications — the user's OWN communication settings
  * (docs/adr/0058 "Final responsibility split"). Every signed-in user, any
@@ -22,7 +28,7 @@ export default async function NotificationSettingsPage() {
 
   return (
     <div>
-      <PageHeader title="Paramètres" description="Informations de l'entreprise et préférences générales." />
+      <PageHeader title="Paramètres" description={NOTIFICATIONS_PAGE_DESCRIPTION} />
       <div className="max-w-3xl">
         <SettingsNav
           canView={userHasPermission(user, "settings.view")}
@@ -31,7 +37,7 @@ export default async function NotificationSettingsPage() {
         />
         <div className="mb-5">
           <h2 className="text-lg font-semibold tracking-tight">Notifications</h2>
-          <p className="text-sm text-muted-foreground">Choisissez comment vous souhaitez recevoir les alertes importantes.</p>
+          <p className="text-sm text-muted-foreground">{NOTIFICATIONS_SECTION_SUBTITLE}</p>
         </div>
         <div className="space-y-5">
           <InAppChannelCard />
@@ -50,6 +56,7 @@ export default async function NotificationSettingsPage() {
             emailAvailable={settings.email.available}
             whatsappStatus={settings.whatsapp.status}
             whatsappMuted={settings.whatsappMuted}
+            whatsappUnavailable={settings.whatsappUnavailable}
             locationScope={settings.locationScope}
           />
           <AccountSecurityCard />

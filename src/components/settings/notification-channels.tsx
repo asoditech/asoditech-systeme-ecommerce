@@ -97,12 +97,15 @@ export function AlertPreferencesCard({
   emailAvailable,
   whatsappStatus,
   whatsappMuted = [],
+  whatsappUnavailable = {},
   locationScope,
 }: {
   alerts: AlertRule[];
   emailAvailable: boolean;
   whatsappStatus: WhatsAppStatus;
   whatsappMuted?: readonly WhatsAppAlertType[];
+  /** Types WhatsApp cannot deliver for now (template not approved / switched off by the company). */
+  whatsappUnavailable?: Partial<Record<WhatsAppAlertType, "template" | "company">>;
   locationScope: { global: boolean; count: number };
 }) {
   const live: Record<Channel, boolean> = { inApp: true, email: emailAvailable, whatsapp: whatsappStatus === "active" };
@@ -146,7 +149,8 @@ export function AlertPreferencesCard({
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-1.5">
                   {(["inApp", "email", "whatsapp"] as const).map((c) => {
-                    const supported = a.channels.includes(c);
+                    const unavailable = c === "whatsapp" && a.whatsappType ? whatsappUnavailable[a.whatsappType] : undefined;
+                    const supported = a.channels.includes(c) && !unavailable;
                     const on = supported && live[c];
                     // A live WhatsApp channel on an alert that has one: a real per-alert switch.
                     if (c === "whatsapp" && on && a.whatsappType) {
@@ -162,7 +166,17 @@ export function AlertPreferencesCard({
                     return (
                       <span
                         key={c}
-                        title={!supported ? "Non disponible pour cette alerte" : on ? "Actif" : "Canal désactivé ou indisponible"}
+                        title={
+                          unavailable === "template"
+                            ? "Modèle WhatsApp pas encore approuvé : aucun envoi pour le moment"
+                            : unavailable === "company"
+                              ? "Désactivé sur WhatsApp pour toute l'entreprise"
+                              : !supported
+                                ? "Non disponible pour cette alerte"
+                                : on
+                                  ? "Actif"
+                                  : "Canal désactivé ou indisponible"
+                        }
                         className={cn(
                           "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs",
                           on

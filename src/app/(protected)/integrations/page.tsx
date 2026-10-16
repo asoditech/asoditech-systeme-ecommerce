@@ -5,6 +5,7 @@ import { BrandLogo, type BrandKey } from "@/components/brand-logo";
 import { WooCommerceCard } from "@/components/integrations/woocommerce-card";
 import { ShopifyCard } from "@/components/integrations/shopify-card";
 import { WhatsAppCard } from "@/components/integrations/whatsapp-card";
+import { WhatsAppOperationsCard } from "@/components/integrations/whatsapp-operations-card";
 import { EmailCard } from "@/components/integrations/email-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -69,6 +70,13 @@ export default async function IntegrationsPage() {
         <WhatsAppCard canManage={canManage} />
         <EmailCard />
       </div>
+
+      {/* WhatsApp alerts follow-up (docs/adr/0058 addendum): company categories, templates, recent sends — managers only. */}
+      {canManage && (
+        <div className="mt-4">
+          <WhatsAppOperationsCard />
+        </div>
+      )}
 
       <div className="mt-8">
         <div className="mb-3 flex items-center gap-2">

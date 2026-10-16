@@ -83,7 +83,9 @@ describe("per-alert WhatsApp mute", () => {
 
     expect((await setMyWhatsAppAlertMutedAction("ECHEC_LIVRAISON", false)).ok).toBe(true);
     expect((await prismaBase.user.findUniqueOrThrow({ where: { id: me.id } })).whatsappMutedAlerts).toEqual([]);
-    expect(await setMyWhatsAppAlertMutedAction("COMMANDE_RETOURNEE", true)).toEqual({ ok: false, error: "Type d'alerte inconnu." });
+    // COMMANDE_RETOURNEE became a WhatsApp category on 2026-10-16 (docs/adr/0058 addendum);
+    // a payment problem still has no WhatsApp alert, so it stays unknown here.
+    expect(await setMyWhatsAppAlertMutedAction("PROBLEME_PAIEMENT", true)).toEqual({ ok: false, error: "Type d'alerte inconnu." });
   });
 });
 

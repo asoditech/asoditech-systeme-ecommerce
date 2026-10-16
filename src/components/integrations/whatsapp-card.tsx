@@ -39,7 +39,7 @@ export async function WhatsAppCard({ canManage }: { canManage: boolean }) {
 
       <CardContent className="space-y-3 text-xs text-muted-foreground">
         <p>
-          Alertes critiques (rupture de stock, échecs de livraison, erreur d&apos;intégration) envoyées sur WhatsApp
+          Alertes internes (commandes, stock, échecs de livraison, retours, erreurs d&apos;intégration) envoyées sur WhatsApp
           aux membres de l&apos;équipe qui ont vérifié leur numéro et accepté de les recevoir (Paramètres → Notifications). Les
           droits et emplacements de chacun s&apos;appliquent. Ce réglage active le canal pour l&apos;entreprise ; chacun choisit
           ensuite de recevoir ou non ses alertes.

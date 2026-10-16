@@ -7,7 +7,10 @@ import { isEmailConfigured } from "@/lib/email";
 import { isWhatsAppConfigured } from "@/lib/whatsapp/client";
 import { maskWhatsAppPhone } from "@/lib/whatsapp/phone";
 import { parsePendingVerification } from "@/lib/whatsapp/verification";
-import { isWhatsAppAlertType, type WhatsAppAlertType } from "@/lib/whatsapp/alert-types";
+import { WHATSAPP_ALERT_TYPES, isWhatsAppAlertType, type WhatsAppAlertType } from "@/lib/whatsapp/alert-types";
+import { templateForAlertType } from "@/lib/whatsapp/templates";
+import { isTemplateSendable } from "@/lib/whatsapp/outbox-rules";
+import { getEnabledWhatsAppTemplates } from "@/lib/whatsapp/template-config";
 
 /**
  * What Paramètres → Notifications shows a user (docs/adr/0058 "Final
@@ -60,13 +63,42 @@ export const ALERT_RULES: readonly AlertRule[] = [
     whatsappType: "ERREUR_INTEGRATION",
   },
   { key: "limite_forfait", label: "Limite du forfait atteinte (100 %)", anyOf: ["settings.manage"], channels: ["inApp", "email"] },
-  { key: "stock_faible", label: "Stock faible", anyOf: ["inventory.view"], channels: ["inApp"], locationScoped: true },
+  {
+    key: "stock_faible",
+    label: "Stock faible",
+    anyOf: ["inventory.view"],
+    channels: ["inApp", "whatsapp"],
+    locationScoped: true,
+    note: "WhatsApp : au plus une fois par article et par jour.",
+    whatsappType: "STOCK_FAIBLE",
+  },
+  {
+    key: "nouvelle_commande",
+    label: "Nouvelle commande",
+    anyOf: ["orders.view"],
+    channels: ["inApp", "whatsapp"],
+    note: "WhatsApp : une alerte par commande — coupez-la si elle est trop fréquente pour vous.",
+    whatsappType: "NOUVELLE_COMMANDE",
+  },
+  {
+    key: "commande_confirmee",
+    label: "Commande confirmée par un collègue",
+    anyOf: ["orders.view"],
+    channels: ["whatsapp"],
+    whatsappType: "COMMANDE_CONFIRMEE",
+  },
+  {
+    key: "commande_retournee",
+    label: "Commande retournée",
+    anyOf: ["orders.view"],
+    channels: ["inApp", "whatsapp"],
+    whatsappType: "COMMANDE_RETOURNEE",
+  },
   {
     key: "commandes",
-    label: "Commandes : nouvelles, paiements, retours, stock insuffisant, incohérences",
+    label: "Commandes : paiements, stock insuffisant, incohérences",
     anyOf: ["orders.view"],
     channels: ["inApp"],
-    note: "WhatsApp non disponible : aucun modèle de message approuvé pour ces alertes.",
   },
   {
     key: "synchronisation",
@@ -113,17 +145,26 @@ export interface MyNotificationSettings {
   alerts: AlertRule[];
   /** WhatsApp alert types this user muted (User.whatsappMutedAlerts). */
   whatsappMuted: WhatsAppAlertType[];
+  /** Types WhatsApp cannot deliver right now, whoever the user is: template not approved, or switched off by the company. */
+  whatsappUnavailable: Partial<Record<WhatsAppAlertType, "template" | "company">>;
   locationScope: { global: boolean; count: number };
 }
 
 export async function getMyNotificationSettings(user: CurrentUser): Promise<MyNotificationSettings> {
-  const [own, integration] = await Promise.all([
+  const [own, integration, business] = await Promise.all([
     prisma.user.findUniqueOrThrow({
       where: { id: user.id },
       select: { whatsappPhone: true, whatsappVerifiedAt: true, whatsappOptInAt: true, whatsappVerification: true, whatsappMutedAlerts: true },
     }),
     prisma.integration.findFirst({ where: { provider: "WHATSAPP" }, select: { status: true } }),
+    prisma.businessSettings.findFirst({ select: { whatsappDisabledAlerts: true } }),
   ]);
+  const enabledTemplates = getEnabledWhatsAppTemplates();
+  const whatsappUnavailable: MyNotificationSettings["whatsappUnavailable"] = {};
+  for (const type of WHATSAPP_ALERT_TYPES) {
+    if (!isTemplateSendable(templateForAlertType(type).name, enabledTemplates)) whatsappUnavailable[type] = "template";
+    else if (business?.whatsappDisabledAlerts.includes(type)) whatsappUnavailable[type] = "company";
+  }
   const configured = isWhatsAppConfigured();
   const tenantEnabled = integration?.status === "CONNECTE";
   const channelAvailable = configured && tenantEnabled;
@@ -143,6 +184,7 @@ export async function getMyNotificationSettings(user: CurrentUser): Promise<MyNo
     },
     alerts: alertsForUser(user.permissions),
     whatsappMuted: own.whatsappMutedAlerts.filter(isWhatsAppAlertType),
+    whatsappUnavailable,
     locationScope: { global: user.locations.global, count: user.locations.ids.length },
   };
 }

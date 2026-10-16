@@ -116,6 +116,11 @@ const AUDIT_ACTION_META: Record<string, AuditActionMeta> = {
   "product.remote_missing": { label: "Produit supprimé de la boutique — dissociation à confirmer", category: "produits_stock" },
   "product.remote_missing_cleared": { label: "Produit retrouvé sur la boutique", category: "produits_stock" },
   "product.remote_unlinked": { label: "Produit dissocié de la boutique", category: "produits_stock" },
+  "product.remote_listing_requested": { label: "Retrait / remise en vente demandé sur la boutique", category: "produits_stock" },
+  "product.remote_listing_changed": { label: "Statut du produit modifié sur la boutique", category: "produits_stock" },
+  "product.remote_listing_failed": { label: "Échec du changement de statut sur la boutique", category: "produits_stock" },
+  "product.remote_listing_uncertain": { label: "Changement de statut sur la boutique à vérifier", category: "produits_stock" },
+  "product.remote_listing_reconciled": { label: "État du produit vérifié sur la boutique", category: "produits_stock" },
   "settings.updated": { label: "Paramètres modifiés", category: "parametres" },
   "support.ticket_created": { label: "Problème signalé au support", category: "parametres" },
   "shipment.created": { label: "Expédition créée", category: "livraison" },
@@ -151,6 +156,8 @@ const AUDIT_ACTION_META: Record<string, AuditActionMeta> = {
   "user.login.success": { label: "Connexion réussie", category: "utilisateurs" },
   "user.locations_updated": { label: "Emplacements assignés modifiés", category: "utilisateurs" },
   "user.whatsapp_updated": { label: "Notifications WhatsApp modifiées", category: "utilisateurs" },
+  "whatsapp.alert_category_updated": { label: "Catégorie d'alertes WhatsApp modifiée", category: "integrations" },
+  "whatsapp.outbox_retried": { label: "Alerte WhatsApp renvoyée", category: "integrations" },
   "user.logout": { label: "Déconnexion", category: "utilisateurs" },
   "user.sessions_revoked_all": { label: "Déconnexion de toutes les sessions", category: "utilisateurs" },
   "user.role_changed": { label: "Rôle utilisateur modifié", category: "utilisateurs" },
@@ -181,6 +188,8 @@ const AUDIT_ACTION_META: Record<string, AuditActionMeta> = {
   "usage.threshold_reached": { label: "Seuil d'utilisation atteint", category: "abonnement" },
   "upgrade.requested": { label: "Mise à niveau demandée", category: "abonnement" },
   "tenant.business_mode_changed": { label: "Mode d'activité du tenant modifié", category: "abonnement" },
+  "tenant.customer_barcode_grant_changed": { label: "Autorisation des codes clients modifiée", category: "abonnement" },
+  "tenant.brand_logo_grant_changed": { label: "Autorisation du logo de l'entreprise modifiée", category: "abonnement" },
   "product.identity_updated": { label: "Référence du produit modifiée", category: "produits_stock" },
   "product.barcode_added": { label: "Code-barres ajouté", category: "produits_stock" },
   "product.barcode_removed": { label: "Code-barres supprimé", category: "produits_stock" },
@@ -263,6 +272,7 @@ export const AUDIT_ENTITY_LABELS: Record<string, string> = {
   SupplierPayment: "Paiement fournisseur",
   Sale: "Vente magasin",
   SaleReturn: "Retour de vente magasin",
+  WhatsAppOutboxMessage: "Alerte WhatsApp",
 };
 
 export function humanizeAuditEntity(entityType: string): string {
