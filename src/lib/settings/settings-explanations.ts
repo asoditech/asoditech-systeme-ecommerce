@@ -335,6 +335,52 @@ export const SETTINGS_EXPLANATIONS = {
     ),
   },
 
+  productBarcodeAuto: {
+    labels: ["Génération automatique des codes-barres"],
+    screens: ["configuration"],
+    source: "src/actions/settings.ts — updateProductBarcodeAutoAction ; src/lib/catalog/barcode-allocation.ts — allocateProductBarcode",
+    access: MANAGE,
+    text: bi(
+      {
+        definition: "Ajoute un bouton « Générer » à côté du code-barres d'un produit et de chaque variation, et permet de donner un code distinct à chaque nouvelle variation créée par le générateur.",
+        calculation: "Le code est un numéro interne de 13 chiffres : « 20 » + un numéro propre à votre entreprise + un chiffre de contrôle. Il n'est jamais déjà utilisé dans votre entreprise (ni comme code-barres, ni comme SKU).",
+        scope: "Votre entreprise ; uniquement pour les comptes « En ligne + Magasin » (codes-barres activés).",
+        example: "Produit sans code → « Générer » → 2000000000015 → Enregistrer.",
+        caveats: "Désactivé : la saisie manuelle fonctionne comme avant. Un code déjà saisi n'est remplacé qu'après confirmation. Les produits existants ne reçoivent aucun code automatiquement. Ces codes internes ne sont pas des EAN commerciaux : ils ne sont pas exportés comme GTIN vers WooCommerce / Shopify.",
+      },
+      {
+        definition: "يضيف زر « Générer » بجانب الرمز الشريطي للمنتج ولكل متغيّر، ويسمح بإعطاء رمز مستقل لكل متغيّر جديد ينشئه المولّد.",
+        calculation: "الرمز رقم داخلي من 13 خانة: « 20 » + رقم خاص بشركتك + رقم تحقق. لا يكون مستعملًا مسبقًا في شركتك (لا كرمز شريطي ولا كـ SKU).",
+        scope: "شركتك؛ فقط للحسابات « En ligne + Magasin » (الرموز الشريطية مفعّلة).",
+        example: "منتج بلا رمز ← « Générer » ← 2000000000015 ← حفظ.",
+        caveats: "غير مفعّل: الإدخال اليدوي يعمل كما قبل. لا يُستبدل رمز مُدخل إلا بعد التأكيد. المنتجات الحالية لا تحصل على رمز تلقائيًا. هذه الرموز الداخلية ليست EAN تجارية: لا تُصدَّر كـ GTIN إلى WooCommerce / Shopify.",
+      }
+    ),
+  },
+
+  customerBarcode: {
+    labels: ["Code-barres client automatique"],
+    screens: ["configuration"],
+    source: "src/actions/settings.ts — updateCustomerBarcodeSettingAction ; src/lib/customers/barcode-allocation.ts — allocateCustomerBarcode",
+    access: MANAGE,
+    text: bi(
+      {
+        definition: "Attribue un code client unique « CL-000001 » à chaque nouveau client, imprimable sur une carte et lisible au scanner.",
+        calculation: "Activé : chaque client créé (fiche client, commande, vente en magasin, import WooCommerce / Shopify) reçoit le numéro suivant de votre entreprise. Un client déjà connu (même nom + même téléphone) garde son code. Désactivé : les nouveaux clients n'ont pas de code.",
+        scope: "Votre entreprise uniquement ; disponible seulement si ASODITECH l'a autorisé pour votre compte.",
+        example: "Premier client créé après l'activation → « CL-000001 », le suivant → « CL-000002 ».",
+        caveats: "Les clients existants ne reçoivent pas de code automatiquement. Un code ne peut pas être modifié ni réutilisé ; désactiver puis réactiver reprend la numérotation.",
+      },
+      {
+        definition: "يمنح كل زبون جديد رمزًا فريدًا « CL-000001 » يمكن طباعته على بطاقة وقراءته بالماسح.",
+        calculation: "مفعّل: كل زبون يُنشأ (بطاقة الزبون، طلب، بيع في المتجر، استيراد WooCommerce / Shopify) يأخذ الرقم التالي لشركتك. الزبون المعروف مسبقًا (نفس الاسم + نفس الهاتف) يحتفظ برمزه. غير مفعّل: لا رمز للزبائن الجدد.",
+        scope: "شركتك فقط؛ متاح فقط إذا سمحت به ASODITECH لحسابك.",
+        example: "أول زبون بعد التفعيل ← « CL-000001 »، والتالي ← « CL-000002 ».",
+        caveats: "الزبائن الحاليون لا يحصلون على رمز تلقائيًا. لا يمكن تعديل الرمز ولا إعادة استعماله؛ الإيقاف ثم التفعيل يواصل الترقيم.",
+      }
+    ),
+  },
+
   autoPaymentFromStore: {
     labels: ["Paiement confirmé par la boutique"],
     screens: ["configuration"],
@@ -346,14 +392,37 @@ export const SETTINGS_EXPLANATIONS = {
         calculation: "Activé : à la synchronisation ou au webhook, une commande importée « En attente » dont la boutique indique un paiement (WooCommerce : date de paiement renseignée ; Shopify : statut financier « Payé ») passe « Payé », avec une entrée dans l'historique. Désactivé (par défaut) : le paiement se change à la main.",
         scope: "Commandes importées de WooCommerce / Shopify uniquement ; jamais les commandes créées dans ASODITECH.",
         example: "Commande WooCommerce payée par carte : la boutique enregistre la date de paiement → la commande passe « Payé » à la prochaine synchronisation.",
-        caveats: "Une livraison « Livré » par le transporteur ne marque jamais une commande payée : elle ne prouve pas que l'argent a été encaissé. Un statut « Payé », « Remboursé » ou « Échec » déjà posé n'est jamais modifié.",
+        caveats: "Le paiement à la livraison WooCommerce (« cod ») n'est jamais considéré payé par la boutique : WooCommerce renseigne sa date de paiement quand la commande est marquée « Terminée » (ou par une extension), ce qui ne prouve aucun encaissement. La livraison relève du réglage « payées à la livraison ». Un statut « Payé », « Remboursé » ou « Échec » déjà posé n'est jamais modifié.",
       },
       {
         definition: "يحدّث حالة الدفع لطلب مستورد عندما يشير المتجر (WooCommerce أو Shopify) إلى أنه مدفوع.",
         calculation: "مفعّل: عند المزامنة أو الـ webhook، ينتقل الطلب المستورد « En attente » الذي يشير المتجر إلى دفعه (WooCommerce: تاريخ الدفع مسجّل؛ Shopify: الحالة المالية « مدفوع ») إلى « Payé »، مع تسجيل في السجل. غير مفعّل (افتراضيًا): يُغيَّر الدفع يدويًا.",
         scope: "الطلبات المستوردة من WooCommerce / Shopify فقط؛ ليس الطلبات المنشأة في ASODITECH.",
         example: "طلب WooCommerce مدفوع بالبطاقة: يسجّل المتجر تاريخ الدفع ← يصبح الطلب « Payé » في المزامنة التالية.",
-        caveats: "التسليم « Livré » من شركة النقل لا يجعل الطلب مدفوعًا أبدًا: لا يثبت تحصيل المبلغ. لا تُغيَّر أبدًا حالة « Payé » أو « Remboursé » أو « Échec » موجودة.",
+        caveats: "الدفع عند الاستلام في WooCommerce (« cod ») لا يُعتبر أبدًا مدفوعًا من طرف المتجر: يسجّل WooCommerce تاريخ الدفع عند وضع الطلب « مكتمل » (أو عبر إضافة)، وهذا لا يثبت أي تحصيل. التسليم يخضع لإعداد « مدفوعة عند التسليم ». لا تُغيَّر أبدًا حالة « Payé » أو « Remboursé » أو « Échec » موجودة.",
+      }
+    ),
+  },
+
+  autoPaidOnDelivery: {
+    labels: ["Marquer automatiquement les commandes comme payées à la livraison"],
+    screens: ["configuration"],
+    source: "src/actions/settings.ts — updateAutoPaidOnDeliveryAction ; src/lib/orders/delivered-payment.ts — applyDeliveredPayment",
+    access: MANAGE,
+    text: bi(
+      {
+        definition: "La règle de votre société « livré = payé » : une commande livrée dont le paiement est encore « En attente » passe « Payé ».",
+        calculation: "Activé : au moment où la commande devient « Livrée » (colis « Livré » par le transporteur ou par vous, statut changé à la main, ou boutique qui la signale livrée), son paiement « En attente » passe « Payé », avec une entrée dans l'historique. Désactivé (par défaut) : la livraison ne change jamais le paiement.",
+        scope: "Votre société uniquement ; toutes les commandes en ligne, importées ou créées dans ASODITECH. Sans effet sur les commandes déjà livrées avant l'activation.",
+        example: "Commande en paiement à la livraison, colis « Livré » par le transporteur → la commande passe « Livrée » et « Payé ».",
+        caveats: "Aucun encaissement ni versement du transporteur n'est enregistré : les rapports de livraison continuent de montrer ce que le transporteur a réellement reversé. Un paiement « Échec », « Partiellement payé », « Payé » ou « Remboursé » n'est jamais modifié. Un événement répété (webhook, double clic) ne change le paiement qu'une fois.",
+      },
+      {
+        definition: "قاعدة شركتك « تم التسليم = تم الدفع »: الطلب المسلَّم الذي ما زال دفعه « En attente » يصبح « Payé ».",
+        calculation: "مفعّل: لحظة انتقال الطلب إلى « Livrée » (طرد « Livré » من شركة النقل أو منكم، تغيير الحالة يدويًا، أو متجر يشير إلى التسليم)، يصبح دفعه « En attente » « Payé »، مع تسجيل في السجل. غير مفعّل (افتراضيًا): التسليم لا يغيّر الدفع أبدًا.",
+        scope: "شركتك فقط؛ جميع الطلبات عبر الإنترنت، المستوردة أو المنشأة في ASODITECH. لا يؤثر على الطلبات المسلَّمة قبل التفعيل.",
+        example: "طلب بالدفع عند الاستلام، طرد « Livré » من شركة النقل ← يصبح الطلب « Livrée » و « Payé ».",
+        caveats: "لا يُسجَّل أي تحصيل أو تحويل من شركة النقل: تقارير التسليم تبقى تُظهر ما حوّلته شركة النقل فعلًا. لا تُغيَّر أبدًا حالة دفع « Échec » أو « Partiellement payé » أو « Payé » أو « Remboursé ». الحدث المكرر (webhook، نقرة مزدوجة) لا يغيّر الدفع إلا مرة واحدة.",
       }
     ),
   },

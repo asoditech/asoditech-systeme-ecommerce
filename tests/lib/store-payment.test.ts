@@ -82,10 +82,13 @@ describe("store payment confirmation", () => {
 
   it("WooCommerce order.updated: date_paid appearing later → PAYE only when the opt-in is ON", async () => {
     await prisma.product.create({ data: { name: "Sac cuir", sku: "SAC", price: 180, status: "ACTIF", source: "WOOCOMMERCE", externalId: "7701" } });
-    const wc = (id: number, paid: boolean) =>
+    // A bank transfer (« bacs »): `date_paid` appears when the merchant
+    // confirms receipt. (A COD order's `date_paid` is not a payment — see the
+    // next test; this one used "cod" before 2026-10-16.)
+    const wc = (id: number, paid: boolean, method = "bacs") =>
       ({
         id, number: String(id), status: "processing", currency: "MAD", date_created: "2026-10-01T10:00:00", date_paid: paid ? "2026-10-02T10:00:00" : null,
-        customer_id: 0, total: 180, total_tax: 0, shipping_total: 0, discount_total: 0, payment_method: "cod",
+        customer_id: 0, total: 180, total_tax: 0, shipping_total: 0, discount_total: 0, payment_method: method,
         payment_method_title: null, customer_note: null,
         billing: { first_name: "Imp", last_name: "Ort", company: null, address_1: "x", address_2: null, city: "Rabat", state: null, postcode: null, country: "MA", email: "imp@example.com", phone: null },
         shipping: { first_name: "", last_name: "", company: null, address_1: "", address_2: null, city: "", state: null, postcode: null, country: "", email: null, phone: null },
@@ -108,5 +111,13 @@ describe("store payment confirmation", () => {
     expect(await status(9402)).toBe("PAYE");
     const order = await prisma.order.findFirstOrThrow({ where: { externalId: "9402" } });
     expect(await prisma.auditEvent.count({ where: { entityId: order.id, metadata: { path: ["reason"], equals: "store_reported_paid" } } })).toBe(1);
+
+    // Cash on delivery: WooCommerce stamps `date_paid` when the order is marked
+    // « completed » (or via plugins), no proof of cash — ignored at import AND on later updates,
+    // even with the opt-in ON.
+    await importOrder(wc(9403, true, "cod"), { type: "INTEGRATION" });
+    expect(await status(9403)).toBe("EN_ATTENTE");
+    await importOrder(wc(9403, true, "cod"), { type: "INTEGRATION" });
+    expect(await status(9403)).toBe("EN_ATTENTE");
   });
 });

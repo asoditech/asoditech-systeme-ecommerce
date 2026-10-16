@@ -59,6 +59,9 @@ export type ConfigSettings = Pick<
   | "defaultShippingProviderId"
   | "packingVerificationRequired"
   | "autoPaymentFromStore"
+  | "autoPaidOnDelivery"
+  | "customerBarcodeEnabled"
+  | "productBarcodeAutoEnabled"
   | "transferPurchaseCostOverrideEnabled"
 >;
 
@@ -68,6 +71,10 @@ export interface ConfigContext {
   imports: { woocommerce: boolean | null; shopify: boolean | null };
   providers: { id: string; name: string }[];
   canManageCost: boolean;
+  /** docs/adr/0060 — platform grant of automatic customer codes. */
+  customerBarcodeGranted?: boolean;
+  /** docs/adr/0061 — tenant has barcodes (catalogIdentity). */
+  catalogIdentity?: boolean;
 }
 
 export interface AttentionItem {
@@ -127,13 +134,18 @@ export function sectionSwitches(ctx: ConfigContext, id: ConfigWorkspaceId): Swit
         ...(ctx.imports.woocommerce !== null ? [{ label: "WooCommerce en « Nouvelle »", on: ctx.imports.woocommerce }] : []),
         ...(ctx.imports.shopify !== null ? [{ label: "Shopify en « Nouvelle »", on: ctx.imports.shopify }] : []),
         ...(ctx.imports.woocommerce !== null || ctx.imports.shopify !== null ? [{ label: "Paiement confirmé par la boutique", on: s.autoPaymentFromStore }] : []),
+        { label: "Payée à la livraison", on: s.autoPaidOnDelivery },
+        ...(ctx.customerBarcodeGranted ? [{ label: "Code-barres client automatique", on: s.customerBarcodeEnabled }] : []),
       ];
     case "expedition":
       return [{ label: "Vérification de l'emballage", on: s.packingVerificationRequired }];
     case "magasin":
       return ctx.offlineSales ? [{ label: "Prix modifiable par les vendeurs", on: s.allowSellerPriceOverride }] : [];
     case "stock":
-      return ctx.canManageCost ? [{ label: "Coût d'achat lors des transferts", on: s.transferPurchaseCostOverrideEnabled }] : [];
+      return [
+        ...(ctx.canManageCost ? [{ label: "Coût d'achat lors des transferts", on: s.transferPurchaseCostOverrideEnabled }] : []),
+        ...(ctx.catalogIdentity ? [{ label: "Génération automatique des codes-barres", on: s.productBarcodeAutoEnabled }] : []),
+      ];
     default:
       return [];
   }
@@ -214,7 +226,7 @@ export function settingsIndex(ctx: ConfigContext): SettingIndexEntry[] {
       ? [e("Importer les commandes en « Nouvelle »", "commandes", "imports", "woocommerce shopify import boutique nouvelle confirmation")]
       : []),
     e("Vérification de l'emballage", "expedition", "emballage", "emballage scan vérification expédier préparation colis"),
-    e("Transporteur par défaut", "expedition", "transporteur", "transporteur livraison ville ozon aramex"),
+    e("Transporteur par défaut", "expedition", "transporteur", "transporteur livraison ville ozon"),
     ...(ctx.offlineSales ? [e("Prix modifiable par les vendeurs", "magasin", "prix-vendeurs", "magasin caisse vendeur prix remise")] : []),
     e("Seuil de stock faible", "stock", "seuil", "stock faible alerte seuil rupture"),
     e("Méthode de calcul du coût", "stock", "methode-cout", "coût achat moyen pondéré dernier manuel valorisation"),

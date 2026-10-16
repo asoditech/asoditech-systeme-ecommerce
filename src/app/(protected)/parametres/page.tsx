@@ -38,6 +38,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
         }),
       ])
     : [[], []];
+  const tenant = canManage ? await prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { customerBarcodesGranted: true } }) : null;
   const woo = integrations.find((i) => i.provider === "WOOCOMMERCE");
   const shopify = integrations.find((i) => i.provider === "SHOPIFY");
 
@@ -59,6 +60,8 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
           }}
           canManageIntegrations={userHasPermission(user, "integrations.manage")}
           canManageCost={userHasPermission(user, "finance.view")}
+          customerBarcodeGranted={tenant?.customerBarcodesGranted === true}
+          catalogIdentity={hasCapability(user, "catalogIdentity")}
           providers={activeProviders.map((p) => ({ id: p.id, name: p.name, hasCityList: p.capabilities.includes("FETCH_CITIES") }))}
           links={{
             channels: userHasPermission(user, "channels.manage"),

@@ -62,6 +62,7 @@ const settings = {
   packingVerificationRequired: true,
   transferPurchaseCostOverrideEnabled: true,
   autoPaymentFromStore: false,
+  autoPaidOnDelivery: false,
   updatedAt: new Date("2026-10-06T00:00:00Z"),
 } as unknown as BusinessSettings;
 
@@ -127,7 +128,7 @@ describe("model", () => {
   });
 
   it("health, identity completion and the key value of each section", () => {
-    expect(configHealth(ctx())).toEqual({ sections: 6, sectionsOk: 6, attention: 0, switchesOn: 4, switchesTotal: 5 }); // + « Paiement confirmé par la boutique » (off by default)
+    expect(configHealth(ctx())).toEqual({ sections: 6, sectionsOk: 6, attention: 0, switchesOn: 4, switchesTotal: 6 }); // + « Paiement confirmé par la boutique » and « Payée à la livraison » (both off by default)
     expect(identityCompletion(ctx().settings).percent).toBe(83); // no logo
     expect(orderNumberPreview("BTQ")).toBe("BTQ-000124");
     expect(sectionSummary(ctx(), "commandes").value).toBe("BTQ-000124");

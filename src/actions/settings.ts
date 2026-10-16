@@ -12,6 +12,9 @@ import {
   updateSellerPriceOverrideSchema,
   updatePackingVerificationSchema,
   updateAutoPaymentFromStoreSchema,
+  updateAutoPaidOnDeliverySchema,
+  updateCustomerBarcodeSettingSchema,
+  updateProductBarcodeAutoSchema,
   updateTransferCostOverrideSchema,
 } from "@/lib/validation/settings";
 import { requireCapabilityForAction } from "@/lib/auth/capabilities";
@@ -232,8 +235,8 @@ export async function updatePackingVerificationAction(formData: FormData): Promi
  * « Paiement confirmé par la boutique » — tenant-wide, default off. When on,
  * an order IMPORTED from WooCommerce/Shopify that the store later reports as
  * paid moves EN_ATTENTE → PAYE on sync/webhook (src/lib/orders/store-payment.ts),
- * with an audit event. A carrier « Livré » never marks an order paid: delivery
- * does not prove the cash was collected. Off = payment stays manual.
+ * with an audit event. Delivery is the separate switch below. Off = payment
+ * stays manual.
  */
 export async function updateAutoPaymentFromStoreAction(formData: FormData): Promise<ActionResult<BusinessSettings>> {
   const user = await requirePermissionForAction("settings.manage");
@@ -256,6 +259,113 @@ export async function updateAutoPaymentFromStoreAction(formData: FormData): Prom
     newValue: { autoPaymentFromStore: settings.autoPaymentFromStore },
   });
   revalidatePath("/parametres");
+  return actionOk(settings);
+}
+
+/**
+ * « Marquer automatiquement les commandes comme payées à la livraison » —
+ * this company only, default off (owner decision 2026-10-16). When on, an
+ * order still « En attente » of payment becomes « Payé » at the moment it is
+ * validly delivered (src/lib/orders/delivered-payment.ts), audited. It is the
+ * company's business rule, not a record of cash collected by the courier.
+ * Never applied retroactively to orders delivered before switching it on.
+ */
+export async function updateAutoPaidOnDeliveryAction(formData: FormData): Promise<ActionResult<BusinessSettings>> {
+  const user = await requirePermissionForAction("settings.manage");
+  const parsed = updateAutoPaidOnDeliverySchema.safeParse({ autoPaidOnDelivery: formData.get("autoPaidOnDelivery") });
+  if (!parsed.success) return actionError("Valeur invalide.", parsed.error.flatten().fieldErrors);
+
+  const previous = await prisma.businessSettings.findUnique({ where: { tenantId: user.tenantId }, select: { autoPaidOnDelivery: true } });
+  const settings = await prisma.businessSettings.upsert({
+    where: { tenantId: user.tenantId },
+    update: { autoPaidOnDelivery: parsed.data.autoPaidOnDelivery },
+    create: { autoPaidOnDelivery: parsed.data.autoPaidOnDelivery },
+  });
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "settings.updated",
+    entityType: "BusinessSettings",
+    entityId: settings.id,
+    previousValue: { autoPaidOnDelivery: previous?.autoPaidOnDelivery ?? false },
+    newValue: { autoPaidOnDelivery: settings.autoPaidOnDelivery },
+  });
+  revalidatePath("/parametres");
+  return actionOk(settings);
+}
+
+/**
+ * « Code-barres client automatique » (docs/adr/0060) — the tenant's own
+ * switch. Turning it ON requires the platform grant
+ * (Tenant.customerBarcodesGranted), re-checked here on the server: a tenant
+ * cannot grant itself. Turning it OFF is always allowed. Off: new customers get
+ * no code; existing codes and the counter are kept (re-enabling continues the
+ * sequence). Never backfills existing customers.
+ */
+export async function updateCustomerBarcodeSettingAction(formData: FormData): Promise<ActionResult<BusinessSettings>> {
+  const user = await requirePermissionForAction("settings.manage");
+  const parsed = updateCustomerBarcodeSettingSchema.safeParse({ customerBarcodeEnabled: formData.get("customerBarcodeEnabled") });
+  if (!parsed.success) return actionError("Valeur invalide.", parsed.error.flatten().fieldErrors);
+
+  if (parsed.data.customerBarcodeEnabled) {
+    const tenant = await prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { customerBarcodesGranted: true } });
+    if (!tenant?.customerBarcodesGranted) {
+      return actionError("Les codes clients automatiques ne sont pas activés pour votre entreprise. Contactez ASODITECH pour les obtenir.");
+    }
+  }
+
+  const previous = await prisma.businessSettings.findUnique({ where: { tenantId: user.tenantId }, select: { customerBarcodeEnabled: true } });
+  const settings = await prisma.businessSettings.upsert({
+    where: { tenantId: user.tenantId },
+    update: { customerBarcodeEnabled: parsed.data.customerBarcodeEnabled },
+    create: { customerBarcodeEnabled: parsed.data.customerBarcodeEnabled },
+  });
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "settings.updated",
+    entityType: "BusinessSettings",
+    entityId: settings.id,
+    previousValue: { customerBarcodeEnabled: previous?.customerBarcodeEnabled ?? false },
+    newValue: { customerBarcodeEnabled: settings.customerBarcodeEnabled },
+  });
+  revalidatePath("/parametres");
+  revalidatePath("/clients");
+  return actionOk(settings);
+}
+
+/**
+ * « Génération automatique des codes-barres produits » (docs/adr/0061) —
+ * tenant-wide, default off. On: « Générer » appears next to product /
+ * variation barcode inputs and the variation generator can give each new
+ * variation its own code. Off: manual entry only, exactly as before (never
+ * blocked). Turning it ON needs the catalogIdentity capability (barcodes
+ * exist only for « En ligne + Magasin » tenants, docs/adr/0041); OFF is
+ * always allowed. Existing codes and the sequence are kept either way.
+ */
+export async function updateProductBarcodeAutoAction(formData: FormData): Promise<ActionResult<BusinessSettings>> {
+  const user = await requirePermissionForAction("settings.manage");
+  const parsed = updateProductBarcodeAutoSchema.safeParse({ productBarcodeAutoEnabled: formData.get("productBarcodeAutoEnabled") });
+  if (!parsed.success) return actionError("Valeur invalide.", parsed.error.flatten().fieldErrors);
+  if (parsed.data.productBarcodeAutoEnabled) requireCapabilityForAction(user, "catalogIdentity");
+
+  const previous = await prisma.businessSettings.findUnique({ where: { tenantId: user.tenantId }, select: { productBarcodeAutoEnabled: true } });
+  const settings = await prisma.businessSettings.upsert({
+    where: { tenantId: user.tenantId },
+    update: { productBarcodeAutoEnabled: parsed.data.productBarcodeAutoEnabled },
+    create: { productBarcodeAutoEnabled: parsed.data.productBarcodeAutoEnabled },
+  });
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "settings.updated",
+    entityType: "BusinessSettings",
+    entityId: settings.id,
+    previousValue: { productBarcodeAutoEnabled: previous?.productBarcodeAutoEnabled ?? false },
+    newValue: { productBarcodeAutoEnabled: settings.productBarcodeAutoEnabled },
+  });
+  revalidatePath("/parametres");
+  revalidatePath("/produits");
   return actionOk(settings);
 }
 

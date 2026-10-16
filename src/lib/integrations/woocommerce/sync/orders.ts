@@ -1,4 +1,5 @@
-import { applyStorePaymentEvent } from "@/lib/orders/store-payment";
+import { applyStorePaymentEvent, wooReportsPaid } from "@/lib/orders/store-payment";
+import { applyDeliveredPayment } from "@/lib/orders/delivered-payment";
 import "server-only";
 
 import { REOPEN_ORDER_DATA, isReopenable } from "@/lib/order-confirmation";
@@ -251,7 +252,8 @@ async function createImportedOrder(
     data: {
       customerId,
       status: fields.status,
-      paymentStatus: importedPaymentStatus({ paymentFailed, refundedStatus: wc.status === "refunded", paid: Boolean(wc.date_paid) }),
+      // A COD order's `date_paid` is not a payment (wooReportsPaid).
+      paymentStatus: importedPaymentStatus({ paymentFailed, refundedStatus: wc.status === "refunded", paid: wooReportsPaid(wc) }),
       paymentMethod: mapPaymentMethod(wc.payment_method),
       source: "WOOCOMMERCE",
       // Business channel (docs/adr/0038): every delivery order belongs to the
@@ -295,6 +297,10 @@ async function createImportedOrder(
     // Imported already cancelled AND fully refunded → payment REMBOURSE (decisions §3).
     await prisma.$transaction((tx) => applyCancelledFullRefund(tx, order.id));
   }
+  // An order IMPORTED already delivered is never marked paid by the
+  // « payée à la livraison » rule: that rule follows a delivery the company
+  // observes, never retroactively (a first historical import would otherwise
+  // mark every past delivered order paid — 2026-10-16 review).
 
   await recordAuditEvent({
     ...actorAuditFields(actor),
@@ -584,7 +590,7 @@ async function updateExistingOrder(
     // only — the order's status, stock and shipment are never touched.
     // Never from a carrier status; never while the store reports a refund.
     if (refunded <= 0) {
-      const payment = await applyStorePaymentEvent(orderId, Boolean(wc.date_paid), "WOOCOMMERCE", tx, {
+      const payment = await applyStorePaymentEvent(orderId, wooReportsPaid(wc), "WOOCOMMERCE", tx, {
         storeModifiedAt: eventTimes.modified,
         paymentFailed: internal.paymentFailed,
         label,
@@ -593,6 +599,16 @@ async function updateExistingOrder(
       if (payment.refusal) {
         statusSkippedReason = statusSkippedReason ? `${statusSkippedReason} ${payment.refusal.reason}` : payment.refusal.reason;
         if (payment.refusal.kind === "review") paymentReview ??= payment.refusal.reason;
+      }
+    }
+
+    // The store just moved this order into LIVREE → the company's
+    // « payée à la livraison » rule (default OFF). Conditional on the row
+    // really being LIVREE + EN_ATTENTE now, so a refused transition or a
+    // replayed webhook changes nothing.
+    if (status === "LIVREE" && previousStatus !== "LIVREE") {
+      if (await applyDeliveredPayment(tx, { orderId, via: "store_sync", ...actorAuditFields(actor), metadata: { source: "WOOCOMMERCE" } })) {
+        changedFields = true;
       }
     }
   });
@@ -733,7 +749,7 @@ export async function syncOrders(
       if (existing) {
         const mapped = mapOrderStatus(wc.status);
         const paymentFailed = mapped.ok && mapped.paymentFailed === true;
-        const needsRefresh = storePaymentRefreshNeeded(paymentFailed, existing.paymentStatus, { storeReportsPaid: Boolean(wc.date_paid), autoPaymentFromStore }) || storeRefreshNeeded({
+        const needsRefresh = storePaymentRefreshNeeded(paymentFailed, existing.paymentStatus, { storeReportsPaid: wooReportsPaid(wc), autoPaymentFromStore }) || storeRefreshNeeded({
           held: {
             status: existing.status,
             total: Number(existing.total),

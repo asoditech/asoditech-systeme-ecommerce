@@ -1,9 +1,12 @@
 "use client";
 
-import { ArrowLeftRight, BadgePercent, Banknote, Inbox, PackageCheck, Truck } from "lucide-react";
+import { ArrowLeftRight, BadgePercent, Banknote, Barcode, HandCoins, Inbox, PackageCheck, Truck } from "lucide-react";
 import {
   updateDefaultShippingProviderAction,
   updateAutoPaymentFromStoreAction,
+  updateAutoPaidOnDeliveryAction,
+  updateCustomerBarcodeSettingAction,
+  updateProductBarcodeAutoAction,
   updatePackingVerificationAction,
   updateSellerPriceOverrideAction,
   updateTransferCostOverrideAction,
@@ -80,13 +83,79 @@ export function AutoPaymentFromStoreForm({ enabled }: { enabled: boolean }) {
       icon={Banknote}
       title="Paiement confirmé par la boutique"
       summary="Une commande importée passe « Payé » quand WooCommerce ou Shopify la signale payée."
-      detail="Désactivé (par défaut) : le statut de paiement se change à la main. Une livraison « Livré » ne marque jamais une commande payée."
+      detail="Désactivé (par défaut) : le statut de paiement se change à la main. Le paiement à la livraison (WooCommerce « cod ») n'est jamais considéré payé par la boutique."
       note="Seulement « En attente » → « Payé » ; chaque changement est historisé."
       checked={enabled}
       save={formSwitch(updateAutoPaymentFromStoreAction, "autoPaymentFromStore")}
       onMessage="Paiement confirmé par la boutique : activé."
       offMessage="Paiement confirmé par la boutique : désactivé."
       info={<SettingInfo setting="autoPaymentFromStore" />}
+    />
+  );
+}
+
+/** « Marquer automatiquement les commandes comme payées à la livraison » — this company only, default off. */
+export function AutoPaidOnDeliveryForm({ enabled }: { enabled: boolean }) {
+  return (
+    <ToggleTile
+      anchor="paiement-livraison"
+      section="commandes"
+      icon={HandCoins}
+      title="Marquer automatiquement les commandes comme payées à la livraison"
+      summary="Une commande « En attente » de paiement passe « Payé » dès qu'elle est livrée (colis « Livré », statut « Livrée » ou boutique)."
+      detail="Désactivé (par défaut) : une livraison ne change jamais le paiement. Activé, c'est la règle de votre société « livré = payé » : aucun encaissement ni versement du transporteur n'est enregistré pour autant."
+      note="Seulement « En attente » → « Payé », jamais « Échec » ; pas d'effet sur les commandes déjà livrées ; chaque changement est historisé."
+      checked={enabled}
+      save={formSwitch(updateAutoPaidOnDeliveryAction, "autoPaidOnDelivery")}
+      onMessage="Paiement à la livraison : les commandes livrées passeront « Payé »."
+      offMessage="Paiement à la livraison : désactivé."
+      info={<SettingInfo setting="autoPaidOnDelivery" />}
+    />
+  );
+}
+
+/**
+ * « Code-barres client automatique » (docs/adr/0060) — rendered only when the
+ * platform granted the tenant; the server re-checks the grant.
+ */
+export function CustomerBarcodeForm({ enabled }: { enabled: boolean }) {
+  return (
+    <ToggleTile
+      anchor="codes-clients"
+      section="commandes"
+      icon={Barcode}
+      title="Code-barres client automatique"
+      summary="Chaque nouveau client reçoit un code unique « CL-000001 », imprimable et lisible au scanner."
+      detail="Les clients existants ne reçoivent pas de code automatiquement. Désactivé : les nouveaux clients n'ont pas de code ; les codes déjà attribués sont conservés."
+      note="Réactiver reprend la numérotation là où elle s'était arrêtée : un code n'est jamais réutilisé."
+      checked={enabled}
+      save={formSwitch(updateCustomerBarcodeSettingAction, "customerBarcodeEnabled")}
+      onMessage="Codes clients automatiques activés pour les nouveaux clients."
+      offMessage="Codes clients automatiques désactivés — les codes existants sont conservés."
+      info={<SettingInfo setting="customerBarcode" />}
+    />
+  );
+}
+
+/**
+ * « Génération automatique des codes-barres produits » (docs/adr/0061) —
+ * rendered only for tenants with barcodes (catalogIdentity).
+ */
+export function ProductBarcodeAutoForm({ enabled }: { enabled: boolean }) {
+  return (
+    <ToggleTile
+      anchor="codes-barres-produits"
+      section="stock"
+      icon={Barcode}
+      title="Génération automatique des codes-barres"
+      summary="Un bouton « Générer » à côté du code-barres d'un produit et de chaque variation, et un code distinct pour chaque nouvelle variation."
+      detail="Code interne de 13 chiffres commençant par « 20 » (numéro réservé à usage interne GS1, pas un EAN commercial). Désactivé : saisie manuelle uniquement, comme avant."
+      note="Un code déjà saisi n'est jamais remplacé sans confirmation ; aucun produit existant ne reçoit de code automatiquement."
+      checked={enabled}
+      save={formSwitch(updateProductBarcodeAutoAction, "productBarcodeAutoEnabled")}
+      onMessage="Génération automatique des codes-barres activée."
+      offMessage="Génération automatique désactivée — la saisie manuelle reste possible."
+      info={<SettingInfo setting="productBarcodeAuto" />}
     />
   );
 }

@@ -8,9 +8,15 @@ import { placeStoreEvent, type StoreOrderingRefusal } from "@/lib/integrations/s
  *  - the ONLY automatic source is the store itself reporting the order paid
  *    (WooCommerce `date_paid`, Shopify `displayFinancialStatus = PAID`) — the
  *    store is where the customer actually paid (card, transfer…);
- *  - a carrier « Livré » never marks an order paid: delivery does not prove
- *    the courier collected the cash, and no COD remittance record exists to
- *    reconcile against (documented decision);
+ *  - a carrier « Livré » never marks an order paid HERE: that is the
+ *    separate, company-level rule « payée à la livraison »
+ *    (src/lib/orders/delivered-payment.ts, default OFF);
+ *  - a WooCommerce CASH-ON-DELIVERY order's `date_paid` is NOT a payment:
+ *    WooCommerce stamps it when the merchant marks the order « completed »
+ *    (or a plugin / zero total / REST `set_paid`), which proves no cash was
+ *    collected (docs/research/woocommerce-date-paid-cod-2026-10-16.md) —
+ *    so it is ignored, at import and later, and COD payment comes from
+ *    delivery (when the company opted in) or a person;
  *  - EN_ATTENTE → PAYE; and ECHEC → PAYE when the store's paid report is
  *    clearly NEWER than the recorded payment failure (owner decision
  *    2026-10-14 bis — see `applyStorePaymentEvent`). PAYE /
@@ -21,6 +27,13 @@ import { placeStoreEvent, type StoreOrderingRefusal } from "@/lib/integrations/s
  * The conditional updateMany makes it idempotent (repeated webhooks / syncs:
  * one change, one audit event).
  */
+
+/** WooCommerce's « paid » signal, excluding cash on delivery (see above). */
+export function wooReportsPaid(wc: { date_paid?: string | null; payment_method?: string | null }): boolean {
+  if (!wc.date_paid) return false;
+  return (wc.payment_method ?? "").trim().toLowerCase() !== "cod";
+}
+
 export async function applyStorePaymentConfirmation(
   orderId: string,
   storeReportsPaid: boolean,

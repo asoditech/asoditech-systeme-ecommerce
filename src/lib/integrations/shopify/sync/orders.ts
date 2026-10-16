@@ -1,4 +1,5 @@
 import { applyStorePaymentEvent } from "@/lib/orders/store-payment";
+import { applyDeliveredPayment } from "@/lib/orders/delivered-payment";
 import "server-only";
 
 import { REOPEN_ORDER_DATA, isReopenable } from "@/lib/order-confirmation";
@@ -298,6 +299,8 @@ async function createImportedOrder(
     // Imported already cancelled AND fully refunded → payment REMBOURSE (decisions §3).
     await prisma.$transaction((tx) => applyCancelledFullRefund(tx, createdOrder.id));
   }
+  // Never retroactive on import (see the WooCommerce sync): the « payée à la
+  // livraison » rule applies to a later observed transition into LIVREE only.
 
   await recordAuditEvent({
     ...actorAuditFields(actor),
@@ -584,6 +587,13 @@ async function updateExistingOrder(
       if (payment.refusal) {
         statusSkippedReason = statusSkippedReason ? `${statusSkippedReason} ${payment.refusal.reason}` : payment.refusal.reason;
         if (payment.refusal.kind === "review") paymentReview ??= payment.refusal.reason;
+      }
+    }
+
+    // Same « payée à la livraison » hook as WooCommerce (see the import path).
+    if (status === "LIVREE" && previousStatus !== "LIVREE") {
+      if (await applyDeliveredPayment(tx, { orderId, via: "store_sync", ...actorAuditFields(actor), metadata: { source: "SHOPIFY" } })) {
+        changedFields = true;
       }
     }
   });

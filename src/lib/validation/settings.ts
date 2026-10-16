@@ -79,6 +79,21 @@ export const updateAutoPaymentFromStoreSchema = z.object({
   autoPaymentFromStore: z.union([z.literal("on"), z.literal("true"), z.literal("false"), z.null(), z.undefined()]).transform((v) => v === "on" || v === "true"),
 });
 
+// « Marquer automatiquement les commandes comme payées à la livraison » — same switch encoding.
+export const updateAutoPaidOnDeliverySchema = z.object({
+  autoPaidOnDelivery: z.union([z.literal("on"), z.literal("true"), z.literal("false"), z.null(), z.undefined()]).transform((v) => v === "on" || v === "true"),
+});
+
+// « Code-barres client automatique » (docs/adr/0060) — same switch encoding.
+export const updateCustomerBarcodeSettingSchema = z.object({
+  customerBarcodeEnabled: z.union([z.literal("on"), z.literal("true"), z.literal("false"), z.null(), z.undefined()]).transform((v) => v === "on" || v === "true"),
+});
+
+// « Génération automatique des codes-barres produits » (docs/adr/0061) — same switch encoding.
+export const updateProductBarcodeAutoSchema = z.object({
+  productBarcodeAutoEnabled: z.union([z.literal("on"), z.literal("true"), z.literal("false"), z.null(), z.undefined()]).transform((v) => v === "on" || v === "true"),
+});
+
 // « Coût d'achat à destination » sur les transferts — same switch encoding.
 export const updateTransferCostOverrideSchema = z.object({
   transferPurchaseCostOverrideEnabled: z.union([z.literal("on"), z.literal("true"), z.literal("false"), z.null(), z.undefined()]).transform((v) => v === "on" || v === "true"),

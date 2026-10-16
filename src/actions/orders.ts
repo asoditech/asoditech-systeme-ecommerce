@@ -22,6 +22,7 @@ import {
 } from "@/lib/inventory";
 import {
   notifyNewOrder,
+  notifyOrderConfirmed,
   notifyOrderReturned,
   notifyPaymentProblem,
   notifyPaymentReview,
@@ -72,8 +73,11 @@ import { orderGoodsCameBack, RESHIP_AFTER_RETURN_MESSAGE } from "@/lib/delivery"
 import { isPackingRequired } from "@/lib/packing-settings";
 import { findOrCreateCustomer } from "@/lib/customers/find-or-create";
 import { customerPhoneSearchKeys } from "@/lib/customers/identity";
+import { normalizeScannedCustomerCode } from "@/lib/customers/barcode";
+import { resolveExactCode } from "@/lib/catalog/exact-code";
 import { customerVisibilityWhere } from "@/lib/customers/visibility";
 import { effectiveUnitCost, locationUnitCost } from "@/lib/catalog/location-cost";
+import { applyDeliveredPayment } from "@/lib/orders/delivered-payment";
 import { z } from "zod";
 import type { Customer, Prisma } from "@prisma/client";
 import type { IdResult } from "@/actions/types";
@@ -113,6 +117,8 @@ export async function searchCustomersForOrderAction(query: string) {
                 { fullName: { contains: q, mode: "insensitive" } },
                 { phone: { contains: q, mode: "insensitive" } },
                 ...customerPhoneSearchKeys(q).map((digits) => ({ phoneKey: { contains: digits } })),
+                // Customer code « CL-000001 » (docs/adr/0060): exact, scanner-normalised.
+                { barcode: normalizeScannedCustomerCode(q).code },
               ],
             },
       ],
@@ -218,14 +224,27 @@ export async function searchProductsForOrderAction(query: string, warehouseId?: 
   // Empty = the picker's initial list (first 20 active products by name);
   // 1 character = still nothing, as before; 2+ = the unchanged search.
   if (q.length === 1) return [];
-  const search = q ? await productSearchWhereWithOptions(q) : null;
+  // An EXACT code first — barcode (incl. generated internal codes and GTIN
+  // spellings), label QR, variation / simple-product SKU — through the shared
+  // resolver used by sales, receptions, packing and returns
+  // (src/lib/catalog/exact-code.ts): it designates ONE unit, so a variation's
+  // code offers that variation only. An exact code that is not orderable
+  // (archived product / inactive variation) offers nothing — never a fuzzy
+  // fallback. Customer codes live outside the barcode table and never match.
+  const exact = q ? await resolveExactCode(prisma, q) : null;
+  const exactUnit = exact?.ok ? exact.unit : null;
+  const search = q && !exactUnit ? await productSearchWhereWithOptions(q) : null;
   const products = await prisma.product.findMany({
     where: {
       status: "ACTIF",
-      // Same predicate as the product list (docs/adr/0038): name, SKU, model
-      // reference, variation SKU and barcodes — a scanned code or a variant
-      // SKU finds its parent product.
-      ...(search ? { OR: search.or } : {}),
+      ...(exactUnit
+        ? { id: exactUnit.productId }
+        : // Same predicate as the product list (docs/adr/0038): name, SKU, model
+          // reference, variation SKU and barcodes — a scanned code or a variant
+          // SKU finds its parent product.
+          search
+          ? { OR: search.or }
+          : {}),
     },
     include: {
       variations: { include: { inventoryItems: { where: { warehouseId: stockWarehouseId ?? "" }, select: STOCK_SELECT } } },
@@ -233,6 +252,12 @@ export async function searchProductsForOrderAction(query: string, warehouseId?: 
     },
     ...(q ? { take: 8 } : { orderBy: [{ name: "asc" as const }, { id: "asc" as const }], take: 20 }),
   });
+
+  // An exact variation code whose variation is inactive offers nothing (a scan
+  // is exact — never "the other sizes of that product").
+  if (exactUnit?.variationId && !products.some((p) => p.variations.some((v) => v.id === exactUnit.variationId && v.isActive))) {
+    return [];
+  }
 
   // Decimal fields aren't serializable across the Server Action boundary —
   // convert to plain strings before returning to the client component.
@@ -243,7 +268,11 @@ export async function searchProductsForOrderAction(query: string, warehouseId?: 
     // Matched through its variations (a variation SKU or an option value such
     // as "Rouge" / "XL"): offer just those variations. A product-level match
     // (name, reference, product SKU) — or a barcode-only match — keeps all.
-    const matched = search && !productLevelMatches(p, q) ? matchingVariationIds(p.variations, q, search.optionVariationIds) : null;
+    const matched = exactUnit?.variationId
+      ? new Set([exactUnit.variationId])
+      : search && !productLevelMatches(p, q)
+        ? matchingVariationIds(p.variations, q, search.optionVariationIds)
+        : null;
     const variationOnly = matched !== null && p.variations.some((v) => v.isActive && matched.has(v.id));
     const { inventoryItems: productStockRows, ...product } = p;
     return {
@@ -807,6 +836,12 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
       // stock by itself. Only the explicit physical-return action credits
       // returned units back.
 
+      // The company's opt-in rule "delivered = paid" (default OFF), in the
+      // same transaction as the status change.
+      if (parsed.data.status === "LIVREE") {
+        await applyDeliveredPayment(tx, { orderId: parsed.data.id, via: "order_status", actorType: "USER", actorUserId: user.id });
+      }
+
       return tx.order.findUniqueOrThrow({ where: { id: parsed.data.id } });
     });
   } catch (error) {
@@ -851,6 +886,10 @@ export async function updateOrderStatusAction(formData: FormData): Promise<Actio
   // alert has served its purpose, drop it from everyone's bell.
   if (existing.status === "NOUVELLE") {
     await resolveNotifications({ types: ["NOUVELLE_COMMANDE"], entityType: "Order", entityId: order.id });
+  }
+  // Staff WhatsApp « commande confirmée » (docs/adr/0058 addendum), confirmer excluded.
+  if (parsed.data.status === "CONFIRMEE" && existing.status === "NOUVELLE") {
+    await notifyOrderConfirmed(order.id, user.id);
   }
 
   // Every one of these transitions actually moved stock — a reservation or
@@ -1232,7 +1271,7 @@ export async function createRefundAction(formData: FormData): Promise<ActionResu
       if (toCents(parsed.data.amount) > remainingCents) {
         throw new RefundLimitError(
           remainingCents > 0
-            ? `Le montant dépasse le solde remboursable (${(remainingCents / 100).toFixed(2)} MAD restants).`
+            ? `Le montant dépasse le solde remboursable (${(remainingCents / 100).toFixed(2)} ${order.currency} restants).`
             : "Cette commande a déjà été intégralement remboursée."
         );
       }

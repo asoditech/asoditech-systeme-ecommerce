@@ -11,6 +11,9 @@ import {
   DefaultShippingProviderForm,
   ImportAsNouvelleTile,
   AutoPaymentFromStoreForm,
+  AutoPaidOnDeliveryForm,
+  CustomerBarcodeForm,
+  ProductBarcodeAutoForm,
   PackingVerificationForm,
   SellerPriceOverrideForm,
   TransferCostOverrideForm,
@@ -72,6 +75,10 @@ export interface ConfigurationViewProps {
   /** `finance.view` — purchase-cost settings are financial data (docs/adr/0043). */
   canManageCost?: boolean;
   providers: { id: string; name: string; hasCityList: boolean }[];
+  /** docs/adr/0060 — the platform granted automatic customer codes. */
+  customerBarcodeGranted?: boolean;
+  /** docs/adr/0061 — the tenant has barcodes at all (capability catalogIdentity). */
+  catalogIdentity?: boolean;
   /** Which advanced management pages the user may open. */
   links: { channels: boolean; delivery: boolean; warehouses: boolean; integrations: boolean; commissions: boolean; backup: boolean };
 }
@@ -86,6 +93,8 @@ export function ConfigurationView(props: ConfigurationViewProps) {
     imports: props.imports,
     providers: props.providers,
     canManageCost: props.canManageCost ?? false,
+    customerBarcodeGranted: props.customerBarcodeGranted ?? false,
+    catalogIdentity: props.catalogIdentity ?? false,
   };
   const attention = configAttention(ctx);
   const index = settingsIndex(ctx);
@@ -186,6 +195,9 @@ function Workspace({ id, props }: { id: ConfigWorkspaceId; props: ConfigurationV
             )}
             {/* The whole view is settings.manage-only (parametres/page.tsx). */}
             {connected.length > 0 && <AutoPaymentFromStoreForm enabled={settings.autoPaymentFromStore} />}
+            {/* Every online order, imported or not — no store connection needed. */}
+            <AutoPaidOnDeliveryForm enabled={settings.autoPaidOnDelivery} />
+            {props.customerBarcodeGranted && <CustomerBarcodeForm enabled={settings.customerBarcodeEnabled} />}
             {connected.length === 0 && (
               <UnavailableTile
                 icon={Plug}
@@ -250,6 +262,7 @@ function Workspace({ id, props }: { id: ConfigWorkspaceId; props: ConfigurationV
           <div className={tiles}>
             <StockThresholdForm settings={settings} />
             <CostingMethodForm settings={settings} />
+            {props.catalogIdentity && <ProductBarcodeAutoForm enabled={settings.productBarcodeAutoEnabled} />}
             {props.canManageCost ? (
               <TransferCostOverrideForm enabled={settings.transferPurchaseCostOverrideEnabled} />
             ) : (
