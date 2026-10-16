@@ -12,6 +12,7 @@ import { recordWebhookEventOnce } from "@/lib/integrations/shared";
 import { isTenantSuspended, payloadTooLargeResponse, readWebhookBody } from "@/lib/integrations/shared/webhook-body";
 import { clearRemoteMissing, handleWooProductDeletedWebhook, wooLinksForExternalId } from "@/lib/integrations/woocommerce/remote-deletion";
 import { remoteDeletionModeOf } from "@/lib/integrations/woocommerce/store-settings";
+import { remoteArchiveIsRestorable } from "@/lib/integrations/shared/remote-deletion";
 import { getTenantUsage } from "@/lib/entitlements/usage";
 import { checkAndNotifyUsageThreshold } from "@/lib/entitlements/alerts";
 
@@ -262,10 +263,14 @@ async function handleWooCommerceWebhook(request: Request, integration: Integrati
     }
     try {
       const product = await loaded.client.getProduct(numericId);
-      const imported = await importProduct(loaded.client, product, { type: "INTEGRATION" }, { restoreArchived: true });
+      // Lifts only an archive the store caused (product.deleted / trash) —
+      // never one a user made in ASODITECH (shared/remote-deletion.ts).
+      const before = await prisma.product.findFirst({ where: { source: "WOOCOMMERCE", externalId: String(numericId) }, select: { id: true, status: true } });
+      const restoreArchived = before?.status === "ARCHIVE" ? await remoteArchiveIsRestorable(before.id, "WOOCOMMERCE") : true;
+      const imported = await importProduct(loaded.client, product, { type: "INTEGRATION" }, { restoreArchived });
       if (imported.outcome === "failed") throw new Error("product restore failed");
       const local = await prisma.product.findFirst({ where: { source: "WOOCOMMERCE", externalId: String(numericId) }, select: { id: true } });
-      if (local) {
+      if (local && restoreArchived) {
         await recordAuditEvent({
           actorType: "INTEGRATION",
           action: "product.restored",

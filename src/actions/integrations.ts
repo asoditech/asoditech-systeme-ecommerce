@@ -161,7 +161,7 @@ const SETTING_VALIDATORS: Record<string, (value: unknown) => boolean> = {
 };
 const CONNECTION_SETTING_KEYS: Record<"WOOCOMMERCE" | "SHOPIFY", string[]> = {
   WOOCOMMERCE: ["remoteDeletionMode", "inventoryOwner", "importHistoricalOrders", "historyCutoffAt", "forceNouvelleOnImport"],
-  SHOPIFY: ["inventoryOwner", "importHistoricalOrders", "historyCutoffAt", "forceNouvelleOnImport"],
+  SHOPIFY: ["remoteDeletionMode", "inventoryOwner", "importHistoricalOrders", "historyCutoffAt", "forceNouvelleOnImport"],
 };
 
 /**

@@ -18,6 +18,8 @@ import {
   shopifyInventorySetQuantitiesResultSchema,
   shopifyProductCreateResultSchema,
   shopifyVariantsBulkUpdateResultSchema,
+  shopifyProductStatusResultSchema,
+  shopifyProductStatusUpdateResultSchema,
   type ShopifyLocation,
   type ShopifyProduct,
   type ShopifyOrder,
@@ -108,8 +110,20 @@ export class ShopifyClient {
     this.accessToken = accessToken;
   }
 
-  private async request<T>(schema: z.ZodType<T>, query: string, variables?: Record<string, unknown>): Promise<T> {
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+  /**
+   * `retry: false` — for a state-changing call whose outcome must never be
+   * guessed (« Retirer de la boutique », remote-listing.ts): exactly ONE
+   * attempt, no automatic re-send after a network failure, a 5xx, a 429 or a
+   * THROTTLED answer. The caller decides, after re-reading the product.
+   */
+  private async request<T>(
+    schema: z.ZodType<T>,
+    query: string,
+    variables?: Record<string, unknown>,
+    options: { retry?: boolean } = {}
+  ): Promise<T> {
+    const attempts = options.retry === false ? 1 : MAX_RETRIES;
+    for (let attempt = 0; attempt < attempts; attempt++) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       let response: Response;
@@ -129,7 +143,7 @@ export class ShopifyClient {
         if (error instanceof DOMException && error.name === "AbortError") {
           throw new ShopifyTimeoutError("Shopify n'a pas répondu à temps.");
         }
-        if (attempt < MAX_RETRIES - 1) {
+        if (attempt < attempts - 1) {
           await sleep(500 * 2 ** attempt);
           continue;
         }
@@ -138,7 +152,7 @@ export class ShopifyClient {
       clearTimeout(timeout);
 
       if (response.status === 429 || response.status >= 500) {
-        if (attempt < MAX_RETRIES - 1) {
+        if (attempt < attempts - 1) {
           const retryAfter = Number(response.headers.get("retry-after"));
           const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1000;
           await sleep(delay);
@@ -159,7 +173,7 @@ export class ShopifyClient {
       if (body.errors && body.errors.length > 0) {
         const throttled = body.errors.some((e) => e.extensions?.code === "THROTTLED");
         if (throttled) {
-          if (attempt < MAX_RETRIES - 1) {
+          if (attempt < attempts - 1) {
             // Shopify's own recommended backoff for a throttled GraphQL query is one second.
             await sleep(1000);
             continue;
@@ -402,5 +416,52 @@ export class ShopifyClient {
         `Shopify a refusé la mise à jour de la variante : ${result.productVariantsBulkUpdate.userErrors[0].message}`
       );
     }
+  }
+
+  /**
+   * Lightweight read of one product's lifecycle status — `null` when Shopify
+   * no longer has it (the Admin API answers `product: null`, no error, for a
+   * deleted product; any GraphQL error, e.g. a missing scope, throws instead).
+   * Used to confirm a deletion and to reconcile an uncertain status change.
+   */
+  async getProductStatus(gid: string): Promise<{ id: string; status: string } | null> {
+    const result = await this.request(
+      shopifyProductStatusResultSchema,
+      `query GetProductStatus($id: ID!) { product(id: $id) { id status } }`,
+      { id: gid }
+    );
+    return result.product;
+  }
+
+  /**
+   * Sets a product's status (`productUpdate(product: { id, status })`,
+   * Admin GraphQL 2026-07, scope write_products) — ARCHIVED / DRAFT hide it
+   * from every sales channel and stay reversible; ACTIVE puts it back on
+   * sale. ONE attempt only (`retry: false`): the caller treats a timeout, a
+   * network failure, a 5xx or an unreadable answer as « à vérifier » and
+   * re-reads the product before anything else. Never `productDelete`
+   * (irreversible): ASODITECH does not offer a permanent remote deletion.
+   */
+  async setProductStatus(gid: string, status: "ACTIVE" | "ARCHIVED" | "DRAFT"): Promise<{ id: string; status: string }> {
+    const result = await this.request(
+      shopifyProductStatusUpdateResultSchema,
+      `mutation SetProductStatus($product: ProductUpdateInput!) {
+         productUpdate(product: $product) {
+           product { id status }
+           userErrors { field message }
+         }
+       }`,
+      { product: { id: gid, status } },
+      { retry: false }
+    );
+    if (result.productUpdate.userErrors.length > 0) {
+      throw new ShopifyUserError(
+        `Shopify a refusé le changement de statut du produit : ${result.productUpdate.userErrors[0].message}`
+      );
+    }
+    if (!result.productUpdate.product) {
+      throw new ShopifyMalformedResponseError("Shopify n'a pas retourné le produit modifié.");
+    }
+    return result.productUpdate.product;
   }
 }

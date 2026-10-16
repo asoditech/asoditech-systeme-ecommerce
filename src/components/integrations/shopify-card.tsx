@@ -8,7 +8,7 @@ import { SyncResourceRow } from "@/components/integrations/sync-resource-row";
 import { ForceNouvelleToggle } from "@/components/integrations/force-nouvelle-toggle";
 import { ImportHistoryToggle } from "@/components/integrations/import-history-toggle";
 import { ShopifyStoreSettings } from "@/components/integrations/woocommerce-store-settings";
-import { inventoryOwnerOf } from "@/lib/integrations/woocommerce/store-settings";
+import { inventoryOwnerOf, remoteDeletionModeOf } from "@/lib/integrations/woocommerce/store-settings";
 import { prisma } from "@/lib/prisma";
 import { formatDateTime } from "@/lib/format";
 
@@ -87,7 +87,7 @@ export async function ShopifyCard({ canManage }: { canManage: boolean }) {
               checked={config?.importHistoricalOrders !== false}
               cutoff={typeof config?.historyCutoffAt === "string" ? config.historyCutoffAt : null}
             />
-            <ShopifyStoreSettings inventoryOwner={inventoryOwnerOf(config)} />
+            <ShopifyStoreSettings remoteDeletionMode={remoteDeletionModeOf(config)} inventoryOwner={inventoryOwnerOf(config)} />
           </>
         )}
       </CardContent>

@@ -65,9 +65,10 @@ export class WooCommerceClient {
     this.authHeader = `Basic ${Buffer.from(`${credentials.consumerKey}:${credentials.consumerSecret}`).toString("base64")}`;
   }
 
-  private async requestRaw(path: string, init?: RequestInit): Promise<Response> {
+  /** `attempts: 1` — a state-changing call that must never be re-sent automatically (see `setProductStatus`). */
+  private async requestRaw(path: string, init?: RequestInit, attempts = MAX_RETRIES): Promise<Response> {
     let lastError: unknown;
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       try {
@@ -84,7 +85,7 @@ export class WooCommerceClient {
         clearTimeout(timeout);
 
         if (response.status === 429 || response.status >= 500) {
-          if (attempt < MAX_RETRIES - 1) {
+          if (attempt < attempts - 1) {
             const retryAfter = Number(response.headers.get("retry-after"));
             const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 500 * 2 ** attempt;
             await sleep(delay);
@@ -100,7 +101,7 @@ export class WooCommerceClient {
         }
         // Network-level failure (DNS, TLS, connection refused) — retry with
         // backoff, same as a 5xx.
-        if (attempt < MAX_RETRIES - 1) {
+        if (attempt < attempts - 1) {
           await sleep(500 * 2 ** attempt);
           continue;
         }
@@ -155,8 +156,8 @@ export class WooCommerceClient {
     return errorForStatus(response.status);
   }
 
-  private async requestJson<T>(schema: z.ZodType<T>, path: string, init?: RequestInit): Promise<T> {
-    const response = await this.requestRaw(path, init);
+  private async requestJson<T>(schema: z.ZodType<T>, path: string, init?: RequestInit, attempts = MAX_RETRIES): Promise<T> {
+    const response = await this.requestRaw(path, init, attempts);
     if (!response.ok) {
       throw await this.errorForResponse(response);
     }
@@ -341,6 +342,20 @@ export class WooCommerceClient {
       method: "POST",
       body: JSON.stringify(payload),
     });
+  }
+
+  /**
+   * Sets a product's post status (`PUT /products/{id}` with `status`,
+   * WooCommerce REST v3: draft | pending | private | publish) — « Retirer de
+   * la boutique » sends `draft` (hidden from the shop, kept in WooCommerce,
+   * reversible), « Remettre en vente » sends `publish`. ONE attempt only: a
+   * timeout, a network failure, a 5xx or an unreadable answer is reported
+   * as such and the caller re-reads the product before anything else.
+   * Never `DELETE /products/{id}` — neither the trash (`force=false`) nor a
+   * permanent deletion (`force=true`) is sent by ASODITECH.
+   */
+  async setProductStatus(id: number, status: "draft" | "publish"): Promise<WcProduct> {
+    return this.requestJson(wcProductSchema, `/products/${id}`, { method: "PUT", body: JSON.stringify({ status }) }, 1);
   }
 
   /** System → WooCommerce stock push. `variationId` targets a specific variation instead of the parent product. */

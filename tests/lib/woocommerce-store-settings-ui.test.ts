@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => {}, push: () => {} }) }));
-const { WooCommerceStoreSettings } = await import("@/components/integrations/woocommerce-store-settings");
+const { WooCommerceStoreSettings, ShopifyStoreSettings } = await import("@/components/integrations/woocommerce-store-settings");
 
 /** The two per-connection choices on the WooCommerce card: wording, defaults, consequences. */
 describe("WooCommerce card — remote deletion and inventory owner settings", () => {
@@ -36,5 +36,33 @@ describe("WooCommerce card — remote deletion and inventory owner settings", ()
     const card = readFileSync(join(process.cwd(), "src/components/integrations/woocommerce-card.tsx"), "utf8");
     expect(card).toContain("<WooCommerceStoreSettings remoteDeletionMode={remoteDeletionModeOf(config)} inventoryOwner={inventoryOwnerOf(config)} />");
     expect(card.slice(card.indexOf("{canManage && hasCredentials && ("), card.indexOf("<WooCommerceStoreSettings"))).not.toContain(")}");
+  });
+});
+
+/** Shopify parity: the same « supprimé de la boutique » choice, same safe default, Shopify wording. */
+describe("Shopify card — remote deletion and inventory owner settings", () => {
+  const render = (remoteDeletionMode: "manual" | "auto", inventoryOwner: "ASODITECH" | "STORE") =>
+    renderToStaticMarkup(createElement(ShopifyStoreSettings, { remoteDeletionMode, inventoryOwner }));
+  const checked = (html: string) =>
+    [...html.matchAll(/<input [^>]*>/g)].map((m) => m[0]).filter((tag) => tag.includes('checked=""')).map((tag) => tag.match(/value="([^"]+)"/)?.[1]);
+
+  it("shows both questions, the current choices checked", () => {
+    const html = render("manual", "ASODITECH");
+    expect(html).toContain("Que faire lorsqu’un produit est supprimé de la boutique ?");
+    expect(html).toContain("Me demander avant de dissocier");
+    expect(html).toContain("Qui gère le stock des produits importés ?");
+    expect(checked(html)).toEqual(["manual", "ASODITECH"]);
+    expect(checked(render("auto", "STORE"))).toEqual(["auto", "STORE"]);
+  });
+
+  it("says that an archived / draft Shopify product is never a deletion", () => {
+    const html = render("manual", "ASODITECH");
+    expect(html).toContain("uniquement quand Shopify confirme que le produit n&#x27;existe plus");
+    expect(html).toContain("Un produit archivé ou en brouillon sur Shopify");
+  });
+
+  it("is rendered on the Shopify card from the fail-safe readers", () => {
+    const card = readFileSync(join(process.cwd(), "src/components/integrations/shopify-card.tsx"), "utf8");
+    expect(card).toContain("<ShopifyStoreSettings remoteDeletionMode={remoteDeletionModeOf(config)} inventoryOwner={inventoryOwnerOf(config)} />");
   });
 });

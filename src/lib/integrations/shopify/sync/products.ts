@@ -12,6 +12,36 @@ import { emptySyncSummary, recordNote, reconcileStockFromProvider, syncProductLe
 import { resolveStoreProduct, resolveStoreVariation } from "@/lib/integrations/shared/identity";
 import { inventoryOwnerOf, type InventoryOwner } from "@/lib/integrations/woocommerce/store-settings";
 import { variantLabel } from "@/lib/catalog/lookup";
+import { recordRemoteArchive, recordRemoteRestore, remoteArchiveIsRestorable } from "@/lib/integrations/shared/remote-deletion";
+import type { ProductStatus } from "@prisma/client";
+
+/**
+ * Local status of an existing product from Shopify's (docs: shared/remote-deletion.ts):
+ * - archive is sticky — a product archived in ASODITECH stays ARCHIVE…
+ * - …unless that archive was caused by Shopify itself (deleted upstream with
+ *   no proof, or ARCHIVED on Shopify) and Shopify now serves it as
+ *   ACTIVE / DRAFT: then it follows Shopify again (`restored`). A manual
+ *   archive (latest `product.archived` by a user) is never undone.
+ * - a product Shopify archives is archived here, recorded as the store's
+ *   doing (`archivedUpstream`) so that it can be lifted later.
+ */
+async function nextLocalStatus(
+  existing: { id: string; status: ProductStatus },
+  remote: ProductStatus
+): Promise<{ status: ProductStatus; restored: boolean; archivedUpstream: boolean }> {
+  if (existing.status === "ARCHIVE") {
+    if (remote !== "ARCHIVE" && (await remoteArchiveIsRestorable(existing.id, "SHOPIFY"))) {
+      return { status: remote, restored: true, archivedUpstream: false };
+    }
+    return { status: "ARCHIVE", restored: false, archivedUpstream: false };
+  }
+  return { status: remote, restored: false, archivedUpstream: remote === "ARCHIVE" };
+}
+
+async function recordStatusCause(productId: string, next: { restored: boolean; archivedUpstream: boolean }): Promise<void> {
+  if (next.restored) await recordRemoteRestore(productId, "SHOPIFY", "active_upstream");
+  if (next.archivedUpstream) await recordRemoteArchive(productId, "SHOPIFY", "archived_upstream");
+}
 
 /** Shopify `createdAt` is an ISO 8601 string. Guard against a
  * blank/garbage value so a bad date never crashes a whole sync run. */
@@ -178,9 +208,9 @@ async function syncOneProduct(
     localTracked = existing.trackInventory;
     const needsPlatformDate =
       platformCreatedAt !== null && existing.platformCreatedAt?.getTime() !== platformCreatedAt.getTime();
-    // Archive is sticky — see WooCommerce's syncOneProduct (`restoreArchived`).
-    // Shopify has no « restored » webhook: a user re-activates it here.
-    const status = existing.status === "ARCHIVE" ? "ARCHIVE" : fields.status;
+    // Archive is sticky, except an archive Shopify itself caused (nextLocalStatus).
+    const next = await nextLocalStatus(existing, fields.status);
+    const status = next.status;
     const changed =
       existing.name !== fields.name ||
       existing.status !== status ||
@@ -196,6 +226,7 @@ async function syncOneProduct(
           ...(platformCreatedAt ? { platformCreatedAt } : {}),
         },
       });
+      await recordStatusCause(existing.id, next);
       summary.updated++;
     } else {
       summary.unchanged++;
@@ -218,6 +249,7 @@ async function syncOneProduct(
       },
     });
     productId = created.id;
+    if (fields.status === "ARCHIVE") await recordRemoteArchive(created.id, "SHOPIFY", "archived_upstream");
     // docs/adr/0038: a synced product is sellable on the default ONLINE channel.
     await enableProductOnDefaultOnlineChannel(created.id);
     summary.imported++;
@@ -283,7 +315,8 @@ async function syncSimpleProduct(
   if (existing) {
     const needsPlatformDate =
       platformCreatedAt !== null && existing.platformCreatedAt?.getTime() !== platformCreatedAt.getTime();
-    const status = existing.status === "ARCHIVE" ? "ARCHIVE" : fields.status; // sticky archive (see above)
+    const next = await nextLocalStatus(existing, fields.status); // sticky archive (see above)
+    const status = next.status;
     // ASODITECH manages the stock: « Suivre le stock » is the user's, never switched by Shopify's flag.
     const trackInventory = inventoryOwner === "ASODITECH" ? existing.trackInventory : fields.trackInventory;
     const changed =
@@ -309,6 +342,7 @@ async function syncSimpleProduct(
           ...(platformCreatedAt ? { platformCreatedAt } : {}),
         },
       });
+      await recordStatusCause(existing.id, next);
       summary.updated++;
     } else {
       summary.unchanged++;
@@ -327,6 +361,7 @@ async function syncSimpleProduct(
       data: { name: fields.name, sku, description: fields.description, price: fields.price, status: fields.status, trackInventory: fields.trackInventory, source: "SHOPIFY", externalId: product.id, platformCreatedAt },
     });
     productId = created.id;
+    if (fields.status === "ARCHIVE") await recordRemoteArchive(created.id, "SHOPIFY", "archived_upstream");
     // docs/adr/0038: a synced product is sellable on the default ONLINE channel.
     await enableProductOnDefaultOnlineChannel(created.id);
     summary.imported++;

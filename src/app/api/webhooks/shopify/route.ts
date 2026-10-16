@@ -4,11 +4,12 @@ import type { Integration } from "@prisma/client";
 import { prisma, prismaBase } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant/context";
 import { decryptSecret } from "@/lib/crypto";
-import { recordAuditEvent } from "@/lib/audit";
 import { verifyShopifyWebhookSignature } from "@/lib/integrations/shopify/webhook-signature";
 import { validateShopDomain } from "@/lib/integrations/shopify/ssrf";
 import { ShopifyClient } from "@/lib/integrations/shopify/client";
 import { importOrder, importProduct } from "@/lib/integrations/shopify/sync";
+import { handleShopifyProductDeletedWebhook } from "@/lib/integrations/shopify/remote-deletion";
+import { remoteDeletionModeOf } from "@/lib/integrations/woocommerce/store-settings";
 import { recordWebhookEventOnce } from "@/lib/integrations/shared";
 import { isTenantSuspended, payloadTooLargeResponse, readWebhookBody } from "@/lib/integrations/shared/webhook-body";
 import { getTenantUsage } from "@/lib/entitlements/usage";
@@ -276,18 +277,21 @@ async function handleShopifyWebhook(
     }
     const productGid = `gid://shopify/Product/${parsed.data.id}`;
     try {
-      const product = await prisma.product.findFirst({ where: { source: "SHOPIFY", externalId: productGid } });
-      if (product && product.status !== "ARCHIVE") {
-        await prisma.product.update({ where: { id: product.id }, data: { status: "ARCHIVE" } });
-        await recordAuditEvent({
-          actorType: "INTEGRATION",
-          action: "product.archived",
-          entityType: "Product",
-          entityId: product.id,
-          metadata: { source: "SHOPIFY", reason: "deleted_upstream" },
-        });
-        revalidateAfterImport("product");
+      // Shopify deletions are irreversible, but the delivery itself is not
+      // proof enough to unlink: the product is re-read once (product(id:)
+      // null = deleted), then every local link follows the connection's
+      // « Que faire lorsqu'un produit est supprimé ? » rule — the same as
+      // WooCommerce (src/lib/integrations/shopify/remote-deletion.ts). A
+      // product imported from Shopify is archived (never deleted) unless
+      // Shopify proves it still exists; an unreachable shop leaves it flagged.
+      let client: ShopifyClient | null = null;
+      try {
+        client = new ShopifyClient(await validateShopDomain(config.shopDomain), apiKey);
+      } catch {
+        // invalid stored domain — the deletion stays unverified
       }
+      const outcomes = await handleShopifyProductDeletedWebhook(productGid, client, remoteDeletionModeOf(integration.config));
+      if (outcomes.some((o) => o.archived || o.result === "unlinked")) revalidateAfterImport("product");
       await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: productGid, status: "TRAITE" });
     } catch {
       await recordWebhookEventOnce({ integrationId: integration.id, provider: "SHOPIFY", deliveryId, topic, resourceId: productGid, status: "ECHEC" });

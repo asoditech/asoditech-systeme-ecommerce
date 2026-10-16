@@ -87,6 +87,18 @@ export interface FakeShopifyState {
   productCreates: Record<string, unknown>[];
   /** Every `productVariantsBulkUpdate` variants array received. */
   variantUpdates: Record<string, unknown>[];
+  /** Every `productUpdate` status change received (remote-listing tests), in call order. */
+  statusUpdates?: { id: string; status: string }[];
+  /**
+   * Optional injected answer to the NEXT product-status read / write
+   * (remote-deletion & remote-listing tests). `afterApply` on a write: the
+   * change IS applied on the fake shop, then the answer fails — the
+   * « request reached Shopify, answer lost » case.
+   */
+  statusReadFailure?: "timeout" | "network" | "throttled" | "denied" | "server" | null;
+  /** Keep failing EVERY status read (the client's own retries included) instead of only the next one. */
+  statusReadFailurePersistent?: boolean;
+  statusWriteFailure?: { kind: "timeout" | "network" | "throttled" | "denied" | "server" | "malformed" | "userError"; afterApply?: boolean } | null;
 }
 
 export function emptyFakeShopifyStore(): FakeShopifyState {
@@ -169,6 +181,16 @@ function serializeProduct(p: FakeProduct) {
   };
 }
 
+function injectedFailure(kind: "timeout" | "network" | "throttled" | "denied" | "server" | "malformed" | "userError"): Response {
+  if (kind === "timeout") throw new DOMException("The operation was aborted.", "AbortError");
+  if (kind === "network") throw new TypeError("fetch failed");
+  if (kind === "throttled") return new Response(JSON.stringify({ errors: [{ message: "Throttled", extensions: { code: "THROTTLED" } }] }), { status: 200 });
+  if (kind === "denied") return new Response("{}", { status: 403 });
+  if (kind === "server") return new Response("oops", { status: 502 });
+  if (kind === "userError") return jsonResponse({ productUpdate: { product: null, userErrors: [{ field: ["status"], message: "Status is invalid" }] } });
+  return new Response("<html>not json</html>", { status: 200 });
+}
+
 export function installFakeShopifyServer(state: FakeShopifyState) {
   vi.stubGlobal(
     "fetch",
@@ -213,6 +235,32 @@ export function installFakeShopifyServer(state: FakeShopifyState) {
           }
         }
         return jsonResponse({ productVariantsBulkUpdate: { userErrors: [] } });
+      }
+
+      if (query.includes("mutation SetProductStatus")) {
+        const input = variables.product as { id: string; status: string };
+        const failure = state.statusWriteFailure;
+        state.statusWriteFailure = null;
+        const product = state.products.find((p) => p.id === input.id);
+        const apply = () => {
+          (state.statusUpdates ??= []).push(input);
+          if (product) product.status = input.status;
+        };
+        if (failure) {
+          if (failure.afterApply) apply();
+          return injectedFailure(failure.kind);
+        }
+        if (!product) return jsonResponse({ productUpdate: { product: null, userErrors: [{ field: ["id"], message: "Product does not exist" }] } });
+        apply();
+        return jsonResponse({ productUpdate: { product: { id: product.id, status: product.status }, userErrors: [] } });
+      }
+
+      if (query.includes("query GetProductStatus")) {
+        const failure = state.statusReadFailure;
+        if (!state.statusReadFailurePersistent) state.statusReadFailure = null;
+        if (failure) return injectedFailure(failure);
+        const product = state.products.find((p) => p.id === variables.id);
+        return jsonResponse({ product: product ? { id: product.id, status: product.status } : null });
       }
 
       if (query.includes("mutation SetQuantities")) {

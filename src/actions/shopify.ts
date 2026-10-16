@@ -11,7 +11,14 @@ import { loadShopifyClient as loadShopifyClientOrNull } from "@/lib/integrations
 import { isShopifyIntegrationEnabled, SHOPIFY_DISABLED_MESSAGE } from "@/lib/integrations/shopify/feature-flag";
 import { syncLocations, syncProducts, syncOrders, pushStockToShopify } from "@/lib/integrations/shopify/sync";
 import type { SyncSummary } from "@/lib/integrations/shopify/sync";
-import { inventoryOwnerOf, inventoryOwnerSchema, type InventoryOwner } from "@/lib/integrations/woocommerce/store-settings";
+import {
+  inventoryOwnerOf,
+  inventoryOwnerSchema,
+  remoteDeletionModeOf,
+  remoteDeletionModeSchema,
+  type InventoryOwner,
+  type RemoteDeletionMode,
+} from "@/lib/integrations/woocommerce/store-settings";
 import { notifyConnectionError, notifySyncFailure } from "@/lib/notifications";
 import { getTenantUsage } from "@/lib/entitlements/usage";
 import { checkAndNotifyUsageThreshold } from "@/lib/entitlements/alerts";
@@ -294,6 +301,41 @@ export async function setShopifyInventoryOwnerAction(owner: unknown): Promise<Ac
 
   revalidatePath("/integrations");
   return actionOk({ owner: parsed.data });
+}
+
+/**
+ * « Que faire lorsqu'un produit est supprimé de la boutique ? » for the
+ * Shopify connection — same setting, same safe default (`manual`) and same
+ * rule as WooCommerce's (src/lib/integrations/shared/remote-deletion.ts), on
+ * `Integration.config.remoteDeletionMode`. `auto` only ever unlinks a
+ * deletion Shopify itself confirms (`product(id:)` null —
+ * src/lib/integrations/shopify/remote-deletion.ts).
+ */
+export async function setShopifyRemoteDeletionModeAction(mode: unknown): Promise<ActionResult<{ mode: RemoteDeletionMode }>> {
+  const user = await requirePermissionForAction("integrations.manage");
+  if (!isShopifyIntegrationEnabled()) return actionError(SHOPIFY_DISABLED_MESSAGE);
+  const parsed = remoteDeletionModeSchema.safeParse(mode);
+  if (!parsed.success) return actionError("Choix invalide.");
+
+  const integration = await prisma.integration.findFirst({ where: { provider: "SHOPIFY" } });
+  if (!integration) {
+    return actionError("Configurez d'abord la connexion Shopify.");
+  }
+
+  const previous = remoteDeletionModeOf(integration.config);
+  await patchIntegrationConfig(integration.id, { remoteDeletionMode: parsed.data });
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: user.id,
+    action: "integration.updated",
+    entityType: "Integration",
+    entityId: integration.id,
+    metadata: { provider: "SHOPIFY", change: "remote_deletion_mode", previous, mode: parsed.data },
+  });
+
+  revalidatePath("/integrations");
+  return actionOk({ mode: parsed.data });
 }
 
 /**

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { setWooCommerceInventoryOwnerAction, setWooCommerceRemoteDeletionModeAction } from "@/actions/woocommerce";
-import { setShopifyInventoryOwnerAction } from "@/actions/shopify";
+import { setShopifyInventoryOwnerAction, setShopifyRemoteDeletionModeAction } from "@/actions/shopify";
 import type { InventoryOwner, RemoteDeletionMode } from "@/lib/integrations/woocommerce/store-settings";
 
 interface Choice<T extends string> {
@@ -121,14 +121,7 @@ const OWNER_CHOICES: Choice<InventoryOwner>[] = [
 export function WooCommerceStoreSettings({ remoteDeletionMode, inventoryOwner }: { remoteDeletionMode: RemoteDeletionMode; inventoryOwner: InventoryOwner }) {
   return (
     <>
-      <ChoiceSetting
-        title="Que faire lorsqu’un produit est supprimé de la boutique ?"
-        note="Dans tous les cas, le produit ASODITECH, ses variantes, son stock, ses mouvements et ses commandes sont conservés : seul le lien avec la boutique est retiré. Vous pourrez le republier ou le relier à nouveau."
-        choices={DELETION_CHOICES}
-        value={remoteDeletionMode}
-        save={setWooCommerceRemoteDeletionModeAction}
-        savedMessage={(next) => (next === "auto" ? "Les produits supprimés de la boutique seront dissociés automatiquement." : "Vous confirmerez chaque dissociation.")}
-      />
+      <RemoteDeletionSetting value={remoteDeletionMode} save={setWooCommerceRemoteDeletionModeAction} choices={DELETION_CHOICES} />
       <InventoryOwnerSetting value={inventoryOwner} save={setWooCommerceInventoryOwnerAction} />
     </>
   );
@@ -147,7 +140,44 @@ function InventoryOwnerSetting({ value, save }: { value: InventoryOwner; save: (
   );
 }
 
-/** The Shopify card's stock-ownership choice — same setting and wording as WooCommerce's. */
-export function ShopifyStoreSettings({ inventoryOwner }: { inventoryOwner: InventoryOwner }) {
-  return <InventoryOwnerSetting value={inventoryOwner} save={setShopifyInventoryOwnerAction} />;
+function RemoteDeletionSetting({
+  value,
+  save,
+  choices,
+}: {
+  value: RemoteDeletionMode;
+  save: (next: RemoteDeletionMode) => Promise<{ ok: true } | { ok: false; error: string }>;
+  choices: Choice<RemoteDeletionMode>[];
+}) {
+  return (
+    <ChoiceSetting
+      title="Que faire lorsqu’un produit est supprimé de la boutique ?"
+      note="Dans tous les cas, rien n’est effacé : le produit ASODITECH, ses variantes, son stock, ses mouvements et ses commandes sont conservés. Ce choix décide seulement du retrait du lien avec la boutique. Un produit importé depuis la boutique est en plus archivé dès la suppression (pour Shopify, sauf si Shopify montre qu’il existe encore). Vous pourrez le republier ou le relier à nouveau."
+      choices={choices}
+      value={value}
+      save={save}
+      savedMessage={(next) => (next === "auto" ? "Les produits supprimés de la boutique seront dissociés automatiquement." : "Vous confirmerez chaque dissociation.")}
+    />
+  );
+}
+
+/** Shopify wording of the same choice: Shopify has no trash, and an archived / draft product is not a deletion. */
+const SHOPIFY_DELETION_CHOICES: Choice<RemoteDeletionMode>[] = [
+  DELETION_CHOICES[0],
+  {
+    value: "auto",
+    label: "Dissocier automatiquement",
+    description:
+      "Vous autorisez ASODITECH à retirer le lien sans vous demander, uniquement quand Shopify confirme que le produit n'existe plus. Un produit archivé ou en brouillon sur Shopify, une boutique injoignable ou une erreur ne dissocient jamais : le produit est alors désactivé ou signalé pour confirmation.",
+  },
+];
+
+/** The Shopify card's settings — same choices and wording as WooCommerce's. */
+export function ShopifyStoreSettings({ remoteDeletionMode, inventoryOwner }: { remoteDeletionMode: RemoteDeletionMode; inventoryOwner: InventoryOwner }) {
+  return (
+    <>
+      <RemoteDeletionSetting value={remoteDeletionMode} save={setShopifyRemoteDeletionModeAction} choices={SHOPIFY_DELETION_CHOICES} />
+      <InventoryOwnerSetting value={inventoryOwner} save={setShopifyInventoryOwnerAction} />
+    </>
+  );
 }

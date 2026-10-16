@@ -181,3 +181,16 @@ export const shopifyVariantsBulkUpdateResultSchema = z.object({
     userErrors: z.array(shopifyUserErrorSchema).default([]),
   }),
 });
+
+/** `product(id:) { id status }` — `null` when the product no longer exists. */
+export const shopifyProductStatusResultSchema = z.object({
+  product: z.object({ id: z.string(), status: z.string() }).nullable(),
+});
+
+/** `productUpdate(product: { id, status })` (remote-listing.ts). */
+export const shopifyProductStatusUpdateResultSchema = z.object({
+  productUpdate: z.object({
+    product: z.object({ id: z.string(), status: z.string() }).nullable(),
+    userErrors: z.array(shopifyUserErrorSchema).default([]),
+  }),
+});

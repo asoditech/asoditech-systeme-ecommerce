@@ -105,6 +105,14 @@ export interface FakeStoreState {
   variationCreateError?: FakeErrorResponse & { onCall?: number };
   /** Optional injected answer to `GET /products/{id}` (remote-deletion tests): an HTTP error, a client timeout or a network failure. */
   productGetErrors?: Record<number, FakeErrorResponse | "timeout" | "network">;
+  /** Every `PUT /products/{id}` carrying a `status` (remote-listing tests), in call order. */
+  statusUpdates?: { id: number; status: string }[];
+  /**
+   * Optional injected answer to the NEXT `PUT /products/{id}` status change.
+   * `afterApply`: the change IS applied on the fake store, then the answer
+   * fails — the « request reached the store, answer lost » case.
+   */
+  statusWriteFailure?: { kind: "timeout" | "network" | "malformed" | FakeErrorResponse; afterApply?: boolean } | null;
 }
 
 export interface FakeErrorResponse {
@@ -196,6 +204,26 @@ export function installFakeWooCommerceServer(state: FakeStoreState) {
       const productMatch = path.match(/^\/products\/(\d+)$/);
       if (productMatch && method === "PUT") {
         const body = init?.body ? JSON.parse(init.body as string) : {};
+        if (typeof body.status === "string") {
+          const id = Number(productMatch[1]);
+          const product = state.products.find((p) => p.id === id);
+          const failure = state.statusWriteFailure;
+          state.statusWriteFailure = null;
+          const apply = () => {
+            (state.statusUpdates ??= []).push({ id, status: body.status });
+            if (product) product.status = body.status;
+          };
+          if (failure) {
+            if (failure.afterApply) apply();
+            if (failure.kind === "timeout") throw new DOMException("The operation was aborted.", "AbortError");
+            if (failure.kind === "network") throw new TypeError("fetch failed");
+            if (failure.kind === "malformed") return new Response("<html>ok</html>", { status: 200 });
+            return new Response(failure.kind.body, { status: failure.kind.status, headers: { "content-type": "application/json" } });
+          }
+          if (!product) return jsonResponse({ code: "woocommerce_rest_product_invalid_id", message: "Invalid ID.", data: { status: 404 } }, 1, 404);
+          apply();
+          return jsonResponse(product);
+        }
         state.stockUpdates.push({ path, body });
         return jsonResponse({ id: Number(productMatch[1]) });
       }

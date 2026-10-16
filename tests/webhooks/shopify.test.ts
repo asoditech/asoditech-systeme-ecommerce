@@ -225,9 +225,9 @@ describe("POST /api/webhooks/shopify", () => {
 
   // Phase 3 (docs/adr/0025): provider is no longer globally unique, so the
   // tenant is resolved by matching the signature against every SHOPIFY
-  // integration across every tenant. Uses products/delete (handled
-  // straight from the webhook body, no GraphQL re-fetch) to keep the fake
-  // Shopify server out of it.
+  // integration across every tenant. Uses products/delete (since 2026-10-15
+  // re-read once via `product(id:)` — the fake answers null, i.e. deleted —
+  // then archived; src/lib/integrations/shopify/remote-deletion.ts).
   it("resolves the correct tenant among two Shopify integrations by signature", async () => {
     await seedIntegration(); // tenant A
     const TENANT_B_SECRET = "tenant-b-secret";

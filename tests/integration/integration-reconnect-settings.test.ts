@@ -160,12 +160,13 @@ describe("WooCommerce: re-saving the connection", () => {
 
 describe("Shopify: re-saving the connection", () => {
   beforeEach(() => installFakeShopifyServer(emptyFakeShopifyStore()));
-  const SHOPIFY_CHOICES = { inventoryOwner: "STORE", importHistoricalOrders: false, historyCutoffAt: CHOICES.historyCutoffAt, forceNouvelleOnImport: false };
+  // « Que faire lorsqu'un produit est supprimé ? » is a Shopify choice too since 2026-10-15 (shared/remote-deletion.ts).
+  const SHOPIFY_CHOICES = { remoteDeletionMode: "auto", inventoryOwner: "STORE", importHistoricalOrders: false, historyCutoffAt: CHOICES.historyCutoffAt, forceNouvelleOnImport: false };
 
   it("same shop (rotated token, disconnect + reconnect): « Qui gère le stock ? » and the order choices kept, cursors restart", async () => {
     await loginAsTestUser({ role: "ADMIN" });
     expect(await connectShopify()).toMatchObject({ ok: true });
-    await choose("SHOPIFY", { productsResumeCursor: "abc", remoteDeletionMode: undefined });
+    await choose("SHOPIFY", { productsResumeCursor: "abc" });
     await connectShopify();
     expect(await configOf("SHOPIFY")).toEqual({ shopDomain: expect.any(String), ...SHOPIFY_CHOICES });
     expect(await lastConnectAudit("SHOPIFY")).toEqual({ provider: "SHOPIFY", storeAddress: "same", keptSettings: Object.keys(SHOPIFY_CHOICES).sort(), initializedSettings: [] });
