@@ -22,7 +22,7 @@ import type { PrismaTransactionClient } from "@/lib/prisma";
  * back to the legacy global number when `displayNumber` is null, so
  * history is never rewritten.
  */
-export type TenantSequenceKind = "order" | "transfer" | "stocktake" | "reception" | "sale" | "saleReturn";
+export type TenantSequenceKind = "order" | "transfer" | "stocktake" | "reception" | "sale" | "saleReturn" | "customerBarcode";
 
 /**
  * Claims and returns the next per-tenant display number for `kind`. Safe to
@@ -85,6 +85,15 @@ export async function claimTenantDisplayNumber(
         select: { nextSaleReturnNumber: true },
       });
       return t.nextSaleReturnNumber - 1;
+    }
+    case "customerBarcode": {
+      // « CL-000001 » customer codes (docs/adr/0060) — same atomic claim.
+      const t = await client.tenant.update({
+        where: { id: tenantId },
+        data: { nextCustomerBarcodeNumber: { increment: 1 } },
+        select: { nextCustomerBarcodeNumber: true },
+      });
+      return t.nextCustomerBarcodeNumber - 1;
     }
   }
 }

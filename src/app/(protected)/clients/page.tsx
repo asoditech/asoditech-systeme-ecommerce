@@ -11,6 +11,7 @@ import { FilterSearchInput } from "@/components/filter-search-input";
 import { Table, TableBody, TableCard, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { requirePermission } from "@/lib/auth/guards";
+import { prisma } from "@/lib/prisma";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { listCustomers, type CustomerSort } from "@/lib/queries/customers";
 import { formatDate } from "@/lib/format";
@@ -59,6 +60,11 @@ export default async function ClientsPage({
     scope: customerVisibilityWhere(user),
   });
 
+  // « Code client » column (docs/adr/0060): shown once the platform granted the
+  // feature, or as soon as any listed customer carries a code.
+  const tenant = await prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { customerBarcodesGranted: true } });
+  const showCodes = tenant?.customerBarcodesGranted === true || customers.some((c) => c.barcode);
+
   const hasActiveFilter = Boolean(params.q || segmentFilter || params.city || params.sort);
   const paginationParams = {
     q: params.q,
@@ -83,7 +89,7 @@ export default async function ClientsPage({
       />
 
       <FilterBar>
-        <FilterSearchInput placeholder="Nom, téléphone, e-mail..." defaultValue={params.q} className="w-full sm:w-72" />
+        <FilterSearchInput placeholder="Nom, téléphone, e-mail, code client..." defaultValue={params.q} className="w-full sm:w-72" />
         <FilterSearchInput paramKey="city" placeholder="Ville" defaultValue={params.city} className="w-[calc(50%-0.25rem)] sm:w-auto sm:min-w-36" />
         <FilterSelect
           paramKey="segment"
@@ -135,6 +141,7 @@ export default async function ClientsPage({
             <TableHeader>
               <TableRow>
                 <TableHead>Nom</TableHead>
+                {showCodes && <TableHead>Code client</TableHead>}
                 <TableHead>Contact</TableHead>
                 <TableHead>Ville</TableHead>
                 <TableHead>Segment</TableHead>
@@ -153,6 +160,15 @@ export default async function ClientsPage({
                       </Badge>
                     )}
                   </TableCell>
+                  {showCodes && (
+                    <TableCell>
+                      {c.barcode ? (
+                        <span className="font-mono text-sm text-ink">{c.barcode}</span>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">Non attribué</span>
+                      )}
+                    </TableCell>
+                  )}
                   <TableCell className="text-muted-foreground">{c.phone ?? c.email ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{c.city ?? "—"}</TableCell>
                   <TableCell>

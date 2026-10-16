@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { REVENUE_EXCLUDED_STATUSES } from "@/lib/profitability";
 import type { Prisma, CustomerSegment, RecordSource } from "@prisma/client";
+import { normalizeScannedCustomerCode } from "@/lib/customers/barcode";
 
 const PAGE_SIZE = 20;
 
@@ -30,6 +31,8 @@ export async function listCustomers(params: CustomerListFilters) {
             { phone: { contains: params.q, mode: "insensitive" } },
             { whatsapp: { contains: params.q, mode: "insensitive" } },
             { email: { contains: params.q, mode: "insensitive" } },
+            // Customer code « CL-000001 » (docs/adr/0060): exact, scanner-normalised.
+            { barcode: normalizeScannedCustomerCode(params.q).code },
           ],
         }
       : {}),

@@ -175,3 +175,33 @@ export const LABEL_PRINT_CSS = `@media print {
     print-color-adjust: exact;
   }
 }`;
+
+/**
+ * Customer card (docs/adr/0060): credit-card size 85.6 × 54 mm, same
+ * page-scoped approach as LABEL_PRINT_CSS — present only while
+ * /clients/[id]/carte is mounted, so A4 reports keep the global rules.
+ */
+export const CUSTOMER_CARD_PRINT_CSS = `@media print {
+  @page { size: 85.6mm 54mm; margin: 0; }
+  html, body {
+    width: 85.6mm !important;
+    height: 54mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    background: #fff !important;
+  }
+  body * { visibility: hidden !important; }
+  [data-customer-card-sheet], [data-customer-card-sheet] * { visibility: visible !important; }
+  [data-customer-card-sheet] {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}`;

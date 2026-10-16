@@ -3,15 +3,20 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Search, UserPlus, X } from "lucide-react";
-import { createSaleCustomerAction, findSaleCustomersByPhoneAction, type SaleCustomer } from "@/actions/sales";
+import { createSaleCustomerAction, findSaleCustomerByCodeAction, findSaleCustomersByPhoneAction, type SaleCustomer } from "@/actions/sales";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
+import { looksLikeCustomerCode, SCANNER_LAYOUT_HINT } from "@/lib/customers/barcode";
 
 /**
  * Sale « Client » (optional, default « Passage »). The seller types the
  * customer's full phone number: matching customers show as name + masked
  * phone. No browsing and no partial search. Not found → create with name +
  * phone (the same name + phone reuses the existing customer).
+ * A customer code « CL-000001 » (docs/adr/0060) — typed, keyboard scanner or
+ * the camera button — selects that customer directly (exact match). This is a
+ * customer-selection field: a scanned code is never treated as a product.
  */
 export function SaleCustomerPicker({
   value,
@@ -38,8 +43,30 @@ export function SaleCustomerPicker({
     );
   }
 
+  function selectByCode(raw: string) {
+    startTransition(async () => {
+      const r = await findSaleCustomerByCodeAction(raw);
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      if (r.data.layoutMismatch) toast.warning(SCANNER_LAYOUT_HINT);
+      if (r.data.customer) {
+        onChange(r.data.customer);
+        setPhone("");
+        setResults(null);
+      } else {
+        toast.error(`Aucun client avec le code ${r.data.code}.`);
+      }
+    });
+  }
+
   function search() {
     if (!phone.trim()) return;
+    if (looksLikeCustomerCode(phone)) {
+      selectByCode(phone);
+      return;
+    }
     startTransition(async () => {
       const r = await findSaleCustomersByPhoneAction(phone);
       if (r.ok) setResults(r.data);
@@ -67,11 +94,10 @@ export function SaleCustomerPicker({
       <div className="flex gap-2">
         <Input
           id="sale-customer"
-          type="tel"
-          inputMode="tel"
+          type="text"
           autoComplete="off"
           value={phone}
-          placeholder="Passage — n° de téléphone"
+          placeholder="Passage — n° de téléphone ou code client"
           onChange={(e) => {
             setPhone(e.target.value);
             setResults(null);
@@ -86,6 +112,7 @@ export function SaleCustomerPicker({
         <Button type="button" variant="outline" size="icon" aria-label="Rechercher le client" disabled={isPending || !phone.trim()} onClick={search}>
           <Search className="h-4 w-4" />
         </Button>
+        <BarcodeScanButton label="" onDetect={selectByCode} />
       </div>
       {results !== null && (
         <div className="space-y-1 rounded-tile border border-hairline p-2 text-sm">

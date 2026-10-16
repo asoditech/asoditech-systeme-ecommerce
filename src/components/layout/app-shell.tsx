@@ -10,6 +10,8 @@ import { NotificationSoundListener } from "@/components/layout/notification-soun
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { UserMenu } from "@/components/layout/user-menu";
 import { BrandMark } from "@/components/brand-mark";
+import { CompanyLogo } from "@/components/layout/company-logo";
+import { getShellLogo } from "@/lib/queries/branding";
 import { SupportWidget } from "@/components/support/support-widget";
 import { AnnouncementBar } from "@/components/layout/announcement-bar";
 import { getRecentNotifications } from "@/lib/queries/notifications";
@@ -29,12 +31,14 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
   // will actually allow.
   const permissions = new Set(user.permissions);
   const cookieStore = await cookies();
-  const [{ items, unreadCount }, supportConfig, announcement] = await Promise.all([
+  const [{ items, unreadCount }, supportConfig, announcement, companyLogo] = await Promise.all([
     getRecentNotifications(user.id),
     getSupportConfig(),
     // Platform announcement (docs/adr/0059): the one live announcement this
     // browser hasn't dismissed — null renders nothing at all.
     getActiveAnnouncement(parseDismissedCookie(cookieStore.get(ANNOUNCEMENT_DISMISS_COOKIE)?.value)),
+    // The company's own logo, only when the platform granted it (null = ASODITECH).
+    getShellLogo(user.tenantId),
   ]);
   const canUseAi = userHasPermission(user, "ai.use");
   // Server-read so the very first paint already reflects the viewer's
@@ -48,16 +52,26 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
   const canCreate = hasNavPermission(permissions, ["orders.create", "sales.create"]);
 
   return (
-    <SidebarShell permissions={permissions} favorites={user.navFavorites} defaultCollapsed={sidebarCollapsed} variant={sidebarVariant}>
+    <SidebarShell
+      permissions={permissions}
+      favorites={user.navFavorites}
+      defaultCollapsed={sidebarCollapsed}
+      variant={sidebarVariant}
+      companyLogo={companyLogo}
+    >
       {/* Top announcement bar — first in the content column, above the sticky header, in normal flow (scrolls away; the header stays sticky; the fixed sidebar is untouched).
           Keyed by id + last edit: a different (or edited) announcement remounts the bar, so a previous dismissal's local state never hides it. */}
       {announcement && <AnnouncementBar key={announcement.key} announcement={announcement} />}
       {/* Soft UI topbar: no bottom border — separated from the page by spacing and the background change (white shell → grey content). */}
       <header className="z-30 flex h-[72px] shrink-0 items-center gap-2 bg-shell px-3 sm:gap-3 md:px-8">
-        <MobileNav permissions={permissions} favorites={user.navFavorites} variant={sidebarVariant} />
+        <MobileNav permissions={permissions} favorites={user.navFavorites} variant={sidebarVariant} companyLogo={companyLogo} />
         <div className="lg:hidden">
           <Link href="/tableau-de-bord" aria-label="Tableau de bord">
-            <BrandMark variant="icon" />
+            {companyLogo ? (
+              <CompanyLogo src={companyLogo.src} companyName={companyLogo.companyName} compact fallback={<BrandMark variant="icon" />} />
+            ) : (
+              <BrandMark variant="icon" />
+            )}
           </Link>
         </div>
         <CommandPalette permissions={permissions} />
@@ -82,7 +96,7 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
           the floating « Centre d'aide » button so the last row — pagination « Suivant », a
           form's FormActions — stays clickable; the IntegrationsFooter below stays at the
           bottom of the column, never over the end of the page. */}
-      <main className="min-h-0 flex-1 overflow-y-auto bg-content px-4 pt-6 pb-24 [scrollbar-gutter:stable] md:px-8 md:pt-8 md:pb-28">
+      <main className="min-h-0 flex-1 overflow-y-auto bg-content px-4 pt-6 pb-[calc(6rem+env(safe-area-inset-bottom))] [scrollbar-gutter:stable] md:px-8 md:pt-8 md:pb-28">
         <div className="mx-auto w-full max-w-[1600px]">{children}</div>
       </main>
       <IntegrationsFooter />

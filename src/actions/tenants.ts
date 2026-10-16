@@ -8,7 +8,7 @@ import { destroyAllSessionsForTenant } from "@/lib/auth/session";
 import { generateRawToken, hashToken } from "@/lib/auth/tokens";
 import { recordAuditEvent } from "@/lib/audit";
 import { sendInvitationEmail } from "@/lib/email";
-import { createTenantSchema, setTenantBusinessModeSchema } from "@/lib/validation/tenant";
+import { createTenantSchema, setTenantBrandLogoGrantSchema, setTenantBusinessModeSchema, setTenantCustomerBarcodeGrantSchema } from "@/lib/validation/tenant";
 import { planBusinessModeChange } from "@/lib/tenant/business-mode-change";
 import { ensureDefaultOnlineChannel } from "@/lib/channels";
 import { BUSINESS_MODE_LABELS } from "@/lib/tenant/business-mode";
@@ -341,4 +341,87 @@ export async function setTenantBusinessModeAction(formData: FormData): Promise<A
 
   revalidatePath("/platform");
   return actionOk({ id: parsed.data.tenantId });
+}
+
+/**
+ * Grant / revoke automatic customer codes « CL-000001 » for one tenant
+ * (docs/adr/0060). Platform-admin only — no tenant action writes
+ * `Tenant.customerBarcodesGranted`, so a tenant can never grant itself.
+ * Revoking also switches the tenant's own setting off (so a later re-grant
+ * does not silently resume generation) and stops new codes at once; existing
+ * customer codes are never touched, and the counter is kept, so a re-grant
+ * continues the sequence.
+ */
+export async function setTenantCustomerBarcodeGrantAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const actor = await requirePlatformAdminForAction();
+  const parsed = setTenantCustomerBarcodeGrantSchema.safeParse({
+    tenantId: formData.get("tenantId"),
+    granted: formData.get("granted"),
+  });
+  if (!parsed.success) return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  const { tenantId, granted } = parsed.data;
+
+  const tenant = await prismaBase.tenant.findUnique({ where: { id: tenantId }, select: { customerBarcodesGranted: true } });
+  if (!tenant) return actionError("Tenant introuvable.");
+  if (tenant.customerBarcodesGranted === granted) return actionOk({ id: tenantId });
+
+  await prismaBase.tenant.update({ where: { id: tenantId }, data: { customerBarcodesGranted: granted } });
+  let switchedOff = 0;
+  if (!granted) {
+    switchedOff = await runWithTenant(tenantId, "platform:revoke-customer-barcodes", async () => {
+      const result = await prisma.businessSettings.updateMany({
+        where: { customerBarcodeEnabled: true },
+        data: { customerBarcodeEnabled: false },
+      });
+      return result.count;
+    });
+  }
+
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: actor.id,
+    action: "tenant.customer_barcode_grant_changed",
+    entityType: "Tenant",
+    entityId: tenantId,
+    previousValue: { customerBarcodesGranted: tenant.customerBarcodesGranted },
+    newValue: { customerBarcodesGranted: granted },
+    metadata: granted ? {} : { tenantSettingSwitchedOff: switchedOff > 0 },
+  });
+
+  revalidatePath("/platform");
+  return actionOk({ id: tenantId });
+}
+
+/**
+ * Platform grant of the company's own logo in the app shell (sidebar, mobile
+ * header) — docs/decisions/platform-order-sync-and-branding.md, option A.
+ * Granted: the shell shows BusinessSettings.logoUrl (set by the company in
+ * Paramètres; invalid/missing → ASODITECH mark). Revoked: ASODITECH branding
+ * again at once; the company's logo itself is kept (it still prints on its
+ * documents). Never touches global platform branding.
+ */
+export async function setTenantBrandLogoGrantAction(formData: FormData): Promise<ActionResult<IdResult>> {
+  const actor = await requirePlatformAdminForAction();
+  const parsed = setTenantBrandLogoGrantSchema.safeParse({ tenantId: formData.get("tenantId"), granted: formData.get("granted") });
+  if (!parsed.success) return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  const { tenantId, granted } = parsed.data;
+
+  const tenant = await prismaBase.tenant.findUnique({ where: { id: tenantId }, select: { brandLogoGranted: true } });
+  if (!tenant) return actionError("Tenant introuvable.");
+  if (tenant.brandLogoGranted === granted) return actionOk({ id: tenantId });
+
+  await prismaBase.tenant.update({ where: { id: tenantId }, data: { brandLogoGranted: granted } });
+  await recordAuditEvent({
+    actorType: "USER",
+    actorUserId: actor.id,
+    action: "tenant.brand_logo_grant_changed",
+    entityType: "Tenant",
+    entityId: tenantId,
+    previousValue: { brandLogoGranted: tenant.brandLogoGranted },
+    newValue: { brandLogoGranted: granted },
+  });
+
+  revalidatePath("/platform");
+  revalidatePath("/", "layout");
+  return actionOk({ id: tenantId });
 }

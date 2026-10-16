@@ -31,10 +31,9 @@ export function PlatformShell({
       nav={PlatformNav}
       brandBadge={<PlatformBadge />}
       homeHref="/platform"
-      showHelp={false}
     >
       <header className="z-30 flex h-[72px] shrink-0 items-center gap-2 bg-shell px-3 sm:gap-3 md:px-8">
-        <MobileNav permissions={NO_PERMISSIONS} nav={PlatformNav} brandBadge={<PlatformBadge />} homeHref="/platform" showHelp={false} />
+        <MobileNav permissions={NO_PERMISSIONS} nav={PlatformNav} brandBadge={<PlatformBadge />} homeHref="/platform" />
         <div className="flex items-center gap-2 lg:hidden">
           <Link href="/platform" aria-label="Tenants">
             <BrandMark variant="icon" />

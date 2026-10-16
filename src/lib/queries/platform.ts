@@ -24,6 +24,10 @@ export interface PlatformTenantRow {
   tenantStatus: TenantStatus;
   /** docs/adr/0041 — what the tenant's business runs. */
   businessMode: TenantBusinessMode;
+  /** docs/adr/0060 — platform grant of automatic customer codes. */
+  customerBarcodesGranted: boolean;
+  /** Platform grant of the company logo in the app shell. */
+  brandLogoGranted: boolean;
   createdAt: Date;
   planCode: PlanCode;
   planName: string;
@@ -82,6 +86,8 @@ export async function listTenantsWithUsage(period: string = currentPeriod()): Pr
       slug: tenant.slug,
       tenantStatus: tenant.status,
       businessMode: tenant.businessMode,
+      customerBarcodesGranted: tenant.customerBarcodesGranted,
+      brandLogoGranted: tenant.brandLogoGranted,
       createdAt: tenant.createdAt,
       planCode: plan?.code ?? "BUSINESS",
       planName: plan?.name ?? "Business",

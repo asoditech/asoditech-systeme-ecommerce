@@ -25,4 +25,13 @@ export const setTenantBusinessModeSchema = z.object({
   businessMode: z.enum(BUSINESS_MODES),
 });
 
+/** Platform grant of automatic customer codes (docs/adr/0060). */
+export const setTenantCustomerBarcodeGrantSchema = z.object({
+  tenantId: z.string().min(1),
+  granted: z.enum(["true", "false"]).transform((v) => v === "true"),
+});
+
+/** Platform grant of the company's own logo in the app shell. */
+export const setTenantBrandLogoGrantSchema = setTenantCustomerBarcodeGrantSchema;
+
 export type CreateTenantInput = z.infer<typeof createTenantSchema>;

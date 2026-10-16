@@ -36,6 +36,7 @@ import {
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import { findOrCreateCustomer } from "@/lib/customers/find-or-create";
 import { customerPhoneKey, maskCustomerPhone } from "@/lib/customers/identity";
+import { normalizeScannedCustomerCode } from "@/lib/customers/barcode";
 
 /**
  * In-store sales — docs/adr/0040-offline-sales-and-receptions.md.
@@ -223,6 +224,27 @@ export async function findSaleCustomersByPhoneAction(phone: string): Promise<Act
     select: { id: true, fullName: true, phoneKey: true },
   });
   return actionOk(customers.map((c) => ({ id: c.id, fullName: c.fullName, maskedPhone: maskCustomerPhone(c.phoneKey) })));
+}
+
+/**
+ * Sale form « Client » by customer code « CL-000001 » (docs/adr/0060) — typed,
+ * keyboard-scanner or camera. Exact match only (tenant-scoped like every
+ * customer read). `layoutMismatch`: the scan came through a mismatched
+ * AZERTY/QWERTY keyboard layout and was corrected — the UI says so.
+ * Customer-selection context only: product scan flows never call this.
+ */
+export async function findSaleCustomerByCodeAction(
+  raw: string
+): Promise<ActionResult<{ customer: SaleCustomer | null; code: string; layoutMismatch: boolean }>> {
+  await requirePermissionForAction("sales.create");
+  const { code, layoutMismatch } = normalizeScannedCustomerCode(raw);
+  if (!code) return actionError("Code client requis.");
+  const customer = await prisma.customer.findFirst({ where: { barcode: code }, select: { id: true, fullName: true, phoneKey: true } });
+  return actionOk({
+    customer: customer ? { id: customer.id, fullName: customer.fullName, maskedPhone: maskCustomerPhone(customer.phoneKey) } : null,
+    code,
+    layoutMismatch,
+  });
 }
 
 /** Sale form « Nouveau client »: name + phone → the existing customer if both match, else a new one. */

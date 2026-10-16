@@ -2,12 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { LifeBuoy, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
-import { ThemeSegmented } from "@/components/layout/theme-segmented";
 import { BrandMark } from "@/components/brand-mark";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { openSupportWidget } from "@/lib/support/open-support";
+import { CompanyLogo } from "@/components/layout/company-logo";
 import { cn } from "@/lib/utils";
 import type { Permission } from "@/lib/auth/permissions";
 import type { SidebarVariant } from "@/lib/navigation/sidebar-variant";
@@ -41,7 +39,7 @@ export function SidebarShell({
   nav: CustomNav,
   brandBadge,
   homeHref = "/tableau-de-bord",
-  showHelp = true,
+  companyLogo = null,
   children,
 }: {
   permissions: Set<Permission>;
@@ -54,8 +52,8 @@ export function SidebarShell({
   /** Small pill shown beside the logo when the sidebar is expanded (e.g. « Plateforme »). */
   brandBadge?: React.ReactNode;
   homeHref?: string;
-  /** « Centre d'aide » row — off where the support widget is not mounted. */
-  showHelp?: boolean;
+  /** The company's own logo when the platform granted it (src/lib/queries/branding.ts); null = ASODITECH. */
+  companyLogo?: { src: string; companyName: string } | null;
   children: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
@@ -73,13 +71,6 @@ export function SidebarShell({
     });
   }
 
-  const help = (
-    <>
-      <LifeBuoy className="size-5 shrink-0" aria-hidden="true" />
-      {!collapsed && <span className="truncate">Centre d&apos;aide</span>}
-    </>
-  );
-
   return (
     <div className="h-dvh overflow-hidden bg-page p-(--shell-gap)">
       <div data-app-shell="" data-sidebar-collapsed={collapsed || undefined} className="group/shell flex h-full min-h-0 overflow-hidden rounded-(--shell-radius) bg-shell md:shadow-shell">
@@ -91,7 +82,16 @@ export function SidebarShell({
         >
           <div className={cn("flex h-[72px] shrink-0 items-center gap-2.5", collapsed ? "justify-center" : "px-7")}>
             <Link href={homeHref} aria-label="Tableau de bord" className="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">
-              <BrandMark variant={collapsed ? "icon" : "compact"} />
+              {companyLogo ? (
+                <CompanyLogo
+                  src={companyLogo.src}
+                  companyName={companyLogo.companyName}
+                  compact={collapsed}
+                  fallback={<BrandMark variant={collapsed ? "icon" : "compact"} />}
+                />
+              ) : (
+                <BrandMark variant={collapsed ? "icon" : "compact"} />
+              )}
             </Link>
             {!collapsed && brandBadge}
           </div>
@@ -104,26 +104,9 @@ export function SidebarShell({
             )}
           </div>
 
+          {/* Only « Réduire » here (owner decision 2026-10-16): help is the floating
+              « Centre d'aide » button, the theme is the topbar toggle. */}
           <div className={cn("flex shrink-0 flex-col gap-2 border-t border-hairline", collapsed ? "items-center px-3 py-3" : "px-4 py-4")}>
-            {!showHelp ? null : collapsed ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={<button type="button" onClick={() => openSupportWidget()} aria-label="Centre d'aide" className={cn(bottomRow, "size-11 justify-center")} />}
-                >
-                  {help}
-                </TooltipTrigger>
-                <TooltipContent side="right" sideOffset={10}>
-                  Centre d&apos;aide
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <button type="button" onClick={() => openSupportWidget()} className={cn(bottomRow, "h-11 gap-3 px-3")}>
-                {help}
-              </button>
-            )}
-
-            <ThemeSegmented compact={collapsed} />
-
             <button
               type="button"
               onClick={toggle}

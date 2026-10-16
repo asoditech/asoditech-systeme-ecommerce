@@ -5,6 +5,8 @@ import { TenantRowControls } from "@/components/platform/tenant-row-controls";
 import { TenantPlanDialog } from "@/components/platform/tenant-plan-dialog";
 import { DeleteTenantButton } from "@/components/platform/delete-tenant-button";
 import { TenantModeDialog } from "@/components/platform/tenant-mode-dialog";
+import { TenantCustomerBarcodeSwitch } from "@/components/platform/tenant-customer-barcode-switch";
+import { TenantBrandLogoSwitch } from "@/components/platform/tenant-brand-logo-switch";
 import { BUSINESS_MODE_LABELS } from "@/lib/tenant/business-mode";
 import { KpiCard } from "@/components/kpi-card";
 import { Badge } from "@/components/ui/badge";
@@ -59,6 +61,8 @@ export default async function PlatformPage() {
               <TableHead>Utilisation</TableHead>
               <TableHead>Dernière activité</TableHead>
               <TableHead>Statut</TableHead>
+              <TableHead>Codes clients</TableHead>
+              <TableHead>Logo du menu</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -104,6 +108,12 @@ export default async function PlatformPage() {
                 </TableCell>
                 <TableCell>
                   <TenantRowControls tenantId={row.id} status={row.tenantStatus} />
+                </TableCell>
+                <TableCell>
+                  <TenantCustomerBarcodeSwitch tenantId={row.id} tenantName={row.name} granted={row.customerBarcodesGranted} />
+                </TableCell>
+                <TableCell>
+                  <TenantBrandLogoSwitch tenantId={row.id} tenantName={row.name} granted={row.brandLogoGranted} />
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap items-center gap-1.5">

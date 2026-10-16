@@ -31,6 +31,8 @@ export type AuditAction =
   | "platform.unlock.failure"
   | "user.password_reset_forced"
   | "tenant.business_mode_changed"
+  | "tenant.customer_barcode_grant_changed"
+  | "tenant.brand_logo_grant_changed"
   | "tenant.baseline_provisioned"
   | "tenant.baseline_provisioning_failed"
   | "backup.created"
@@ -64,10 +66,16 @@ export type AuditAction =
   | "product.archived"
   | "product.restored"
   | "product.published"
-  // Remote product deleted from the connected store (src/lib/integrations/woocommerce/remote-deletion.ts).
+  // Remote product deleted from the connected store (src/lib/integrations/shared/remote-deletion.ts).
   | "product.remote_missing"
   | "product.remote_missing_cleared"
   | "product.remote_unlinked"
+  // « Retirer de la boutique » / « Remettre en vente » (src/lib/integrations/shared/remote-listing.ts).
+  | "product.remote_listing_requested"
+  | "product.remote_listing_changed"
+  | "product.remote_listing_failed"
+  | "product.remote_listing_uncertain"
+  | "product.remote_listing_reconciled"
   | "category.created"
   | "category.updated"
   | "order.created"
@@ -177,6 +185,8 @@ export type AuditAction =
   | "user.channels_updated"
   // WhatsApp V1 (docs/adr/0058): the user's OWN number / verification / opt-in. Metadata never holds the number.
   | "user.whatsapp_updated"
+  | "whatsapp.alert_category_updated"
+  | "whatsapp.outbox_retried"
   | "supplier.created"
   | "supplier.updated"
   | "reception.created"

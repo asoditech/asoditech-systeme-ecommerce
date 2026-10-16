@@ -11,6 +11,7 @@ import {
 } from "@/lib/validation/customer";
 import { actionError, actionOk, type ActionResult } from "@/actions/types";
 import { findOrCreateCustomer } from "@/lib/customers/find-or-create";
+import { CustomerBarcodeAllocationError } from "@/lib/customers/barcode-allocation";
 import { customerPhoneKey } from "@/lib/customers/identity";
 import type { Customer, CustomerAddress } from "@prisma/client";
 
@@ -37,18 +38,26 @@ export async function createCustomerAction(formData: FormData): Promise<ActionRe
     return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
   }
 
-  const { customer, reused } = await findOrCreateCustomer({
-    fullName: parsed.data.fullName,
-    phone: normalizeOptional(parsed.data.phone),
-    whatsapp: normalizeOptional(parsed.data.whatsapp),
-    email: normalizeOptional(parsed.data.email),
-    city: normalizeOptional(parsed.data.city),
-    region: normalizeOptional(parsed.data.region),
-    country: parsed.data.country,
-    notes: normalizeOptional(parsed.data.notes),
-    tags: parsed.data.tags,
-    createdById: user.id,
-  });
+  let found;
+  try {
+    found = await findOrCreateCustomer({
+      fullName: parsed.data.fullName,
+      phone: normalizeOptional(parsed.data.phone),
+      whatsapp: normalizeOptional(parsed.data.whatsapp),
+      email: normalizeOptional(parsed.data.email),
+      city: normalizeOptional(parsed.data.city),
+      region: normalizeOptional(parsed.data.region),
+      country: parsed.data.country,
+      notes: normalizeOptional(parsed.data.notes),
+      tags: parsed.data.tags,
+      createdById: user.id,
+    });
+  } catch (error) {
+    // The automatic customer code could not be allocated (docs/adr/0060).
+    if (error instanceof CustomerBarcodeAllocationError) return actionError(error.message);
+    throw error;
+  }
+  const { customer, reused } = found;
   if (reused) return actionOk({ ...customer, reused });
 
   await recordAuditEvent({
@@ -57,7 +66,7 @@ export async function createCustomerAction(formData: FormData): Promise<ActionRe
     action: "customer.created",
     entityType: "Customer",
     entityId: customer.id,
-    newValue: { fullName: customer.fullName },
+    newValue: { fullName: customer.fullName, ...(customer.barcode ? { barcode: customer.barcode } : {}) },
   });
 
   revalidatePath("/clients");

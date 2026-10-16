@@ -23,6 +23,8 @@ import { deleteCustomerAddressAction } from "@/actions/customers";
 import { formatCurrency, formatDate, displayOrderNumber } from "@/lib/format";
 import { ORDER_STATUS_LABELS, CUSTOMER_SEGMENT_LABELS } from "@/lib/status-labels";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
+import { prisma } from "@/lib/prisma";
+import { CustomerCodeCard } from "@/components/customers/customer-barcode";
 
 export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("customers.view");
@@ -38,6 +40,10 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   // channel-scoped: docs/adr/0039), so an Offline-only user reads the
   // customer without reading Online order data.
   const canSeeOrders = userHasPermission(user, "orders.view");
+  // « Code client » (docs/adr/0060): shown when the customer has one, or when
+  // the platform granted the feature (then « Non attribué » explains why not).
+  const tenant = customer.barcode ? null : await prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { customerBarcodesGranted: true } });
+  const showCode = Boolean(customer.barcode) || tenant?.customerBarcodesGranted === true;
 
   return (
     <div>
@@ -76,6 +82,12 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           </div>
           <CustomerBlacklistControl customerId={customer.id} isBlacklisted={customer.isBlacklisted} />
         </Notice>
+      )}
+
+      {showCode && (
+        <div className="mb-5">
+          <CustomerCodeCard customerId={customer.id} code={customer.barcode} />
+        </div>
       )}
 
       {canSeeOrders && (
