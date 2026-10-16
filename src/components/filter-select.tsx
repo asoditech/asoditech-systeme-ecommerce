@@ -55,7 +55,18 @@ export function FilterSelect({
 
   return (
     <Select value={value ?? ALL} onValueChange={onChange}>
-      <SelectTrigger aria-label={ariaLabel} className={cn(isPending && "opacity-60", className)}>
+      <SelectTrigger
+        aria-label={ariaLabel}
+        title={labelFor(value ?? ALL)}
+        className={cn(
+          isPending && "opacity-60",
+          className,
+          // Phones: a filter is at least half a row (two side by side) but
+          // grows to fit its chosen label — a long one (« Toutes les sources
+          // de coût ») takes its own row instead of being cut off.
+          "max-sm:w-auto max-sm:max-w-full max-sm:min-w-[calc(50%-0.25rem)] max-sm:grow"
+        )}
+      >
         <SelectValue>{(v: string) => labelFor(v)}</SelectValue>
       </SelectTrigger>
       <SelectContent>

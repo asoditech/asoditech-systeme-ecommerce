@@ -3,19 +3,27 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
+import { ScrollFade } from "@/components/ui/scroll-fade"
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+/**
+ * The scroll container is a `ScrollFade`: when a wide table does not fit,
+ * a soft fade marks the hidden edge(s) and the container becomes a
+ * focusable, labelled region (arrow keys scroll it) — horizontal scroll is
+ * never silent. `scrollLabel` names that region.
+ */
+function Table({ className, scrollLabel = "Tableau — faire défiler horizontalement", ...props }: React.ComponentProps<"table"> & { scrollLabel?: string }) {
   return (
-    <div
+    <ScrollFade
       data-slot="table-container"
-      className="relative w-full overflow-x-auto"
+      label={scrollLabel}
+      className="relative w-full"
     >
       <table
         data-slot="table"
         className={cn("w-full caption-bottom text-sm", className)}
         {...props}
       />
-    </div>
+    </ScrollFade>
   )
 }
 

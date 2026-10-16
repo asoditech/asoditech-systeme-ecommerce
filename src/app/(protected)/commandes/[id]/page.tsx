@@ -37,6 +37,7 @@ import { productLineLabel } from "@/lib/catalog/product-chips";
 import { getOrderCommission, listAssignableCommissionAgents } from "@/lib/queries/commissions";
 import { getOrderConfirmationAttempts } from "@/lib/queries/order-confirmation";
 import { computeOrderProfit } from "@/lib/profitability";
+import { codDisplay } from "@/lib/orders/cod-display";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import {
   formatCurrency,
@@ -166,6 +167,10 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
   const cityGuidance = cityGuidanceFromProviders(cityGuidanceProviders);
   const parcelContents = buildParcelContentsSummary(order.items);
   const refundedTotal = order.refunds.filter((r) => r.status === "COMPLETE").reduce((s, r) => s + Number(r.amount), 0);
+  // The refund form's cap = the server's (createRefundAction): every refund
+  // not rejected counts — a pending one too — so the form never offers more
+  // than the server will accept.
+  const committedRefunds = order.refunds.filter((r) => r.status !== "REJETE").reduce((s, r) => s + Number(r.amount), 0);
 
   // Physical-return ceiling per line (docs/adr/0036): no split-shipment
   // support, so what EXPEDIEE consumed is simply the item's own quantity.
@@ -193,8 +198,14 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
     returnableLines.reduce((s, l) => s + l.consumedQuantity, 0),
     returnableLines.reduce((s, l) => s + l.alreadyReturned, 0)
   );
-  const codAmount =
-    order.paymentMethod === "PAIEMENT_LIVRAISON" ? Number(order.total) - refundedTotal : null;
+  // Display only (src/lib/orders/cod-display.ts): a returned / cancelled /
+  // failed / refunded COD order has nothing left to collect.
+  const cod = codDisplay({
+    status: order.status,
+    paymentMethod: order.paymentMethod,
+    total: Number(order.total),
+    completedRefunds: refundedTotal,
+  });
 
   // Confirmation ≠ earned commission: derive an explicit status from the
   // ledger data already fetched above (no new business logic, no writer).
@@ -342,7 +353,10 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Remise</span>
-                  <span>-{formatCurrency(order.discountTotal.toString(), order.currency)}</span>
+                  <span>
+                    {Number(order.discountTotal) > 0 ? "-" : ""}
+                    {formatCurrency(order.discountTotal.toString(), order.currency)}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Livraison</span>
@@ -411,7 +425,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                     Les remboursements faits sur la boutique sont importés automatiquement : ne les saisissez pas une seconde fois.
                   </p>
                 )}
-                <RefundForm orderId={order.id} maxAmount={Number(order.total) - refundedTotal} />
+                <RefundForm orderId={order.id} maxAmount={Math.max(0, Number(order.total) - committedRefunds)} currency={order.currency} />
               </CardContent>
             </Card>
           )}
@@ -481,7 +495,7 @@ export default async function CommandeDetailPage({ params }: { params: Promise<{
                   costFinalized: s.costFinalizedAt !== null,
                 }))}
                 currency={order.currency}
-                codAmount={codAmount}
+                cod={cod}
                 // Delivery costs: finance permission only (as in « Suivi »).
                 canViewCosts={canViewFinance || canManageFinance}
                 canOverrideCost={canManageFinance}

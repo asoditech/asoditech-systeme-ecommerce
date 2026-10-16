@@ -135,10 +135,11 @@ export function ReturnParcelsTable({
             <TableHead>Commande</TableHead>
             <TableHead>N° de suivi</TableHead>
             <TableHead>Destinataire</TableHead>
-            <TableHead>Emplacement d&apos;origine</TableHead>
-            <TableHead className="text-right">Unités retournées</TableHead>
+            {/* Lower-priority column from 2xl only; below, the location is under the order number. */}
+            <TableHead className="hidden 2xl:table-cell">Emplacement d&apos;origine</TableHead>
+            <TableHead className="hidden text-right whitespace-normal 2xl:table-cell">Unités retournées</TableHead>
             <TableHead>Étape</TableHead>
-            <TableHead>Prochaine étape</TableHead>
+            <TableHead className="whitespace-normal">Prochaine étape</TableHead>
             <TableHead>Réception</TableHead>
             <TableHead className="text-right">Action</TableHead>
           </TableRow>
@@ -162,6 +163,7 @@ export function ReturnParcelsTable({
                   <Link href={`/commandes/${p.orderId}`} className="text-[15px] font-semibold tracking-tight text-ink underline-offset-2 hover:underline">
                     {p.orderLabel}
                   </Link>
+                  <div className="text-xs text-muted-foreground 2xl:hidden">{p.warehouseName ?? "—"}</div>
                 </TableCell>
                 <TableCell>
                   <div>{p.trackingNumber ?? "—"}</div>
@@ -171,15 +173,20 @@ export function ReturnParcelsTable({
                   <div>{p.recipientName}</div>
                   <div className="text-xs text-muted-foreground">{[p.recipientPhone, p.city].filter(Boolean).join(" · ") || "—"}</div>
                 </TableCell>
-                <TableCell>{p.warehouseName ?? "—"}</TableCell>
-                <TableCell className="text-right tabular-nums">
+                <TableCell className="hidden 2xl:table-cell">{p.warehouseName ?? "—"}</TableCell>
+                <TableCell className="hidden text-right tabular-nums 2xl:table-cell">
                   {p.returnedUnits} / {p.shippedUnits}
                 </TableCell>
                 <TableCell>
                   <ReturnParcelStateBadge state={p.state} />
+                  {/* Below 2xl the « Unités retournées » column is folded in here. */}
+                  <div className="mt-1 text-xs text-muted-foreground tabular-nums 2xl:hidden">
+                    {p.returnedUnits} / {p.shippedUnits} unité{p.shippedUnits > 1 ? "s" : ""} retournée{p.returnedUnits > 1 ? "s" : ""}
+                  </div>
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground">{returnParcelNextStep(p)}</TableCell>
-                <TableCell className="text-xs">{receptionText[p.shipmentId] ?? "—"}</TableCell>
+                <TableCell className="min-w-[7rem] text-xs whitespace-normal text-muted-foreground">{returnParcelNextStep(p)}</TableCell>
+                {/* Long reception note: wraps within a bounded column instead of widening the table. */}
+                <TableCell className="min-w-[8rem] max-w-[16rem] text-xs whitespace-normal">{receptionText[p.shipmentId] ?? "—"}</TableCell>
                 <TableCell className="text-right">
                   <ReceiveParcelButton parcel={p} />
                 </TableCell>

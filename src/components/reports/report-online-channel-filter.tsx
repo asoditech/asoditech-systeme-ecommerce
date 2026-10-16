@@ -15,7 +15,7 @@ export function ReportOnlineChannelFilter({ channels, value }: { channels: { id:
       allLabel="Tous les canaux en ligne"
       ariaLabel="Canal en ligne"
       options={channels.map((c) => ({ value: c.id, label: c.name }))}
-      className="h-8 w-52"
+      className="h-8 w-auto max-w-full min-w-52"
     />
   );
 }

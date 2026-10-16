@@ -34,6 +34,6 @@ describe("command palette — no client-side filtering of server results", () =>
   });
 
   it("drops an in-flight answer when the dialog closes", () => {
-    expect(PALETTE).toMatch(/if \(!open \|\| query\.trim\(\)\.length < 2\) \{\s*gate\.current\.cancel\(\);/);
+    expect(PALETTE).toMatch(/if \(!open \|\| query\.trim\(\)\.length < (?:2|QUICK_SEARCH_MIN_CHARS)\) \{\s*gate\.current\.cancel\(\);/);
   });
 });

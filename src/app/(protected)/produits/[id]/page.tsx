@@ -52,9 +52,11 @@ import { listActiveChannels } from "@/lib/queries/channels";
 import { ProductIdentityPanel } from "@/components/products/product-identity-panel";
 import { ProductPublishPanel, type PublishChannel } from "@/components/products/product-publish-panel";
 import { RemoteLinkPanel } from "@/components/products/remote-link-panel";
-import { pendingRemoteMissing, wooLinkOfProduct } from "@/lib/integrations/woocommerce/remote-deletion";
+import { pendingRemoteMissingOf, remoteLinkOfProduct } from "@/lib/integrations/shared/remote-deletion";
+import { remoteListingStateOf } from "@/lib/integrations/shared/remote-listing";
 import { inventoryOwnerOf } from "@/lib/integrations/woocommerce/store-settings";
 import { variantLabel } from "@/lib/catalog/lookup";
+import { formatPriceRange, variationPriceRange } from "@/lib/catalog/price-range";
 import { unitEconomics } from "@/lib/profitability";
 import { describeLocationCost } from "@/lib/catalog/location-cost";
 import { LocationCostDisplay } from "@/components/inventory/location-cost-display";
@@ -67,6 +69,7 @@ import { formatCurrency, formatDate, displayReceptionNumber } from "@/lib/format
 import { PRODUCT_STATUS_LABELS, RECORD_SOURCE_LABELS } from "@/lib/status-labels";
 import { cn } from "@/lib/utils";
 import { Prisma, type Product, type RecordSource } from "@prisma/client";
+import { isProductBarcodeAutoEnabled } from "@/lib/catalog/barcode-allocation";
 
 const SOURCE_ICON: Partial<Record<RecordSource, LucideIcon>> = {
   WOOCOMMERCE: Store,
@@ -225,6 +228,8 @@ export default async function ProduitDetailPage({
   // Business-mode capabilities (docs/adr/0041): the Identité tab (reference,
   // barcodes, channel availability) exists only in an ONLINE_AND_OFFLINE tenant.
   const identityEnabled = user.capabilities.has("catalogIdentity");
+  // docs/adr/0061 — « Générer » per product / variation barcode input.
+  const barcodeAutoEnabled = identityEnabled && (await isProductBarcodeAutoEnabled());
   const [product, categories, channels] = await Promise.all([
     getProductDetail(id, user),
     listCategories(),
@@ -281,11 +286,29 @@ export default async function ProduitDetailPage({
     })
   );
 
-  // WooCommerce link of this product and its pending « supprimé de la boutique »
-  // flag (src/lib/integrations/woocommerce/remote-deletion.ts) — for the same
-  // users who may publish; read from the database only, no store call here.
-  const wooLink = canPublish ? await wooLinkOfProduct(product.id) : null;
-  const wooFlag = wooLink ? await pendingRemoteMissing(wooLink) : null;
+  // Store links of this product (WooCommerce, and Shopify when enabled), each
+  // with its pending « supprimé de la boutique » flag and — for a product
+  // ASODITECH published — its outbound « Retirer / Remettre en vente » state
+  // (src/lib/integrations/shared/remote-deletion.ts, remote-listing.ts). For
+  // the same users who may publish; database only, no store call here.
+  const remoteLinks = canPublish
+    ? (
+        await Promise.all(
+          publishProviders.map(async (provider) => {
+            const link = await remoteLinkOfProduct(provider, product.id);
+            if (!link) return null;
+            const flag = await pendingRemoteMissingOf(link);
+            const published = product.publications.some((p) => p.provider === provider && p.externalId === link.externalId);
+            const state = published ? await remoteListingStateOf(link) : null;
+            return {
+              link,
+              flag: flag ? { check: flag.check, detectedAt: flag.detectedAt.toISOString() } : null,
+              listing: state ? { ...state, since: state.since?.toISOString() ?? null } : null,
+            };
+          })
+        )
+      ).filter((entry) => entry !== null)
+    : [];
   // « Suivre le stock » of an imported WooCommerce/Shopify product: who decides it (store-settings.ts).
   const storeInventoryOwner =
     product.source === "WOOCOMMERCE" || product.source === "SHOPIFY"
@@ -322,17 +345,9 @@ export default async function ProduitDetailPage({
   // puts both on the variations) — surface the aggregate so the header
   // isn't a misleading "0,00 MAD / Non suivi".
   const isVariable = product.variations.length > 0;
-  const variationPrices = product.variations
-    .map((v) => (v.price != null ? Number(v.price) : null))
-    .filter((n): n is number => n != null && n > 0);
+  // Regular price per variation = own price ?? parent price (src/lib/catalog/price-range.ts).
   const displayPriceLabel = isVariable
-    ? variationPrices.length > 0
-      ? (() => {
-          const lo = Math.min(...variationPrices);
-          const hi = Math.max(...variationPrices);
-          return lo === hi ? formatCurrency(String(lo)) : `${formatCurrency(String(lo))} – ${formatCurrency(String(hi))}`;
-        })()
-      : "—"
+    ? formatPriceRange(variationPriceRange(product.price, product.variations))
     : formatCurrency(product.price.toString());
   const variationStock = product.variations.reduce(
     (sum, v) => sum + v.inventoryItems.reduce((n, i) => n + i.quantityOnHand, 0),
@@ -487,14 +502,11 @@ export default async function ProduitDetailPage({
         </SummarySection>
       )}
 
-      {wooLink && wooFlag && (
-        <RemoteLinkPanel
-          productId={product.id}
-          externalId={wooLink.externalId}
-          kind={wooLink.kind}
-          flag={{ check: wooFlag.check, detectedAt: wooFlag.detectedAt.toISOString() }}
-        />
-      )}
+      {remoteLinks
+        .filter((entry) => entry.flag)
+        .map(({ link, flag }) => (
+          <RemoteLinkPanel key={link.provider} productId={product.id} provider={link.provider} externalId={link.externalId} kind={link.kind} flag={flag} />
+        ))}
 
       <Tabs defaultValue={defaultTab}>
         <TabsList>
@@ -754,6 +766,7 @@ export default async function ProduitDetailPage({
               productId={product.id}
               existingAttributes={product.variations.map((v) => v.attributes as Record<string, string>)}
               defaultOpen={variants === "1" && product.variations.length === 0}
+              canGenerateBarcodes={barcodeAutoEnabled}
             />
           )}
           {canEdit && isExternal && (
@@ -774,6 +787,7 @@ export default async function ProduitDetailPage({
             productId={product.id}
             reference={product.reference}
             canEdit={canEdit}
+            canGenerateBarcode={barcodeAutoEnabled}
             channels={channels.map((c) => ({ id: c.id, name: c.name, kind: c.kind }))}
             enabledChannelIds={product.salesChannels.map((c) => c.salesChannelId)}
             units={
@@ -973,7 +987,19 @@ export default async function ProduitDetailPage({
                 channels={publishChannels}
                 canPublish={canPublish}
               />
-              {wooLink && !wooFlag && <RemoteLinkPanel productId={product.id} externalId={wooLink.externalId} kind={wooLink.kind} flag={null} />}
+              {remoteLinks
+                .filter((entry) => !entry.flag)
+                .map(({ link, listing }) => (
+                  <RemoteLinkPanel
+                    key={link.provider}
+                    productId={product.id}
+                    provider={link.provider}
+                    externalId={link.externalId}
+                    kind={link.kind}
+                    flag={null}
+                    listing={listing}
+                  />
+                ))}
             </div>
           </TabsContent>
         )}

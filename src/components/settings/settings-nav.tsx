@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { ScrollFade } from "@/components/ui/scroll-fade";
 
 /** Secondary nav for the Paramètres area. `Sauvegarde & Portabilité`
  * (docs/adr/0034) is settings.manage-only, so it is only rendered when
@@ -26,13 +27,16 @@ export function SettingsNav({
     ...(canManage ? [{ href: "/parametres/sauvegarde", label: "Sauvegarde & Portabilité" }] : []),
   ];
   return (
-    <nav className="mb-6 flex gap-1 overflow-x-auto border-b border-hairline [scrollbar-width:none]">
+    <nav aria-label="Sections des paramètres" className="mb-6">
+      {/* Scrolls sideways on a phone: the hidden edge fades and the active tab is scrolled into view. */}
+      <ScrollFade revealActive className="flex gap-1 border-b border-hairline [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {items.map((item) => {
         const active = pathname === item.href;
         return (
           <Link
             key={item.href}
             href={item.href}
+            aria-current={active ? "page" : undefined}
             className={cn(
               "-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/25",
               active
@@ -44,6 +48,7 @@ export function SettingsNav({
           </Link>
         );
       })}
+      </ScrollFade>
     </nav>
   );
 }

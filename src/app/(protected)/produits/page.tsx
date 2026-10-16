@@ -23,6 +23,7 @@ import { requirePermission } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
 import { listProducts, listCategories, type ProductSort, type ProductTypeFilter } from "@/lib/queries/products";
+import { formatPriceRange, variationPriceRange } from "@/lib/catalog/price-range";
 import { formatCurrency } from "@/lib/format";
 import { PRODUCT_STATUS_LABELS } from "@/lib/status-labels";
 import type { ProductStatus } from "@prisma/client";
@@ -244,19 +245,10 @@ export default async function ProduitsPage({
                 // (WooCommerce puts both on the variations) — aggregate
                 // from the variations so the row isn't a misleading
                 // "0,00 MAD / Non suivi".
-                const variationPrices = p.variations
-                  .map((v) => (v.price != null ? Number(v.price) : null))
-                  .filter((n): n is number => n != null && n > 0);
+                // Regular price per variation = own price ?? parent price
+                // (src/lib/catalog/price-range.ts).
                 const priceLabel = isVariable
-                  ? variationPrices.length > 0
-                    ? (() => {
-                        const min = Math.min(...variationPrices);
-                        const max = Math.max(...variationPrices);
-                        return min === max
-                          ? formatCurrency(String(min))
-                          : `${formatCurrency(String(min))} – ${formatCurrency(String(max))}`;
-                      })()
-                    : "—"
+                  ? formatPriceRange(variationPriceRange(p.price, p.variations))
                   : formatCurrency(p.price.toString());
 
                 // Same min–max treatment as the price, over the variation

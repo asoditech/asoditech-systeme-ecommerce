@@ -14,6 +14,7 @@ import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmente
 import { FilterSelect } from "@/components/filter-select";
 import { DateRangeFields } from "@/components/date-range-fields";
 import { FilterSearchInput } from "@/components/filter-search-input";
+import { orderSearchFeedback } from "@/lib/orders/search-feedback";
 import { DisconnectedSourceBanner } from "@/components/integrations/disconnected-source-banner";
 import { SyncRefreshButton } from "@/components/sync-refresh-button";
 import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
@@ -110,6 +111,7 @@ export default async function CommandesPage({
     : null;
 
   const isThisMonth = effectiveDateFrom === monthFrom && effectiveDateTo === monthTo;
+  const searchFeedback = orderSearchFeedback({ q: params.q, total, scopedToThisMonth: isThisMonth });
   const hasActiveFilter = Boolean(
     params.q || statusFilter || paymentStatusFilter || params.dateFrom || params.dateTo || isAll || params.confirmationAgent
   );
@@ -182,6 +184,8 @@ export default async function CommandesPage({
           ariaLabel="Rechercher une commande par n° de commande, client, téléphone ou n° de suivi"
           defaultValue={params.q}
           className="w-full sm:w-72"
+          // Search as you type (Enter still applies at once).
+          liveDebounceMs={300}
         />
         <FilterSelect
           paramKey="status"
@@ -237,6 +241,10 @@ export default async function CommandesPage({
           </Button>
         ) : null}
       </FilterBar>
+      {/* Polite live region: announced after each search (« 3 résultats pour … »). */}
+      <p role="status" aria-live="polite" className={searchFeedback ? "-mt-2 mb-3 text-sm text-ink-secondary" : "sr-only"} data-testid="orders-search-feedback">
+        {searchFeedback ?? ""}
+      </p>
 
       {params.confirmationAgent && (
         <div className="-mt-2 mb-5">
@@ -263,7 +271,7 @@ export default async function CommandesPage({
         )
       ) : (
         <TableCard>
-          <Table className="[&_td]:px-3 [&_th]:px-3">
+          <Table className="[&_td]:px-2.5 [&_th]:px-2.5 2xl:[&_td]:px-3 2xl:[&_th]:px-3">
             <TableHeader>
               <TableRow>
                 <TableHead>Commande</TableHead>
@@ -271,7 +279,8 @@ export default async function CommandesPage({
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead>Statut</TableHead>
                 <TableHead>Paiement</TableHead>
-                <TableHead>Canal</TableHead>
+                {/* Lower-priority column: from 2xl only; below, the channel is on the order's second line. */}
+                <TableHead className="hidden 2xl:table-cell">Canal</TableHead>
                 <TableHead>Confirmé par</TableHead>
                 <TableHead>Produits</TableHead>
                 {canPurge && (
@@ -295,13 +304,13 @@ export default async function CommandesPage({
                 return (
                 <ClickableTableRow key={o.id} href={`/commandes/${o.id}`}>
                   <TableCell>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[15px] font-semibold tracking-tight text-ink">{displayOrderNumber(o, business.orderNumberPrefix)}</span>
-                      {returnLabel && <Badge variant="warning">↩ {returnLabel}</Badge>}
-                    </div>
+                    <span className="text-[15px] font-semibold tracking-tight text-ink">{displayOrderNumber(o, business.orderNumberPrefix)}</span>
                     <p className="mt-0.5 text-xs text-ink-muted">
                       {formatDate(o.placedAt)} · {o._count.items} article{o._count.items > 1 ? "s" : ""}
+                      <span className="2xl:hidden"> · {displayOrderChannel(o)}</span>
                     </p>
+                    {/* Own line, not beside the number: keeps the column narrow so the table fits at 1440px. */}
+                    {returnLabel && <Badge variant="warning" className="mt-1">↩ {returnLabel}</Badge>}
                   </TableCell>
                   <TableCell>
                     <span className="block max-w-[11rem] truncate font-medium text-ink">{displayOrderRecipient(o)}</span>
@@ -314,7 +323,7 @@ export default async function CommandesPage({
                   <TableCell>
                     <StatusBadge status={o.paymentStatus} labels={ORDER_PAYMENT_STATUS_LABELS} />
                   </TableCell>
-                  <TableCell className="text-ink-secondary">{displayOrderChannel(o)}</TableCell>
+                  <TableCell className="hidden text-ink-secondary 2xl:table-cell">{displayOrderChannel(o)}</TableCell>
                   <TableCell className="text-ink-secondary">
                     {o.confirmationAgent ? (
                       canViewCommissions ? (

@@ -28,6 +28,10 @@ const QUICK_LINKS: { label: string; href: string; permission: Permission | Permi
   { label: "Nouveau produit", href: "/produits/nouveau", permission: "products.create" },
 ];
 
+/** Typing pause before the server search; queries shorter than QUICK_SEARCH_MIN_CHARS never reach it. */
+export const QUICK_SEARCH_DEBOUNCE_MS = 250;
+export const QUICK_SEARCH_MIN_CHARS = 2;
+
 const TYPE_ICON = { customer: Users, product: Package, order: ShoppingCart, sale: Store, supplier: Truck, return: Undo2, page: FileText, shipment: Radar } as const;
 
 /**
@@ -38,6 +42,9 @@ const TYPE_ICON = { customer: Users, product: Package, order: ShoppingCart, sale
 function matchQuickLinks<T extends { label: string }>(links: readonly T[], query: string): T[] {
   const q = normalizeForSearch(query);
   return q ? links.filter((l) => normalizeForSearch(l.label).includes(q)) : [...links];
+}
+export function quickSearchCountLabel(n: number): string {
+  return n === 0 ? "Aucun résultat" : n === 1 ? "1 résultat" : `${n} résultats`;
 }
 const ACTION_ICON = { open: Package, trace: ScanSearch, label: Printer, receive: PackagePlus } as const;
 
@@ -63,7 +70,7 @@ export function CommandPalette({ permissions }: { permissions: Set<Permission> }
 
   React.useEffect(() => {
     // Closed dialog or query too short: drop any answer still in flight.
-    if (!open || query.trim().length < 2) {
+    if (!open || query.trim().length < QUICK_SEARCH_MIN_CHARS) {
       gate.current.cancel();
       return;
     }
@@ -73,11 +80,12 @@ export function CommandPalette({ permissions }: { permissions: Set<Permission> }
         const found = await quickSearchAction(query);
         if (gate.current.isLatest(ticket)) setResults(found);
       });
-    }, 200);
+    }, QUICK_SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timeout);
   }, [query, open]);
   // Query too short for a server round-trip — don't show stale results from a longer query.
-  const visibleResults = query.trim().length >= 2 ? results : [];
+  const searching = query.trim().length >= QUICK_SEARCH_MIN_CHARS;
+  const visibleResults = searching ? results : [];
   // A product with server-computed actions gets its own group (one row per
   // action, reachable with the arrow keys like any other entry); every other
   // result stays a single row. The actions are already permission-filtered by
@@ -135,12 +143,11 @@ export function CommandPalette({ permissions }: { permissions: Set<Permission> }
           onValueChange={setQuery}
         />
         <CommandList>
-          {query.trim().length >= 2 && isPending && (
-            <p className="px-3 py-2 text-xs text-muted-foreground" role="status" aria-live="polite">
-              Recherche…
-            </p>
-          )}
-          {query.trim().length >= 2 && !isPending && visibleResults.length === 0 && (
+          {/* One polite live region: « Recherche… », then how many results (screen readers). */}
+          <p className={searching && isPending ? "px-3 py-2 text-xs text-muted-foreground" : "sr-only"} role="status" aria-live="polite">
+            {!searching ? "" : isPending ? "Recherche…" : quickSearchCountLabel(visibleResults.length)}
+          </p>
+          {searching && !isPending && visibleResults.length === 0 && (
             <CommandEmpty>Aucun résultat.</CommandEmpty>
           )}
           {pageResults.length > 0 && (

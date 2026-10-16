@@ -3,6 +3,8 @@
 import { productSearchWhereWithOptions } from "@/lib/queries/products";
 import { productLevelMatches, variantLabel } from "@/lib/catalog/lookup";
 import { customerVisibilityWhere } from "@/lib/customers/visibility";
+import { normalizeScannedCustomerCode } from "@/lib/customers/barcode";
+import { customerPhoneSearchKeys } from "@/lib/customers/identity";
 import { prisma } from "@/lib/prisma";
 import { requireUserForAction } from "@/lib/auth/guards";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -37,6 +39,7 @@ export async function quickSearchAction(query: string): Promise<QuickSearchResul
   const results: QuickSearchResult[] = [];
 
   if (userHasPermission(user, "customers.view")) {
+    const customerCode = normalizeScannedCustomerCode(trimmed).code;
     const customers = await prisma.customer.findMany({
       where: {
         AND: [
@@ -46,6 +49,13 @@ export async function quickSearchAction(query: string): Promise<QuickSearchResul
               { fullName: { contains: trimmed, mode: "insensitive" } },
               { phone: { contains: trimmed, mode: "insensitive" } },
               { email: { contains: trimmed, mode: "insensitive" } },
+              // Partial / formatted / international phone on the normalized
+              // key — same rule as the orders search (« 0612 34 », « +212 6… »).
+              ...customerPhoneSearchKeys(trimmed).map((digits) => ({ phoneKey: { contains: digits } })),
+              // Customer code « CL-000001 » (docs/adr/0060): exact, scanner-normalised,
+              // or its beginning (« CL-0000 ») — a prefix on the (tenantId, barcode) key.
+              { barcode: customerCode },
+              ...(/^CL-\d+$/.test(customerCode) ? [{ barcode: { startsWith: customerCode } }] : []),
             ],
           },
         ],

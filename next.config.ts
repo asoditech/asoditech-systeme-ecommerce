@@ -22,6 +22,12 @@ export const SECURITY_HEADERS = [
 export const TOKEN_PAGE_SOURCES = ["/reinitialiser-mot-de-passe/:path*", "/invitations/:path*"];
 
 const nextConfig: NextConfig = {
+  // Hide the « N » route indicator `next dev` draws bottom-left (it sat on the
+  // sidebar's « Réduire » button and on mobile content). Development only — it
+  // never renders in a production build — and it does NOT hide errors: compile
+  // and runtime errors still open the error overlay
+  // (node_modules/next/dist/docs/01-app/03-api-reference/05-config/01-next-config-js/devIndicators.md).
+  devIndicators: false,
   // Pure build-time tree-shaking hint — no runtime behavior change.
   // recharts (used only on Dashboard/Analyses/Rapports) is the one
   // dependency here big enough for this to matter; lucide-react is

@@ -82,7 +82,14 @@ export function SupportWidget({
           aria-label="Ouvrir le centre d'aide"
           className={cn(
             // Soft UI: a small white pill with a soft shadow — only the icon is orange.
-            "fixed right-4 bottom-12 z-40 flex items-center gap-2 rounded-full bg-shell px-3 py-2.5 text-sm font-medium text-ink shadow-popover ring-1 ring-hairline transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:hover:translate-y-0 sm:right-8 sm:bottom-14 sm:px-4 print:hidden",
+            "fixed z-40 flex items-center gap-2 rounded-full bg-shell px-3 py-2.5 text-sm font-medium text-ink shadow-popover ring-1 ring-hairline transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:hover:translate-y-0 sm:px-4 print:hidden",
+            // Clear of the 36px footer and of the device's safe areas (home
+            // indicator, rounded corners). env() is 0 where there is none.
+            "right-[calc(1rem+env(safe-area-inset-right))] bottom-[calc(3rem+env(safe-area-inset-bottom))] sm:right-[calc(2rem+env(safe-area-inset-right))] sm:bottom-[calc(3.5rem+env(safe-area-inset-bottom))]",
+            // Never on top of a floating action bar: while a settings form has
+            // unsaved changes its « Enregistrer » bar sits at the same corner
+            // (src/components/settings/setting-controls.tsx), so step aside.
+            "[body:has(form[data-state=dirty])_&]:hidden",
           )}
         >
           <LifeBuoy className="size-5 text-brand" aria-hidden="true" />
@@ -108,7 +115,7 @@ export function SupportWidget({
               // Frosted-glass panel — opaque fallback where backdrop-filter is unsupported.
               "bg-popover/95 supports-backdrop-filter:bg-popover/75 supports-backdrop-filter:backdrop-blur-xl",
               // Mobile: bottom sheet
-              "inset-x-0 bottom-0 max-h-[85vh] rounded-t-2xl",
+              "inset-x-0 bottom-0 max-h-[85vh] rounded-t-2xl pb-[env(safe-area-inset-bottom)]",
               // Desktop: compact bottom-right card, clear of the fixed footer
               "sm:inset-x-auto sm:right-6 sm:bottom-14 sm:max-h-[min(620px,calc(100vh-7rem))] sm:w-[380px] sm:rounded-2xl",
             )}

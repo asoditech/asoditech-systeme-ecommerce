@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { ScrollFade } from "@/components/ui/scroll-fade";
 
 /**
  * Phase 4 (Complete Product UI/UX Visual Redesign) — a pill-shaped
@@ -15,15 +16,17 @@ import { cn } from "@/lib/utils";
  */
 export function SegmentedControl({ children, className }: { children: React.ReactNode; className?: string }) {
   // max-w-full + own horizontal scroll: on a phone a 5-position period
-  // picker scrolls inside itself instead of being clipped at the edge.
+  // picker scrolls inside itself instead of being clipped at the edge. The
+  // inner ScrollFade fades the edge that hides positions (no hidden choice
+  // without a hint) and brings the active position into view.
   return (
-    <div
-      className={cn(
-        "inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full bg-segment-track p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-        className
-      )}
-    >
-      {children}
+    <div className={cn("inline-flex max-w-full overflow-hidden rounded-full bg-segment-track", className)}>
+      <ScrollFade
+        revealActive
+        className="flex min-w-0 items-center gap-0.5 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {children}
+      </ScrollFade>
     </div>
   );
 }

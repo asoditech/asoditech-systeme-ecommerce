@@ -10,6 +10,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ScrollFade } from "@/components/ui/scroll-fade";
 import { SECTION_ACCENTS } from "@/components/settings/config/section-meta";
 import { ConfigSearch } from "@/components/settings/config/config-search";
 import { SettingInfo } from "@/components/settings/setting-info";
@@ -139,8 +140,10 @@ export function ConfigHero({
 /** Pill navigation with an icon per section; scrolls sideways on phones. */
 export function ConfigNav({ current, flagged }: { current: ConfigSectionId; flagged: ConfigSectionId[] }) {
   return (
-    <nav aria-label="Sections de la configuration" className="min-w-0">
-      <ul className="flex gap-1 overflow-x-auto rounded-full bg-segment-track p-1 [scrollbar-width:none]">
+    <nav aria-label="Sections de la configuration" className="min-w-0 overflow-hidden rounded-full bg-segment-track">
+      {/* The hidden edge fades and the current section is scrolled into view (no hidden choice). */}
+      <ScrollFade revealActive className="p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <ul className="flex w-max gap-1">
         {CONFIG_SECTIONS.map((s) => {
           const active = s.id === current;
           const accent = SECTION_ACCENTS[s.id];
@@ -163,6 +166,7 @@ export function ConfigNav({ current, flagged }: { current: ConfigSectionId; flag
           );
         })}
       </ul>
+      </ScrollFade>
     </nav>
   );
 }

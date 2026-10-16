@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { OrderDeliveryInfo, type OrderDeliveryShipment } from "@/components/orders/order-delivery-info";
+import type { CodDisplay } from "@/lib/orders/cod-display";
 import {
   carrierReference,
   lastTrackingEvent,
@@ -48,12 +49,12 @@ function shipment(over: Partial<OrderDeliveryShipment> & { id: string }): OrderD
 const ALL = { canViewCosts: true, canOverrideCost: false, canViewDelivery: true };
 const day = (d: number) => new Date(`2026-10-${String(d).padStart(2, "0")}T10:00:00Z`);
 
-function render(shipments: OrderDeliveryShipment[], v: Partial<typeof ALL> = {}, extra: { codAmount?: number | null; actions?: string } = {}) {
+function render(shipments: OrderDeliveryShipment[], v: Partial<typeof ALL> = {}, extra: { cod?: CodDisplay; actions?: string } = {}) {
   return renderToStaticMarkup(
     createElement(OrderDeliveryInfo, {
       shipments,
       currency: "MAD",
-      codAmount: extra.codAmount ?? null,
+      cod: extra.cod ?? { kind: "none" },
       ...ALL,
       ...v,
       actions: extra.actions ? createElement("button", null, extra.actions) : undefined,
@@ -148,8 +149,15 @@ describe("OrderDeliveryInfo — rendering and visibility", () => {
   });
 
   it("COD line uses the amount the page computed", () => {
-    expect(render([], {}, { codAmount: 249 })).toContain("À encaisser à la livraison (COD)");
+    expect(render([], {}, { cod: { kind: "amount", amount: 249 } })).toContain("À encaisser à la livraison (COD)");
     expect(render([])).not.toContain("COD");
+  });
+
+  it("COD line on a returned order says nothing is collected instead of the total", () => {
+    const html = render([], {}, { cod: { kind: "nothing", label: "Non encaissé — commande retournée" } });
+    expect(html).toContain("À encaisser à la livraison (COD)");
+    expect(html).toContain("Non encaissé — commande retournée");
+    expect(html).not.toContain("MAD");
   });
 
   it("primary shipment first, older ones under « Expéditions précédentes »", () => {

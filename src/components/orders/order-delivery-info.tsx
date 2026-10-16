@@ -12,6 +12,7 @@ import {
   shipmentConnectionLabel,
   splitShipmentsForDisplay,
 } from "@/lib/orders/delivery-info";
+import type { CodDisplay } from "@/lib/orders/cod-display";
 import { isShipmentOutcomeUnknown, SHIPMENT_OUTCOME_UNKNOWN_HINT, type ShipmentStatusValue } from "@/lib/validation/delivery";
 
 /**
@@ -188,7 +189,7 @@ function PreviousShipments({ shipments, currency, v }: { shipments: OrderDeliver
 export function OrderDeliveryInfo({
   shipments,
   currency,
-  codAmount,
+  cod,
   canViewCosts,
   canOverrideCost,
   canViewDelivery,
@@ -196,8 +197,8 @@ export function OrderDeliveryInfo({
 }: {
   shipments: OrderDeliveryShipment[];
   currency: string;
-  /** « À encaisser » — computed by the page with the existing COD rule; null when not COD. */
-  codAmount: number | null;
+  /** « À encaisser » — computed by the page with codDisplay (src/lib/orders/cod-display.ts). */
+  cod: CodDisplay;
   actions?: ReactNode;
 } & Visibility) {
   const v: Visibility = { canViewCosts, canOverrideCost, canViewDelivery };
@@ -209,10 +210,14 @@ export function OrderDeliveryInfo({
       ) : (
         <p className="text-sm text-muted-foreground">Aucune expédition associée à cette commande.</p>
       )}
-      {codAmount !== null && (
-        <p className="text-sm text-muted-foreground">
+      {cod.kind !== "none" && (
+        <p className="text-sm text-muted-foreground" data-testid="order-cod-line">
           À encaisser à la livraison (COD) :{" "}
-          <span className="text-foreground">{formatCurrency(String(codAmount), currency)}</span>
+          {cod.kind === "amount" ? (
+            <span className="text-foreground">{formatCurrency(String(cod.amount), currency)}</span>
+          ) : (
+            <span className="font-medium text-foreground">{cod.label}</span>
+          )}
         </p>
       )}
       {previous.length > 0 && <PreviousShipments shipments={previous} currency={currency} v={v} />}
