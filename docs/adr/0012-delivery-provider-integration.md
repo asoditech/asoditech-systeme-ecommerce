@@ -314,3 +314,19 @@ this environment — everything above was verified against the real test
 database with the fixture adapter and mocked HTTP responses, exactly like
 `docs/adr/0010`/`0011`'s own stated limitation before a live WooCommerce/
 Shopify store was available.
+
+## Addendum 2026-10-16 — carrier webhook event lifecycle
+
+`handleDeliveryWebhook` no longer records an event TRAITE before processing.
+`shipment_webhook_events.status` (plain string, no migration): the event is
+claimed EN_COURS (unique `(providerId, deliveryId)`), processed through the
+same authoritative re-fetch, then TRAITE (done), IGNORE (no matching
+parcel / no id) or ECHEC (re-fetch error or exception). A retry of the same
+delivery reclaims an ECHEC row (conditional ECHEC → EN_COURS), or an
+EN_COURS claim older than 5 minutes; a concurrent duplicate gets
+`in_progress` → HTTP 503 + Retry-After so the carrier retries; failures
+answer 500. Side effects stay exactly-once through the existing conditional
+shipment/order updates and the ledger-guarded returns (stock is only
+restocked at inspection, never by a webhook). Retries are bounded by the
+carrier's own policy; an event left ECHEC is visible and the parcel is still
+reconciled by polling.

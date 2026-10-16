@@ -256,3 +256,19 @@ provisioning — see §2, a required manual step per environment.
   request) now also opens a bypass-GUC transaction per call — same
   tradeoff, called out explicitly since it's the highest-frequency path
   affected.
+
+## Addendum 2026-10-16 — explicit runtime grants for new tables
+
+Found: the local TEST database had no `pg_default_acl` rows (its tables had
+been granted one by one), so `whatsapp_outbox` (migration
+`20261016120000_…`) was created with no privilege for `asoditech_app` and
+every app query failed with « permission denied ». The DEV database does
+have the defaults (`mac` → `asoditech_app`: tables `arwd`, sequences `rU`).
+From `20261016130000_whatsapp_outbox_runtime_grant` on, a migration that
+creates a table ALSO grants it explicitly — `GRANT SELECT, INSERT, UPDATE,
+DELETE … TO asoditech_app` inside `IF EXISTS (… pg_roles …)` — so the result
+no longer depends on how a database was provisioned. Default privileges stay
+the primary mechanism (sequences, older tables). RLS is unchanged (ENABLE +
+FORCE + `tenant_isolation`); a grant never replaces a policy. Enforced by
+`tests/lib/migration-runtime-grants.test.ts` (static) and checked on a live
+database by `tests/integration/runtime-role-privileges.test.ts` (read-only).

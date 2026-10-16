@@ -107,3 +107,18 @@ failed API-creation attempts (ADR 0031).
   changes.
 - Return / failure costs are visible as separate lines in finance and the
   delivery report, not buried in one "delivery cost" number.
+
+## Addendum 2026-10-16 — no cost on a failed creation attempt
+
+Local build, not committed / deployed at the time of this note.
+`applyShipmentStatusTransition` (`src/lib/delivery.ts`) no longer books a
+failure / return cost when the shipment is an **API shipment with no
+carrier id** (`provider.type = "API"` and `externalId = null`) — typically
+a creation « à vérifier » settled by hand as « Échec » (no parcel on the
+carrier's portal) or « Annulé » (the real parcel is then linked as its own
+shipment). Such a row is a failed creation *attempt*, « not a shipment »
+(ADR 0031 §3), and §9 above already excludes those attempts from finance
+and the delivery report; booking `failureCost` on it would charge the
+merchant for a parcel the carrier never had. Its `cost` stays as it was
+(normally `null`) and `costFinalizedAt` stays unset. Manual / internal-fleet
+shipments and API shipments with a carrier id are unchanged.

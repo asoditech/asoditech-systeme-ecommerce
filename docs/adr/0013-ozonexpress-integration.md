@@ -619,3 +619,29 @@ cannot dedupe a repeated `add-parcel`.
   is already explained and blocking.
 - Read calls (`tracking`, `GET /cities`) keep their 3 attempts. The current
   adapter does not call `parcel-info`.
+
+## Addendum 2026-10-16 — host allowlist and creation-outcome classification
+
+Local build, not committed / deployed at the time of this note.
+
+- **Host allowlist.** The OzonExpress request URL carries the customer id
+  and API key in its path, so a configurable `baseUrl` may only point at
+  `api.ozonexpress.ma` (`OZONEXPRESS_API_HOSTS`,
+  `src/lib/integrations/delivery/carrier-hosts.ts`, enforced by
+  `assertAllowedCarrierBaseUrl` in `ozonexpress/client.ts`): `https:`, no
+  credentials in the URL, default port, exact host (no subdomain wildcard).
+  The portal `portalBaseUrl` (ADR 0015) may only be `client.ozoneexpress.ma`
+  (two « e », as documented by the owner) — checked by the config schema
+  (`ozonexpress/types.ts`) and again when the note links are built
+  (`ozonexpress/mapper.ts`). A bad host is a `DeliveryConfigError`; the URL
+  itself is never echoed. `assertPublicHost` still runs on top. Mock hosts
+  are accepted only when `NODE_ENV=test`.
+- **Outcome of a sent `add-parcel`.** Only HTTP 400/401/403/404/422 are a
+  definite refusal (`isDefiniteCreateRefusalStatus`,
+  `src/lib/integrations/delivery/errors.ts`). 408, 409 and any other
+  unexpected status join timeout / reset / 5xx / 429 as
+  `DeliveryOutcomeUnknownError` → shipment « à vérifier ». An accepted
+  answer that cannot be read, or any untyped error raised while reading it,
+  is also « à vérifier ». HTTP-200 `RESULT:ERROR` stays a definite failure;
+  an **unclassified** `RESULT:ERROR` message is still treated as definite —
+  listed as an owner decision in `docs/OWNER-DECISIONS-2026-10-16.md`.

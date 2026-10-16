@@ -7,7 +7,7 @@ export const livraisonArticles: DocArticle[] = [
     slug: "livraison/transporteurs",
     title: "Transporteurs",
     category: "livraison",
-    tagline: "ASODITECH connecte des transporteurs par API (OzonExpress, Aramex), ou fonctionne avec un transporteur manuel / votre propre flotte.",
+    tagline: "ASODITECH connecte des transporteurs par API (OzonExpress, Sendit, Ameex), ou fonctionne avec un transporteur manuel / votre propre flotte.",
     permission: "delivery.manage",
     steps: [
       "Ouvrir Livraison → Prestataires.",
@@ -19,12 +19,17 @@ export const livraisonArticles: DocArticle[] = [
       {
         type: "callout",
         tone: "info",
-        text: "Un prestataire Manuel ou Flotte interne se pilote entièrement à la main (statut, coût) ; un connecteur API crée réellement le colis chez le transporteur et récupère son statut quand vous le rafraîchissez (« Synchroniser », « Rafraîchir les statuts » ou l'onglet Suivi) — aucune mise à jour n'arrive toute seule.",
+        text: "Un prestataire Manuel ou Flotte interne se pilote entièrement à la main (statut, coût) ; un connecteur API crée réellement le colis chez le transporteur et récupère son statut quand vous le rafraîchissez (« Synchroniser », « Rafraîchir les statuts » ou l'onglet Suivi). Pour OzonExpress et Sendit, c'est le seul moyen : aucune mise à jour n'arrive toute seule. Ameex peut en plus prévenir ASODITECH par webhook signé : l'URL à coller chez Ameex est affichée dans « Configurer », et le même secret de signature doit être saisi des deux côtés (sans secret, les webhooks sont refusés). Chaque webhook reçu déclenche une relecture du statut chez Ameex.",
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: "Sendit (construit à partir de la documentation publique de Sendit, pas encore validé sur un compte réel) et Ameex (validé sur le bac à sable Ameex uniquement) affichent un avertissement dans « Configurer ». Aramex n'est plus proposé pour une nouvelle connexion ; une connexion Aramex déjà existante continue de fonctionner.",
       },
     ],
     related: ["livraison/creer-une-expedition", "livraison/villes-et-correspondances"],
     tryNow: { label: "Ouvrir Livraison", href: "/livraison" },
-    lastUpdated: LAST_UPDATED,
+    lastUpdated: "2026-10-16",
   },
   {
     slug: "livraison/villes-et-correspondances",

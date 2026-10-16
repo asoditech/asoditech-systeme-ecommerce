@@ -524,7 +524,19 @@ an integration.
   the provider still has any `Shipment` — must reassign/close those
   first); reconnecting is the same Configurer flow with fresh credentials.
 
-### 5.4 Aramex — delivery carrier (real, registered, not live-verified — `docs/adr/0028`)
+### 5.4 Aramex — delivery carrier (RETIRED for new connections — `docs/adr/0028`, `docs/adr/0060`)
+
+> **Retired for new connections (owner decision 2026-10-15/16, local build,
+> not deployed at the time of writing).** Aramex is registered with
+> `acceptsNewConnections: false`: it is hidden from the connector list
+> unless the company already has an Aramex connection, and the server
+> refuses switching any connection to it. **Do not set up Aramex for a new
+> client** — use OzonExpress, Sendit or Ameex (§5.4a). The notes below only
+> apply to a client who already has an Aramex connection, which keeps
+> working. Since 2026-10-16 an Aramex shipment creation makes **one**
+> attempt (no automatic resend); an uncertain outcome or `ERR30` puts the
+> shipment « à vérifier » — check the Aramex account before retrying.
+
 
 - **Credentials, from the client**: an Aramex Shipping API account —
   `UserName`, `Password`, `AccountNumber`, `AccountPin`, `AccountEntity`
@@ -554,6 +566,32 @@ an integration.
   pattern `docs/adr/0013` followed for OzonExpress).
 - **Disconnect/reconnect**: same "Supprimer"/"Configurer" pattern as
   OzonExpress.
+
+### 5.4a Sendit and Ameex — delivery carriers (registered 2026-10-16, local build — `docs/adr/0060`)
+
+Both are selectable for new connections under Livraison → Prestataires →
+Configurer, and each shows a warning notice in that dialog. Credentials are
+entered there only (never in Vercel), encrypted like every other carrier.
+
+- **Sendit** (`docs/carriers/sendit.md`): built from Sendit's official
+  public API spec (`https://app.sendit.ma/docs/api-docs.json`); **not yet
+  validated on a real account**. Credentials: the client's Sendit
+  `public_key` + `secret_key`. Capabilities: create, status, tracking,
+  cost, cities, label (« Étiquette »). **No webhooks** (status updates on
+  « Synchroniser » / « Rafraîchir les statuts » only) and **no
+  cancellation**. Status mapping is provisional. Treat the first real
+  shipment as a verification event (« Live validation checklist » in
+  `docs/carriers/sendit.md`).
+- **Ameex** (`docs/carriers/ameex.md`): validated on the **Ameex sandbox
+  only** (2026-10-16, one fictitious parcel); a production key has not been
+  tested. Credentials: Ameex API Id + API Key (a key starting with `test_`
+  uses the sandbox, any other key production) + webhook signature secret.
+  Capabilities: create, status, tracking, cities, **webhooks**; no
+  cancellation, labels, manifest or prices. For automatic status updates,
+  copy the « URL du webhook à coller chez le transporteur » shown in
+  « Configurer » (`https://<domain>/api/webhooks/delivery/<connection id>`)
+  into the Ameex account and enter the **same** secret on both sides —
+  unsigned webhooks are always refused. Status mapping is provisional.
 
 ### 5.5 Google Drive — Backup destination (real, optional — `docs/adr/0034` Phase 2)
 
@@ -963,8 +1001,10 @@ themselves.
       confirmation/delivery flow.
 - [ ] **Test delivery**: create one shipment via whichever carrier this
       client uses and confirm status sync ("Synchroniser") works — for
-      OzonExpress/Aramex specifically, treat the very first real shipment
-      as a live-verification event (§5.3/§5.4).
+      OzonExpress, Sendit and Ameex specifically, treat the very first real
+      shipment as a live-verification event (§5.3/§5.4a). Aramex is retired
+      for new connections (§5.4) — only an already-existing Aramex
+      connection is concerned.
 - [ ] **Test backup**: a manual backup was generated and downloaded
       successfully (§5.5/§9's Backups item above).
 - [ ] **Test restore**: a restore was actually performed at least once

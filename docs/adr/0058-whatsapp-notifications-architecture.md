@@ -1,7 +1,7 @@
 # ADR 0058 — WhatsApp critical notifications
 
 ## Status
-**Accepted — V1 implemented (2026-10-02).** One migration
+**Accepted — V1 implemented (2026-10-02); extended 2026-10-16 (see Addendum).** One migration
 (`20261002120000_user_whatsapp_notifications`, additive nullable `users`
 columns). The original proposal follows the V1 section and is kept for
 context. Where they differ, the V1 section wins.
@@ -101,6 +101,79 @@ One source of truth per concern:
   Adding one would need a persisted preference, and is an owner decision.
 - `/compte` was removed before release: there is a single WhatsApp
   settings UI.
+
+## Addendum 2026-10-16 — full operational coverage + durable outbox
+Supersedes the V1 points « Nothing else uses WhatsApp », « There is no send
+log / no retries » and the « no `NotificationDelivery` table » idempotency.
+Migration `20261016120000_delivery_payment_brand_logo_whatsapp_outbox`
+(prepared, not applied): `whatsapp_outbox` (RLS, tenant-scoped) and
+`business_settings.whatsappDisabledAlerts`.
+
+- **Events → templates** (`src/lib/whatsapp/templates.ts`
+  `WHATSAPP_TEMPLATE_SPECS`, `src/lib/whatsapp/alert-types.ts`):
+
+  | Event | In-app type | Template | Availability |
+  |---|---|---|---|
+  | New order (manual / imported) | `NOUVELLE_COMMANDE` | `asoditech_new_order` (order no., origin) | needs approval |
+  | Order confirmed (queue or status change) | — (WhatsApp-only, alert type `COMMANDE_CONFIRMEE`) | `asoditech_order_confirmed` (order no.) | needs approval |
+  | Low stock | `STOCK_FAIBLE` | `asoditech_stock_low` (product, available, location) | needs approval |
+  | Out of stock | `RUPTURE_STOCK` | `asoditech_stock_out` | V1, available |
+  | Delivery failure (daily bundle) | `ECHEC_LIVRAISON` | `asoditech_delivery_failure_summary` | V1, available |
+  | Sync / webhook failure, integration down | `ECHEC_SYNCHRONISATION`, `ERREUR_INTEGRATION` | `asoditech_integration_down` | V1, available |
+  | Order returned | `COMMANDE_RETOURNEE` | `asoditech_order_returned` (order no.) | needs approval |
+
+- **Template availability.** The four V1 templates stay sendable
+  (backward compatible). Any other one is sendable only when listed in
+  `WHATSAPP_ENABLED_TEMPLATES` (comma list, the operator's statement that
+  Meta approved it). Otherwise its outbox row is recorded `IGNORE` with
+  « modèle non approuvé/configuré » — a configuration problem, distinct
+  from a send failure, visible to the admin.
+- **Recipients.** Unchanged rule: `notify()`'s selection (now the shared
+  `selectRecipients`) — same tenant, ACTIVE, effective permission, ADR 0056
+  location scope, actor excluded. The confirmation alert has no bell row:
+  `notifyWhatsAppOnly` uses the same selection. WhatsApp only narrows:
+  tenant switch on + sender configured (else nothing is recorded), verified
+  + opted-in number, category not disabled by the company
+  (`BusinessSettings.whatsappDisabledAlerts`) nor muted by the user
+  (`User.whatsappMutedAlerts`). Categories are opt-out; new categories are
+  effectively off until their template is enabled.
+- **Anti-flood.** The outbox key is the event's dedupe key, so: one alert per
+  order (new / returned), per confirmation (`confirmedAt` in the key), per
+  inventory item per UTC day for low/out of stock (the outbox row survives
+  the bell row being resolved, so an oscillating stock alerts once a day),
+  per integration per day for errors. Delivery failures keep the V1 daily
+  bundle: the user-row claim decides, its timestamp suffixes the key, and a
+  summary that definitively fails (ECHEC/IGNORE) gives the day back.
+- **Outbox lifecycle** (`src/lib/whatsapp/outbox.ts`, pure rules in
+  `outbox-rules.ts`): enqueue after commit (`createManyAndReturn`,
+  `skipDuplicates`) → immediate send of the new rows. Claim = conditional
+  `updateMany` (`EN_ATTENTE` & due, or `EN_COURS` older than 2 min) →
+  `EN_COURS`, attempts + 1 — exactly one processor wins. At send time every
+  narrowing fact is re-checked (→ `IGNORE` + reason). Success → `ENVOYE`
+  (+ `providerMessageId`, `sentAt`). Network / 5xx / 429 / Meta rate-limit
+  codes → `EN_ATTENTE` with backoff 1/4/16/64 min, `ECHEC` after 5 attempts;
+  other Meta 4xx → `ECHEC` at once; rows still unsent after 24 h → `ECHEC`
+  (automatic retries only). `lastError` is sanitized (code/type, no token,
+  number or parameter); the number is read from the profile at send time and
+  never stored. A timeout may in rare cases resend a message Meta did accept:
+  accepted for staff alerts (a duplicate is harmless).
+- **Retry processing.** `processDueWhatsAppOutbox({ tenantId?, limit })`:
+  opportunistically after each enqueue (5 other due rows of the tenant),
+  `GET|POST /api/cron/whatsapp-outbox` (Bearer `CRON_SECRET`, constant-time,
+  503 when unset; iterates ACTIVE tenants with due rows via the bypass client
+  for ids only, each processed inside `runWithTenant`), and « Réessayer »
+  (`retryWhatsAppOutboxMessageAction`, `integrations.manage`, own tenant's
+  `ECHEC` rows, attempts reset, audited `whatsapp.outbox_retried`).
+  `vercel.json` is unchanged — scheduling is documented in
+  docs/CLIENT-ENVIRONMENT-VARIABLES.md.
+- **UI.** Intégrations → « Alertes WhatsApp — suivi » (`integrations.manage`):
+  sender configured / tenant switch / retries configured, company category
+  switches (`setCompanyWhatsAppAlertEnabledAction`, audited
+  `whatsapp.alert_category_updated`), required templates with « disponible /
+  non approuvé », last 20 sends (recipient name, never a number, status,
+  sanitized error, « Réessayer »). Paramètres → Notifications lists the new
+  categories; a chip whose template is not approved or that the company
+  disabled is shown unavailable, not as a switch.
 
 # Original proposal
 

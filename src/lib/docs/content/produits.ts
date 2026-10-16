@@ -215,17 +215,26 @@ export const produitsArticles: DocArticle[] = [
     slug: "produits/produits-supprimes-woocommerce-shopify",
     title: "Produits supprimés de WooCommerce/Shopify",
     category: "produits",
-    tagline: "Un produit supprimé sur la boutique d'origine n'est jamais supprimé dans ASODITECH.",
+    tagline: "Un produit supprimé sur la boutique d'origine n'est jamais supprimé dans ASODITECH : seul le lien avec la boutique est traité, selon le réglage de la connexion.",
     permission: "products.view",
     body: [
       {
         type: "p",
-        text: "Lorsque WooCommerce ou Shopify signale la suppression d'un produit, ASODITECH l'archive automatiquement (statut « Archivé ») au lieu de le supprimer — son historique de ventes reste donc intact et consultable.",
+        text: "Chaque connexion WooCommerce et Shopify a son réglage « Que faire lorsqu'un produit est supprimé de la boutique ? » (page Intégrations). « Me demander avant de dissocier » (par défaut) : ASODITECH vous prévient (notification + fiche produit) et garde le lien jusqu'à ce qu'un utilisateur autorisé confirme la dissociation. « Dissocier automatiquement » : le lien est retiré sans vous demander, uniquement quand la boutique confirme que le produit n'existe plus — une boutique injoignable ou une erreur ne dissocient jamais, le produit est alors signalé pour confirmation.",
+      },
+      {
+        type: "p",
+        text: "Dans tous les cas, le produit ASODITECH, ses variantes, son stock, ses mouvements et ses commandes sont conservés. Un produit importé depuis la boutique est en plus archivé (statut « Archivé ») à la réception de la suppression — pour Shopify, sauf si Shopify prouve qu'il existe encore ; un produit créé dans ASODITECH et seulement publié sur la boutique garde son statut. Un produit archivé ou en brouillon sur Shopify n'est pas une suppression ; un produit simplement mis à la corbeille sur WooCommerce n'est jamais dissocié automatiquement (il est signalé pour confirmation).",
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: "Dans l'autre sens, « Retirer de la boutique » depuis ASODITECH ne supprime jamais définitivement le produit en ligne : il passe en brouillon sur WooCommerce et en « Archivé » sur Shopify.",
       },
     ],
     related: ["produits/archiver-retirer-du-catalogue", "integrations/synchronisation-produits"],
     tryNow: { label: "Ouvrir Produits", href: "/produits" },
-    lastUpdated: LAST_UPDATED,
+    lastUpdated: "2026-10-16",
     keywords: ["produit supprimé", "produit disparu"],
   },
   {

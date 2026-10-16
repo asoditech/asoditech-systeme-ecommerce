@@ -146,7 +146,7 @@ export const integrationsArticles: DocArticle[] = [
       },
       {
         type: "p",
-        text: "Un produit supprimé sur WooCommerce ou Shopify n'est jamais supprimé dans ASODITECH — il est archivé automatiquement, pour garder son historique de ventes intact.",
+        text: "Un produit supprimé sur WooCommerce ou Shopify n'est jamais supprimé dans ASODITECH. Le réglage de la connexion « Que faire lorsqu'un produit est supprimé de la boutique ? » décide du lien : « Me demander avant de dissocier » (par défaut — le produit est signalé et un utilisateur autorisé confirme) ou « Dissocier automatiquement » (uniquement quand la boutique confirme que le produit n'existe plus). Le produit, son stock et ses commandes sont toujours conservés ; un produit importé depuis la boutique est en plus archivé (pour Shopify, sauf si Shopify prouve qu'il existe encore). « Retirer de la boutique » depuis ASODITECH met le produit en brouillon (WooCommerce) ou en « Archivé » (Shopify), jamais en suppression définitive.",
       },
       {
         type: "callout",
@@ -157,7 +157,7 @@ export const integrationsArticles: DocArticle[] = [
     commonMistakes: ["Essayer de modifier le nom ou le prix d'un produit importé directement depuis ASODITECH."],
     related: ["produits/produits-supprimes-woocommerce-shopify", "produits/comprendre-les-produits", "stock/stock-disponible"],
     tryNow: { label: "Ouvrir Produits", href: "/produits" },
-    lastUpdated: LAST_UPDATED,
+    lastUpdated: "2026-10-16",
     keywords: ["produit supprimé", "produit archivé automatiquement"],
   },
   {

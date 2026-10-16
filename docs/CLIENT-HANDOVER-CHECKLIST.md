@@ -155,7 +155,7 @@ Fill in and keep with the client's records (not in this repo):
 | Domain registrar | ☐ Client's own account | Never register a client's production domain under your own personal/agency account without an explicit, written agreement on transfer terms. |
 | Resend account (email) | ☐ Client's own account &nbsp; ☐ Shared/your account | If shared across multiple clients (Shared-SaaS model), document this explicitly — see `docs/SHARED-VS-DEDICATED.md`'s "what is genuinely shared" table. |
 | Google Cloud project (OAuth client for Drive backup) | ☐ Client's own project &nbsp; ☐ Your/agency project | The OAuth *client* is deployment-wide; each tenant's own Google Drive account (where backups land) is always the tenant's own, regardless of who owns the OAuth client. |
-| WooCommerce / Shopify / OzonExpress / Aramex accounts | Always the client's own — this app only stores credentials the client provides, never creates accounts on these platforms | N/A |
+| WooCommerce / Shopify / OzonExpress / Sendit / Ameex accounts (Aramex: existing connections only — retired for new connections 2026-10-15/16, see `docs/adr/0060`) | Always the client's own — this app only stores credentials the client provides, never creates accounts on these platforms | N/A |
 
 ## 9. Credentials that must never be shared with you (post-handover)
 

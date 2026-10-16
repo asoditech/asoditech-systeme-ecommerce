@@ -150,3 +150,30 @@ unchanged, and a manual refund is never added to a store refund to get there
 (fixed 2026-10-14 bis; before, ANY COMPLETE refund marked the order
 REMBOURSE). The order row is locked for the check; the audit records
 `refundCoverage`, `orderMarkedRefunded` and `executedOnStore: false`.
+
+## Addendum 2026-10-16 — « payées à la livraison » (per company, opt-in)
+
+Owner decision: each company may switch on « Marquer automatiquement les
+commandes comme payées à la livraison » (`BusinessSettings.autoPaidOnDelivery`,
+default **off** for every company, migration
+`20261016120000_delivery_payment_brand_logo_whatsapp_outbox`, **not applied**).
+When on, `applyDeliveredPayment` (src/lib/orders/delivered-payment.ts) moves
+`paymentStatus` EN_ATTENTE → PAYE in the same transaction as the order's
+valid transition to LIVREE, on every path: parcel « Livré » (manual or
+carrier, `applyShipmentStatusTransition`), order status changed by hand
+(`updateOrderStatusAction`), a WooCommerce/Shopify update moving an order into
+LIVREE. Never on IMPORT of an order already delivered (2026-10-16 review: a
+first historical import would otherwise mark every past delivery paid). Conditional update (LIVREE + EN_ATTENTE) → idempotent; one audit
+event `order.updated` with `reason: "delivered_auto_paid"`. Never ECHEC,
+PARTIELLEMENT_PAYE, PAYE, REMBOURSE; never retroactive. It records the
+company's rule only — no cash-collection or courier-remittance record exists
+or is created; delivery reports still show what the courier remitted.
+
+Reconciled with « Paiement confirmé par la boutique »: a WooCommerce
+cash-on-delivery order's `date_paid` is not a payment (WooCommerce stamps it
+when the order is marked completed, or via plugins / REST `set_paid` —
+docs/research/woocommerce-date-paid-cod-2026-10-16.md), so `wooReportsPaid`
+ignores it at import and on updates (before: an imported COD order with
+`date_paid` was PAYE regardless of any setting). COD payment now comes from
+delivery (when opted in) or a person. Known gap: a third-party COD plugin
+with another gateway id is not recognised as COD.
