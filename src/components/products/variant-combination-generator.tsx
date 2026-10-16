@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface OptionDraft {
   name: string;
@@ -28,6 +29,7 @@ export function VariantCombinationGenerator({
   productId,
   existingAttributes,
   defaultOpen = false,
+  canGenerateBarcodes = false,
 }: {
   productId: string;
   /** Every existing variation's attributes, for the "already exists" preview. */
@@ -40,11 +42,15 @@ export function VariantCombinationGenerator({
    * the operator to rediscover this button on their own.
    */
   defaultOpen?: boolean;
+  /** docs/adr/0061 — tenant « Génération automatique des codes-barres » is on. */
+  canGenerateBarcodes?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(defaultOpen);
   const [options, setOptions] = useState<OptionDraft[]>([{ name: "", valuesText: "" }]);
   const [isPending, startTransition] = useTransition();
+  // Each NEW variation gets its OWN generated code (never one shared code).
+  const [withBarcodes, setWithBarcodes] = useState(false);
 
   const existingKeys = useMemo(() => new Set(existingAttributes.map((a) => attributesKey(a))), [existingAttributes]);
 
@@ -97,12 +103,17 @@ export function VariantCombinationGenerator({
       return;
     }
     startTransition(async () => {
-      const result = await generateProductVariationsAction({ productId, options: parsedOptions });
+      const result = await generateProductVariationsAction({
+        productId,
+        options: parsedOptions,
+        generateBarcodes: canGenerateBarcodes && withBarcodes,
+      });
       if (result.ok) {
+        const barcodes = result.data.barcodesGenerated > 0 ? ` ${result.data.barcodesGenerated} code(s)-barres générés.` : "";
         toast.success(
-          result.data.skippedExisting > 0
+          (result.data.skippedExisting > 0
             ? `${result.data.created} variation(s) créée(s), ${result.data.skippedExisting} déjà existante(s) ignorée(s).`
-            : `${result.data.created} variation(s) créée(s).`
+            : `${result.data.created} variation(s) créée(s).`) + barcodes
         );
         setOptions([{ name: "", valuesText: "" }]);
         setOpen(false);
@@ -210,6 +221,18 @@ export function VariantCombinationGenerator({
               existantes gardent leur SKU.
             </p>
           </div>
+        )}
+
+        {canGenerateBarcodes && (
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox checked={withBarcodes} onCheckedChange={(v) => setWithBarcodes(v === true)} className="mt-0.5" />
+            <span>
+              Générer un code-barres pour chaque nouvelle variation
+              <span className="block text-xs text-muted-foreground">
+                Un code distinct par variation (13 chiffres, préfixe 20). Les variations existantes ne sont pas modifiées.
+              </span>
+            </span>
+          </label>
         )}
 
         <div className="flex justify-end gap-2">

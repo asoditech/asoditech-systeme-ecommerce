@@ -2,7 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requirePermissionForAction } from "@/lib/auth/guards";
+import { requirePermissionForAction, requireUserForAction } from "@/lib/auth/guards";
+import { userHasPermission } from "@/lib/auth/permissions";
+import {
+  allocateProductBarcode,
+  isProductBarcodeAutoEnabled,
+  ProductBarcodeAllocationError,
+  PRODUCT_BARCODE_AUTO_DISABLED_MESSAGE,
+} from "@/lib/catalog/barcode-allocation";
 import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import { requireCapabilityForAction } from "@/lib/auth/capabilities";
 import { recordAuditEvent } from "@/lib/audit";
@@ -54,6 +61,31 @@ export async function addBarcodeAction(input: AddBarcodeInput): Promise<ActionRe
     return actionOk({ id: barcode.id });
   } catch (error) {
     if (error instanceof BarcodeError) return actionError(error.message, { code: [error.message] });
+    throw error;
+  }
+}
+
+/**
+ * « Générer » next to a product / variation barcode input (docs/adr/0061):
+ * hands out the next generated code (« 20 » + sequence + check digit) for the
+ * caller to put in the field — nothing is attached to a product here; saving
+ * goes through the normal paths (create form, « Ajouter »), still protected
+ * by the unique index. Refused when the tenant switch is off (manual entry is
+ * unaffected) or without the catalogIdentity capability. A code handed out
+ * and never saved is simply not reused (the sequence only moves forward).
+ */
+export async function generateProductBarcodeAction(): Promise<ActionResult<{ code: string }>> {
+  const user = await requireUserForAction();
+  if (!userHasPermission(user, "products.create") && !userHasPermission(user, "products.edit")) {
+    throw new Error("Non autorisé : permission manquante pour cette action.");
+  }
+  requireCapabilityForAction(user, "catalogIdentity"); // docs/adr/0041
+  if (!(await isProductBarcodeAutoEnabled())) return actionError(PRODUCT_BARCODE_AUTO_DISABLED_MESSAGE);
+  try {
+    const code = await prisma.$transaction((tx) => allocateProductBarcode(tx, user.tenantId));
+    return actionOk({ code });
+  } catch (error) {
+    if (error instanceof ProductBarcodeAllocationError) return actionError(error.message);
     throw error;
   }
 }

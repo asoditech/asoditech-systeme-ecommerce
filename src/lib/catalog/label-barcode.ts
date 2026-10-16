@@ -1,3 +1,5 @@
+import { isGeneratedProductBarcode } from "@/lib/catalog/generated-barcode";
+
 /**
  * What the printable label (src/components/products/printable-label.tsx)
  * encodes as its linear barcode. Pure, client-safe.
@@ -14,6 +16,9 @@
  */
 export type LabelBarcode =
   | { kind: "official"; value: string }
+  // A stored code made by the generator (docs/adr/0061): printed as stored,
+  // captioned as an internal code — it is not an EAN/GTIN.
+  | { kind: "generated"; value: string }
   | { kind: "internal"; value: string }
   | { kind: "none" };
 
@@ -26,7 +31,7 @@ export const INTERNAL_CODE_CAPTION = "CODE INTERNE — PAS UN EAN/GTIN";
 
 export function labelBarcode(input: { barcode: string | null | undefined; sku: string | null | undefined }): LabelBarcode {
   const official = input.barcode?.trim();
-  if (official) return { kind: "official", value: official };
+  if (official) return isGeneratedProductBarcode(official) ? { kind: "generated", value: official } : { kind: "official", value: official };
   const sku = input.sku?.trim();
   if (sku && sku.length <= INTERNAL_CODE_MAX_LENGTH && PRINTABLE_ASCII.test(sku)) return { kind: "internal", value: sku };
   return { kind: "none" };

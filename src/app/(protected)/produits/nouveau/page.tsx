@@ -9,6 +9,7 @@ import { getConnectedCommercePlatforms } from "@/lib/integrations/shared";
 import { listCategories } from "@/lib/queries/products";
 import { listActiveChannels } from "@/lib/queries/channels";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
+import { isProductBarcodeAutoEnabled } from "@/lib/catalog/barcode-allocation";
 
 export const metadata = { title: "Ajouter un produit — ASODITECH Gestion E-commerce" };
 
@@ -30,6 +31,8 @@ export default async function NouveauProduitPage() {
   // pre-existing form — no identity fields, no channels, no store-only product.
   const identityEnabled = user.capabilities.has("catalogIdentity");
   const storeChannels = user.capabilities.has("storeChannels");
+  // docs/adr/0061 — « Générer » next to the barcode field (identity tenants only).
+  const barcodeAutoEnabled = identityEnabled && (await isProductBarcodeAutoEnabled());
   const [platforms, business] = await Promise.all([getConnectedCommercePlatforms(), getReportBusinessInfo()]);
 
   if (platforms.length === 0) {
@@ -49,6 +52,7 @@ export default async function NouveauProduitPage() {
             categories={categories}
             channels={channels}
             identityEnabled={identityEnabled}
+            barcodeAutoEnabled={barcodeAutoEnabled}
             defaultLowStockThreshold={business.lowStockDefaultThreshold}
             canEditCost={productCostVisibility(user).cost}
           />
@@ -135,6 +139,7 @@ export default async function NouveauProduitPage() {
             categories={categories}
             channels={offlineChannels}
             identityEnabled={identityEnabled}
+            barcodeAutoEnabled={barcodeAutoEnabled}
             defaultLowStockThreshold={business.lowStockDefaultThreshold}
             canEditCost={productCostVisibility(user).cost}
           />

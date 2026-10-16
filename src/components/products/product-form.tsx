@@ -10,6 +10,7 @@ import {
   suggestProductSkuAction,
   suggestProductReferenceAction,
 } from "@/actions/products";
+import { generateProductBarcodeAction } from "@/actions/catalog";
 import { productCreateRedirectPath } from "@/lib/catalog/variations";
 import { generatedValueAction } from "@/lib/catalog/sku-suggestion";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
@@ -60,6 +61,7 @@ export function ProductForm({
   categories: initialCategories,
   channels = [],
   identityEnabled = false,
+  barcodeAutoEnabled = false,
   defaultLowStockThreshold = 5,
   canEditCost,
 }: {
@@ -73,6 +75,11 @@ export function ProductForm({
    * form is exactly the pre-existing one.
    */
   identityEnabled?: boolean;
+  /**
+   * docs/adr/0061 — the tenant's « Génération automatique des codes-barres »:
+   * shows « Générer » next to the barcode field. Off: manual entry only.
+   */
+  barcodeAutoEnabled?: boolean;
   /**
    * Create mode only (Batch 17) — the tenant's own "Seuil de stock faible
    * par défaut" (`BusinessSettings.lowStockDefaultThreshold`). Previously
@@ -117,22 +124,29 @@ export function ProductForm({
   const [sku, setSku] = useState(product?.sku ?? "");
   const [reference, setReference] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
-  const [generating, setGenerating] = useState<"sku" | "reference" | null>(null);
-  const [replaceAsk, setReplaceAsk] = useState<{ field: "sku" | "reference"; current: string; value: string } | null>(null);
+  const [generating, setGenerating] = useState<"sku" | "reference" | "barcode" | null>(null);
+  const [replaceAsk, setReplaceAsk] = useState<{ field: "sku" | "reference" | "barcode"; current: string; value: string } | null>(null);
 
-  function applyGenerated(field: "sku" | "reference", value: string) {
+  function applyGenerated(field: "sku" | "reference" | "barcode", value: string) {
     if (field === "sku") setSku(value);
-    else setReference(value);
+    else if (field === "reference") setReference(value);
+    else setBarcode(value);
   }
 
-  async function generate(field: "sku" | "reference") {
+  async function generate(field: "sku" | "reference" | "barcode") {
     const nameInput = formRef.current?.elements.namedItem("name");
     const name = nameInput instanceof HTMLInputElement ? nameInput.value : "";
     setGenerating(field);
-    const result = field === "sku" ? await suggestProductSkuAction({ name }) : await suggestProductReferenceAction({ name });
+    const result =
+      field === "barcode"
+        ? await generateProductBarcodeAction().then((r) => (r.ok ? { ok: true as const, data: { value: r.data.code } } : r))
+        : field === "sku"
+          ? await suggestProductSkuAction({ name })
+          : await suggestProductReferenceAction({ name });
     setGenerating(null);
     if (!result.ok) return toast.error(result.error);
-    const current = field === "sku" ? sku : reference;
+    // Never overwrites a typed / scanned code without an explicit confirmation.
+    const current = field === "sku" ? sku : field === "reference" ? reference : barcode;
     const next = generatedValueAction(current, result.data.value);
     if (next === "confirm") setReplaceAsk({ field, current: current.trim(), value: result.data.value });
     else if (next === "fill") applyGenerated(field, result.data.value);
@@ -221,7 +235,7 @@ export function ProductForm({
           <AlertDialogHeader>
             <AlertDialogTitle>Remplacer la valeur actuelle ?</AlertDialogTitle>
             <AlertDialogDescription>
-              {replaceAsk?.field === "sku" ? "SKU" : "Référence"} : « {replaceAsk?.current} » sera remplacé par « {replaceAsk?.value} ».
+              {replaceAsk?.field === "sku" ? "SKU" : replaceAsk?.field === "barcode" ? "Code-barres" : "Référence"} : « {replaceAsk?.current} » sera remplacé par « {replaceAsk?.value} ».
               Vous pourrez encore le modifier avant d&apos;enregistrer.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -273,7 +287,9 @@ export function ProductForm({
                 </Field>
               </div>
               {identityCodes && (
-                <div className="grid gap-4 sm:grid-cols-3">
+                // With « Générer » the barcode row needs room: two columns (SKU | référence),
+                // the barcode on its own line directly under the SKU.
+                <div className={cn("grid gap-4", barcodeAutoEnabled ? "sm:grid-cols-2" : "sm:grid-cols-3")}>
                   {skuField}
                   <Field>
                     <Label htmlFor="reference">Référence du modèle</Label>
@@ -307,6 +323,19 @@ export function ProductForm({
                         aria-invalid={Boolean(state && !state.ok && state.fieldErrors?.barcode) || undefined}
                       />
                       <BarcodeScanButton onDetect={setBarcode} label="" />
+                      {barcodeAutoEnabled && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          loading={generating === "barcode"}
+                          disabled={generating !== null}
+                          onClick={() => void generate("barcode")}
+                          title="Générer un code-barres interne unique (13 chiffres, préfixe 20)"
+                        >
+                          {generating !== "barcode" && <Sparkles className="size-4" />}
+                          Générer
+                        </Button>
+                      )}
                     </div>
                     <FieldError>{state && !state.ok ? state.fieldErrors?.barcode?.[0] : undefined}</FieldError>
                     {/* Non-blocking: a numeric code of a GTIN length is not necessarily a GTIN. */}

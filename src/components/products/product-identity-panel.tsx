@@ -4,9 +4,10 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Barcode as BarcodeIcon, Star, Trash2, Plus, QrCode } from "lucide-react";
+import { Barcode as BarcodeIcon, Star, Trash2, Plus, QrCode, Sparkles } from "lucide-react";
 import {
   addBarcodeAction,
+  generateProductBarcodeAction,
   removeBarcodeAction,
   setPrimaryBarcodeAction,
   updateProductReferenceAction,
@@ -19,6 +20,17 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
 import { gs1CheckDigitWarning } from "@/lib/catalog/gs1";
+import { generatedValueAction } from "@/lib/catalog/sku-suggestion";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 /**
  * Catalog identity — reference, barcodes and channel availability
@@ -54,6 +66,7 @@ export function ProductIdentityPanel({
   channels,
   enabledChannelIds,
   canEdit,
+  canGenerateBarcode = false,
 }: {
   productId: string;
   reference: string | null;
@@ -62,6 +75,8 @@ export function ProductIdentityPanel({
   channels: IdentityChannel[];
   enabledChannelIds: string[];
   canEdit: boolean;
+  /** docs/adr/0061 — « Générer » next to EACH unit's barcode input. */
+  canGenerateBarcode?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -82,6 +97,28 @@ export function ProductIdentityPanel({
   }
 
   const unitKey = (u: IdentityUnit) => u.variationId ?? "product";
+
+  // « Générer » (docs/adr/0061): each unit asks for its OWN code; it only
+  // fills that unit's field — « Ajouter » still saves it, through the same
+  // validation and unique index as a typed code. A non-empty field is never
+  // replaced without confirmation.
+  const [generatingKey, setGeneratingKey] = useState<string | null>(null);
+  const [replaceAsk, setReplaceAsk] = useState<{ key: string; label: string; current: string; value: string } | null>(null);
+
+  async function generateFor(u: IdentityUnit) {
+    const key = unitKey(u);
+    setGeneratingKey(key);
+    const result = await generateProductBarcodeAction();
+    setGeneratingKey(null);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    const current = drafts[key] ?? "";
+    const next = generatedValueAction(current, result.data.code);
+    if (next === "confirm") setReplaceAsk({ key, label: u.label, current: current.trim(), value: result.data.code });
+    else if (next === "fill") setDrafts((d) => ({ ...d, [key]: result.data.code }));
+  }
 
   // Shared by all three ways to submit a new barcode for a unit — typing
   // then clicking "Ajouter", a hardware scanner's Enter key, and the
@@ -104,6 +141,28 @@ export function ProductIdentityPanel({
 
   return (
     <div className="space-y-4">
+      <AlertDialog open={replaceAsk !== null} onOpenChange={(open) => !open && setReplaceAsk(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remplacer le code saisi ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {replaceAsk?.label} : « {replaceAsk?.current} » sera remplacé par « {replaceAsk?.value} ». Rien n&apos;est
+              enregistré avant « Ajouter ».
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (replaceAsk) setDrafts((d) => ({ ...d, [replaceAsk.key]: replaceAsk.value }));
+                setReplaceAsk(null);
+              }}
+            >
+              Remplacer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Card>
         <CardHeader>
           <CardTitle accent="peach">Référence du modèle</CardTitle>
@@ -205,6 +264,20 @@ export function ProductIdentityPanel({
                     </Button>
                     {/* A scan only fills the field; « Ajouter » saves it — never a write from a scan alone. */}
                     <BarcodeScanButton onDetect={(code) => setDrafts((d) => ({ ...d, [unitKey(u)]: code }))} label="Caméra" />
+                    {canGenerateBarcode && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        loading={generatingKey === unitKey(u)}
+                        disabled={isPending || generatingKey !== null}
+                        onClick={() => void generateFor(u)}
+                        aria-label={`Générer un code-barres pour ${u.label}`}
+                        title="Générer un code-barres interne unique (13 chiffres, préfixe 20)"
+                      >
+                        {generatingKey !== unitKey(u) && <Sparkles className="size-4" />}
+                        Générer
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}

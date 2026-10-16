@@ -519,7 +519,7 @@ describe("generateProductVariationsAction", () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.data).toEqual({ created: 6, skippedExisting: 0 });
+    expect(result.data).toEqual({ created: 6, skippedExisting: 0, barcodesGenerated: 0 });
 
     const variations = await prisma.productVariation.findMany({ where: { productId: product.id } });
     expect(variations).toHaveLength(6);
@@ -555,7 +555,7 @@ describe("generateProductVariationsAction", () => {
     });
     expect(second.ok).toBe(true);
     if (!second.ok) return;
-    expect(second.data).toEqual({ created: 1, skippedExisting: 2 });
+    expect(second.data).toEqual({ created: 1, skippedExisting: 2, barcodesGenerated: 0 });
 
     const all = await prisma.productVariation.findMany({ where: { productId: product.id } });
     expect(all).toHaveLength(3); // no duplicates
@@ -573,7 +573,7 @@ describe("generateProductVariationsAction", () => {
     // Regenerating with only "S" must never remove M/L.
     const result = await generateProductVariationsAction({ productId: product.id, options: [{ name: "Taille", values: ["S"] }] });
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.data).toEqual({ created: 0, skippedExisting: 1 });
+    if (result.ok) expect(result.data).toEqual({ created: 0, skippedExisting: 1, barcodesGenerated: 0 });
     expect(await prisma.productVariation.count({ where: { productId: product.id } })).toBe(3);
   });
 

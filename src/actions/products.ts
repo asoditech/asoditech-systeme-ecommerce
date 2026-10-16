@@ -7,6 +7,12 @@ import { requirePermissionForAction } from "@/lib/auth/guards";
 import { productCostVisibility } from "@/lib/auth/cost-visibility";
 import type { Permission } from "@/lib/auth/permissions";
 import { addBarcodeInTx, assertSkuFreeOfBarcodeAndSiblings, BarcodeError } from "@/lib/catalog/barcodes";
+import {
+  allocateProductBarcode,
+  isProductBarcodeAutoEnabled,
+  ProductBarcodeAllocationError,
+  PRODUCT_BARCODE_AUTO_DISABLED_MESSAGE,
+} from "@/lib/catalog/barcode-allocation";
 import { generateAttributeCombinations, attributesKey, suggestVariationSku } from "@/lib/catalog/variations";
 import { nextSequencedCode, productReferenceBase, productSkuBase } from "@/lib/catalog/sku-suggestion";
 import { ensureDefaultOnlineChannel } from "@/lib/channels";
@@ -651,10 +657,18 @@ export async function previewProductVariationsAction(input: {
 export async function generateProductVariationsAction(input: {
   productId: string;
   options: { name: string; values: string[] }[];
-}): Promise<ActionResult<{ created: number; skippedExisting: number }>> {
+  /** docs/adr/0061 — give EACH new variation its own generated barcode. */
+  generateBarcodes?: boolean;
+}): Promise<ActionResult<{ created: number; skippedExisting: number; barcodesGenerated: number }>> {
   const user = await requirePermissionForAction("products.edit");
   const parsed = generateVariationCombinationsSchema.safeParse(input);
   if (!parsed.success) return actionError("Champs invalides.", parsed.error.flatten().fieldErrors);
+  const generateBarcodes = input.generateBarcodes === true;
+  if (generateBarcodes) {
+    // Same gates as « Générer » (generateProductBarcodeAction), re-checked here.
+    if (!user.capabilities.has("catalogIdentity")) return actionError("Les codes-barres ne sont pas disponibles pour votre entreprise.");
+    if (!(await isProductBarcodeAutoEnabled())) return actionError(PRODUCT_BARCODE_AUTO_DISABLED_MESSAGE);
+  }
 
   const product = await prisma.product.findUnique({ where: { id: parsed.data.productId } });
   if (!product) return actionError("Produit introuvable.");
@@ -666,10 +680,11 @@ export async function generateProductVariationsAction(input: {
 
   const { rows, existingCount } = await planNewVariations(product, desired);
   if (rows.length === 0) {
-    return actionOk({ created: 0, skippedExisting: desired.length });
+    return actionOk({ created: 0, skippedExisting: desired.length, barcodesGenerated: 0 });
   }
 
   let createdCount = 0;
+  const generatedCodes: string[] = [];
   try {
     createdCount = await prisma.$transaction(async (tx) => {
       const defaultWarehouseId = await getDefaultWarehouseId(tx);
@@ -682,13 +697,21 @@ export async function generateProductVariationsAction(input: {
             data: { warehouseId: defaultWarehouseId, variationId: created.id, quantityOnHand: 0 },
           });
         }
+        if (generateBarcodes) {
+          // Its OWN code, allocated and attached in this transaction (the
+          // tenant counter row stays locked until commit).
+          const code = await allocateProductBarcode(tx, user.tenantId);
+          await addBarcodeInTx(tx, { variationId: created.id, code, createdById: user.id });
+          generatedCodes.push(code);
+        }
       }
       return rows.length;
     });
   } catch (error) {
     if (isUniqueConstraintError(error)) {
-      return actionError("Une des combinaisons a un SKU déjà utilisé — réessayez.");
+      return actionError("Une des combinaisons a un SKU ou un code-barres déjà utilisé — réessayez.");
     }
+    if (error instanceof ProductBarcodeAllocationError || error instanceof BarcodeError) return actionError(error.message);
     throw error;
   }
 
@@ -698,11 +721,15 @@ export async function generateProductVariationsAction(input: {
     action: "product.updated",
     entityType: "Product",
     entityId: product.id,
-    metadata: { variationsGenerated: createdCount, skus: rows.map((r) => r.sku) },
+    metadata: {
+      variationsGenerated: createdCount,
+      skus: rows.map((r) => r.sku),
+      ...(generatedCodes.length > 0 ? { barcodesGenerated: generatedCodes } : {}),
+    },
   });
 
   revalidatePath(`/produits/${product.id}`);
-  return actionOk({ created: createdCount, skippedExisting: existingCount });
+  return actionOk({ created: createdCount, skippedExisting: existingCount, barcodesGenerated: generatedCodes.length });
 }
 
 /**

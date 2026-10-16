@@ -6,6 +6,7 @@ import { productSearchWhere } from "@/lib/queries/products";
 import { getBusinessTimeZone } from "@/lib/time/business-zone";
 import { parseZonedDay } from "@/lib/time/zoned";
 import type { ExportPlatform, ExportProduct } from "@/lib/catalog/export/model";
+import { isGeneratedProductBarcode } from "@/lib/catalog/generated-barcode";
 
 /**
  * Database side of the product CSV export (docs/adr/0054). Every query goes
@@ -180,7 +181,9 @@ export async function loadExportProducts(ids: readonly string[]): Promise<Export
     categoryPath: pathOf(p.categoryId),
     categorySource: p.categoryId ? byId.get(p.categoryId)?.source ?? null : null,
     images: p.images.map((i) => ({ url: i.url, alt: i.altText })),
-    barcode: p.barcodes[0]?.code ?? null,
+    // A generated internal code (docs/adr/0061) is not a GTIN: never written
+    // into a store's GTIN / barcode column.
+    barcode: exportableBarcode(p.barcodes[0]?.code),
     publishedTo: p.publications.map((x) => (x.provider === "WOOCOMMERCE" ? "woocommerce" : "shopify")),
     variations: p.variations.map((v) => ({
       id: v.id,
@@ -192,7 +195,7 @@ export async function loadExportProducts(ids: readonly string[]): Promise<Export
       salePrice: num(v.salePrice),
       isActive: v.isActive,
       imageUrl: v.imageUrl,
-      barcode: v.barcodes[0]?.code ?? null,
+      barcode: exportableBarcode(v.barcodes[0]?.code),
     })),
   }));
 }
@@ -201,4 +204,11 @@ export async function loadExportProducts(ids: readonly string[]): Promise<Export
 export async function isStoreConnected(platform: ExportPlatform): Promise<boolean> {
   const n = await prisma.integration.count({ where: { provider: PROVIDER[platform], status: "CONNECTE" } });
   return n > 0;
+}
+
+/** The primary barcode as exported to a store CSV — null for a generated
+ * internal code (« 20 » prefix, docs/adr/0061), which is not a GTIN. */
+export function exportableBarcode(code: string | null | undefined): string | null {
+  if (!code) return null;
+  return isGeneratedProductBarcode(code) ? null : code;
 }

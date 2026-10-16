@@ -3,6 +3,8 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { prisma, type PrismaTransactionClient } from "@/lib/prisma";
 import { runWithTenant } from "@/lib/tenant/context";
+import { advanceCustomerBarcodeCounterPastExisting } from "@/lib/customers/barcode-allocation";
+import { advanceProductBarcodeCounterPastExisting } from "@/lib/catalog/barcode-allocation";
 import { openBackup, BackupContainerError } from "./container";
 import { canonicalDataJson, sha256Hex, validateManifest, type BackupManifest } from "./manifest";
 import { BACKUP_MODELS, patchForRestore, splitRowForInsert, type BackupModel } from "./models";
@@ -239,6 +241,15 @@ export async function restoreTenantBackup(params: {
             await delegate.update({ where: { id }, data: patch });
           }
         }
+
+        // 3b — customer codes « CL-… » come back with their customers (the
+        // column is restored as is); move the tenant counter past the highest
+        // restored code so a new customer can never be given one of them
+        // (docs/adr/0060). Never lowers the counter.
+        await advanceCustomerBarcodeCounterPastExisting(tx, activeTenantId);
+        // Same for generated product / variation barcodes (docs/adr/0061):
+        // restored « 20… » codes come back as is; the counter moves past them.
+        await advanceProductBarcodeCounterPastExisting(tx, activeTenantId);
 
         // 4 — verify every replaced model's row count matches the package.
         const restoredCounts: Record<string, number> = {};

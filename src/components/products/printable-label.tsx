@@ -132,13 +132,13 @@ export function PrintableLabel({
               <svg
                 ref={barcodeRef}
                 role="img"
-                aria-label={linear.kind === "internal" ? `Code interne ${encoded} (pas un EAN/GTIN)` : `Code-barres ${encoded}`}
+                aria-label={linear.kind === "internal" || linear.kind === "generated" ? `Code interne ${encoded} (pas un EAN/GTIN)` : `Code-barres ${encoded}`}
                 style={{ display: "block", width: "100%", height: mm(LABEL_MM.barcodeHeight) }}
               />
               <p className="w-full truncate text-center font-mono" style={{ ...text(LABEL_TEXT_PT.value), marginTop: mm(LABEL_MM.valueGap) }}>
                 {encoded}
               </p>
-              {linear.kind === "internal" && (
+              {(linear.kind === "internal" || linear.kind === "generated") && (
                 <p className="w-full truncate text-center font-semibold tracking-wide" style={text(LABEL_TEXT_PT.caption)}>
                   {INTERNAL_CODE_CAPTION}
                 </p>
@@ -183,6 +183,12 @@ export function PrintableLabel({
             Sans code-barres fournisseur, l&apos;étiquette imprime le SKU en code interne (lisible par le scanner de
             l&apos;application, pas un EAN/GTIN). Si l&apos;article a un vrai code-barres, ajoutez-le dans l&apos;onglet
             Identité : il remplacera le code interne.
+          </p>
+        )}
+        {linear.kind === "generated" && (
+          <p className="text-xs text-muted-foreground">
+            Ce code-barres a été généré par ASODITECH : c&apos;est un code interne (préfixe 20), lisible par le
+            scanner de l&apos;application, pas un EAN/GTIN commercial.
           </p>
         )}
         {linear.kind === "none" && (
