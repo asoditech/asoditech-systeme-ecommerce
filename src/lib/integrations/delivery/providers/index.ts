@@ -1,7 +1,9 @@
 import "server-only";
 
+import { registerAmeexProvider } from "./ameex";
 import { registerAramexProvider } from "./aramex";
 import { registerOzonExpressProvider } from "./ozonexpress";
+import { registerSenditProvider } from "./sendit";
 
 /**
  * Production delivery-provider adapter bootstrap. Each real adapter
@@ -32,6 +34,25 @@ import { registerOzonExpressProvider } from "./ozonexpress";
  * connection test transitions to CONNECTE. Request field names come from
  * Aramex's official sample code; nothing has been run against a live
  * Aramex account yet. See docs/adr/0028-aramex-integration.md.
+ * Retired for NEW connections (acceptsNewConnections: false, docs/adr/0060).
+ *
+ * ── Sendit (Maroc) ───────────────────────────────────────────────────
+ * Client + adapter built from the official public spec
+ * (https://app.sendit.ma/docs/api-docs.json): login → Bearer JWT, create,
+ * status/tracking, districts, labels. Selectable for new connections with a
+ * visible « pas encore validé sur un compte réel » notice; status mapping
+ * provisional. Same posture: only a real connection test → CONNECTE. See
+ * docs/carriers/sendit.md.
+ *
+ * ── Ameex (Maroc) ────────────────────────────────────────────────────
+ * Header auth (C-Api-Id / C-Api-Key); create (form-encoded, one attempt),
+ * status/tracking, cities and signed webhooks — every shape verified on the
+ * Ameex SANDBOX on 2026-10-16 (production key NOT tested). Selectable for
+ * new connections with a visible « bac à sable uniquement » notice; status
+ * mapping provisional. Same posture: only a real connection test →
+ * CONNECTE. See docs/carriers/ameex.md.
  */
 registerOzonExpressProvider();
 registerAramexProvider();
+registerSenditProvider();
+registerAmeexProvider();

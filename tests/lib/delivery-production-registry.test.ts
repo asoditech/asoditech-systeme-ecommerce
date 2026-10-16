@@ -58,6 +58,60 @@ describe("production delivery-provider registry", () => {
     ]);
   });
 
+  // 2026-10-16: Sendit is now registered (client + adapter implemented from
+  // the official spec, not yet validated on a real account), so the
+  // registered set checked here grows by one.
+  it("registers Sendit for new connections, with masked secret key and the not-validated notice", () => {
+    const connector = listAvailableDeliveryConnectors().find((c) => c.key === "sendit");
+    expect(connector).toBeDefined();
+    expect(connector!.displayName).toBe("Sendit (Maroc)");
+    expect(connector!.acceptsNewConnections).toBe(true);
+    expect(connector!.notice).toContain("pas encore validé sur un compte réel");
+    expect(connector!.credentialFields.map((f) => f.name)).toEqual(["publicKey", "secretKey"]);
+    expect(connector!.credentialFields.find((f) => f.name === "secretKey")?.type).toBe("password");
+    expect(connector!.credentialFields.find((f) => f.name === "publicKey")?.type).toBe("text");
+    // No cancel (DELETE semantics undocumented), no webhooks (none documented).
+    expect([...connector!.capabilities].sort()).toEqual([
+      "CREATE_SHIPMENT",
+      "FETCH_CITIES",
+      "FETCH_COST",
+      "FETCH_LABEL",
+      "FETCH_STATUS",
+      "FETCH_TRACKING",
+    ]);
+  });
+
+  it("Sendit sits next to OzonExpress (new connections) and Aramex (retired for new)", () => {
+    const connectors = listAvailableDeliveryConnectors();
+    const keys = connectors.map((c) => c.key);
+    expect(keys).toEqual(expect.arrayContaining(["aramex", "ozonexpress", "sendit"]));
+    expect(connectors.find((c) => c.key === "aramex")?.acceptsNewConnections).toBe(false);
+    expect(connectors.find((c) => c.key === "ozonexpress")?.acceptsNewConnections).toBe(true);
+  });
+
+  // 2026-10-16: Ameex is registered (sandbox-verified only, production key
+  // not tested) — selectable for new connections with a sandbox-only notice.
+  it("registers Ameex for new connections, with masked secrets and the sandbox-only notice", () => {
+    const connector = listAvailableDeliveryConnectors().find((c) => c.key === "ameex");
+    expect(connector).toBeDefined();
+    expect(connector!.displayName).toBe("Ameex (Maroc)");
+    expect(connector!.acceptsNewConnections).toBe(true);
+    expect(connector!.notice).toMatch(/bac à sable/);
+    expect(connector!.credentialFields.map((f) => [f.name, f.type])).toEqual([
+      ["apiId", "text"],
+      ["apiKey", "password"],
+      ["webhookSecret", "password"],
+    ]);
+    // No cancel / labels / manifest / prices (undocumented by Ameex).
+    expect([...connector!.capabilities].sort()).toEqual([
+      "CREATE_SHIPMENT",
+      "FETCH_CITIES",
+      "FETCH_STATUS",
+      "FETCH_TRACKING",
+      "WEBHOOKS",
+    ]);
+  });
+
   it("does NOT leak any test/fixture adapter into production", () => {
     expect(listDeliveryProviders().map((a) => a.key)).not.toContain("__test_reference__");
   });

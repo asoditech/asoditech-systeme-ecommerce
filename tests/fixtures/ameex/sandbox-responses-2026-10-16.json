@@ -1,0 +1,2676 @@
+{
+  "_source": "Ameex SANDBOX (test_ key, fictitious SBX- parcel), captured 2026-10-16 with the owner approval; credentials removed.",
+  "statuts": {
+    "login": "success",
+    "api": {
+      "type": "success",
+      "msg": "",
+      "data": {
+        "status": {
+          "DELIVERED": {
+            "type": "fixed",
+            "name": "Livré",
+            "color": "#9ccc65"
+          },
+          "DISPOSITION": {
+            "type": "fixed",
+            "name": "Mis à disposition",
+            "color": "#e56c33"
+          },
+          "DISTRIBUTION": {
+            "type": "fixed",
+            "name": "Mise en distribution",
+            "color": "#475f7b"
+          },
+          "DRAFT": {
+            "type": "fixed",
+            "name": "Brouillon",
+            "color": "#ababab"
+          },
+          "IN_PROGRESS": {
+            "type": "fixed",
+            "name": "En cours",
+            "color": "#ffba57"
+          },
+          "IN_SHIPMENT": {
+            "type": "fixed",
+            "name": "En cours d'expédition",
+            "color": "#25a0d7"
+          },
+          "NEW_PARCEL": {
+            "type": "fixed",
+            "name": "Nouveau Colis",
+            "color": "#00cfdd"
+          },
+          "PICKED_UP": {
+            "type": "fixed",
+            "name": "Ramassé",
+            "color": "#89b1fa"
+          },
+          "RECEIVED": {
+            "type": "fixed",
+            "name": "Reçu",
+            "color": "#66cca0"
+          },
+          "REFUNDED": {
+            "type": "fixed",
+            "name": "Remboursé",
+            "color": "#6576ff"
+          },
+          "RELAUNCH": {
+            "type": "fixed",
+            "name": "Relancer",
+            "color": "#475f7b"
+          },
+          "RELAUNCH_NEW": {
+            "type": "fixed",
+            "name": "Relancer vers un nouveau client",
+            "color": "#475f7b"
+          },
+          "RELAUNCH_TEAM": {
+            "type": "fixed",
+            "name": "Relancer ( Suivi )",
+            "color": "#475f7b"
+          },
+          "RESEND_NEW_CITY": {
+            "type": "fixed",
+            "name": "Renvoyez vers nouvelle ville",
+            "color": "#ffba57"
+          },
+          "RETURNED": {
+            "type": "fixed",
+            "name": "Retourné",
+            "color": "#eb1a00"
+          },
+          "SENT": {
+            "type": "fixed",
+            "name": "Expédié",
+            "color": "#25a0d7"
+          },
+          "WAITING_PICKUP": {
+            "type": "fixed",
+            "name": "Attente De Ramassage",
+            "color": "#ffba57"
+          },
+          "CANCELED": {
+            "type": "in_progress",
+            "name": "Annulé",
+            "color": "#eb1a00"
+          },
+          "CANCELED_TEAM": {
+            "type": "in_progress",
+            "name": "Annulé ( Suivi )",
+            "color": "#eb1a00"
+          },
+          "CONFIRMED_BY_LIVREUR": {
+            "type": "in_progress",
+            "name": "Confirmé Par Livreur",
+            "color": "#01690b"
+          },
+          "DOESNT_ORDER": {
+            "type": "in_progress",
+            "name": "Client n'a pas commandé",
+            "color": "#eb1a00"
+          },
+          "NO_ANSWER": {
+            "type": "in_progress",
+            "name": "Pas de réponse",
+            "color": "#ffba57"
+          },
+          "NO_ANSWER_SMS": {
+            "type": "in_progress",
+            "name": "Pas de réponse + SMS",
+            "color": "#ffba57"
+          },
+          "NO_ANSWER_TEAM": {
+            "type": "in_progress",
+            "name": "Pas de réponse ( Suivi )",
+            "color": "#ffba57"
+          },
+          "OUT_OF_AREA": {
+            "type": "in_progress",
+            "name": "Hors-zone",
+            "color": "#00cfdd"
+          },
+          "POSTPONED": {
+            "type": "in_progress",
+            "name": "Reporté",
+            "color": "#25a0d7"
+          },
+          "POSTPONED_TEAM": {
+            "type": "in_progress",
+            "name": "Reporté ( Suivi )",
+            "color": "#25a0d7"
+          },
+          "PREPAR_RETURN": {
+            "type": "in_progress",
+            "name": "PRÉPARATION RETOUR",
+            "color": "#ff0000"
+          },
+          "REFUSE": {
+            "type": "in_progress",
+            "name": "Refusé",
+            "color": "#eb1a00"
+          },
+          "SCHEDULED": {
+            "type": "in_progress",
+            "name": "Programmé",
+            "color": "#25a0e1"
+          },
+          "TRAVELLING": {
+            "type": "in_progress",
+            "name": "En Voyage",
+            "color": "#00cfdd"
+          },
+          "UNREACHABLE": {
+            "type": "in_progress",
+            "name": "Injoignable",
+            "color": "#00cfdd"
+          },
+          "UNREACHABLE_TEAM": {
+            "type": "in_progress",
+            "name": "Injoignable ( Suivi )",
+            "color": "#00cfdd"
+          },
+          "VOICEMAIL": {
+            "type": "in_progress",
+            "name": "Boîte vocale",
+            "color": "#00cfdd"
+          },
+          "VOICEMAIL_TEAM": {
+            "type": "in_progress",
+            "name": "Boîte vocale ( Suivi )",
+            "color": "#00cfdd"
+          },
+          "WRONG_NUMBER": {
+            "type": "in_progress",
+            "name": "Numéro Incorrect",
+            "color": "#eb1a00"
+          }
+        }
+      },
+      "sandbox": 1
+    }
+  },
+  "cities": {
+    "login": "success",
+    "api": {
+      "type": "success",
+      "msg": "",
+      "cities": {
+        "1": {
+          "id": 1,
+          "name": "Marrakech"
+        },
+        "2": {
+          "id": 2,
+          "name": "Meknes"
+        },
+        "3": {
+          "id": 3,
+          "name": "Mhaya"
+        },
+        "4": {
+          "id": 4,
+          "name": "Ain Taoujdate"
+        },
+        "5": {
+          "id": 5,
+          "name": "Sabaa Aiyoun"
+        },
+        "6": {
+          "id": 6,
+          "name": "Boufakrane"
+        },
+        "7": {
+          "id": 7,
+          "name": "El Hajeb"
+        },
+        "8": {
+          "id": 8,
+          "name": "Bouderbala"
+        },
+        "9": {
+          "id": 9,
+          "name": "Agourai"
+        },
+        "10": {
+          "id": 10,
+          "name": "Boujdour"
+        },
+        "11": {
+          "id": 11,
+          "name": "Tetouan"
+        },
+        "12": {
+          "id": 12,
+          "name": "Martil"
+        },
+        "13": {
+          "id": 13,
+          "name": "M Diq"
+        },
+        "14": {
+          "id": 14,
+          "name": "Fnideq"
+        },
+        "15": {
+          "id": 15,
+          "name": "Errachidia"
+        },
+        "16": {
+          "id": 16,
+          "name": "Oujda"
+        },
+        "17": {
+          "id": 17,
+          "name": "Nador"
+        },
+        "18": {
+          "id": 18,
+          "name": "Selouane"
+        },
+        "20": {
+          "id": 20,
+          "name": "Al Aaroui"
+        },
+        "21": {
+          "id": 21,
+          "name": "Zaio"
+        },
+        "22": {
+          "id": 22,
+          "name": "Driouch"
+        },
+        "23": {
+          "id": 23,
+          "name": "Khouribga"
+        },
+        "24": {
+          "id": 24,
+          "name": "Oued Zem"
+        },
+        "25": {
+          "id": 25,
+          "name": "Boulanouar"
+        },
+        "26": {
+          "id": 26,
+          "name": "Boujniba"
+        },
+        "27": {
+          "id": 27,
+          "name": "Bir Mezoui"
+        },
+        "28": {
+          "id": 28,
+          "name": "Khemisset"
+        },
+        "29": {
+          "id": 29,
+          "name": "Tiflet"
+        },
+        "30": {
+          "id": 30,
+          "name": "Mohammedia"
+        },
+        "31": {
+          "id": 31,
+          "name": "Ain Harrouda"
+        },
+        "32": {
+          "id": 32,
+          "name": "Dakhla"
+        },
+        "33": {
+          "id": 33,
+          "name": "Kenitra"
+        },
+        "34": {
+          "id": 34,
+          "name": "Sidi Taibi"
+        },
+        "35": {
+          "id": 35,
+          "name": "Sidi Yahya El Gharb"
+        },
+        "36": {
+          "id": 36,
+          "name": "ALLAL TAZI"
+        },
+        "37": {
+          "id": 37,
+          "name": "Mechra Bel Ksiri"
+        },
+        "38": {
+          "id": 38,
+          "name": "Sidi Sliman (reg kacem)"
+        },
+        "39": {
+          "id": 39,
+          "name": "Sidi Kacem"
+        },
+        "40": {
+          "id": 40,
+          "name": "Mehdya"
+        },
+        "41": {
+          "id": 41,
+          "name": "Tan Tan"
+        },
+        "42": {
+          "id": 42,
+          "name": "Guelmim"
+        },
+        "43": {
+          "id": 43,
+          "name": "Bouizakarne"
+        },
+        "44": {
+          "id": 44,
+          "name": "Tleta El Akhsass\t"
+        },
+        "45": {
+          "id": 45,
+          "name": "Tarhjijt"
+        },
+        "46": {
+          "id": 46,
+          "name": " Atlas Saghir ifrane"
+        },
+        "47": {
+          "id": 47,
+          "name": "Timoulay"
+        },
+        "48": {
+          "id": 48,
+          "name": "Sidi Ifni"
+        },
+        "49": {
+          "id": 49,
+          "name": "Rabat"
+        },
+        "50": {
+          "id": 50,
+          "name": "Sale"
+        },
+        "51": {
+          "id": 51,
+          "name": "Sale Al Jadida-سلا"
+        },
+        "52": {
+          "id": 52,
+          "name": "Temara"
+        },
+        "53": {
+          "id": 53,
+          "name": "Tamesna"
+        },
+        "54": {
+          "id": 54,
+          "name": "Skhirat"
+        },
+        "55": {
+          "id": 55,
+          "name": "Ouarzazat"
+        },
+        "56": {
+          "id": 56,
+          "name": "Ait Zineb"
+        },
+        "57": {
+          "id": 57,
+          "name": "Tabounte"
+        },
+        "58": {
+          "id": 58,
+          "name": "Tajda"
+        },
+        "59": {
+          "id": 59,
+          "name": "Timdline"
+        },
+        "60": {
+          "id": 60,
+          "name": "Tifoultoute"
+        },
+        "61": {
+          "id": 61,
+          "name": "Ifran"
+        },
+        "62": {
+          "id": 62,
+          "name": "Azrou(reg meknes)"
+        },
+        "63": {
+          "id": 63,
+          "name": "Agadir"
+        },
+        "64": {
+          "id": 64,
+          "name": "Inzegane"
+        },
+        "65": {
+          "id": 65,
+          "name": "Dcheira"
+        },
+        "66": {
+          "id": 66,
+          "name": "Ait Meloul"
+        },
+        "67": {
+          "id": 67,
+          "name": "Sidi Bibi - Agadir"
+        },
+        "68": {
+          "id": 68,
+          "name": "Taghazoute"
+        },
+        "69": {
+          "id": 69,
+          "name": "Fes"
+        },
+        "70": {
+          "id": 70,
+          "name": "Ain Bida"
+        },
+        "71": {
+          "id": 71,
+          "name": "Oulad Ettayeb"
+        },
+        "72": {
+          "id": 72,
+          "name": "Ain Allah"
+        },
+        "73": {
+          "id": 73,
+          "name": "Sidi Harazem"
+        },
+        "74": {
+          "id": 74,
+          "name": "Essmara"
+        },
+        "75": {
+          "id": 75,
+          "name": "Berrchid"
+        },
+        "76": {
+          "id": 76,
+          "name": "Settat"
+        },
+        "77": {
+          "id": 77,
+          "name": "Deroua"
+        },
+        "78": {
+          "id": 78,
+          "name": "Nouaceur"
+        },
+        "79": {
+          "id": 79,
+          "name": "Had Soualem"
+        },
+        "80": {
+          "id": 80,
+          "name": "Al Hoceima"
+        },
+        "81": {
+          "id": 81,
+          "name": "Ajdir (Région Hociema)"
+        },
+        "82": {
+          "id": 82,
+          "name": "Boukidaren"
+        },
+        "83": {
+          "id": 83,
+          "name": "Ait Kamra"
+        },
+        "84": {
+          "id": 84,
+          "name": "Imzouren"
+        },
+        "85": {
+          "id": 85,
+          "name": "Youssoufia"
+        },
+        "86": {
+          "id": 86,
+          "name": "Essaouira"
+        },
+        "87": {
+          "id": 87,
+          "name": "Ounagha"
+        },
+        "88": {
+          "id": 88,
+          "name": "Taftecht"
+        },
+        "89": {
+          "id": 89,
+          "name": "Had Draa"
+        },
+        "90": {
+          "id": 90,
+          "name": "Mejji"
+        },
+        "91": {
+          "id": 91,
+          "name": "Talmest"
+        },
+        "92": {
+          "id": 92,
+          "name": "Akermoud"
+        },
+        "93": {
+          "id": 93,
+          "name": "Zaouiet Bouzarktoune"
+        },
+        "94": {
+          "id": 94,
+          "name": "Ghazoua"
+        },
+        "95": {
+          "id": 95,
+          "name": "Smimou"
+        },
+        "96": {
+          "id": 96,
+          "name": "Tamanar"
+        },
+        "97": {
+          "id": 97,
+          "name": "Sidi Kaouki"
+        },
+        "98": {
+          "id": 98,
+          "name": "Tanger"
+        },
+        "99": {
+          "id": 99,
+          "name": "Mrirt"
+        },
+        "100": {
+          "id": 100,
+          "name": "Khenifra"
+        },
+        "101": {
+          "id": 101,
+          "name": "Ben Guerir"
+        },
+        "102": {
+          "id": 102,
+          "name": "Taroudannt"
+        },
+        "103": {
+          "id": 103,
+          "name": "Oulad Teima"
+        },
+        "104": {
+          "id": 104,
+          "name": "Ait Laaza"
+        },
+        "105": {
+          "id": 105,
+          "name": "Aoulouz"
+        },
+        "106": {
+          "id": 106,
+          "name": "Irherm"
+        },
+        "107": {
+          "id": 107,
+          "name": "Taliouine"
+        },
+        "108": {
+          "id": 108,
+          "name": "Sebt El Guerdane"
+        },
+        "109": {
+          "id": 109,
+          "name": "Berkane"
+        },
+        "110": {
+          "id": 110,
+          "name": "Saidia"
+        },
+        "111": {
+          "id": 111,
+          "name": "Ras El Ma (REG NADOR) "
+        },
+        "112": {
+          "id": 112,
+          "name": "Bni Drar"
+        },
+        "113": {
+          "id": 113,
+          "name": "Ahfir"
+        },
+        "114": {
+          "id": 114,
+          "name": "Aklim"
+        },
+        "115": {
+          "id": 115,
+          "name": "Zeghanghane"
+        },
+        "116": {
+          "id": 116,
+          "name": "Farkhana"
+        },
+        "117": {
+          "id": 117,
+          "name": "Taza"
+        },
+        "118": {
+          "id": 118,
+          "name": "Guercif"
+        },
+        "119": {
+          "id": 119,
+          "name": "Tiznit"
+        },
+        "120": {
+          "id": 120,
+          "name": "Safi"
+        },
+        "121": {
+          "id": 121,
+          "name": "Had Hrara"
+        },
+        "122": {
+          "id": 122,
+          "name": "Sebt Gzoula"
+        },
+        "123": {
+          "id": 123,
+          "name": "Tleta Sidi Bouguedra"
+        },
+        "125": {
+          "id": 125,
+          "name": "Larache"
+        },
+        "126": {
+          "id": 126,
+          "name": "Ksar El Kebir"
+        },
+        "127": {
+          "id": 127,
+          "name": "Chefchaouen"
+        },
+        "128": {
+          "id": 128,
+          "name": "Sidi Bernoussi"
+        },
+        "129": {
+          "id": 129,
+          "name": "Casablanca"
+        },
+        "130": {
+          "id": 130,
+          "name": "Sidi Messaoud"
+        },
+        "131": {
+          "id": 131,
+          "name": "Bouskoura"
+        },
+        "132": {
+          "id": 132,
+          "name": "Dar Bouaza"
+        },
+        "133": {
+          "id": 133,
+          "name": "Mediouna"
+        },
+        "134": {
+          "id": 134,
+          "name": "Tit Melil"
+        },
+        "135": {
+          "id": 135,
+          "name": "El Kelaa Des Sraghna"
+        },
+        "136": {
+          "id": 136,
+          "name": "El Jadida"
+        },
+        "137": {
+          "id": 137,
+          "name": "Azemmour"
+        },
+        "138": {
+          "id": 138,
+          "name": "Sidi Bouzid"
+        },
+        "139": {
+          "id": 139,
+          "name": "Moulay Abdellah"
+        },
+        "140": {
+          "id": 140,
+          "name": "Oualidia"
+        },
+        "141": {
+          "id": 141,
+          "name": "Sidi Bennour"
+        },
+        "142": {
+          "id": 142,
+          "name": "Beni Ansar"
+        },
+        "143": {
+          "id": 143,
+          "name": "Izemmouren"
+        },
+        "144": {
+          "id": 144,
+          "name": "Laayoune"
+        },
+        "145": {
+          "id": 145,
+          "name": "El Marsa"
+        },
+        "146": {
+          "id": 146,
+          "name": "Beni Mellal"
+        },
+        "147": {
+          "id": 147,
+          "name": "Fquih Ben Salah"
+        },
+        "148": {
+          "id": 148,
+          "name": "Sebt Oulad Nemma"
+        },
+        "149": {
+          "id": 149,
+          "name": "Afourer"
+        },
+        "150": {
+          "id": 150,
+          "name": "Ouled Yaiche"
+        },
+        "151": {
+          "id": 151,
+          "name": "El Ksiba"
+        },
+        "152": {
+          "id": 152,
+          "name": "Ain Aouda"
+        },
+        "153": {
+          "id": 153,
+          "name": "Tamansourt"
+        },
+        "154": {
+          "id": 154,
+          "name": "Benslimane ( reg mohamedia)"
+        },
+        "156": {
+          "id": 156,
+          "name": "Kasbah Tadla"
+        },
+        "157": {
+          "id": 157,
+          "name": "Chemaia"
+        },
+        "160": {
+          "id": 160,
+          "name": "Ourika"
+        },
+        "161": {
+          "id": 161,
+          "name": "Tahannaout"
+        },
+        "162": {
+          "id": 162,
+          "name": "Ait Ourir"
+        },
+        "163": {
+          "id": 163,
+          "name": "Touama"
+        },
+        "164": {
+          "id": 164,
+          "name": "Oudaya"
+        },
+        "165": {
+          "id": 165,
+          "name": "Chichaoua"
+        },
+        "166": {
+          "id": 166,
+          "name": "Assilah"
+        },
+        "167": {
+          "id": 167,
+          "name": "Bouznika"
+        },
+        "168": {
+          "id": 168,
+          "name": "Sefrou"
+        },
+        "169": {
+          "id": 169,
+          "name": "Taourirt"
+        },
+        "170": {
+          "id": 170,
+          "name": "Chouiter"
+        },
+        "171": {
+          "id": 171,
+          "name": "Sidi Allal el Bahraoui"
+        },
+        "172": {
+          "id": 172,
+          "name": "Romani"
+        },
+        "173": {
+          "id": 173,
+          "name": "Oulmas"
+        },
+        "174": {
+          "id": 174,
+          "name": "Ouazzane"
+        },
+        "175": {
+          "id": 175,
+          "name": "Ain Dorij"
+        },
+        "176": {
+          "id": 176,
+          "name": "Masmouda"
+        },
+        "177": {
+          "id": 177,
+          "name": "Sidi Redouane"
+        },
+        "178": {
+          "id": 178,
+          "name": "Asjen"
+        },
+        "179": {
+          "id": 179,
+          "name": "Moqrisset"
+        },
+        "180": {
+          "id": 180,
+          "name": "Zoumi"
+        },
+        "181": {
+          "id": 181,
+          "name": "Harhoura"
+        },
+        "182": {
+          "id": 182,
+          "name": "Laattaouia"
+        },
+        "183": {
+          "id": 183,
+          "name": "Rissani"
+        },
+        "184": {
+          "id": 184,
+          "name": "Arfoud"
+        },
+        "185": {
+          "id": 185,
+          "name": "Merzouga"
+        },
+        "186": {
+          "id": 186,
+          "name": "Taddart - TAZA -"
+        },
+        "187": {
+          "id": 187,
+          "name": "Bni Bouayach"
+        },
+        "188": {
+          "id": 188,
+          "name": "Azilal"
+        },
+        "189": {
+          "id": 189,
+          "name": "Ouaouizeght"
+        },
+        "190": {
+          "id": 190,
+          "name": "Bejaad"
+        },
+        "191": {
+          "id": 191,
+          "name": "Tinghir"
+        },
+        "192": {
+          "id": 192,
+          "name": "Boumalne Dades"
+        },
+        "193": {
+          "id": 193,
+          "name": "Kalaat MGouna"
+        },
+        "194": {
+          "id": 194,
+          "name": "Alnif"
+        },
+        "195": {
+          "id": 195,
+          "name": "Bou Adel"
+        },
+        "196": {
+          "id": 196,
+          "name": "Zrizer"
+        },
+        "197": {
+          "id": 197,
+          "name": "Khlalfa"
+        },
+        "198": {
+          "id": 198,
+          "name": "Ain Mediouna"
+        },
+        "199": {
+          "id": 199,
+          "name": "Ain Aicha"
+        },
+        "200": {
+          "id": 200,
+          "name": "Taounate"
+        },
+        "201": {
+          "id": 201,
+          "name": "Awrir"
+        },
+        "202": {
+          "id": 202,
+          "name": "Ait amira"
+        },
+        "203": {
+          "id": 203,
+          "name": "Belfaa"
+        },
+        "204": {
+          "id": 204,
+          "name": "Anza"
+        },
+        "205": {
+          "id": 205,
+          "name": "DERDARA"
+        },
+        "206": {
+          "id": 206,
+          "name": "Bab Taza"
+        },
+        "207": {
+          "id": 207,
+          "name": "AKCHOUR"
+        },
+        "208": {
+          "id": 208,
+          "name": "Bab berred"
+        },
+        "209": {
+          "id": 209,
+          "name": "El Jebeha"
+        },
+        "210": {
+          "id": 210,
+          "name": "Midelt"
+        },
+        "211": {
+          "id": 211,
+          "name": "Jerada"
+        },
+        "212": {
+          "id": 212,
+          "name": "Bouarfa"
+        },
+        "213": {
+          "id": 213,
+          "name": "Laayoun Cherqia"
+        },
+        "214": {
+          "id": 214,
+          "name": "Zagora"
+        },
+        "215": {
+          "id": 215,
+          "name": "Tamegroute"
+        },
+        "216": {
+          "id": 216,
+          "name": "Tagomite"
+        },
+        "217": {
+          "id": 217,
+          "name": "Mhamid Lghezlane"
+        },
+        "218": {
+          "id": 218,
+          "name": "Agdz"
+        },
+        "219": {
+          "id": 219,
+          "name": "Nkob"
+        },
+        "220": {
+          "id": 220,
+          "name": "Tazzarine"
+        },
+        "221": {
+          "id": 221,
+          "name": "Taghbalte"
+        },
+        "222": {
+          "id": 222,
+          "name": "Errich"
+        },
+        "223": {
+          "id": 223,
+          "name": "Missour"
+        },
+        "224": {
+          "id": 224,
+          "name": "Boumia"
+        },
+        "225": {
+          "id": 225,
+          "name": "Tinjdad"
+        },
+        "226": {
+          "id": 226,
+          "name": "Gulmima - errachidia"
+        },
+        "227": {
+          "id": 227,
+          "name": "Sidi Bouknadel"
+        },
+        "228": {
+          "id": 228,
+          "name": "Imintanoute"
+        },
+        "229": {
+          "id": 229,
+          "name": "Demnate"
+        },
+        "230": {
+          "id": 230,
+          "name": "Ouad Laou"
+        },
+        "231": {
+          "id": 231,
+          "name": "Cabo Negro"
+        },
+        "232": {
+          "id": 232,
+          "name": "Khmiss Zemamera"
+        },
+        "233": {
+          "id": 233,
+          "name": "Moulay Abdellah"
+        },
+        "234": {
+          "id": 234,
+          "name": "Sidi Smail"
+        },
+        "235": {
+          "id": 235,
+          "name": "Oulad Fraj"
+        },
+        "236": {
+          "id": 236,
+          "name": "Mellalyène"
+        },
+        "237": {
+          "id": 237,
+          "name": "Sidi Rehal-casa"
+        },
+        "238": {
+          "id": 238,
+          "name": "Assa"
+        },
+        "239": {
+          "id": 239,
+          "name": "Assa"
+        },
+        "240": {
+          "id": 240,
+          "name": "Rehamna"
+        },
+        "241": {
+          "id": 241,
+          "name": "Lakhssas"
+        },
+        "242": {
+          "id": 242,
+          "name": "Aoufous"
+        },
+        "243": {
+          "id": 243,
+          "name": "Boudnib"
+        },
+        "244": {
+          "id": 244,
+          "name": "Ben Ahmed - Settat -"
+        },
+        "245": {
+          "id": 245,
+          "name": "Sidi Bou Othmane"
+        },
+        "246": {
+          "id": 246,
+          "name": "Asni"
+        },
+        "247": {
+          "id": 247,
+          "name": "Souk Elarbaa Du Gharb"
+        },
+        "248": {
+          "id": 248,
+          "name": "Ajdir (Région Taza)"
+        },
+        "249": {
+          "id": 249,
+          "name": "BIR JDID"
+        },
+        "250": {
+          "id": 250,
+          "name": "Amzmiz"
+        },
+        "251": {
+          "id": 251,
+          "name": "Drarga"
+        },
+        "252": {
+          "id": 252,
+          "name": "Belfaa_Old"
+        },
+        "253": {
+          "id": 253,
+          "name": "Anza - Taddart "
+        },
+        "254": {
+          "id": 254,
+          "name": "Zayda"
+        },
+        "255": {
+          "id": 255,
+          "name": "Outat El Haj"
+        },
+        "256": {
+          "id": 256,
+          "name": "Tahla"
+        },
+        "257": {
+          "id": 257,
+          "name": "Oued Amlil"
+        },
+        "258": {
+          "id": 258,
+          "name": "Imouzzer Kandar"
+        },
+        "259": {
+          "id": 259,
+          "name": "El Jorf"
+        },
+        "260": {
+          "id": 260,
+          "name": "Biogra"
+        },
+        "261": {
+          "id": 261,
+          "name": "Terfaya"
+        },
+        "262": {
+          "id": 262,
+          "name": "Tazenakht"
+        },
+        "263": {
+          "id": 263,
+          "name": "Figuig"
+        },
+        "264": {
+          "id": 264,
+          "name": "Tendrara"
+        },
+        "265": {
+          "id": 265,
+          "name": "Talsint"
+        },
+        "266": {
+          "id": 266,
+          "name": "Beni Tajjite"
+        },
+        "267": {
+          "id": 267,
+          "name": "Bouanane"
+        },
+        "268": {
+          "id": 268,
+          "name": "Tata"
+        },
+        "269": {
+          "id": 269,
+          "name": "Jaidate"
+        },
+        "270": {
+          "id": 270,
+          "name": "Mzoudia"
+        },
+        "271": {
+          "id": 271,
+          "name": "Ksar Sghir"
+        },
+        "272": {
+          "id": 272,
+          "name": "Tamelelt"
+        },
+        "273": {
+          "id": 273,
+          "name": "El Gara"
+        },
+        "274": {
+          "id": 274,
+          "name": "Mirleft"
+        },
+        "275": {
+          "id": 275,
+          "name": "lqliaa"
+        },
+        "276": {
+          "id": 276,
+          "name": "oulad berhil"
+        },
+        "277": {
+          "id": 277,
+          "name": "zaida"
+        },
+        "278": {
+          "id": 278,
+          "name": "Oulad Dlim"
+        },
+        "279": {
+          "id": 279,
+          "name": "targuist"
+        },
+        "280": {
+          "id": 280,
+          "name": "issaguen"
+        },
+        "281": {
+          "id": 281,
+          "name": "tala youssef"
+        },
+        "282": {
+          "id": 282,
+          "name": "Jaadar"
+        },
+        "283": {
+          "id": 283,
+          "name": "Midar"
+        },
+        "284": {
+          "id": 284,
+          "name": "Ben Taieb"
+        },
+        "285": {
+          "id": 285,
+          "name": "Kassita"
+        },
+        "286": {
+          "id": 286,
+          "name": "Tafersit"
+        },
+        "287": {
+          "id": 287,
+          "name": "Dar El Kebdani"
+        },
+        "288": {
+          "id": 288,
+          "name": "Oulad Settout"
+        },
+        "289": {
+          "id": 289,
+          "name": "Bouarg"
+        },
+        "290": {
+          "id": 290,
+          "name": "Arekmane"
+        },
+        "291": {
+          "id": 291,
+          "name": "Krona"
+        },
+        "292": {
+          "id": 292,
+          "name": "Boudinar"
+        },
+        "293": {
+          "id": 293,
+          "name": "Tamsamane"
+        },
+        "294": {
+          "id": 294,
+          "name": "Annual"
+        },
+        "295": {
+          "id": 295,
+          "name": "Amezzaourou"
+        },
+        "296": {
+          "id": 296,
+          "name": "BENI CHIKER"
+        },
+        "297": {
+          "id": 297,
+          "name": "Mariouari"
+        },
+        "298": {
+          "id": 298,
+          "name": "Tiztoutine"
+        },
+        "299": {
+          "id": 299,
+          "name": "Tamaris"
+        },
+        "300": {
+          "id": 300,
+          "name": "Karia Be Mohammed"
+        },
+        "301": {
+          "id": 301,
+          "name": "Taddart - Charaf - AGADIR"
+        },
+        "302": {
+          "id": 302,
+          "name": "Ben Ahmed - CHEFCHAOUEN -"
+        },
+        "303": {
+          "id": 303,
+          "name": "Tnine Chtouka (el jadida)"
+        },
+        "304": {
+          "id": 304,
+          "name": "AIN CHGAG"
+        },
+        "305": {
+          "id": 305,
+          "name": "Tafraoute"
+        },
+        "306": {
+          "id": 306,
+          "name": "Houara-oulad teima"
+        },
+        "307": {
+          "id": 307,
+          "name": "ERRAHMA VILLE\t"
+        },
+        "308": {
+          "id": 308,
+          "name": "azrou ait melloul"
+        },
+        "309": {
+          "id": 309,
+          "name": "Ben Yakhlef"
+        },
+        "310": {
+          "id": 310,
+          "name": "El Mansouria"
+        },
+        "311": {
+          "id": 311,
+          "name": "Imsouane"
+        },
+        "312": {
+          "id": 312,
+          "name": "cap beddouza"
+        },
+        "313": {
+          "id": 313,
+          "name": "Jemâa-Shaim"
+        },
+        "314": {
+          "id": 314,
+          "name": "El Borouj"
+        },
+        "315": {
+          "id": 315,
+          "name": "oulad said settat"
+        },
+        "316": {
+          "id": 316,
+          "name": "sidi hajjaj (settat)"
+        },
+        "317": {
+          "id": 317,
+          "name": "Ras El Ain (settat)"
+        },
+        "318": {
+          "id": 318,
+          "name": "Guisser (settat)"
+        },
+        "319": {
+          "id": 319,
+          "name": "dar chaffai(settat)"
+        },
+        "320": {
+          "id": 320,
+          "name": "Lakhyayeta"
+        },
+        "321": {
+          "id": 321,
+          "name": "Nzalat Laadam"
+        },
+        "322": {
+          "id": 322,
+          "name": "Oulad Zidoh"
+        },
+        "323": {
+          "id": 323,
+          "name": "souiria Guedima (REG SAFI)"
+        },
+        "324": {
+          "id": 324,
+          "name": "Jorf El Melha"
+        },
+        "325": {
+          "id": 325,
+          "name": "Ain Beida"
+        },
+        "326": {
+          "id": 326,
+          "name": "Mokrisset"
+        },
+        "327": {
+          "id": 327,
+          "name": "Oulad Ayad"
+        },
+        "328": {
+          "id": 328,
+          "name": "TEST"
+        },
+        "329": {
+          "id": 329,
+          "name": "AIN ATIQ"
+        },
+        "330": {
+          "id": 330,
+          "name": "Moulay Bousselham"
+        },
+        "331": {
+          "id": 331,
+          "name": "Khenichet"
+        },
+        "332": {
+          "id": 332,
+          "name": "Zoumi-Ouazzane"
+        },
+        "333": {
+          "id": 333,
+          "name": "Teroual - Ouazzane"
+        },
+        "334": {
+          "id": 334,
+          "name": "Ain Dfali-Ouazzane"
+        },
+        "335": {
+          "id": 335,
+          "name": "Masmouda - Ouazzane"
+        },
+        "336": {
+          "id": 336,
+          "name": "Stehat-Chefchaouen"
+        },
+        "337": {
+          "id": 337,
+          "name": "Temsia-agadir"
+        },
+        "338": {
+          "id": 338,
+          "name": "Tamraght"
+        },
+        "339": {
+          "id": 339,
+          "name": "Had bouhssoussen"
+        },
+        "340": {
+          "id": 340,
+          "name": "Moulay bouazza khenifra\t"
+        },
+        "341": {
+          "id": 341,
+          "name": "Tagzert"
+        },
+        "342": {
+          "id": 342,
+          "name": "Oulad M barek-Beni Mellal"
+        },
+        "343": {
+          "id": 343,
+          "name": "Tanougha-Beni Mellal"
+        },
+        "344": {
+          "id": 344,
+          "name": "Foum Oudi"
+        },
+        "345": {
+          "id": 345,
+          "name": "Ikhourbane"
+        },
+        "346": {
+          "id": 346,
+          "name": "Zag-VILLE"
+        },
+        "347": {
+          "id": 347,
+          "name": "El Ouatia"
+        },
+        "348": {
+          "id": 348,
+          "name": "Port of Tan-Tan"
+        },
+        "349": {
+          "id": 349,
+          "name": "oulad oujih"
+        },
+        "350": {
+          "id": 350,
+          "name": "Lalla Mimouna"
+        },
+        "351": {
+          "id": 351,
+          "name": "Dlalha"
+        },
+        "352": {
+          "id": 352,
+          "name": "Mers El Kheir"
+        },
+        "353": {
+          "id": 353,
+          "name": "Sidi Yahya Zaer"
+        },
+        "354": {
+          "id": 354,
+          "name": "Skhour Rehamna"
+        },
+        "355": {
+          "id": 355,
+          "name": "Amizmiz"
+        },
+        "356": {
+          "id": 356,
+          "name": "El Hanchane"
+        },
+        "357": {
+          "id": 357,
+          "name": "Akka-tata"
+        },
+        "358": {
+          "id": 358,
+          "name": "Tagmout-tata"
+        },
+        "359": {
+          "id": 359,
+          "name": "Issafen-tata\t"
+        },
+        "360": {
+          "id": 360,
+          "name": "Fam El Hisn-tata"
+        },
+        "361": {
+          "id": 361,
+          "name": "TAMRI"
+        },
+        "362": {
+          "id": 362,
+          "name": "MASSA"
+        },
+        "363": {
+          "id": 363,
+          "name": "Kariat Arkman‎-Nador"
+        },
+        "364": {
+          "id": 364,
+          "name": "Had Hrara-SAFI"
+        },
+        "365": {
+          "id": 365,
+          "name": "Sidi Zouine\t"
+        },
+        "366": {
+          "id": 366,
+          "name": "Skoura-Ouarzazate"
+        },
+        "367": {
+          "id": 367,
+          "name": "Bni hdifa - Region Al hoceima"
+        },
+        "368": {
+          "id": 368,
+          "name": "Bab Marzouka-Taza"
+        },
+        "369": {
+          "id": 369,
+          "name": "Aknoul-taza"
+        },
+        "370": {
+          "id": 370,
+          "name": "Hatane-Khouribga"
+        },
+        "371": {
+          "id": 371,
+          "name": "sidi allal tazi"
+        },
+        "372": {
+          "id": 372,
+          "name": "Tiddas"
+        },
+        "373": {
+          "id": 373,
+          "name": "Ain Johra"
+        },
+        "374": {
+          "id": 374,
+          "name": "Maâziz"
+        },
+        "375": {
+          "id": 375,
+          "name": " Ait Yadine"
+        },
+        "376": {
+          "id": 376,
+          "name": "Tīdās-Khemisset"
+        },
+        "377": {
+          "id": 377,
+          "name": "Laouamra- ksar el kebir"
+        },
+        "378": {
+          "id": 378,
+          "name": "Khemis Sahel"
+        },
+        "379": {
+          "id": 379,
+          "name": "Krimda"
+        },
+        "380": {
+          "id": 380,
+          "name": "Sidi Aissa-Beni-Mellal"
+        },
+        "381": {
+          "id": 381,
+          "name": "Ouled Moussa-Beni Mellal"
+        },
+        "382": {
+          "id": 382,
+          "name": "Oulad Said-Beni Mellal"
+        },
+        "383": {
+          "id": 383,
+          "name": "ighram laalam-beni mellal"
+        },
+        "384": {
+          "id": 384,
+          "name": "Tanougha-Beni Mellal"
+        },
+        "385": {
+          "id": 385,
+          "name": "Zaouiat Cheikh"
+        },
+        "386": {
+          "id": 386,
+          "name": "Ait Ali"
+        },
+        "387": {
+          "id": 387,
+          "name": "Lehri-KHENIFRA"
+        },
+        "388": {
+          "id": 388,
+          "name": "El Kebab-KHENIFRA\t"
+        },
+        "389": {
+          "id": 389,
+          "name": "El Borj-KHENIFRA"
+        },
+        "390": {
+          "id": 390,
+          "name": "Kaf Nsour"
+        },
+        "391": {
+          "id": 391,
+          "name": "Ouaoumana\t"
+        },
+        "392": {
+          "id": 392,
+          "name": "Ait ishaq"
+        },
+        "393": {
+          "id": 393,
+          "name": "Ait ishaK"
+        },
+        "394": {
+          "id": 394,
+          "name": "Tighassaline ville"
+        },
+        "395": {
+          "id": 395,
+          "name": "Aguelmous"
+        },
+        "396": {
+          "id": 396,
+          "name": "Tachrafat"
+        },
+        "397": {
+          "id": 397,
+          "name": "Bounouar"
+        },
+        "398": {
+          "id": 398,
+          "name": "HATTANE"
+        },
+        "399": {
+          "id": 399,
+          "name": "Boujniba"
+        },
+        "400": {
+          "id": 400,
+          "name": "Ouaouizeght"
+        },
+        "401": {
+          "id": 401,
+          "name": "Adouz"
+        },
+        "402": {
+          "id": 402,
+          "name": "Foum El Anceur"
+        },
+        "403": {
+          "id": 403,
+          "name": "FERYATA"
+        },
+        "404": {
+          "id": 404,
+          "name": "Foum Zaouia"
+        },
+        "405": {
+          "id": 405,
+          "name": "Tanougha-Beni Mellal\t"
+        },
+        "406": {
+          "id": 406,
+          "name": "Al kamoun-ksba tadla"
+        },
+        "407": {
+          "id": 407,
+          "name": "Jerf El Melha"
+        },
+        "408": {
+          "id": 408,
+          "name": "Zemamra"
+        },
+        "409": {
+          "id": 409,
+          "name": "Sidi Bouzid"
+        },
+        "410": {
+          "id": 410,
+          "name": "Sidi Smail"
+        },
+        "411": {
+          "id": 411,
+          "name": "Azemmour"
+        },
+        "412": {
+          "id": 412,
+          "name": "Bir Jdid"
+        },
+        "413": {
+          "id": 413,
+          "name": "El Jorf Lasfar "
+        },
+        "414": {
+          "id": 414,
+          "name": "Moulay Abdallah Amghar"
+        },
+        "415": {
+          "id": 415,
+          "name": "El Aouamra"
+        },
+        "416": {
+          "id": 416,
+          "name": "Laarache"
+        },
+        "417": {
+          "id": 417,
+          "name": "Oulad Bourahma"
+        },
+        "418": {
+          "id": 418,
+          "name": "Zone Franche (kenitra)"
+        },
+        "419": {
+          "id": 419,
+          "name": "LAARJAT"
+        },
+        "420": {
+          "id": 420,
+          "name": "Ghafsai"
+        },
+        "421": {
+          "id": 421,
+          "name": "sidi aadi"
+        },
+        "422": {
+          "id": 422,
+          "name": "Mejjat-chichaoua"
+        },
+        "423": {
+          "id": 423,
+          "name": "Ain Tekki"
+        },
+        "424": {
+          "id": 424,
+          "name": "Alnif"
+        },
+        "425": {
+          "id": 425,
+          "name": " Laaroui"
+        },
+        "426": {
+          "id": 426,
+          "name": "OULAD ABBOU-settat"
+        },
+        "427": {
+          "id": 427,
+          "name": "OUED LAOU"
+        },
+        "428": {
+          "id": 428,
+          "name": "AIN LEUH"
+        },
+        "429": {
+          "id": 429,
+          "name": "Souihla"
+        },
+        "430": {
+          "id": 430,
+          "name": "El Haj Kaddour"
+        },
+        "431": {
+          "id": 431,
+          "name": "Boulemane"
+        },
+        "432": {
+          "id": 432,
+          "name": "Tin Mansour\t"
+        },
+        "433": {
+          "id": 433,
+          "name": "Arba Aounate"
+        },
+        "434": {
+          "id": 434,
+          "name": "AIN BNI MATHAR"
+        },
+        "435": {
+          "id": 435,
+          "name": "Tikiouine"
+        },
+        "436": {
+          "id": 436,
+          "name": "El Aarjate"
+        },
+        "437": {
+          "id": 437,
+          "name": "Chellalat Mohammedia"
+        },
+        "438": {
+          "id": 438,
+          "name": "Zouada"
+        },
+        "439": {
+          "id": 439,
+          "name": "Arbaoua"
+        },
+        "440": {
+          "id": 440,
+          "name": "Sidi el Aidi"
+        },
+        "441": {
+          "id": 441,
+          "name": "Tlata Ouled Faress"
+        },
+        "442": {
+          "id": 442,
+          "name": "Bin El Ouidane"
+        },
+        "443": {
+          "id": 443,
+          "name": "DAR GUEDDARI"
+        },
+        "444": {
+          "id": 444,
+          "name": "Sidi Al Kamel"
+        },
+        "445": {
+          "id": 445,
+          "name": "Tagadirt-Agadir"
+        },
+        "446": {
+          "id": 446,
+          "name": "Tadouaret-Agadir"
+        },
+        "447": {
+          "id": 447,
+          "name": "Leqliaa - Taddart"
+        },
+        "448": {
+          "id": 448,
+          "name": "ain mediouna - taounate\t"
+        },
+        "449": {
+          "id": 449,
+          "name": "ain aicha - taounate"
+        },
+        "450": {
+          "id": 450,
+          "name": "zrizer - taounate\t"
+        },
+        "451": {
+          "id": 451,
+          "name": "Ain Sbit"
+        },
+        "452": {
+          "id": 452,
+          "name": "MERCHOUCH"
+        },
+        "453": {
+          "id": 453,
+          "name": "TANANTE-AZILAL"
+        },
+        "454": {
+          "id": 454,
+          "name": "Birkouate"
+        },
+        "455": {
+          "id": 455,
+          "name": "Moulay Yaâcoub\t"
+        },
+        "456": {
+          "id": 456,
+          "name": "sidi boujida"
+        },
+        "457": {
+          "id": 457,
+          "name": "Oulad Tayeb"
+        },
+        "458": {
+          "id": 458,
+          "name": "Ain Chkef"
+        },
+        "459": {
+          "id": 459,
+          "name": "Ouled Khlifa"
+        },
+        "460": {
+          "id": 460,
+          "name": "LOUDAYA"
+        },
+        "461": {
+          "id": 461,
+          "name": "Tassoultante"
+        },
+        "462": {
+          "id": 462,
+          "name": "Tamesluht"
+        },
+        "463": {
+          "id": 463,
+          "name": "Tameslouht"
+        },
+        "464": {
+          "id": 464,
+          "name": "Sidi Moussa-OURIKA"
+        },
+        "465": {
+          "id": 465,
+          "name": "Gueznaia - Tanger"
+        },
+        "466": {
+          "id": 466,
+          "name": "TANGER-bougdour"
+        },
+        "467": {
+          "id": 467,
+          "name": "AIN DALIA-tanger"
+        },
+        "468": {
+          "id": 468,
+          "name": "Chraka - Tanger"
+        },
+        "469": {
+          "id": 469,
+          "name": "TANGER-chaouia"
+        },
+        "470": {
+          "id": 470,
+          "name": "TANGER-malabata"
+        },
+        "471": {
+          "id": 471,
+          "name": "tamchat"
+        },
+        "472": {
+          "id": 472,
+          "name": "TAGANTE"
+        },
+        "473": {
+          "id": 473,
+          "name": "Moulay Idriss Zerhoun"
+        },
+        "474": {
+          "id": 474,
+          "name": "TANGER-Mesnana"
+        },
+        "475": {
+          "id": 475,
+          "name": "Sidi Rahal-marrakech"
+        },
+        "476": {
+          "id": 476,
+          "name": "BOUYAFAR"
+        },
+        "477": {
+          "id": 477,
+          "name": "Sidi Bousberr"
+        },
+        "478": {
+          "id": 478,
+          "name": "LAMJAARA-ouazzane"
+        },
+        "479": {
+          "id": 479,
+          "name": "KALAAT BOUQORRA-ouazzane"
+        },
+        "480": {
+          "id": 480,
+          "name": "BRIKCHA-ouazzane"
+        },
+        "481": {
+          "id": 481,
+          "name": "Beni Quolla-ouazzane"
+        },
+        "482": {
+          "id": 482,
+          "name": "Mzefroune-ouazzane"
+        },
+        "483": {
+          "id": 483,
+          "name": "KETAMA-AL HOSSAIMA"
+        },
+        "484": {
+          "id": 484,
+          "name": "Sidi Elmoukhtar - Chichaoua"
+        },
+        "485": {
+          "id": 485,
+          "name": "Ouled El Ghadbane"
+        },
+        "486": {
+          "id": 486,
+          "name": "Segangan"
+        },
+        "487": {
+          "id": 487,
+          "name": "Had kourt"
+        },
+        "488": {
+          "id": 488,
+          "name": "Madagh-berkan"
+        },
+        "489": {
+          "id": 489,
+          "name": "Laatamna"
+        },
+        "490": {
+          "id": 490,
+          "name": "Sebt ben sassi"
+        },
+        "491": {
+          "id": 491,
+          "name": "AIT BAHA"
+        },
+        "492": {
+          "id": 492,
+          "name": "Touama-ait ourir"
+        },
+        "493": {
+          "id": 493,
+          "name": "Ribate El Kheir-sefrou"
+        },
+        "494": {
+          "id": 494,
+          "name": "El Menzale-sefrou"
+        },
+        "495": {
+          "id": 495,
+          "name": "Tizi Ouasli"
+        },
+        "496": {
+          "id": 496,
+          "name": "MSOUN taza"
+        },
+        "497": {
+          "id": 497,
+          "name": "SAKA"
+        },
+        "498": {
+          "id": 498,
+          "name": "LAMRIJA"
+        },
+        "499": {
+          "id": 499,
+          "name": "Akhfennir"
+        },
+        "500": {
+          "id": 500,
+          "name": "Gfifat-oulad teima"
+        },
+        "501": {
+          "id": 501,
+          "name": "Oulad Dahou-HOUARA"
+        },
+        "502": {
+          "id": 502,
+          "name": "TIMAHDITE-AZROU"
+        },
+        "503": {
+          "id": 503,
+          "name": "AGOURAY"
+        },
+        "504": {
+          "id": 504,
+          "name": "SIDI AADI"
+        },
+        "505": {
+          "id": 505,
+          "name": "Lalla Takerkoust"
+        },
+        "506": {
+          "id": 506,
+          "name": "Oulad yahya-Marrakech"
+        },
+        "507": {
+          "id": 507,
+          "name": "Chrifia-Marrakech"
+        },
+        "508": {
+          "id": 508,
+          "name": "Sidi Abdellah Ghiat"
+        },
+        "509": {
+          "id": 509,
+          "name": "Ait Ben Haddou"
+        },
+        "510": {
+          "id": 510,
+          "name": "TALSINNT"
+        },
+        "511": {
+          "id": 511,
+          "name": "Aouama-Tanger"
+        },
+        "512": {
+          "id": 512,
+          "name": "Ras El Ain Rehamena- Tamelelt"
+        },
+        "513": {
+          "id": 513,
+          "name": "Tlauh - Tamelelt"
+        },
+        "514": {
+          "id": 514,
+          "name": "EL AIOUN SIDI MELLOUK"
+        },
+        "515": {
+          "id": 515,
+          "name": "Bir Tam Tam\t"
+        },
+        "516": {
+          "id": 516,
+          "name": "Ras Tabouda\t"
+        },
+        "517": {
+          "id": 517,
+          "name": "Zaouia Bougrine"
+        },
+        "518": {
+          "id": 518,
+          "name": "El houmer-taroudant\t"
+        },
+        "519": {
+          "id": 519,
+          "name": "Oulad Terna"
+        },
+        "520": {
+          "id": 520,
+          "name": "Ouled Abbou-TAROUDANT"
+        },
+        "521": {
+          "id": 521,
+          "name": "Oulad Aissa-TAROUDANT"
+        },
+        "522": {
+          "id": 522,
+          "name": "Tazemmourt-taroudant"
+        },
+        "523": {
+          "id": 523,
+          "name": "tamaloukt-taroudant\t"
+        },
+        "524": {
+          "id": 524,
+          "name": "nouail-taroudant\t"
+        },
+        "525": {
+          "id": 525,
+          "name": "oulad mhela-taroudant\t"
+        },
+        "526": {
+          "id": 526,
+          "name": "El boura-taroudant\t"
+        },
+        "527": {
+          "id": 527,
+          "name": "Oulad brahim-taroudant\t"
+        },
+        "528": {
+          "id": 528,
+          "name": "Sidi moussa lhamri-TAROUDANT\t"
+        },
+        "529": {
+          "id": 529,
+          "name": "Ahmar laglalcha-taroudant\t"
+        },
+        "530": {
+          "id": 530,
+          "name": "IGHREM-TATA"
+        },
+        "531": {
+          "id": 531,
+          "name": "ASJENN-ouazzane"
+        },
+        "532": {
+          "id": 532,
+          "name": "TAFOUGHALT"
+        },
+        "533": {
+          "id": 533,
+          "name": "AIN SFA-OUJDA"
+        },
+        "534": {
+          "id": 534,
+          "name": "Bouhouda-taounat"
+        },
+        "535": {
+          "id": 535,
+          "name": "Tahar Souk-taounat"
+        },
+        "536": {
+          "id": 536,
+          "name": "bouaadl-taounat"
+        },
+        "537": {
+          "id": 537,
+          "name": "Ouled azem-taounat"
+        },
+        "538": {
+          "id": 538,
+          "name": "Tazouda-taounat"
+        },
+        "539": {
+          "id": 539,
+          "name": "Timezgana-taounat"
+        },
+        "540": {
+          "id": 540,
+          "name": "Imouzzer Marmoucha"
+        },
+        "541": {
+          "id": 541,
+          "name": "MEZRAOUA-taounat"
+        },
+        "542": {
+          "id": 542,
+          "name": "Ait Yaazem-meknes"
+        },
+        "543": {
+          "id": 543,
+          "name": "TANDIT-OUTAT LHAJ"
+        },
+        "544": {
+          "id": 544,
+          "name": "Ourtzagh-taounat"
+        },
+        "545": {
+          "id": 545,
+          "name": "Kasbat ayir-oualidia"
+        },
+        "546": {
+          "id": 546,
+          "name": "Amerzgane"
+        },
+        "547": {
+          "id": 547,
+          "name": " Imini-Ouarzazate"
+        },
+        "548": {
+          "id": 548,
+          "name": "El Argoub-العركوب"
+        },
+        "549": {
+          "id": 549,
+          "name": "Bir Gandouz"
+        },
+        "550": {
+          "id": 550,
+          "name": "LAMHIRIZ-dakhla"
+        },
+        "551": {
+          "id": 551,
+          "name": "GUERGUERAT"
+        },
+        "552": {
+          "id": 552,
+          "name": "AIN SMEN-FES"
+        },
+        "553": {
+          "id": 553,
+          "name": "Idouirane-Imintanuot "
+        },
+        "554": {
+          "id": 554,
+          "name": "Tamait Izder-agadir"
+        },
+        "555": {
+          "id": 555,
+          "name": "Tinzouline-zagora"
+        },
+        "556": {
+          "id": 556,
+          "name": "TINDITE"
+        },
+        "557": {
+          "id": 557,
+          "name": "BEN ZOLI"
+        },
+        "558": {
+          "id": 558,
+          "name": "Tagounite"
+        },
+        "559": {
+          "id": 559,
+          "name": "Ain el Mediour- taroudant"
+        },
+        "560": {
+          "id": 560,
+          "name": "Ouled Mssaad"
+        },
+        "561": {
+          "id": 561,
+          "name": "Oulad Othmane"
+        },
+        "562": {
+          "id": 562,
+          "name": "Oulad Yahya Lagraire"
+        },
+        "563": {
+          "id": 563,
+          "name": "Tinnegza"
+        },
+        "564": {
+          "id": 564,
+          "name": "Ouled Moqaddem"
+        },
+        "565": {
+          "id": 565,
+          "name": "Aït Attab"
+        },
+        "566": {
+          "id": 566,
+          "name": "Oulad Aissa- el jadida"
+        },
+        "567": {
+          "id": 567,
+          "name": "BRADIA"
+        },
+        "568": {
+          "id": 568,
+          "name": "Souk El Had Des Bradia"
+        },
+        "569": {
+          "id": 569,
+          "name": "Bouarouss"
+        },
+        "570": {
+          "id": 570,
+          "name": "Ouzoud"
+        },
+        "571": {
+          "id": 571,
+          "name": "HOUARA-Tanger"
+        },
+        "572": {
+          "id": 572,
+          "name": "MEHARZA-Tanger"
+        },
+        "573": {
+          "id": 573,
+          "name": "EL MNBAR-Tanger"
+        },
+        "574": {
+          "id": 574,
+          "name": "AIN BELLOUT-Tanger"
+        },
+        "575": {
+          "id": 575,
+          "name": "Agouim"
+        },
+        "576": {
+          "id": 576,
+          "name": "Ighrem N Ougdal "
+        },
+        "577": {
+          "id": 577,
+          "name": "Tarmigt "
+        },
+        "578": {
+          "id": 578,
+          "name": "Ain jiri"
+        },
+        "579": {
+          "id": 579,
+          "name": " Tlata Loulad Fini"
+        },
+        "580": {
+          "id": 580,
+          "name": "Tnine Beni Meskine"
+        },
+        "581": {
+          "id": 581,
+          "name": "Aghbalou N serdan"
+        },
+        "582": {
+          "id": 582,
+          "name": "Itzer-zaida"
+        },
+        "583": {
+          "id": 583,
+          "name": "Zoualeth Dkhissa"
+        },
+        "584": {
+          "id": 584,
+          "name": "Ras El Ma Fes"
+        },
+        "585": {
+          "id": 585,
+          "name": "Tassaout"
+        },
+        "586": {
+          "id": 586,
+          "name": "Oued Jdida"
+        },
+        "587": {
+          "id": 587,
+          "name": "Ouled Slim Khrarib"
+        },
+        "588": {
+          "id": 588,
+          "name": "Aghbala-beni mellal"
+        },
+        "589": {
+          "id": 589,
+          "name": "Tala Youssef-hociema"
+        },
+        "590": {
+          "id": 590,
+          "name": "Oulad Jerrar "
+        },
+        "591": {
+          "id": 591,
+          "name": "Taghjijt "
+        },
+        "592": {
+          "id": 592,
+          "name": "Toundoute "
+        },
+        "593": {
+          "id": 593,
+          "name": "Ouargui "
+        },
+        "594": {
+          "id": 594,
+          "name": "Bourouta"
+        },
+        "595": {
+          "id": 595,
+          "name": "Foum Jamaa "
+        },
+        "596": {
+          "id": 596,
+          "name": "Ghighaya"
+        }
+      },
+      "sandbox": 1
+    }
+  },
+  "add_json_rejected": {
+    "login": "success",
+    "api": {
+      "type": "error",
+      "msg": "The receiver field is required.",
+      "sandbox": 1
+    }
+  },
+  "add_form_unknown_city": {
+    "login": "success",
+    "api": {
+      "type": "error",
+      "msg": "Unknown city id. Call Delivery/Cities for the list of valid city ids.",
+      "sandbox": 1
+    }
+  },
+  "add_form_success": {
+    "login": "success",
+    "api": {
+      "type": "success",
+      "msg": "Sandbox parcel created.",
+      "data": {
+        "code": "SBX-51464E10"
+      },
+      "sandbox": 1
+    }
+  },
+  "tracking": {
+    "login": "success",
+    "api": {
+      "type": "success",
+      "msg": " ",
+      "tracking": [
+        {
+          "type": "SIMPLE",
+          "statut": "NEW_PARCEL",
+          "statut_name": "Nouveau Colis",
+          "statut_color": "#00cfdd",
+          "statut_s": "",
+          "statut_s_name": "",
+          "statut_s_color": "",
+          "sorting_time": 1792110662,
+          "time": "1792110662",
+          "time_str": "2026-10-16 00:31",
+          "comment": ""
+        }
+      ],
+      "sandbox": 1
+    }
+  },
+  "massTracking": {
+    "login": "success",
+    "api": {
+      "type": "success",
+      "msg": " ",
+      "tracking": {
+        "SBX-51464E10": [
+          {
+            "type": "SIMPLE",
+            "statut": "NEW_PARCEL",
+            "statut_name": "Nouveau Colis",
+            "statut_color": "#00cfdd",
+            "statut_s": "",
+            "statut_s_name": "",
+            "statut_s_color": "",
+            "sorting_time": 1792110662,
+            "time": "1792110662",
+            "time_str": "2026-10-16 00:31",
+            "comment": ""
+          }
+        ]
+      },
+      "sandbox": 1
+    }
+  },
+  "massInfo": {
+    "login": "success",
+    "api": {
+      "type": "success",
+      "msg": " ",
+      "parcels": {
+        "SBX-51464E10": {
+          "code": "SBX-51464E10",
+          "statut": "NEW_PARCEL",
+          "statut_name": "Nouveau Colis",
+          "statut_color": "#00cfdd",
+          "statut_s": "",
+          "statut_s_name": "",
+          "receiver": "Test ASODITECH",
+          "phone": "0600000000",
+          "city": 129,
+          "city_name": "Casablanca",
+          "address": "Adresse de test",
+          "cod": "100.00",
+          "product": "Produit test",
+          "order_num": "ASD-SBX-1",
+          "source": "API_KEY",
+          "time": "1792110662",
+          "time_str": "2026-10-16 00:31",
+          "u_time": "1792110662",
+          "u_time_str": "2026-10-16 00:31",
+          "sandbox": 1
+        }
+      },
+      "sandbox": 1
+    }
+  }
+}
