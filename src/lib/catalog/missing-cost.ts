@@ -42,6 +42,14 @@ export interface MissingCostSummary {
   /** Distinct products concerned (what the `?cout=manquant` list shows). */
   products: number;
   bySource: Record<RecordSource, number>;
+  /**
+   * Of those, units that DO have a purchase cost at one location at least
+   * (InventoryItem.currentUnitCost). Still counted as missing: imported
+   * WooCommerce / Shopify orders and online reports use the global cost only;
+   * store sales and orders created here from that location use the
+   * location cost first (src/lib/catalog/location-cost.ts). Absent = not computed.
+   */
+  withLocationCost?: number;
 }
 
 export function missingCostMessage(s: Pick<MissingCostSummary, "units">): string | null {

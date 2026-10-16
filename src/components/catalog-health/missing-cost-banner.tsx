@@ -39,6 +39,12 @@ export async function MissingCostBanner({ user, showLink = true }: { user: Pick<
       <CircleDollarSign className="size-4 shrink-0" aria-hidden="true" />
       <span>
         {message} <span className="text-xs opacity-80">({detail})</span>
+        {summary.withLocationCost ? (
+          <span className="block text-xs opacity-80">
+            Dont {summary.withLocationCost} avec un coût par emplacement : utilisé pour les ventes magasin et les commandes créées ici depuis cet
+            emplacement, pas pour les commandes importées des boutiques ni les rapports en ligne.
+          </span>
+        ) : null}
       </span>
       {showLink && (
         <Link href={MISSING_COST_PRODUCTS_HREF} className="font-medium underline">

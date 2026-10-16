@@ -7,8 +7,10 @@ import { AnalyticsFilterBar, type AnalyticsFilterControl } from "@/components/an
 import { BreakdownBarList } from "@/components/analytics/breakdown-bar-list";
 import { MetricDefinitions } from "@/components/analytics/metric-definitions";
 import { AnalyticsMetricInfo } from "@/components/analytics/analytics-metric-info";
+import { ScopeBlockedNotice } from "@/components/analytics/scope-blocked-notice";
 import { analyticsContext } from "@/lib/analytics/context";
 import { analyticsQuery, SOURCE_KEYS, sourceLabel } from "@/lib/analytics/filters";
+import { isBlocked, onlineScopeLabel, scopeControls, storeScopeLabel } from "@/lib/analytics/scope";
 import { formatPct } from "@/lib/analytics/format";
 import { getOnlineSourceFunnel, getOnlineFilterOptions } from "@/lib/analytics/queries/online";
 import { getStoreOverview, getStoreFilterOptions } from "@/lib/analytics/queries/store";
@@ -27,23 +29,25 @@ const COLORS = CHART_BAR_CLASSES.series;
 export default async function SourcesAnalyticsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const ctx = await analyticsContext(await searchParams, "sources");
   const { access, period, filters, user } = ctx;
+  // Same scope rule as the overview (src/lib/analytics/scope.ts).
+  const showOnline = access.online && !isBlocked("online", filters);
+  const showStore = access.store && !isBlocked("store", filters);
   const [funnel, store, onlineOptions, storeOptions] = await Promise.all([
-    access.online ? getOnlineSourceFunnel(period.range, filters) : null,
-    access.store ? getStoreOverview(user, period, filters) : null,
+    showOnline ? getOnlineSourceFunnel(period.range, filters) : null,
+    showStore ? getStoreOverview(user, period, filters) : null,
     access.online ? getOnlineFilterOptions() : null,
     access.store ? getStoreFilterOptions(user) : null,
   ]);
 
-  const controls: AnalyticsFilterControl[] = [];
-  if (onlineOptions) {
-    controls.push({ paramKey: "source", value: filters.source, allLabel: "Toutes les origines", options: SOURCE_KEYS.map((k) => ({ value: k, label: sourceLabel(k) })) });
-    if (onlineOptions.onlineChannels.length > 1)
-      controls.push({ paramKey: "canal", value: filters.onlineChannelId, allLabel: "Tous les canaux en ligne", options: onlineOptions.onlineChannels.map((c) => ({ value: c.id, label: c.name })) });
-  }
-  if (storeOptions) {
-    controls.push({ paramKey: "magasin", value: filters.storeChannelId, allLabel: "Tous mes magasins", options: storeOptions.storeChannels.map((c) => ({ value: c.id, label: c.name })) });
-    controls.push({ paramKey: "emplacement", value: filters.warehouseId, allLabel: "Tous mes emplacements", options: storeOptions.warehouses.map((w) => ({ value: w.id, label: w.name })) });
-  }
+  const controls: AnalyticsFilterControl[] = scopeControls(
+    filters,
+    onlineOptions ? { sources: SOURCE_KEYS.map((k) => ({ value: k, label: sourceLabel(k) })), onlineChannels: onlineOptions.onlineChannels } : null,
+    storeOptions
+  );
+  const onlineScope = onlineScopeLabel(filters, sourceLabel, new Map((onlineOptions?.onlineChannels ?? []).map((c) => [c.id, c.name])));
+  const storeScope = storeOptions
+    ? storeScopeLabel(filters, { stores: new Map(storeOptions.storeChannels.map((c) => [c.id, c.name])), warehouses: new Map(storeOptions.warehouses.map((w) => [w.id, w.name])) })
+    : "";
 
   return (
     <div className="space-y-6">
@@ -51,6 +55,8 @@ export default async function SourcesAnalyticsPage({ searchParams }: { searchPar
       <AnalyticsNav access={access} active="sources" query={ctx.periodQuery} />
       <AnalyticsFilterBar basePath="/analyses/canaux" period={period} filterParams={ctx.filterParams} controls={controls} exportHref={`/analyses/export/canaux?${analyticsQuery(period, filters)}`} />
 
+      {access.online && !showOnline && <ScopeBlockedNotice block="online" title="Commandes en ligne par origine" basePath="/analyses/canaux" period={period} filters={filters} />}
+      {funnel && <p className="text-xs text-muted-foreground">En ligne — {onlineScope}</p>}
       {funnel && (
         <div className="grid gap-6 lg:grid-cols-3">
           <Card>
@@ -119,6 +125,8 @@ export default async function SourcesAnalyticsPage({ searchParams }: { searchPar
         </div>
       )}
 
+      {access.store && !showStore && <ScopeBlockedNotice block="store" title="Ventes en magasin" basePath="/analyses/canaux" period={period} filters={filters} />}
+      {store && <p className="text-xs text-muted-foreground">Magasin — {storeScope}</p>}
       {store && (
         <div className="grid gap-6 lg:grid-cols-2">
           {[

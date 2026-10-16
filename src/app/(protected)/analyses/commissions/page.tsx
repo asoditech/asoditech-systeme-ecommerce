@@ -1,3 +1,5 @@
+import { ScopeBlockedNotice } from "@/components/analytics/scope-blocked-notice";
+import { isBlocked } from "@/lib/analytics/scope";
 import { PageHeader } from "@/components/page-header";
 import { CHART_COLORS } from "@/lib/design/chart";
 import { KpiCard } from "@/components/kpi-card";
@@ -33,6 +35,17 @@ const COLUMNS = {
 export default async function CommissionAnalyticsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const ctx = await analyticsContext(await searchParams, "commissions");
   const { period, filters } = ctx;
+  // A store / location filter can't narrow this online-only page (docs: src/lib/analytics/scope.ts):
+  // say so instead of showing global figures under it (2026-10-16 review).
+  if (isBlocked("commissions", filters)) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Analyses — Commissions" description={period.label} />
+        <AnalyticsNav access={ctx.access} active="commissions" query={ctx.periodQuery} />
+        <ScopeBlockedNotice block="commissions" title="Commissions" basePath="/analyses/commissions" period={period} filters={filters} />
+      </div>
+    );
+  }
   const [c, agents] = await Promise.all([getCommissionAnalytics(period, filters), listCommissionAgentOptions()]);
   const rows = sortRows(c.byAgent, filters, COLUMNS, "net");
   const sortKey = filters.sort && filters.sort in COLUMNS ? filters.sort : "net";

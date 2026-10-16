@@ -86,4 +86,12 @@ describe("MissingCostBanner", () => {
     summary.mockResolvedValue({ units: 0, products: 0, bySource: { INTERNE: 0, WOOCOMMERCE: 0, SHOPIFY: 0 } });
     expect(await MissingCostBanner({ user: { permissions: new Set(["finance.view"] as const) } })).toBeNull();
   });
+
+  it("units costed only per location stay counted, and the banner says what that cost covers", async () => {
+    summary.mockResolvedValue({ units: 3, products: 2, bySource: { INTERNE: 1, WOOCOMMERCE: 2, SHOPIFY: 0 }, withLocationCost: 1 });
+    const html = renderToStaticMarkup((await MissingCostBanner({ user: { permissions: new Set(["finance.view"] as const) } }))!);
+    expect(html).toContain("3 produit(s)/variante(s) sans coût d&#x27;achat");
+    expect(html).toContain("Dont 1 avec un coût par emplacement");
+    expect(html).toContain("pas pour les commandes importées des boutiques");
+  });
 });

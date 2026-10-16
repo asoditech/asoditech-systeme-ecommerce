@@ -10,6 +10,8 @@ import { StatusBadge } from "@/components/status-badge";
 import { ClickableTableRow } from "@/components/clickable-table-row";
 import { DataTablePagination } from "@/components/data-table-pagination";
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
+import { ReportOnlineChannelFilter } from "@/components/reports/report-online-channel-filter";
+import { resolveReportOnlineChannel, reportOrderScope } from "@/lib/reports/online-channel";
 import { requirePermission } from "@/lib/auth/guards";
 import { requireChannelKind } from "@/lib/auth/channel-access";
 import { resolveTenantReportRange, rangeQuery } from "@/lib/reports/range";
@@ -29,7 +31,7 @@ export default async function ProfitabiliteProduitDetailPage({
   searchParams,
 }: {
   params: Promise<{ productId: string }>;
-  searchParams: Promise<{ period?: string; from?: string; to?: string; page?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string; page?: string; canal?: string }>;
 }) {
   const viewer = await requirePermission("analytics.view");
   // Same guards as /rapports/profitabilite: margins and costs are finance
@@ -42,12 +44,17 @@ export default async function ProfitabiliteProduitDetailPage({
   const resolved = await resolveTenantReportRange(sp);
   const page = Math.max(1, Number(sp.page) || 1);
 
-  const report = await getProfitabilityReport(resolved.range);
+  // « Canal en ligne » — the parent report's scope, carried by the drill-down
+  // link (the viewer's own channels only; a foreign id is ignored).
+  const channelFilter = await resolveReportOnlineChannel(viewer, sp.canal);
+  const canal = channelFilter.salesChannelId;
+  const scope = reportOrderScope(canal);
+  const report = await getProfitabilityReport(resolved.range, scope);
   const row = report.byProduct.find((r) => (r.productId ?? DELETED_PRODUCT_KEY) === rawId);
   if (!row) notFound();
 
   const [{ rows: orders, total }, business] = await Promise.all([
-    listOrdersForProduct(productId, resolved.range, page, PAGE_SIZE),
+    listOrdersForProduct(productId, resolved.range, page, PAGE_SIZE, scope),
     getReportBusinessInfo(),
   ]);
 
@@ -57,12 +64,17 @@ export default async function ProfitabiliteProduitDetailPage({
         title={row.name}
         breadcrumbs={[
           { label: "Rapports", href: "/rapports" },
-          { label: "Profitabilité", href: "/rapports/profitabilite" },
+          { label: "Profitabilité", href: `/rapports/profitabilite?${rangeQuery(resolved, { canal })}` },
           { label: row.name },
         ]}
         description={`Période : ${resolved.label} — détail des commandes ayant contribué à ce produit.`}
       />
-      <ReportFilterBar basePath={`/rapports/profitabilite/produit/${rawId}`} resolved={resolved} />
+      <ReportFilterBar
+        basePath={`/rapports/profitabilite/produit/${rawId}`}
+        resolved={resolved}
+        extraParams={{ canal }}
+        extra={<ReportOnlineChannelFilter channels={channelFilter.channels} value={canal} />}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <KpiCard label="Quantité vendue" explain={<ReportMetricInfo metric="profitUnitsSold" label="Quantité vendue" className="-ml-1" />} value={String(row.unitsSold)} tone="primary" />
@@ -127,13 +139,13 @@ export default async function ProfitabiliteProduitDetailPage({
             pageSize={PAGE_SIZE}
             total={total}
             basePath={`/rapports/profitabilite/produit/${rawId}`}
-            searchParams={{ ...resolved.params, page: String(page) } as Record<string, string | undefined>}
+            searchParams={{ ...resolved.params, canal, page: String(page) } as Record<string, string | undefined>}
           />
         </CardContent>
       </Card>
 
       <p className="mt-4 print:hidden">
-        <Link href={`/rapports/profitabilite?${rangeQuery(resolved)}`} className="text-link text-sm">
+        <Link href={`/rapports/profitabilite?${rangeQuery(resolved, { canal })}`} className="text-link text-sm">
           ← Retour au rapport de profitabilité
         </Link>
       </p>

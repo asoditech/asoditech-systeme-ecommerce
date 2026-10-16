@@ -6,8 +6,10 @@ import { AnalyticsFilterBar, type AnalyticsFilterControl } from "@/components/an
 import { ProductPerformanceTable, CategoryPerformanceTable } from "@/components/analytics/product-performance-table";
 import { MetricDefinitions } from "@/components/analytics/metric-definitions";
 import { AnalyticsMetricInfo } from "@/components/analytics/analytics-metric-info";
+import { ScopeBlockedNotice } from "@/components/analytics/scope-blocked-notice";
 import { analyticsContext } from "@/lib/analytics/context";
 import { analyticsQuery, SOURCE_KEYS, sortRows, sourceLabel } from "@/lib/analytics/filters";
+import { isBlocked, onlineScopeLabel, scopeControls, storeScopeLabel } from "@/lib/analytics/scope";
 import { getOnlineProductPerformance, getStoreProductPerformance, type ProductRow } from "@/lib/analytics/queries/products";
 import { getStoreFilterOptions } from "@/lib/analytics/queries/store";
 import { getOnlineFilterOptions } from "@/lib/analytics/queries/online";
@@ -33,24 +35,35 @@ export default async function ProductAnalyticsPage({ searchParams }: { searchPar
   const ctx = await analyticsContext(await searchParams, "products");
   const { access, period, filters, user } = ctx;
   const withFinance = access.finance;
+  // Same scope rule as the overview (src/lib/analytics/scope.ts): Online rows
+  // cannot be narrowed by store / location, store rows not by origin / Online
+  // channel — such a table is not computed and is replaced by a notice.
+  const showOnline = access.online && !isBlocked("online", filters);
+  const showStore = access.store && !isBlocked("store", filters);
   const [online, store, categories, storeOptions, onlineOptions] = await Promise.all([
-    access.online ? getOnlineProductPerformance(period.range, filters, { withFinance }) : null,
-    access.store ? getStoreProductPerformance(user, period.range, filters, { withFinance }) : null,
+    showOnline ? getOnlineProductPerformance(period.range, filters, { withFinance }) : null,
+    showStore ? getStoreProductPerformance(user, period.range, filters, { withFinance }) : null,
     prisma.category.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
     access.store ? getStoreFilterOptions(user) : null,
     access.online ? getOnlineFilterOptions() : null,
   ]);
 
-  const controls: AnalyticsFilterControl[] = [{ paramKey: "categorie", value: filters.categoryId, allLabel: "Toutes les catégories", options: categories.map((c) => ({ value: c.id, label: c.name })) }];
-  if (access.online) controls.unshift({ paramKey: "source", value: filters.source, allLabel: "Toutes les origines", options: SOURCE_KEYS.map((k) => ({ value: k, label: sourceLabel(k) })) });
-  // Same rule as the overview: the online-channel filter only when the tenant
-  // has more than one online channel (orderFilterWhere already applies it).
-  if (onlineOptions && onlineOptions.onlineChannels.length > 1)
-    controls.splice(1, 0, { paramKey: "canal", value: filters.onlineChannelId, allLabel: "Tous les canaux en ligne", options: onlineOptions.onlineChannels.map((c) => ({ value: c.id, label: c.name })) });
-  if (storeOptions) {
-    controls.push({ paramKey: "magasin", value: filters.storeChannelId, allLabel: "Tous mes magasins", options: storeOptions.storeChannels.map((c) => ({ value: c.id, label: c.name })) });
-    controls.push({ paramKey: "emplacement", value: filters.warehouseId, allLabel: "Tous mes emplacements", options: storeOptions.warehouses.map((w) => ({ value: w.id, label: w.name })) });
-  }
+  const scope = scopeControls(
+    filters,
+    onlineOptions ? { sources: SOURCE_KEYS.map((k) => ({ value: k, label: sourceLabel(k) })), onlineChannels: onlineOptions.onlineChannels } : null,
+    storeOptions
+  );
+  // Category applies to both tables; it sits between the Online and the store selects.
+  const onlineCount = scope.filter((c) => c.paramKey === "source" || c.paramKey === "canal").length;
+  const controls: AnalyticsFilterControl[] = [
+    ...scope.slice(0, onlineCount),
+    { paramKey: "categorie", value: filters.categoryId, allLabel: "Toutes les catégories", options: categories.map((c) => ({ value: c.id, label: c.name })) },
+    ...scope.slice(onlineCount),
+  ];
+  const onlineScope = onlineScopeLabel(filters, sourceLabel, new Map((onlineOptions?.onlineChannels ?? []).map((c) => [c.id, c.name])));
+  const storeScope = storeOptions
+    ? storeScopeLabel(filters, { stores: new Map(storeOptions.storeChannels.map((c) => [c.id, c.name])), warehouses: new Map(storeOptions.warehouses.map((w) => [w.id, w.name])) })
+    : "";
   const sortKey = filters.sort && filters.sort in PRODUCT_COLUMNS ? filters.sort : "units";
   const sort = { basePath: "/analyses/produits", params: ctx.params, key: sortKey, dir: filters.dir ?? ("desc" as const) };
 
@@ -61,13 +74,14 @@ export default async function ProductAnalyticsPage({ searchParams }: { searchPar
       <MissingCostBanner user={user} />
       <AnalyticsFilterBar basePath="/analyses/produits" period={period} filterParams={ctx.filterParams} controls={controls} exportHref={`/analyses/export/produits?${analyticsQuery(period, filters)}`} />
 
+      {access.online && !showOnline && <ScopeBlockedNotice block="online" title="En ligne — par produit et variation" basePath="/analyses/produits" period={period} filters={filters} />}
       {online && (
         <>
           <Card>
             <CardHeader>
               <CardTitle accent="peach">En ligne — par produit et variation</CardTitle>
               <p className="text-xs text-muted-foreground">
-                {online.totals.units} unité(s) · {formatCurrency(online.totals.revenue)} · {online.totals.returnedUnits} unité(s) retournée(s) reçue(s) sur la période
+                {onlineScope} · {online.totals.units} unité(s) · {formatCurrency(online.totals.revenue)} · {online.totals.returnedUnits} unité(s) retournée(s) reçue(s) sur la période
               </p>
             </CardHeader>
             <CardContent>
@@ -94,13 +108,14 @@ export default async function ProductAnalyticsPage({ searchParams }: { searchPar
         </>
       )}
 
+      {access.store && !showStore && <ScopeBlockedNotice block="store" title="Magasin — par produit et variation" basePath="/analyses/produits" period={period} filters={filters} />}
       {store && (
         <>
           <Card>
             <CardHeader>
               <CardTitle accent="peach">Magasin — par produit et variation</CardTitle>
               <p className="text-xs text-muted-foreground">
-                Vos magasins et emplacements uniquement · {store.totals.units} unité(s) · {formatCurrency(store.totals.revenue)}
+                {storeScope} · {store.totals.units} unité(s) · {formatCurrency(store.totals.revenue)}
               </p>
             </CardHeader>
             <CardContent>

@@ -1,3 +1,5 @@
+import { ScopeBlockedNotice } from "@/components/analytics/scope-blocked-notice";
+import { isBlocked } from "@/lib/analytics/scope";
 import { PageHeader } from "@/components/page-header";
 import { CHART_BAR_CLASSES, CHART_COLORS } from "@/lib/design/chart";
 import { KpiCard } from "@/components/kpi-card";
@@ -38,6 +40,17 @@ const OUTCOME_COLOR: Record<string, string> = {
 export default async function ConfirmationAnalyticsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const ctx = await analyticsContext(await searchParams, "confirmation");
   const { period, filters } = ctx;
+  // A store / location filter can't narrow this online-only page (docs: src/lib/analytics/scope.ts):
+  // say so instead of showing global figures under it (2026-10-16 review).
+  if (isBlocked("online", filters)) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Analyses — Confirmation" description={period.label} />
+        <AnalyticsNav access={ctx.access} active="confirmation" query={ctx.periodQuery} />
+        <ScopeBlockedNotice block="online" title="Confirmation" basePath="/analyses/confirmation" period={period} filters={filters} />
+      </div>
+    );
+  }
   const [c, options] = await Promise.all([getConfirmationAnalytics(period, filters), getOnlineFilterOptions()]);
 
   const rows = sortRows(

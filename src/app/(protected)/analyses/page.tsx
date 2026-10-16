@@ -13,6 +13,8 @@ import { FunnelBars } from "@/components/analytics/funnel-bars";
 import { SeriesChart } from "@/components/analytics/series-chart";
 import { MetricDefinitions } from "@/components/analytics/metric-definitions";
 import { AnalyticsMetricInfo } from "@/components/analytics/analytics-metric-info";
+import { ScopeBlockedNotice } from "@/components/analytics/scope-blocked-notice";
+import { Notice } from "@/components/ui/notice";
 import {
   LineChart,
   ShoppingCart,
@@ -36,6 +38,7 @@ import {
 import { analyticsContext } from "@/lib/analytics/context";
 import { meaningfulDelta } from "@/lib/analytics/period";
 import { analyticsQuery, SOURCE_KEYS, sourceLabel } from "@/lib/analytics/filters";
+import { hasScopeFilter, isBlocked, onlineScopeLabel, pnlSourceOf, scopeControls, storeScopeLabel } from "@/lib/analytics/scope";
 import { formatPct } from "@/lib/analytics/format";
 import { getOnlineOverview, getOnlineRevenueSeries, getOnlineFilterOptions } from "@/lib/analytics/queries/online";
 import { getOnlineProductPerformance } from "@/lib/analytics/queries/products";
@@ -61,36 +64,55 @@ const trendOf = (delta: number | null) =>
 export default async function AnalysesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const ctx = await analyticsContext(await searchParams, "overview");
   const { access, period, filters, user } = ctx;
-  // The P&L is Finance's own function, filterable by store source only —
-  // never shown under a filter it cannot honour.
-  const pnlSource = filters.source === "WOOCOMMERCE" || filters.source === "SHOPIFY" ? filters.source : filters.source ? null : undefined;
-  const pnlAllowed = access.finance && access.online && pnlSource !== null && !filters.onlineChannelId;
+  // Requirement A — one scope for the whole page (src/lib/analytics/scope.ts):
+  // a section is computed only when it can honour EVERY active filter.
+  // Online orders, commissions and the Finance P&L have no store / location
+  // (ADR 0050/0051; `Expense` has no store column); a POS sale has no Online
+  // origin / channel. A section that cannot honour the filters is not
+  // computed and is replaced by an explicit « non filtrable » notice.
+  const showOnline = access.online && !isBlocked("online", filters);
+  const showCommissions = access.commissions && !isBlocked("commissions", filters);
+  const showPnl = access.finance && access.online && !isBlocked("pnl", filters);
+  const showStore = access.store && !isBlocked("store", filters);
+  const pnlSource = pnlSourceOf(filters) ?? undefined;
 
   const [online, previous, series, products, commissions, store, pnl, onlineOptions, storeOptions] = await Promise.all([
-    access.online ? getOnlineOverview(period.range, filters) : null,
-    access.online ? getOnlineOverview(period.previous, filters) : null,
-    access.online ? getOnlineRevenueSeries(period, filters) : null,
-    access.online ? getOnlineProductPerformance(period.range, filters, { withFinance: false }) : null,
-    access.commissions ? getCommissionAnalytics(period, filters) : null,
-    access.store ? getStoreOverview(user, period, filters) : null,
-    pnlAllowed ? computePeriodProfitability(period.range, pnlSource) : null,
+    showOnline ? getOnlineOverview(period.range, filters) : null,
+    showOnline ? getOnlineOverview(period.previous, filters) : null,
+    showOnline ? getOnlineRevenueSeries(period, filters) : null,
+    showOnline ? getOnlineProductPerformance(period.range, filters, { withFinance: false }) : null,
+    showCommissions ? getCommissionAnalytics(period, filters) : null,
+    showStore ? getStoreOverview(user, period, filters) : null,
+    showPnl ? computePeriodProfitability(period.range, pnlSource) : null,
     access.online ? getOnlineFilterOptions() : null,
     access.store ? getStoreFilterOptions(user) : null,
   ]);
 
-  const controls: AnalyticsFilterControl[] = [];
-  if (onlineOptions) {
-    controls.push({ paramKey: "source", value: filters.source, allLabel: "Toutes les origines", options: SOURCE_KEYS.map((k) => ({ value: k, label: sourceLabel(k) })) });
-    if (onlineOptions.onlineChannels.length > 1)
-      controls.push({ paramKey: "canal", value: filters.onlineChannelId, allLabel: "Tous les canaux en ligne", options: onlineOptions.onlineChannels.map((c) => ({ value: c.id, label: c.name })) });
-  }
-  if (storeOptions) {
-    controls.push({ paramKey: "magasin", value: filters.storeChannelId, allLabel: "Tous mes magasins", options: storeOptions.storeChannels.map((c) => ({ value: c.id, label: c.name })) });
-    controls.push({ paramKey: "emplacement", value: filters.warehouseId, allLabel: "Tous mes emplacements", options: storeOptions.warehouses.map((w) => ({ value: w.id, label: w.name })) });
-  }
+  const controls: AnalyticsFilterControl[] = scopeControls(
+    filters,
+    onlineOptions ? { sources: SOURCE_KEYS.map((k) => ({ value: k, label: sourceLabel(k) })), onlineChannels: onlineOptions.onlineChannels } : null,
+    storeOptions
+  );
+  const onlineScope = onlineScopeLabel(filters, sourceLabel, new Map((onlineOptions?.onlineChannels ?? []).map((c) => [c.id, c.name])));
+  const storeScope = storeOptions
+    ? storeScopeLabel(filters, { stores: new Map(storeOptions.storeChannels.map((c) => [c.id, c.name])), warehouses: new Map(storeOptions.warehouses.map((w) => [w.id, w.name])) })
+    : "";
 
-  const nothing =
-    (online?.orders ?? 0) === 0 && (store?.report.salesCount ?? 0) === 0 && (commissions?.earnedCount ?? 0) + (commissions?.reversedCount ?? 0) === 0;
+  // Zero everywhere: the generic empty state only when NO scope filter is set;
+  // under a filter the sections render their genuine zeros (an empty store
+  // shows 0, never the previous / all-store figures).
+  const allZero =
+    (online?.orders ?? 0) === 0 && (store?.report.salesCount ?? 0) === 0 && (commissions?.earnedCount ?? 0) + (commissions?.reversedCount ?? 0) === 0 && (pnl?.ordersCount ?? 0) === 0;
+  const filtered = hasScopeFilter(filters);
+  const nothing = allZero && !filtered;
+  const exportHref = showOnline
+    ? `/analyses/export/revenus?${analyticsQuery(period, filters)}`
+    : showStore
+      ? `/analyses/export/canaux?${analyticsQuery(period, filters)}`
+      : undefined;
+  const blockedNotice = (block: "online" | "commissions" | "pnl" | "store", title: string) => (
+    <ScopeBlockedNotice block={block} title={title} basePath="/analyses" period={period} filters={filters} />
+  );
   const pop = online && previous ? { current: online.orders, previous: previous.orders } : { current: 0, previous: 0 };
 
   return (
@@ -103,16 +125,22 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
         period={period}
         filterParams={ctx.filterParams}
         controls={controls}
-        exportHref={access.online ? `/analyses/export/revenus?${analyticsQuery(period, filters)}` : undefined}
+        exportHref={exportHref}
       />
 
       {nothing ? (
         <EmptyState icon={LineChart} title="Aucune activité sur la période." description="Changez la période ou les filtres pour afficher des données." />
       ) : (
         <>
+          {filtered && allZero && (
+            <Notice tone="neutral" size="sm">
+              Aucune activité pour cette sélection sur la période — les chiffres ci-dessous sont de vrais zéros.
+            </Notice>
+          )}
+          {access.online && !showOnline && blockedNotice("online", "Activité en ligne")}
           {online && (
             <section className="space-y-3">
-              <h2 className="text-sm font-medium text-muted-foreground">Activité en ligne — commandes passées sur la période</h2>
+              <h2 className="text-sm font-medium text-muted-foreground">Activité en ligne — commandes passées sur la période · {onlineScope}</h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <KpiCard label="Commandes en ligne" metric="ordersPlaced" value={String(online.orders)} icon={ShoppingCart} trend={trendOf(meaningfulDelta(online.orders, previous!.orders, pop))} hint={`${online.pending} encore à confirmer`} />
                 <KpiCard label="Commandes confirmées" metric="confirmedOrders" value={String(online.confirmed)} icon={CheckCircle2} tone="success" />
@@ -212,9 +240,10 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
             </section>
           )}
 
+          {access.commissions && !showCommissions && blockedNotice("commissions", "Commissions")}
           {commissions && (
             <section className="space-y-3">
-              <h2 className="text-sm font-medium text-muted-foreground">Commissions — écritures de la période</h2>
+              <h2 className="text-sm font-medium text-muted-foreground">Commissions — écritures de la période · {onlineScope}</h2>
               <div className="grid gap-4 sm:grid-cols-3">
                 <KpiCard label="Commissions gagnées" metric="commissionsEarned" value={formatCurrency(commissions.earned)} icon={HandCoins} tone="success" hint={`${commissions.earnedCount} commande(s) livrée(s)`} />
                 <KpiCard label="Commissions annulées" metric="commissionsReversed" value={formatCurrency(commissions.reversed)} icon={Undo2} tone="danger" hint={`${commissions.reversedCount} écriture(s)`} />
@@ -223,11 +252,13 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
             </section>
           )}
 
-          {access.finance && access.online && (
+          {access.finance && access.online && !showPnl && blockedNotice("pnl", "Rentabilité (Finance)")}
+          {pnl && (
             <section className="space-y-3">
-              <h2 className="text-sm font-medium text-muted-foreground">Rentabilité (Finance)</h2>
-              {pnl ? (
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <h2 className="text-sm font-medium text-muted-foreground">
+                Rentabilité (Finance) — commandes en ligne{pnlSource ? ` ${sourceLabel(pnlSource)}` : ""} ; dépenses : toutes celles du compte (non rattachées à une boutique ni à un magasin)
+              </h2>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <KpiCard label="Coût des marchandises" metric="cogs" value={pnl.cogsComplete ? formatCurrency(pnl.cogs!) : null} unavailableReason="Coût manquant" icon={PackageMinus} tone="warning" />
                   <KpiCard
                     label="Bénéfice brut"
@@ -249,18 +280,14 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
                   />
                   <KpiCard label="Dépenses enregistrées" metric="expenses" value={formatCurrency(pnl.expensesTotal)} hint="Déjà déduites du bénéfice net" icon={ReceiptText} tone="danger" />
                   <KpiCard label="Coût de livraison" metric="deliveryCost" value={formatCurrency(pnl.deliveryCostTotal)} hint="Déjà déduit du bénéfice net" icon={Truck} tone="info" />
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  La rentabilité suit la définition de Finance, filtrable par boutique (WooCommerce / Shopify) uniquement — retirez le filtre d&apos;origine ou de canal pour l&apos;afficher.
-                </p>
-              )}
+              </div>
             </section>
           )}
 
+          {access.store && !showStore && blockedNotice("store", "Ventes en magasin")}
           {store && (
             <section className="space-y-3">
-              <h2 className="text-sm font-medium text-muted-foreground">Ventes en magasin — vos magasins et emplacements</h2>
+              <h2 className="text-sm font-medium text-muted-foreground">Ventes en magasin — {storeScope}</h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                 <KpiCard label="Ventes" metric="storeSales" value={String(store.report.salesCount)} icon={Store} hint={`${store.report.unitsSold} unité(s)`} />
                 <KpiCard label="CA brut magasin" metric="storeGrossSales" value={formatCurrency(store.report.grossSales)} icon={Wallet} tone="success" />

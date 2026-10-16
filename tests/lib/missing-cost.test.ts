@@ -56,6 +56,16 @@ describe("missing purchase cost", () => {
     expect(s.units).toBe(2);
     expect(s.products).toBe(2);
     expect(missingCostMessage(s)).toBe("2 produit(s)/variante(s) sans coût d'achat : les marges et rapports financiers sont incomplets.");
+    expect(s.withLocationCost).toBe(0);
+  });
+
+  it("a unit costed only at one location stays missing (imported orders use the global cost) and is reported as such", async () => {
+    const { simpleMissing } = await seed();
+    const warehouse = await prisma.warehouse.create({ data: { name: "Rabat", isDefault: true } });
+    await prisma.inventoryItem.create({ data: { warehouseId: warehouse.id, productId: simpleMissing.id, quantityOnHand: 1, currentUnitCost: 7 } });
+    const s = await getMissingCostSummary();
+    expect(s.units).toBe(2);
+    expect(s.withLocationCost).toBe(1);
   });
 
   it("the « Coût d'achat manquant » list filter returns exactly the concerned products, and combines with search", async () => {

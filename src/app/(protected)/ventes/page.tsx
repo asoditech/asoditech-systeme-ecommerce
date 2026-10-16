@@ -14,17 +14,22 @@ import { requirePermission } from "@/lib/auth/guards";
 import { requireChannelKind } from "@/lib/auth/channel-access";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { listSales } from "@/lib/queries/sales";
+import { resolveReportStoreChannel } from "@/lib/reports/store-channel";
+import { ReportStoreFilter } from "@/components/reports/report-store-filter";
 import { displaySaleNumber, formatCurrency, formatDateTime, returnStateLabel } from "@/lib/format";
 import { CASH_PAYMENT_METHOD_LABELS } from "@/lib/status-labels";
 
 export const metadata = { title: "Ventes magasin — ASODITECH Gestion E-commerce" };
 
 /** In-store sales (docs/adr/0040) — a separate transaction type from delivery orders, row-scoped to the viewer's store channels. */
-export default async function VentesPage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string }> }) {
+export default async function VentesPage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; magasin?: string }> }) {
   const user = await requirePermission("sales.view");
   requireChannelKind(user, "OFFLINE");
   const params = await searchParams;
-  const { sales, total, page, pageSize } = await listSales(user, { q: params.q, page: Number(params.page) || 1 });
+  // « Magasin » — the viewer's own stores only (a foreign id is ignored → all of theirs).
+  const storeFilter = await resolveReportStoreChannel(user, params.magasin);
+  const storeChannelId = storeFilter.salesChannelId;
+  const { sales, total, page, pageSize } = await listSales(user, { q: params.q, salesChannelId: storeChannelId, page: Number(params.page) || 1 });
 
   return (
     <div>
@@ -42,9 +47,10 @@ export default async function VentesPage({ searchParams }: { searchParams: Promi
       />
       <FilterBar>
         <FilterSearchInput placeholder="Article, code-barres, vendeur, client…" defaultValue={params.q} className="w-full sm:w-72" />
+        <ReportStoreFilter channels={storeFilter.channels} value={storeChannelId} />
       </FilterBar>
       {sales.length === 0 ? (
-        <EmptyState icon={Store} title={params.q ? "Aucune vente ne correspond." : "Aucune vente pour le moment."} />
+        <EmptyState icon={Store} title={params.q || storeChannelId ? "Aucune vente ne correspond." : "Aucune vente pour le moment."} />
       ) : (
         <TableCard>
           <Table>
@@ -99,7 +105,7 @@ export default async function VentesPage({ searchParams }: { searchParams: Promi
               })}
             </TableBody>
           </Table>
-          <DataTablePagination page={page} pageSize={pageSize} total={total} basePath="/ventes" searchParams={{ q: params.q }} />
+          <DataTablePagination page={page} pageSize={pageSize} total={total} basePath="/ventes" searchParams={{ q: params.q, magasin: storeChannelId }} />
         </TableCard>
       )}
     </div>

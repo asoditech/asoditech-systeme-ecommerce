@@ -38,9 +38,11 @@ const pct = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)} %`);
  */
 const CAMPAIGN_VIEW_AVAILABLE: boolean = false;
 
-/** `null` → the "sans produit / sans campagne" bucket's URL segment. */
-const productHref = (productId: string | null) => `/rapports/profitabilite/produit/${productId ?? DELETED_PRODUCT_KEY}`;
-const campaignHref = (campaignId: string | null) => `/rapports/profitabilite/campagne/${campaignId ?? NO_CAMPAIGN_KEY}`;
+/** `null` → the "sans produit / sans campagne" bucket's URL segment. `query`
+ * carries the period AND the « Canal en ligne » scope, so the drill-down
+ * shows the same population as the row that was clicked. */
+const productHref = (productId: string | null, query: string) => `/rapports/profitabilite/produit/${productId ?? DELETED_PRODUCT_KEY}${query ? `?${query}` : ""}`;
+const campaignHref = (campaignId: string | null, query: string) => `/rapports/profitabilite/campagne/${campaignId ?? NO_CAMPAIGN_KEY}${query ? `?${query}` : ""}`;
 
 function IncompleteBadge({ count }: { count: number }) {
   if (count === 0) return null;
@@ -51,7 +53,7 @@ function IncompleteBadge({ count }: { count: number }) {
   );
 }
 
-function ProductTable({ rows }: { rows: ProductProfitabilityRow[] }) {
+function ProductTable({ rows, query }: { rows: ProductProfitabilityRow[]; query: string }) {
   return (
     <Table className="text-[13px]">
       <TableHeader>
@@ -67,7 +69,7 @@ function ProductTable({ rows }: { rows: ProductProfitabilityRow[] }) {
       </TableHeader>
       <TableBody>
         {rows.map((r) => (
-          <ClickableTableRow key={r.key} href={productHref(r.productId)}>
+          <ClickableTableRow key={r.key} href={productHref(r.productId, query)}>
             <TableCell className="font-medium">
               {r.name}
               <IncompleteBadge count={r.linesMissingCost} />
@@ -88,7 +90,7 @@ function ProductTable({ rows }: { rows: ProductProfitabilityRow[] }) {
   );
 }
 
-function CampaignTable({ rows }: { rows: CampaignProfitabilityRow[] }) {
+function CampaignTable({ rows, query }: { rows: CampaignProfitabilityRow[]; query: string }) {
   return (
     <Table className="text-[13px]">
       <TableHeader>
@@ -104,7 +106,7 @@ function CampaignTable({ rows }: { rows: CampaignProfitabilityRow[] }) {
       </TableHeader>
       <TableBody>
         {rows.map((r) => (
-          <ClickableTableRow key={r.key} href={campaignHref(r.campaignId)}>
+          <ClickableTableRow key={r.key} href={campaignHref(r.campaignId, query)}>
             <TableCell className="font-medium">
               {r.name}
               <IncompleteBadge count={r.linesMissingCost} />
@@ -148,6 +150,7 @@ export default async function RapportProfitabilitePage({
   const { totals } = report;
 
   const exportHref = `/rapports/export/profitabilite?${rangeQuery(resolved, { canal: channelFilter.salesChannelId })}`;
+  const drillQuery = rangeQuery(resolved, { canal: channelFilter.salesChannelId });
   const viewHref = (v: "produit" | "campagne") => `/rapports/profitabilite?${rangeQuery(resolved, { view: v, canal: channelFilter.salesChannelId })}`;
 
   return (
@@ -166,7 +169,8 @@ export default async function RapportProfitabilitePage({
         extra={<ReportOnlineChannelFilter channels={channelFilter.channels} value={channelFilter.salesChannelId} />}
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      {/* 3 columns up to 2xl: five money tiles side by side truncated « 2.050,00 … » at 1440 px. */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
         <KpiCard label="CA produits" explain={<ReportMetricInfo metric="profitRevenue" label="CA produits" className="-ml-1" />} value={formatCurrency(totals.revenue)} tone="primary" />
         <KpiCard label="Coût produits" explain={<ReportMetricInfo metric="profitProductCost" label="Coût produits" className="-ml-1" />} value={totals.productCost !== null ? formatCurrency(totals.productCost) : null}
           unavailableReason="Coût manquant" tone="warning" />
@@ -205,7 +209,7 @@ export default async function RapportProfitabilitePage({
           </CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto">
-          {view === "produit" ? <ProductTable rows={report.byProduct} /> : <CampaignTable rows={report.byCampaign} />}
+          {view === "produit" ? <ProductTable rows={report.byProduct} query={drillQuery} /> : <CampaignTable rows={report.byCampaign} query={drillQuery} />}
         </CardContent>
       </Card>
       <ReportDefinitions report="profitabilite" exclude={CAMPAIGN_VIEW_AVAILABLE ? [] : ["profitByCampaign"]} />

@@ -46,6 +46,8 @@ import { landingPathFor } from "@/lib/auth/landing";
 import { userHasPermission } from "@/lib/auth/permissions";
 import { auditScopeWhere } from "@/lib/auth/audit-scope";
 import { getChannelReport, combinedChannelRevenue } from "@/lib/queries/reports/channels";
+import { resolveReportStoreChannel } from "@/lib/reports/store-channel";
+import { ReportStoreFilter } from "@/components/reports/report-store-filter";
 import {
   getDashboardData,
   getRevenueTrend,
@@ -158,7 +160,7 @@ const CHANNEL_FILTER_LABELS: Record<DashboardChannelFilter, string> = {
 export default async function TableauDeBordPage({
   searchParams,
 }: {
-  searchParams: Promise<{ periode?: string; graphique?: string; canal?: string }>;
+  searchParams: Promise<{ periode?: string; graphique?: string; canal?: string; magasin?: string }>;
 }) {
   const user = await requireUser();
   // A real page guard (docs/adr/0050 — G8), not just a hidden nav link. The
@@ -201,10 +203,18 @@ export default async function TableauDeBordPage({
   // Reuses `data.period` (the SAME periodKey → range resolution
   // `getDashboardData` already did for the Online/finance figures above) so
   // the two KPIs can never drift onto different windows for "the same" period.
-  const offlineSummary =
-    userHasPermission(user, "sales.view") && user.channels.offline
-      ? (await getChannelReport(user, data.period, { kind: "offline" })).offline
-      : null;
+  const canSeeOffline = userHasPermission(user, "sales.view") && user.channels.offline;
+  // « Magasin » per-store filter (`?magasin=`, the viewer's own stores only —
+  // resolveReportStoreChannel). Honoured ONLY where every visible revenue
+  // figure is store data: the « Magasin » view, or a viewer without any
+  // ONLINE channel. Under « Total » / « En ligne » it is never applied (a
+  // total cannot mix one store with all Online orders).
+  const storeOnlyView = canSeeOffline && ((canViewFinance && params.canal === "magasin") || !user.channels.online);
+  const storeFilter = storeOnlyView ? await resolveReportStoreChannel(user, params.magasin) : null;
+  const storeChannelId = storeFilter?.salesChannelId;
+  const offlineSummary = canSeeOffline
+    ? (await getChannelReport(user, data.period, { kind: "offline", salesChannelId: storeChannelId })).offline
+    : null;
   const [confirmationSummary, commissionSummary, stockOverview, topSellingUnits] = await Promise.all([
     canConfirm ? getConfirmationDashboardSummary() : Promise.resolve(null),
     canViewCommissions ? getCommissionDashboardSummary() : Promise.resolve(null),
@@ -298,17 +308,28 @@ export default async function TableauDeBordPage({
         <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2">
           <SegmentedControl>
             {(Object.keys(CHANNEL_FILTER_LABELS) as DashboardChannelFilter[]).map((key) => (
-              <SegmentedControlItem key={key} active={key === canalKey} href={withParam(params, "canal", key === "total" ? undefined : key)}>
+              <SegmentedControlItem key={key} active={key === canalKey} href={withParam({ ...params, magasin: undefined }, "canal", key === "total" ? undefined : key)}>
                 {CHANNEL_FILTER_LABELS[key]}
               </SegmentedControlItem>
             ))}
           </SegmentedControl>
+          {canalKey === "magasin" && storeFilter && <ReportStoreFilter channels={storeFilter.channels} value={storeChannelId} />}
           {canalKey === "magasin" && (
             <p className="text-xs text-ink-muted">
               Vue Magasin : les sections issues des commandes en ligne (confirmation, livraison, meilleures ventes, commandes) sont masquées.
             </p>
           )}
         </div>
+      )}
+      {!canFilterChannel && storeFilter && storeFilter.channels.length > 1 && (
+        <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <ReportStoreFilter channels={storeFilter.channels} value={storeChannelId} />
+        </div>
+      )}
+      {storeChannelId && storeFilter && (
+        <p className="-mt-3 mb-6 text-xs text-ink-muted">
+          {storeFilter.label} — appliqué aux ventes magasin uniquement. Non filtrables par magasin : nouveaux clients (tout le compte), stock (tous vos emplacements) et journal d&apos;activité.
+        </p>
       )}
 
       <SummarySection title="Aperçu" icon={LayoutGrid} className="mb-8">

@@ -27,8 +27,10 @@ export interface SaleListFilters {
 export async function listSales(viewer: Viewer, filters: SaleListFilters = {}) {
   const page = Math.max(1, filters.page ?? 1);
   const where: Prisma.SaleWhereInput = {
-    ...saleChannelWhere(viewer),
-    ...(filters.salesChannelId ? { salesChannelId: filters.salesChannelId } : {}),
+    // The store filter is ANDed onto the viewer's scope — spreading it next
+    // to `saleChannelWhere` would REPLACE its `salesChannelId: { in }` and
+    // widen a scoped viewer to any store id in the URL.
+    AND: [saleChannelWhere(viewer), ...(filters.salesChannelId ? [{ salesChannelId: filters.salesChannelId }] : [])],
     ...(filters.from || filters.to ? { soldAt: { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) } } : {}),
     ...(filters.q
       ? {

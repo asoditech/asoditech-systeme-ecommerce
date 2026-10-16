@@ -2,10 +2,11 @@ import { requirePermission } from "@/lib/auth/guards";
 import { analyticsAccess, canOpenSection, type AnalyticsAccess } from "@/lib/analytics/access";
 import { contextFor } from "@/lib/analytics/context";
 import { sourceLabel } from "@/lib/analytics/filters";
-import { getOnlineOverview, getOnlineRevenueSeries, getConfirmationAnalytics, getDeliveryAnalytics, getOnlineSourceFunnel } from "@/lib/analytics/queries/online";
+import { getOnlineOverview, getOnlineRevenueSeries, getConfirmationAnalytics, getDeliveryAnalytics, getOnlineSourceFunnel, getOnlineFilterOptions } from "@/lib/analytics/queries/online";
 import { getOnlineProductPerformance, getStoreProductPerformance, type ProductPerformance } from "@/lib/analytics/queries/products";
 import { getCommissionAnalytics } from "@/lib/analytics/queries/commissions";
-import { getStoreOverview } from "@/lib/analytics/queries/store";
+import { getStoreOverview, getStoreFilterOptions } from "@/lib/analytics/queries/store";
+import { blockedReason, onlineScopeLabel, storeScopeLabel, unsupportedFilters, type AnalyticsBlock } from "@/lib/analytics/scope";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { csvDocument, csvDocumentResponse, type CsvSection } from "@/lib/reports/csv";
 import { CONFIRMATION_OUTCOME_LABELS } from "@/lib/status-labels";
@@ -61,12 +62,30 @@ export async function GET(request: Request, routeCtx: { params: Promise<{ type: 
   const url = new URL(request.url);
   const { period, filters } = contextFor(user, access, Object.fromEntries(url.searchParams.entries()), await getBusinessTimeZone());
   const business = await getReportBusinessInfo();
-  const meta = [`Période : ${period.label}`, `Généré le : ${new Date().toLocaleString("fr-FR")}`, "Définitions : voir la section « Définitions des indicateurs » de la page"];
+  // The scope line(s), with the names the viewer may read (a foreign id is
+  // labelled « inaccessible » — the queries match nothing for it).
+  const [onlineOpts, storeOpts] = await Promise.all([
+    access.online && filters.onlineChannelId ? getOnlineFilterOptions() : null,
+    access.store && (filters.storeChannelId || filters.warehouseId) ? getStoreFilterOptions(user) : null,
+  ]);
+  const scopeMeta: string[] = [];
+  if (access.online) scopeMeta.push(`Périmètre en ligne : ${onlineScopeLabel(filters, sourceLabel, new Map((onlineOpts?.onlineChannels ?? []).map((c) => [c.id, c.name])))}`);
+  if (access.store)
+    scopeMeta.push(
+      `Périmètre magasin : ${storeScopeLabel(filters, { stores: new Map((storeOpts?.storeChannels ?? []).map((c) => [c.id, c.name])), warehouses: new Map((storeOpts?.warehouses ?? []).map((w) => [w.id, w.name])) })}`
+    );
+  const meta = [`Période : ${period.label}`, ...scopeMeta, `Généré le : ${new Date().toLocaleString("fr-FR")}`, "Définitions : voir la section « Définitions des indicateurs » de la page"];
+  // Same scope rule as the screen (src/lib/analytics/scope.ts): a part that
+  // cannot honour the active filters is NOT computed; the file says so
+  // instead of carrying global figures under a filter.
+  const blocked = (block: AnalyticsBlock) => unsupportedFilters(block, filters);
+  const blockedSection = (block: AnalyticsBlock, heading: string): CsvSection => ({ heading, headers: ["Non filtrable"], rows: [[blockedReason(block, blocked(block))]] });
   const send = (name: string, title: string, sections: CsvSection[]) =>
     csvDocumentResponse(`analyses-${name}`, csvDocument({ title: `${business.companyName} — ${title}`, meta, sections }));
 
   switch (type) {
     case "revenus": {
+      if (blocked("online").length) return send("revenus", "Chiffre d'affaires en ligne", [blockedSection("online", "Chiffre d'affaires en ligne")]);
       const [o, series] = await Promise.all([getOnlineOverview(period.range, filters), getOnlineRevenueSeries(period, filters)]);
       return send("revenus", "Chiffre d'affaires en ligne", [
         {
@@ -95,6 +114,8 @@ export async function GET(request: Request, routeCtx: { params: Promise<{ type: 
       ]);
     }
     case "confirmation": {
+      // Online-only: a store / location filter can't narrow it — say so, never global figures.
+      if (blocked("online").length) return send("confirmation", "Confirmation", [blockedSection("online", "Confirmation")]);
       const c = await getConfirmationAnalytics(period, filters);
       return send("confirmation", "Confirmation", [
         {
@@ -124,6 +145,7 @@ export async function GET(request: Request, routeCtx: { params: Promise<{ type: 
       ]);
     }
     case "livraison": {
+      if (blocked("online").length) return send("livraison", "Livraison (commandes expédiées sur la période)", [blockedSection("online", "Livraison")]);
       const d = await getDeliveryAnalytics(period, filters);
       const row = (r: typeof d.overall) => [r.label, r.shipped, r.delivered, r.failed, r.returned, r.inProgress, pct(r.deliveryRate), pct(r.failureRate), pct(r.returnRate), hours(r.shippedToDelivered.avgHours)];
       const headers = ["", "Expédiées", "Livrées", "Échecs", "Retournées", "En cours", "Taux de livraison (%)", "Taux d'échec (%)", "Taux de retour (%)", "Expédiée → livrée (h)"];
@@ -145,15 +167,16 @@ export async function GET(request: Request, routeCtx: { params: Promise<{ type: 
     case "produits": {
       const withFinance = access.finance;
       const [online, store] = await Promise.all([
-        access.online ? getOnlineProductPerformance(period.range, filters, { withFinance }) : null,
-        access.store ? getStoreProductPerformance(user, period.range, filters, { withFinance }) : null,
+        access.online && !blocked("online").length ? getOnlineProductPerformance(period.range, filters, { withFinance }) : null,
+        access.store && !blocked("store").length ? getStoreProductPerformance(user, period.range, filters, { withFinance }) : null,
       ]);
       return send("produits", "Performance produits", [
-        ...(online ? productSection("En ligne", "Commandes", online, withFinance) : []),
-        ...(store ? productSection("Magasin", "Ventes", store, withFinance) : []),
+        ...(online ? productSection("En ligne", "Commandes", online, withFinance) : access.online ? [blockedSection("online", "En ligne")] : []),
+        ...(store ? productSection("Magasin", "Ventes", store, withFinance) : access.store ? [blockedSection("store", "Magasin")] : []),
       ]);
     }
     case "commissions": {
+      if (blocked("commissions").length) return send("commissions", "Commissions", [blockedSection("commissions", "Commissions")]);
       const c = await getCommissionAnalytics(period, filters);
       return send("commissions", "Commissions (écritures datées de la période)", [
         { heading: "Résumé", headers: ["Gagnées", "Écritures gagnées", "Annulées", "Écritures annulées", "Nettes"], rows: [[c.earned, c.earnedCount, c.reversed, c.reversedCount, c.net]] },
@@ -162,8 +185,13 @@ export async function GET(request: Request, routeCtx: { params: Promise<{ type: 
       ]);
     }
     case "canaux": {
-      const [funnel, store] = await Promise.all([access.online ? getOnlineSourceFunnel(period.range, filters) : null, access.store ? getStoreOverview(user, period, filters) : null]);
+      const [funnel, store] = await Promise.all([
+        access.online && !blocked("online").length ? getOnlineSourceFunnel(period.range, filters) : null,
+        access.store && !blocked("store").length ? getStoreOverview(user, period, filters) : null,
+      ]);
       const sections: CsvSection[] = [];
+      if (access.online && !funnel) sections.push(blockedSection("online", "En ligne — entonnoir par origine"));
+      if (access.store && !store) sections.push(blockedSection("store", "Magasin"));
       if (funnel)
         sections.push({
           heading: "En ligne — entonnoir par origine (commandes passées)",

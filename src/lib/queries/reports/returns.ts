@@ -179,10 +179,15 @@ export interface OfflineReturnsReport {
 
 export async function getOfflineReturnsReport(
   range: PeriodRange,
-  viewer: Pick<CurrentUser, "channels" | "locations">
+  viewer: Pick<CurrentUser, "channels" | "locations">,
+  /** « Magasin » filter (resolved by `resolveReportStoreChannel`) — ANDed onto the viewer's scope, so it only narrows. */
+  opts: { salesChannelId?: string } = {}
 ): Promise<OfflineReturnsReport> {
   const returns = await prisma.saleReturn.findMany({
-    where: { receivedAt: { gte: range.from, lte: range.to }, sale: saleChannelWhere(viewer) },
+    where: {
+      receivedAt: { gte: range.from, lte: range.to },
+      sale: opts.salesChannelId ? { AND: [saleChannelWhere(viewer), { salesChannelId: opts.salesChannelId }] } : saleChannelWhere(viewer),
+    },
     orderBy: { receivedAt: "desc" },
     include: {
       sale: {

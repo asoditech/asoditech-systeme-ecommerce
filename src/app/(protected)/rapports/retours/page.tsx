@@ -8,6 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ReportFilterBar } from "@/components/reports/report-filter-bar";
 import { ReportOnlineChannelFilter } from "@/components/reports/report-online-channel-filter";
 import { resolveReportOnlineChannel, reportOrderScope } from "@/lib/reports/online-channel";
+import { ReportStoreFilter } from "@/components/reports/report-store-filter";
+import { resolveReportStoreChannel } from "@/lib/reports/store-channel";
 import { ReportDocumentHeader } from "@/components/reports/report-document-header";
 import { requirePermission } from "@/lib/auth/guards";
 import { resolveTenantReportRange, rangeQuery } from "@/lib/reports/range";
@@ -21,7 +23,7 @@ export const metadata = { title: "Rapport des retours — ASODITECH Gestion E-co
 export default async function RapportRetoursPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; from?: string; to?: string; canal?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string; canal?: string; magasin?: string }>;
 }) {
   const viewer = await requirePermission("analytics.view");
   // Batch 15: this report covers BOTH domains — Online (Order/OrderReturn)
@@ -36,14 +38,22 @@ export default async function RapportRetoursPage({
   // « Canal en ligne » (only the viewer's own channels; see resolveReportOnlineChannel).
   const channelFilter = await resolveReportOnlineChannel(viewer, params.canal);
   const scope = reportOrderScope(channelFilter.salesChannelId);
+  // « Magasin » — the store section's own filter (`?magasin=`, the viewer's
+  // own stores only). Each select names its domain: « Canal en ligne » never
+  // narrows the store section, « Magasin » never the Online one (an Online
+  // order has no store — ADR 0050/0051); the section headings say so.
+  const storeFilter = canViewOffline ? await resolveReportStoreChannel(viewer, params.magasin) : { channels: [], salesChannelId: undefined, label: "" };
   const [report, offlineReport, business] = await Promise.all([
     canViewOnline ? getReturnsReport(resolved.range, scope) : Promise.resolve(null),
-    canViewOffline ? getOfflineReturnsReport(resolved.range, viewer) : Promise.resolve(null),
+    canViewOffline ? getOfflineReturnsReport(resolved.range, viewer, { salesChannelId: storeFilter.salesChannelId }) : Promise.resolve(null),
     getReportBusinessInfo(),
   ]);
   const t = report?.totals;
+  const onlineScope = channelFilter.salesChannelId
+    ? `Canal en ligne : ${channelFilter.channels.find((c) => c.id === channelFilter.salesChannelId)?.name ?? ""}`
+    : "Tous les canaux en ligne";
 
-  const exportHref = `/rapports/export/retours?${rangeQuery(resolved, { canal: channelFilter.salesChannelId })}`;
+  const exportHref = `/rapports/export/retours?${rangeQuery(resolved, { canal: channelFilter.salesChannelId, magasin: storeFilter.salesChannelId })}`;
 
   return (
     <div>
@@ -52,11 +62,21 @@ export default async function RapportRetoursPage({
         title="Rapport des retours"
         description={`Période : ${resolved.label} — retours physiques confirmés (« Confirmer le retour physique ») dans la fenêtre.`}
       />
-      <ReportFilterBar basePath="/rapports/retours" resolved={resolved} exportHref={exportHref} extraParams={{ canal: channelFilter.salesChannelId }} extra={<ReportOnlineChannelFilter channels={channelFilter.channels} value={channelFilter.salesChannelId} />} />
+      <ReportFilterBar basePath="/rapports/retours" resolved={resolved} exportHref={exportHref} extraParams={{ canal: channelFilter.salesChannelId, magasin: storeFilter.salesChannelId }}
+        extra={
+          <>
+            {canViewOnline && <ReportOnlineChannelFilter channels={channelFilter.channels} value={channelFilter.salesChannelId} />}
+            <ReportStoreFilter channels={storeFilter.channels} value={storeFilter.salesChannelId} />
+          </>
+        }
+      />
 
       {report && t && (
         <>
-          <h2 className="mb-2 mt-2 text-sm font-semibold text-muted-foreground">En ligne — commandes</h2>
+          <h2 className="mb-2 mt-2 text-sm font-semibold text-muted-foreground">
+            En ligne — commandes · {onlineScope}
+            {storeFilter.salesChannelId && <span className="font-normal"> (non filtrable par magasin — une commande en ligne n&apos;a pas de magasin)</span>}
+          </h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard label="Retours enregistrés" explain={<ReportMetricInfo metric="returnsEvents" label="Retours enregistrés" className="-ml-1" />} value={String(t.returnEvents)} tone="primary"
               hint={`${t.ordersReturned} commande${t.ordersReturned > 1 ? "s" : ""} concernée${t.ordersReturned > 1 ? "s" : ""}`} />
@@ -149,7 +169,10 @@ export default async function RapportRetoursPage({
 
       {offlineReport && (
         <>
-          <h2 className="mb-2 mt-8 text-sm font-semibold text-muted-foreground">Magasin — ventes</h2>
+          <h2 className="mb-2 mt-8 text-sm font-semibold text-muted-foreground">
+            Magasin — ventes · {storeFilter.label}
+            {channelFilter.salesChannelId && <span className="font-normal"> (non filtrable par canal en ligne)</span>}
+          </h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard label="Retours enregistrés" explain={<ReportMetricInfo metric="returnsEvents" label="Retours enregistrés" className="-ml-1" />} value={String(offlineReport.totals.returnEvents)} tone="primary"
               hint={`${offlineReport.totals.ordersReturned} vente${offlineReport.totals.ordersReturned > 1 ? "s" : ""} concernée${offlineReport.totals.ordersReturned > 1 ? "s" : ""}`} />

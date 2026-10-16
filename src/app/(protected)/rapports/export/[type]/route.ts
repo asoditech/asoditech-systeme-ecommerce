@@ -7,6 +7,7 @@ import { listAccessibleActiveWarehouses, hasGlobalLocationAccess } from "@/lib/a
 import { resolveTenantReportRange } from "@/lib/reports/range";
 import { getChannelReport } from "@/lib/queries/reports/channels";
 import { resolveReportOnlineChannel, reportOrderScope } from "@/lib/reports/online-channel";
+import { resolveReportStoreChannel } from "@/lib/reports/store-channel";
 import { csvDocument, csvDocumentResponse, type CsvSection } from "@/lib/reports/csv";
 import { getReportBusinessInfo } from "@/lib/queries/business-info";
 import { getSalesReport } from "@/lib/queries/reports/sales";
@@ -341,10 +342,12 @@ export async function GET(request: Request, ctx: { params: Promise<{ type: strin
         );
       }
       if (user.channels.offline) {
-        const or = await getOfflineReturnsReport(resolved.range, user);
+        // « Magasin » — resolved exactly like the page (the viewer's own stores only).
+        const storeFilter = await resolveReportStoreChannel(user, url.searchParams.get("magasin") ?? undefined);
+        const or = await getOfflineReturnsReport(resolved.range, user, { salesChannelId: storeFilter.salesChannelId });
         sections.push(
           {
-            heading: "Magasin — Résumé",
+            heading: `Magasin — Résumé (${storeFilter.label})`,
             headers: ["Indicateur", "Valeur"],
             rows: [
               ["Retours enregistrés", or.totals.returnEvents],

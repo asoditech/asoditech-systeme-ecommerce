@@ -344,11 +344,12 @@ export async function listOrdersForProduct(
   productId: string | null,
   range: PeriodRange,
   page: number,
-  pageSize: number
+  pageSize: number,
+  /** Same order scope as the parent report (`reportOrderScope`), so the drill-down matches its row. */
+  scope: Prisma.OrderWhereInput = {}
 ): Promise<ProfitabilityOrdersPage> {
-  const where = {
-    placedAt: { gte: range.from, lte: range.to },
-    items: { some: { productId } },
+  const where: Prisma.OrderWhereInput = {
+    AND: [{ placedAt: { gte: range.from, lte: range.to }, items: { some: { productId } } }, scope],
   };
   const [orders, total] = await Promise.all([
     prisma.order.findMany({
@@ -367,9 +368,11 @@ export async function listOrdersForCampaign(
   campaignId: string | null,
   range: PeriodRange,
   page: number,
-  pageSize: number
+  pageSize: number,
+  /** Same order scope as the parent report (`reportOrderScope`). */
+  scope: Prisma.OrderWhereInput = {}
 ): Promise<ProfitabilityOrdersPage> {
-  const where = { placedAt: { gte: range.from, lte: range.to }, campaignId };
+  const where: Prisma.OrderWhereInput = { AND: [{ placedAt: { gte: range.from, lte: range.to }, campaignId }, scope] };
   const [orders, total] = await Promise.all([
     prisma.order.findMany({
       where,
