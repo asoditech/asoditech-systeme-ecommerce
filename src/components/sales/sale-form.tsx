@@ -1,10 +1,12 @@
 "use client";
 
-import { useRef, useState, useSyncExternalStore, useTransition } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ScanBarcode, Trash2, AlertTriangle, ShoppingBasket, Banknote, Plus, CheckCircle2, Check } from "lucide-react";
-import { SelectedLineChips } from "@/components/orders/selected-line-chips";
+import { ScanBarcode, Trash2, AlertTriangle, ShoppingBasket, Banknote, Plus, CheckCircle2 } from "lucide-react";
+import { UnitPickList } from "@/components/catalog/unit-pick-list";
+import { useListboxNavigation } from "@/components/ui/use-listbox-navigation";
+import { addPickedUnit, keepListAfterPick, unitLineKey, unitLineLabel, type PickSource } from "@/lib/catalog/picker-session";
 import { createSaleAction, explainSaleScanMissAction, searchForSaleAction, type SaleCustomer, type SaleLookupResult } from "@/actions/sales";
 import { scanCodeForMessage, withScanHint } from "@/lib/catalog/scan-input";
 import { SaleCustomerPicker } from "@/components/sales/sale-customer-picker";
@@ -105,30 +107,60 @@ export function SaleForm({
   const total = lines.reduce((s, l) => s + Math.max(0, l.unitPrice * l.quantity - l.discount), 0);
   const paid = payments.reduce((s, p) => s + p.amount, 0);
 
-  // `keepOpen`: a click in the result list keeps the list (and the query) so
-  // several articles can be picked in a row; a scan / Enter still clears it
-  // for the next scan, as before.
-  function addUnit(h: SaleLookupResult, keepOpen = false) {
+  // Shared picking session (src/lib/catalog/picker-session.ts, docs/adr/0061):
+  // a click / keyboard pick keeps the list and the query (several articles in
+  // a row, like the order form); a scan clears them for the next scan. Same
+  // article again → +1, capped at the available stock (the sale's own rule).
+  function closeList() {
+    browseSeq.current += 1;
+    setBrowsing(false);
+    setHits([]);
+    setQuery("");
+  }
+
+  function addUnit(h: SaleLookupResult, source: PickSource = "scan") {
     if (!h.tracked) return toast.error("Cet article n'est pas suivi en stock à cet emplacement.");
     if (h.available <= 0) return toast.error("Aucun stock disponible pour cet article.");
     const u = h.unit;
-    const key = u.variationId ? `v:${u.variationId}` : `p:${u.productId}`;
-    setLines((prev) => {
-      const existing = prev.find((l) => l.key === key);
-      if (existing) {
-        if (existing.quantity + 1 > h.available) {
-          toast.error(`Stock disponible : ${h.available}.`);
-          return prev;
-        }
-        return prev.map((l) => (l.key === key ? { ...l, quantity: l.quantity + 1 } : l));
-      }
-      return [...prev, { key, productId: u.productId, variationId: u.variationId, label: `${u.name}${u.variantLabel ? ` — ${u.variantLabel}` : ""}`, sku: u.sku, quantity: 1, defaultPrice: u.price, unitPrice: u.price, discount: 0, available: h.available }];
-    });
-    if (keepOpen) return;
-    setHits([]);
-    setBrowsing(false);
-    setQuery("");
+    const key = unitLineKey(u);
+    const next = addPickedUnit(
+      lines,
+      key,
+      () => ({ key, productId: u.productId, variationId: u.variationId, label: unitLineLabel(u), sku: u.sku, quantity: 1, defaultPrice: u.price, unitPrice: u.price, discount: 0, available: h.available }),
+      { max: h.available }
+    );
+    if (next.outcome === "at_max") toast.error(`Stock disponible : ${h.available}.`);
+    else setLines(next.lines);
+    if (!keepListAfterPick(source)) closeList();
   }
+
+  const unitNav = useListboxNavigation({
+    id: "sale-unit",
+    count: hits.length,
+    onSelect: (i) => {
+      const h = hits[i];
+      if (h) addUnit(h, "keyboard");
+    },
+    onClose: () => closeList(),
+  });
+
+  // Search as you type (2+ characters, debounced) — same as the order form's
+  // picker: shows matching articles, never adds one by itself; silent on
+  // errors (Enter / « Chercher » report them).
+  const liveSeq = useRef(0);
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2 || !channelId || !warehouseId) return;
+    const seq = ++liveSeq.current;
+    const t = setTimeout(() => {
+      searchForSaleAction({ query: q, salesChannelId: channelId, warehouseId })
+        .then((r) => {
+          if (r.ok && seq === liveSeq.current) setHits(r.data);
+        })
+        .catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query, channelId, warehouseId]);
 
   // `code` lets a caller (the camera scanner) feed a value straight through
   // without waiting on `setQuery`'s next render — the EXACT same lookup
@@ -161,12 +193,13 @@ export function SaleForm({
     // Empty the field at once: a scanner's next code must never be appended
     // to this one (unknown code, no stock, slow lookup…). A typed search
     // that opens a pick list gets its text back below.
+    liveSeq.current += 1; // supersedes a pending live search
     setQuery("");
     const found = await runLookup(q);
     if (!found) return;
     if (found.length === 0) return void notFound(q);
     // A scanner types the code then presses Enter → exact hit goes straight into the cart.
-    if (found.length === 1 && found[0].unit.matchedBy !== "partial") addUnit(found[0]);
+    if (found.length === 1 && found[0].unit.matchedBy !== "partial") addUnit(found[0], "scan");
     else {
       setQuery((current) => (current === "" ? q : current));
       setHits(found);
@@ -303,12 +336,24 @@ export function SaleForm({
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value);
+                  // New text = no highlighted row: Enter then means search / scan.
+                  unitNav.reset();
                   closeBrowse();
                 }}
                 onClick={() => void browse()}
                 placeholder={narrow ? "Code-barres, réf., nom…" : "Scanner un code-barres ou saisir référence / nom…"}
                 aria-label="Rechercher un article"
+                role={unitNav.inputProps.role}
+                aria-expanded={hits.length > 0}
+                aria-controls={unitNav.inputProps["aria-controls"]}
+                aria-autocomplete={unitNav.inputProps["aria-autocomplete"]}
+                aria-activedescendant={unitNav.inputProps["aria-activedescendant"]}
                 onKeyDown={(e) => {
+                  // Shared listbox navigation first (same as the order form).
+                  if (hits.length > 0) {
+                    unitNav.inputProps.onKeyDown(e);
+                    if (e.defaultPrevented) return;
+                  }
                   if (e.key === "Enter") {
                     e.preventDefault();
                     closeBrowse();
@@ -325,37 +370,19 @@ export function SaleForm({
               </Button>
               <BarcodeScanButton formats={LOOKUP_SCAN_FORMATS} onDetect={onCameraDetect} label="Caméra" />
             </div>
-            {hits.length > 0 && lines.length > 0 && (
-              <div className="flex items-start gap-2">
-                <div className="min-w-0 flex-1">
-                  <SelectedLineChips lines={lines} onRemove={(key) => setLines((p) => p.filter((x) => x.key !== key))} />
-                </div>
-                <Button type="button" size="sm" onClick={() => { browseSeq.current += 1; setBrowsing(false); setHits([]); setQuery(""); }}>
-                  Terminé
-                </Button>
-              </div>
-            )}
-            {hits.length > 0 && (
-              <ul className="divide-y divide-hairline overflow-hidden rounded-tile border border-hairline text-sm">
-                {hits.map((h) => (
-                  <li key={`${h.unit.productId}-${h.unit.variationId}`}>
-                    <button type="button" className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-row-hover disabled:opacity-50" disabled={!h.tracked || h.available <= 0} onClick={() => addUnit(h, true)}>
-                      <span>
-                        {lines.some((l) => l.key === (h.unit.variationId ? `v:${h.unit.variationId}` : `p:${h.unit.productId}`)) && (
-                          <Check className="mr-1 inline size-3.5 text-pill-green-fg" aria-label="déjà ajouté" />
-                        )}
-                        {h.unit.name}
-                        {h.unit.variantLabel && <span className="text-muted-foreground"> — {h.unit.variantLabel}</span>}
-                        <span className="ml-2 font-mono text-xs text-muted-foreground">{h.unit.primaryBarcode ?? h.unit.sku}</span>
-                      </span>
-                      <span className="shrink-0 text-xs text-ink-secondary tabular-nums">
-                        {h.tracked ? `${h.available} dispo · ${formatCurrency(String(h.unit.price))}` : "non suivi ici"}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <UnitPickList
+              id="sale-unit"
+              hits={hits}
+              unitOf={(h) => h.unit}
+              isDisabled={(h) => !h.tracked || h.available <= 0}
+              meta={(h) => (h.tracked ? `${h.available} dispo · ${formatCurrency(String(h.unit.price))}` : "non suivi ici")}
+              addedKeys={new Set(lines.map((l) => l.key))}
+              selected={lines}
+              onRemove={(key) => setLines((p) => p.filter((x) => x.key !== key))}
+              onPick={(h) => addUnit(h, "click")}
+              onDone={closeList}
+              nav={unitNav}
+            />
             </div>
 
             {lines.length === 0 ? (

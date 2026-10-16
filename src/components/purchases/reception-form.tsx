@@ -24,6 +24,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
 import { LOOKUP_SCAN_FORMATS } from "@/lib/barcode-scanner/support";
 import { ProductMetricRow } from "@/components/products/product-metric-row";
+import { UnitPickList } from "@/components/catalog/unit-pick-list";
+import { useListboxNavigation } from "@/components/ui/use-listbox-navigation";
+import { addPickedUnit, keepListAfterPick, unitLineKey, unitLineLabel, type PickSource } from "@/lib/catalog/picker-session";
 import { formatCurrency, formatDate } from "@/lib/format";
 
 
@@ -137,6 +140,15 @@ export function ReceptionForm({
     setHits([]);
   }
   // A press outside the field + list (or Escape) hides the list — initial list or search results.
+  const unitNav = useListboxNavigation({
+    id: "rcp-unit",
+    count: hits.length,
+    onSelect: (i) => {
+      const u = hits[i];
+      if (u) add(u, "keyboard");
+    },
+    onClose: () => closeList(),
+  });
   const pickerRef = useRef<HTMLDivElement>(null);
   useDismissOnOutside(pickerRef, hits.length > 0 || browsing, () => {
     browseSeq.current += 1;
@@ -164,9 +176,30 @@ export function ReceptionForm({
   // without waiting on `setQuery`'s next render — the EXACT same lookup
   // (`lookupSellableUnitsAction`) a hardware scanner's Enter key or the
   // "Chercher" button already use, never a second implementation.
+  // Search as you type (2+ characters, debounced) — same as the order form's
+  // picker: shows matching articles, never adds one by itself. Enter /
+  // « Chercher » / the camera keep the scan behaviour below.
+  const liveSeq = useRef(0);
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) return;
+    const seq = ++liveSeq.current;
+    const t = setTimeout(() => {
+      lookupSellableUnitsAction({ query: q })
+        .then((found) => {
+          if (seq === liveSeq.current) setHits(found);
+        })
+        .catch(() => {
+          // A failed live search just leaves the list as it was; Enter reports errors.
+        });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query]);
+
   async function search(code?: string) {
     const q = (code ?? query).trim();
     if (!q) return;
+    liveSeq.current += 1; // supersedes a pending live search
     // Empty the field at once: a scanner's next code must never be appended
     // to this one. A typed search that opens a pick list gets its text back.
     setQuery("");
@@ -182,8 +215,7 @@ export function ReceptionForm({
     }
     // A scanner types the code then presses Enter: an exact barcode/SKU hit is added straight away.
     if (found.length === 1 && found[0].matchedBy !== "partial") {
-      add(found[0]);
-      setHits([]);
+      add(found[0], "scan");
     } else if (found.length === 0) {
       setHits([]);
       toast.error(withScanHint(`Aucun article trouvé pour le code reçu « ${scanCodeForMessage(q)} ».`, q), { duration: 10_000 });
@@ -216,17 +248,33 @@ export function ReceptionForm({
     void search(code);
   }
 
-  function add(u: SellableUnit) {
-    const key = u.variationId ? `v:${u.variationId}` : `p:${u.productId}`;
-    const isNewLine = !lines.some((l) => l.key === key);
-    setLines((prev) =>
-      prev.some((l) => l.key === key)
-        ? prev.map((l) => (l.key === key ? { ...l, quantity: l.quantity + 1 } : l))
-        : [...prev, { key, productId: u.variationId ? null : u.productId, variationId: u.variationId, label: `${u.name}${u.variantLabel ? ` — ${u.variantLabel}` : ""}`, sku: u.sku, quantity: 1, unitCost: showPurchasePrices ? (u.cost ?? 0) : null }]
-    );
-    setHits([]);
+  // Shared picking session (src/lib/catalog/picker-session.ts, docs/adr/0061):
+  // a click / keyboard pick KEEPS the result list and the query — several
+  // articles in a row, like the order form — while a scan clears them for the
+  // next scan. Same article again → +1 on its line (the reception's own rule).
+  function closeList() {
+    browseSeq.current += 1;
     setBrowsing(false);
+    setHits([]);
     setQuery("");
+  }
+
+  function add(u: SellableUnit, source: PickSource = "click") {
+    const key = unitLineKey(u);
+    const isNewLine = !lines.some((l) => l.key === key);
+    setLines(
+      (prev) =>
+        addPickedUnit(prev, key, () => ({
+          key,
+          productId: u.variationId ? null : u.productId,
+          variationId: u.variationId,
+          label: unitLineLabel(u),
+          sku: u.sku,
+          quantity: 1,
+          unitCost: showPurchasePrices ? (u.cost ?? 0) : null,
+        })).lines
+    );
+    if (!keepListAfterPick(source)) closeList();
 
     // "Dernier achat" hint (Task 3A) — fetched once per new line, never
     // blocks adding the line, and never overwrites the price the operator
@@ -429,12 +477,27 @@ export function ReceptionForm({
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
+                // New text = no highlighted row: Enter then means search / scan
+                // (same as the order form's productNav.reset()).
+                unitNav.reset();
                 closeBrowse();
               }}
               onClick={() => void browse()}
               placeholder="Scanner un code-barres, ou saisir référence / nom…"
               aria-label="Rechercher un article"
+              role={unitNav.inputProps.role}
+              aria-expanded={hits.length > 0}
+              aria-controls={unitNav.inputProps["aria-controls"]}
+              aria-autocomplete={unitNav.inputProps["aria-autocomplete"]}
+              aria-activedescendant={unitNav.inputProps["aria-activedescendant"]}
               onKeyDown={(e) => {
+                // Arrows / Enter on a highlighted row / Escape: the shared
+                // listbox navigation (same as the order form). Otherwise Enter
+                // = search / scan, ArrowDown on an empty list = browse.
+                if (hits.length > 0) {
+                  unitNav.inputProps.onKeyDown(e);
+                  if (e.defaultPrevented) return;
+                }
                 if (e.key === "Enter") {
                   e.preventDefault();
                   closeBrowse();
@@ -451,21 +514,17 @@ export function ReceptionForm({
             </Button>
             <BarcodeScanButton formats={LOOKUP_SCAN_FORMATS} onDetect={onCameraDetect} label="Caméra" />
           </div>
-          {hits.length > 0 && (
-            <ul className="divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-popover text-sm shadow-popover">
-              {hits.map((u) => (
-                <li key={`${u.productId}-${u.variationId}`}>
-                  <button type="button" className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left outline-none hover:bg-accent focus-visible:bg-accent" onClick={() => add(u)}>
-                    <span>
-                      {u.name}
-                      {u.variantLabel && <span className="text-muted-foreground"> — {u.variantLabel}</span>}
-                    </span>
-                    <span className="font-mono text-xs text-muted-foreground">{u.primaryBarcode ?? u.sku}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <UnitPickList
+            id="rcp-unit"
+            hits={hits}
+            unitOf={(u) => u}
+            addedKeys={new Set(lines.map((l) => l.key))}
+            selected={lines}
+            onRemove={(key) => setLines((p) => p.filter((x) => x.key !== key))}
+            onPick={(u) => add(u, "click")}
+            onDone={closeList}
+            nav={unitNav}
+          />
           </div>
 
           {lines.length === 0 && (

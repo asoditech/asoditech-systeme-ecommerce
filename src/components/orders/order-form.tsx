@@ -16,6 +16,8 @@ import { StockOverrideDialog } from "@/components/orders/stock-override-dialog";
 import { stockShortageOf, type StockShortage } from "@/lib/stock-shortage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
+import { LOOKUP_SCAN_FORMATS } from "@/lib/barcode-scanner/support";
 import { CityInput } from "@/components/delivery/city-input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -523,7 +525,9 @@ export function OrderForm({
                 Rechercher ou créer un client...
               </PopoverTrigger>
             )}
-            <PopoverContent align="start" className="w-[min(24rem,calc(100vw-2rem))] p-2">
+            {/* At least as wide as its trigger (the full-width search button), never narrower
+                than a readable 22rem (the small « Changer » trigger), never wider than the viewport. */}
+            <PopoverContent align="start" className="w-(--anchor-width) max-w-[calc(100vw-2rem)] min-w-[min(22rem,calc(100vw-2rem))] p-2">
               {newCustomerMode ? (
                 <div className="space-y-2">
                   <p className="px-1 text-sm font-medium">Nouveau client</p>
@@ -641,17 +645,31 @@ export function OrderForm({
               Ajouter un produit
             </PopoverTrigger>
             <PopoverContent align="start" className="w-96 p-2">
-              <Input
-                placeholder="Nom ou SKU..."
-                aria-label="Rechercher un produit"
-                value={productQuery}
-                onChange={(e) => {
-                  setProductQuery(e.target.value);
-                  productNav.reset();
-                }}
-                autoFocus
-                {...productNav.inputProps}
-              />
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Nom, SKU ou code-barres..."
+                  aria-label="Rechercher un produit"
+                  value={productQuery}
+                  onChange={(e) => {
+                    setProductQuery(e.target.value);
+                    productNav.reset();
+                  }}
+                  autoFocus
+                  className="flex-1"
+                  {...productNav.inputProps}
+                />
+                {/* A scan only fills the search: an exact code (barcode, label
+                    QR, variation SKU) narrows to that one product / variation;
+                    nothing is added without a click. */}
+                <BarcodeScanButton
+                  formats={LOOKUP_SCAN_FORMATS}
+                  label=""
+                  onDetect={(code) => {
+                    setProductQuery(code);
+                    productNav.reset();
+                  }}
+                />
+              </div>
               {items.length > 0 && (
                 <div className="mt-2 flex items-start gap-2">
                   <div className="min-w-0 flex-1">

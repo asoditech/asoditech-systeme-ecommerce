@@ -8,7 +8,11 @@ import {
   createStockTransferAction,
   updateStockTransferDraftAction,
   listSourceStockAction,
+  resolveTransferCodeAction,
 } from "@/actions/transfers";
+import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
+import { LOOKUP_SCAN_FORMATS } from "@/lib/barcode-scanner/support";
+import { useListboxNavigation } from "@/components/ui/use-listbox-navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -138,8 +142,46 @@ export function TransferForm({ warehouses, mode = "create", transfer, costEntry 
         globalCost: row.globalCost,
       },
     ]);
-    setPickerOpen(false);
+    // The picker stays open (like the order picker): add article 1, 2, 3… in a
+    // row; an added article leaves the list (one line per article).
     setPickerQuery("");
+  }
+
+  // Arrows / Enter on a highlighted row / Escape — the same listbox
+  // navigation as the order form and the reception / sale pickers.
+  const stockNav = useListboxNavigation({
+    id: "trf-stock",
+    count: pickerStock.length,
+    onSelect: (i) => {
+      const row = pickerStock[i];
+      if (row) addLine(row);
+    },
+    onClose: () => setPickerOpen(false),
+  });
+
+  // Enter / camera: an EXACT code (barcode, label QR, variation SKU) → that
+  // unit's row at the source, via the shared resolver (resolveTransferCodeAction).
+  const [resolving, setResolving] = React.useState(false);
+  async function addByCode(raw: string) {
+    const code = raw.trim();
+    if (!code || !sourceId || resolving) return;
+    setResolving(true);
+    try {
+      const r = await resolveTransferCodeAction({ warehouseId: sourceId, code });
+      if (!r.ok) {
+        // Not an exact code: a single name / SKU match is still added.
+        if (pickerStock.length === 1) addLine(pickerStock[0]);
+        else toast.error(r.error);
+        return;
+      }
+      const key = refKey(r.data);
+      if (usedRefs.has(key)) return toast.info(`« ${r.data.label} » est déjà dans le transfert.`);
+      const row = availableStock.find((s) => refKey(s) === key);
+      if (!row) return toast.error(`« ${r.data.label} » n'a pas de stock dans l'emplacement source.`);
+      addLine(row);
+    } finally {
+      setResolving(false);
+    }
   }
 
   function updateLine(key: string, quantitySent: number) {
@@ -268,14 +310,39 @@ export function TransferForm({ warehouses, mode = "create", transfer, costEntry 
               Ajouter un article
             </PopoverTrigger>
             <PopoverContent align="start" className="w-96 p-2">
-              <Input
-                autoFocus
-                value={pickerQuery}
-                onChange={(e) => setPickerQuery(e.target.value)}
-                placeholder="Rechercher par nom ou SKU…"
-                className="mb-2"
-              />
-              <div className="max-h-64 overflow-y-auto">
+              <div className="mb-2 flex gap-2">
+                <Input
+                  autoFocus
+                  value={pickerQuery}
+                  onChange={(e) => {
+                    setPickerQuery(e.target.value);
+                    // New text = no highlighted row: Enter then means « exact code ».
+                    stockNav.reset();
+                  }}
+                  onKeyDown={(e) => {
+                    stockNav.inputProps.onKeyDown(e);
+                    if (e.defaultPrevented) return;
+                    // A hardware scanner types the code then presses Enter.
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void addByCode(pickerQuery);
+                    }
+                  }}
+                  role={stockNav.inputProps.role}
+                  aria-expanded={pickerStock.length > 0}
+                  aria-controls={stockNav.inputProps["aria-controls"]}
+                  aria-autocomplete={stockNav.inputProps["aria-autocomplete"]}
+                  aria-activedescendant={stockNav.inputProps["aria-activedescendant"]}
+                  placeholder="Nom, SKU ou code-barres…"
+                  aria-label="Rechercher un article à transférer"
+                  className="flex-1"
+                />
+                <BarcodeScanButton formats={LOOKUP_SCAN_FORMATS} label="" onDetect={(code) => void addByCode(code)} />
+              </div>
+              {lines.length > 0 && (
+                <p className="mb-1 px-2 text-xs text-muted-foreground">{lines.length} article(s) ajouté(s) — continuez ou fermez.</p>
+              )}
+              <div className="max-h-64 overflow-y-auto" {...stockNav.listProps} aria-label="Articles en stock à la source">
                 {availableStock.length === 0 ? (
                   <p className="px-2 py-1.5 text-sm text-muted-foreground">
                     Aucun stock disponible à cet emplacement.
@@ -283,12 +350,17 @@ export function TransferForm({ warehouses, mode = "create", transfer, costEntry 
                 ) : pickerStock.length === 0 ? (
                   <p className="px-2 py-1.5 text-sm text-muted-foreground">Aucun article ne correspond.</p>
                 ) : (
-                  pickerStock.map((s) => (
+                  pickerStock.map((s, i) => (
                     <button
                       key={refKey(s)}
                       type="button"
+                      tabIndex={-1}
+                      // Keep the focus in the search field: the next typed or
+                      // scanned code goes there.
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => addLine(s)}
-                      className="flex w-full flex-col rounded-lg px-2 py-1.5 text-left text-sm hover:bg-row-hover"
+                      {...stockNav.optionProps(i)}
+                      className="flex w-full flex-col rounded-lg px-2 py-1.5 text-left text-sm hover:bg-row-hover data-[active]:bg-row-hover"
                     >
                       <span className="font-medium">{s.label}</span>
                       <span className="text-xs text-muted-foreground">

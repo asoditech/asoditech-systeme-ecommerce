@@ -23,6 +23,7 @@ import {
 } from "@/lib/validation/stocktake";
 import { isUniqueConstraintError } from "@/lib/prisma-errors";
 import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
+import { resolveExactCode } from "@/lib/catalog/exact-code";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
 import { checkAndNotifyLowStock } from "@/lib/notifications";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
@@ -92,6 +93,32 @@ export async function createStocktakeSessionAction(
 
   revalidatePath("/inventaires");
   return actionOk({ id: session.id });
+}
+
+/**
+ * Count form « Rechercher / scanner »: an EXACT code (barcode — incl.
+ * generated internal codes —, label QR, variation or simple-product SKU) →
+ * the session line counting that unit, via the shared resolver
+ * (src/lib/catalog/exact-code.ts). Read-only; the count itself is still saved
+ * by updateStocktakeCountsAction.
+ */
+export async function findStocktakeLineByCodeAction(input: { id: string; code: string }): Promise<ActionResult<{ lineId: string }>> {
+  const user = await requirePermissionForAction("inventory.count");
+  const session = await prisma.stocktakeSession.findUnique({ where: { id: input.id }, select: { id: true, warehouseId: true } });
+  if (!session) return actionError("Inventaire introuvable.");
+  await requireLocationAccessForAction(user, session.warehouseId);
+  const resolved = await resolveExactCode(prisma, String(input.code ?? ""));
+  if (!resolved.ok) return actionError(resolved.error);
+  const { productId, variationId } = resolved.unit;
+  const line = await prisma.stocktakeLine.findFirst({
+    where: {
+      stocktakeSessionId: session.id,
+      inventoryItem: variationId ? { variationId } : { productId, variationId: null },
+    },
+    select: { id: true },
+  });
+  if (!line) return actionError("Cet article ne fait pas partie de cet inventaire.");
+  return actionOk({ lineId: line.id });
 }
 
 export async function updateStocktakeCountsAction(

@@ -29,6 +29,7 @@ import { claimTenantDisplayNumber } from "@/lib/tenant/numbering";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
 import { checkAndNotifyLowStock } from "@/lib/notifications";
 import { actionError, actionOk, type ActionResult, type IdResult } from "@/actions/types";
+import { resolveExactCode } from "@/lib/catalog/exact-code";
 
 /** The affected product/variation refs for a transfer's own lines — a
  * transfer's lines don't change across dispatch/receive, so this is safe
@@ -106,6 +107,27 @@ export async function listSourceStockAction(warehouseId: string) {
   if (!warehouseId) return [];
   await requireLocationAccessForAction(user, warehouseId);
   return listStockAtWarehouse(warehouseId, { includeCost: userHasPermission(user, "finance.view") });
+}
+
+/**
+ * Transfer picker: a scanned / typed EXACT code (barcode — incl. generated
+ * internal codes and GTIN spellings —, label QR, variation or simple-product
+ * SKU) → the one unit it designates, via the shared resolver used by sales,
+ * receptions, packing, returns and the order picker
+ * (src/lib/catalog/exact-code.ts). The form then adds that unit's row from
+ * the source warehouse's stock list (transfers only move stock that exists at
+ * the source). Customer codes are not in the barcode table and never match.
+ */
+export async function resolveTransferCodeAction(input: {
+  warehouseId: string;
+  code: string;
+}): Promise<ActionResult<{ productId: string; variationId: string | null; label: string }>> {
+  const user = await requirePermissionForAction("inventory.transfer");
+  if (input.warehouseId) await requireLocationAccessForAction(user, input.warehouseId);
+  const resolved = await resolveExactCode(prisma, String(input.code ?? ""));
+  if (!resolved.ok) return actionError(resolved.error);
+  const label = resolved.unit.variantLabel ? `${resolved.unit.name} — ${resolved.unit.variantLabel}` : resolved.unit.name;
+  return actionOk({ productId: resolved.unit.productId, variationId: resolved.unit.variationId, label });
 }
 
 export async function createStockTransferAction(

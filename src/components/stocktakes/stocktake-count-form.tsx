@@ -3,7 +3,9 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { updateStocktakeCountsAction } from "@/actions/stocktakes";
+import { findStocktakeLineByCodeAction, updateStocktakeCountsAction } from "@/actions/stocktakes";
+import { BarcodeScanButton } from "@/components/barcode-scanner/barcode-scan-button";
+import { LOOKUP_SCAN_FORMATS } from "@/lib/barcode-scanner/support";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +38,35 @@ export function StocktakeCountForm({
     Object.fromEntries(lines.map((l) => [l.id, l.countedQuantity === null ? "" : String(l.countedQuantity)]))
   );
 
+  // « Rechercher / scanner » (docs/adr/0061): a name / SKU filter on the
+  // lines; Enter or the camera resolves an EXACT code (barcode, label QR,
+  // variation SKU) to its line and puts the cursor in its count cell.
+  const [filter, setFilter] = React.useState("");
+  const [focusLineId, setFocusLineId] = React.useState<string | null>(null);
+  const countInputs = React.useRef<Record<string, HTMLInputElement | null>>({});
+  React.useEffect(() => {
+    if (focusLineId) countInputs.current[focusLineId]?.focus();
+  }, [focusLineId]);
+  const visibleLines = focusLineId
+    ? lines.filter((l) => l.id === focusLineId)
+    : filter.trim()
+      ? lines.filter((l) => `${l.label} ${l.sku}`.toLowerCase().includes(filter.trim().toLowerCase()))
+      : lines;
+
+  async function findByCode(raw: string) {
+    const code = raw.trim();
+    if (!code) return;
+    const r = await findStocktakeLineByCodeAction({ id: sessionId, code });
+    if (r.ok) {
+      setFilter(code);
+      setFocusLineId(r.data.lineId);
+    } else if (visibleLines.length === 1) {
+      setFocusLineId(visibleLines[0].id);
+    } else {
+      toast.error(r.error);
+    }
+  }
+
   const original = (l: StocktakeCountLine) => (l.countedQuantity === null ? "" : String(l.countedQuantity));
   const changedLines = lines.filter((l) => (draft[l.id] ?? "").trim() !== original(l));
 
@@ -65,6 +96,38 @@ export function StocktakeCountForm({
 
   return (
     <div className="space-y-4">
+      <div className="flex max-w-xl gap-2">
+        <Input
+          value={filter}
+          onChange={(e) => {
+            setFilter(e.target.value);
+            setFocusLineId(null);
+          }}
+          onKeyDown={(e) => {
+            // A hardware scanner types the code then presses Enter.
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void findByCode(filter);
+            }
+          }}
+          placeholder="Rechercher ou scanner : nom, SKU ou code-barres…"
+          aria-label="Rechercher un article de l'inventaire"
+          className="flex-1"
+        />
+        <BarcodeScanButton formats={LOOKUP_SCAN_FORMATS} label="" onDetect={(code) => void findByCode(code)} />
+        {(filter || focusLineId) && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setFilter("");
+              setFocusLineId(null);
+            }}
+          >
+            Tout afficher
+          </Button>
+        )}
+      </div>
       <TableCard>
         <Table>
           <TableHeader>
@@ -77,7 +140,7 @@ export function StocktakeCountForm({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {lines.map((l) => {
+            {visibleLines.map((l) => {
               const raw = (draft[l.id] ?? "").trim();
               const counted = raw === "" ? null : Number(raw);
               const variance = counted === null ? null : counted - l.systemQuantityAtCount;
@@ -104,6 +167,10 @@ export function StocktakeCountForm({
                       value={draft[l.id] ?? ""}
                       placeholder="—"
                       onChange={(e) => setDraft((d) => ({ ...d, [l.id]: e.target.value }))}
+                      ref={(el) => {
+                        countInputs.current[l.id] = el;
+                      }}
+                      aria-label={`Quantité comptée — ${l.label}`}
                     />
                   </TableCell>
                   <TableCell className={variance != null && variance !== 0 ? "font-medium text-destructive" : ""}>
