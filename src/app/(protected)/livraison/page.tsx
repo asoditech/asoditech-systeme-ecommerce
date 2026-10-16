@@ -156,6 +156,10 @@ export default async function LivraisonPage({
     listAvailableDeliveryConnectors(),
     businessPromise,
   ]);
+  // A retired connector (Aramex — owner decision 2026-10-16: hidden everywhere)
+  // is only sent to the page when this company still has a connection using it.
+  const keysInUse = new Set(providers.map((p) => p.providerKey).filter(Boolean));
+  const visibleConnectors = connectors.filter((c) => c.acceptsNewConnections || keysInUse.has(c.key));
   const { shipments, total: shipmentsTotal, pageSize: shipmentsPageSize, previousAttemptsByOrder, supersededIds } = shipmentsResult;
   const replaced = new Set(supersededIds);
   const {
@@ -293,11 +297,12 @@ export default async function LivraisonPage({
                     <TableHead>Commande</TableHead>
                     <TableHead>Client</TableHead>
                     <TableHead>Suivi</TableHead>
-                    <TableHead className="text-right">Montant commande</TableHead>
+                    {/* Long headers may wrap onto two lines so the table fits at 1440px. */}
+                    <TableHead className="text-right whitespace-normal">Montant commande</TableHead>
                     <TableHead className="text-right">Frais</TableHead>
                     <TableHead className="text-right">COD</TableHead>
                     <TableHead>Statut</TableHead>
-                    <TableHead>Statut transporteur</TableHead>
+                    <TableHead className="whitespace-normal">Statut transporteur</TableHead>
                     {canManage && <TableHead />}
                   </TableRow>
                 </TableHeader>
@@ -315,7 +320,7 @@ export default async function LivraisonPage({
                         ) : !showHistory && previousAttemptsByOrder[s.orderId] ? (
                           <Link
                             href={`/commandes/${s.orderId}`}
-                            className="mt-0.5 block text-xs text-ink-muted hover:underline"
+                            className="mt-0.5 block max-w-[9rem] text-xs whitespace-normal text-ink-muted hover:underline"
                             title="Voir les expéditions précédentes de cette commande"
                           >
                             + {previousAttemptsByOrder[s.orderId]} tentative{previousAttemptsByOrder[s.orderId] > 1 ? "s" : ""} précédente
@@ -365,12 +370,14 @@ export default async function LivraisonPage({
                             shipmentId={s.id}
                             currentStatus={s.status as ShipmentStatusValue}
                             carrierParcel={s.provider.type === "API" && s.externalId !== null}
+                            orderShipped={s.order.shippedAt !== null}
+                            outcomeUnknown={isShipmentOutcomeUnknown(s)}
                           />
                         ) : (
                           <StatusBadge status={s.status} labels={SHIPMENT_STATUS_LABELS} />
                         )}
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
+                      <TableCell className="min-w-[8rem] text-xs whitespace-normal text-muted-foreground">
                         {s.providerStatusRaw ? (
                           <>
                             <span className="text-foreground">{s.providerStatusRaw}</span>
@@ -394,6 +401,7 @@ export default async function LivraisonPage({
                                 s.status as ShipmentStatusValue,
                                 providerCapabilities(s.provider).includes("CANCEL_SHIPMENT")
                               )}
+                              canFetchLabel={providerCapabilities(s.provider).includes("FETCH_LABEL")}
                             />
                           ) : isShipmentOutcomeUnknown(s) ? (
                             <div className="space-y-1" data-testid="shipment-outcome-unknown">
@@ -599,7 +607,7 @@ export default async function LivraisonPage({
                           <div className="flex items-center justify-end gap-2">
                             {p.type === "API" && (
                               <>
-                                <ProviderConnectionControls providerId={p.id} providerKey={p.providerKey} connectors={connectors} />
+                                <ProviderConnectionControls providerId={p.id} providerKey={p.providerKey} connectors={visibleConnectors} />
                                 {providerCapabilities(p).includes("FETCH_CITIES") && (
                                   <CityMappingDialog providerId={p.id} providerName={p.name} />
                                 )}

@@ -3,8 +3,8 @@
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { RefreshCw } from "lucide-react";
-import { syncShipmentStatusAction, cancelShipmentAction } from "@/actions/delivery";
+import { RefreshCw, Tag } from "lucide-react";
+import { syncShipmentStatusAction, cancelShipmentAction, getShipmentLabelAction } from "@/actions/delivery";
 import { Button } from "@/components/ui/button";
 import { ConfirmActionButton } from "@/components/confirm-action-button";
 
@@ -23,13 +23,33 @@ export function ShipmentProviderControls({
   shipmentId,
   providerName,
   canCancel,
+  canFetchLabel = false,
 }: {
   shipmentId: string;
   providerName: string;
   canCancel: boolean;
+  /** Connector declares FETCH_LABEL (docs/adr/0060). */
+  canFetchLabel?: boolean;
 }) {
   const router = useRouter();
   const [isSyncing, startSync] = useTransition();
+  const [isLabelLoading, startLabel] = useTransition();
+
+  function openLabel() {
+    // Open the tab synchronously (popup blockers), then point it at the
+    // signed link once the carrier returns it; the link is never stored.
+    const tab = window.open("about:blank", "_blank");
+    startLabel(async () => {
+      const fd = new FormData();
+      fd.set("shipmentId", shipmentId);
+      const result = await getShipmentLabelAction(fd);
+      if (result.ok && tab) tab.location.href = result.data.url;
+      else {
+        tab?.close();
+        if (!result.ok) toast.error(result.error);
+      }
+    });
+  }
 
   function sync() {
     startSync(async () => {
@@ -47,6 +67,12 @@ export function ShipmentProviderControls({
       <Button type="button" variant="ghost" size="sm" disabled={isSyncing} onClick={sync} title="Synchroniser le statut">
         <RefreshCw className={isSyncing ? "size-4 animate-spin" : "size-4"} />
       </Button>
+      {canFetchLabel && (
+        <Button type="button" variant="ghost" size="sm" disabled={isLabelLoading} onClick={openLabel} title="Imprimer l'étiquette du colis">
+          <Tag className="size-4" />
+          Étiquette
+        </Button>
+      )}
       {canCancel && (
         <ConfirmActionButton
           label="Annuler"

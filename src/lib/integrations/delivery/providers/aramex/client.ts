@@ -4,11 +4,24 @@ import { assertPublicHost, InvalidHostError } from "@/lib/integrations/shared";
 import {
   DeliveryConfigError,
   DeliveryMalformedResponseError,
+  DeliveryOutcomeUnknownError,
   DeliveryTimeoutError,
   DeliveryUnavailableError,
+  isDefiniteCreateRefusalStatus,
 } from "@/lib/integrations/delivery/errors";
+import { ARAMEX_API_HOSTS, assertAllowedCarrierBaseUrl } from "@/lib/integrations/delivery/carrier-hosts";
 import { errorForNotifications, errorForStatus } from "./errors";
 import { aramexEnvelopeSchema, type AramexCredentials } from "./types";
+
+export const ARAMEX_OUTCOME_UNKNOWN_MESSAGE =
+  "Aramex n'a pas confirmé la création de l'envoi (pas de réponse, erreur serveur ou réponse incomplète). L'envoi a peut-être été créé : vérifiez sur le portail Aramex avant toute nouvelle tentative.";
+
+/** Connection-establishment failures: the request never left this server, so nothing can exist at Aramex. */
+const NEVER_SENT_CODES = new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "UND_ERR_CONNECT_TIMEOUT"]);
+function isNeverSentNetworkError(error: unknown): boolean {
+  const cause = (error as { cause?: { code?: unknown } } | null)?.cause;
+  return typeof cause?.code === "string" && NEVER_SENT_CODES.has(cause.code);
+}
 
 /**
  * Thin, centralized Aramex JSON client. Every call the adapter makes goes
@@ -88,6 +101,9 @@ export class AramexClient {
       if (parsed.protocol !== "https:") {
         throw new DeliveryConfigError(`L'URL ${label} Aramex doit utiliser HTTPS.`);
       }
+      // The body carries ClientInfo (user, password, PIN): a tenant-editable
+      // `*BaseUrl` may only point at Aramex's own live / sandbox hosts.
+      assertAllowedCarrierBaseUrl(base, ARAMEX_API_HOSTS, "Aramex");
       return base;
     };
 
@@ -122,7 +138,17 @@ export class AramexClient {
    * `endpoint` is the trailing service path, e.g.
    * `"Service_1_0.svc/json/CreateShipments"`.
    */
-  async post(service: AramexService, endpoint: string, payload: Record<string, unknown>): Promise<unknown> {
+  async post(
+    service: AramexService,
+    endpoint: string,
+    payload: Record<string, unknown>,
+    options: { once?: boolean } = {}
+  ): Promise<unknown> {
+    // `once` (shipment creation — 2026-10-16 review): ONE attempt; any outcome
+    // that may have reached Aramex (timeout, reset, 5xx, 429, unreadable 2xx)
+    // is DeliveryOutcomeUnknownError, never a resend that would create a
+    // second AWB (same rule as OzonExpress, docs/adr/0013).
+    const once = options.once === true;
     const base = this.bases[service];
     let host: string;
     try {
@@ -138,8 +164,9 @@ export class AramexClient {
     const url = `${base}/${endpoint.replace(/^\/+/, "")}`;
     const body = JSON.stringify({ ClientInfo: this.clientInfo, ...payload });
 
+    const maxAttempts = once ? 1 : MAX_RETRIES;
     let lastWasRetriable = false;
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
       let response: Response;
@@ -154,10 +181,15 @@ export class AramexClient {
       } catch (error) {
         clearTimeout(timer);
         if (error instanceof DOMException && error.name === "AbortError") {
+          if (once) throw new DeliveryOutcomeUnknownError(ARAMEX_OUTCOME_UNKNOWN_MESSAGE);
           throw new DeliveryTimeoutError("Aramex n'a pas répondu à temps.");
         }
+        if (once) {
+          if (isNeverSentNetworkError(error)) throw new DeliveryUnavailableError("Impossible de joindre Aramex.");
+          throw new DeliveryOutcomeUnknownError(ARAMEX_OUTCOME_UNKNOWN_MESSAGE);
+        }
         lastWasRetriable = true;
-        if (attempt < MAX_RETRIES - 1) {
+        if (attempt < maxAttempts - 1) {
           await sleep(500 * 2 ** attempt);
           continue;
         }
@@ -166,7 +198,8 @@ export class AramexClient {
       clearTimeout(timer);
 
       if (response.status === 429 || response.status >= 500) {
-        if (attempt < MAX_RETRIES - 1) {
+        if (once) throw new DeliveryOutcomeUnknownError(ARAMEX_OUTCOME_UNKNOWN_MESSAGE);
+        if (attempt < maxAttempts - 1) {
           const retryAfter = Number(response.headers.get("retry-after"));
           await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 500 * 2 ** attempt);
           lastWasRetriable = true;
@@ -175,6 +208,11 @@ export class AramexClient {
         throw errorForStatus(response.status);
       }
       if (!response.ok) {
+        // A creation answered by anything but an unambiguous refusal (408,
+        // 409, an unexpected status…) may have created the AWB.
+        if (once && !isDefiniteCreateRefusalStatus(response.status)) {
+          throw new DeliveryOutcomeUnknownError(ARAMEX_OUTCOME_UNKNOWN_MESSAGE);
+        }
         throw errorForStatus(response.status);
       }
 
@@ -182,6 +220,7 @@ export class AramexClient {
       try {
         parsed = await response.json();
       } catch {
+        if (once) throw new DeliveryOutcomeUnknownError(ARAMEX_OUTCOME_UNKNOWN_MESSAGE);
         throw new DeliveryMalformedResponseError("Réponse illisible reçue d'Aramex.");
       }
       assertNoApiError(parsed);

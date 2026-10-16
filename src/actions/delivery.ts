@@ -25,7 +25,10 @@ import {
   createDeliveryCityMappingSchema,
   updateDeliveryCityMappingSchema,
   deliveryCityMappingIdSchema,
+  manualShipmentTransitionProblem,
+  isShipmentOutcomeUnknown,
 } from "@/lib/validation/delivery";
+import { ORDER_STATUS_LABELS } from "@/lib/status-labels";
 import { localCityKey } from "@/lib/integrations/delivery/city-resolution";
 import { getCitySuggestions } from "@/lib/queries/delivery-cities";
 import type { CitySuggestions } from "@/lib/delivery-cities";
@@ -42,6 +45,7 @@ import {
   generateManifestViaProvider,
   fetchProviderCityCatalogue,
   friendlyDeliveryError,
+  fetchShipmentLabelViaProvider,
   reserveShipmentSlot,
   type SyncShipmentStatusOutcome,
 } from "@/lib/integrations/delivery/service";
@@ -227,7 +231,7 @@ export async function createShipmentAction(formData: FormData): Promise<ActionRe
   return actionOk({ id: shipment.id });
 }
 
-export async function updateShipmentStatusAction(formData: FormData): Promise<ActionResult<IdResult>> {
+export async function updateShipmentStatusAction(formData: FormData): Promise<ActionResult<IdResult & { notice?: string }>> {
   const user = await requirePermissionForAction("delivery.manage");
 
   const parsed = updateShipmentStatusSchema.safeParse({
@@ -254,6 +258,13 @@ export async function updateShipmentStatusAction(formData: FormData): Promise<Ac
       "Ce colis est enregistré chez le transporteur : il ne peut pas être annulé ici. Annulez-le chez le transporteur (ou via « Annuler » si le connecteur le permet), puis synchronisez son statut."
     );
   }
+
+  // A parcel that never left can't come back (manual changes only).
+  const manualProblem = manualShipmentTransitionProblem(existing.status, parsed.data.status, {
+    orderShipped: existing.order.shippedAt !== null,
+    outcomeUnknown: isShipmentOutcomeUnknown(existing),
+  });
+  if (manualProblem) return actionError(manualProblem);
 
   const result = await applyShipmentStatusTransition({
     shipmentId: existing.id,
@@ -311,7 +322,28 @@ export async function updateShipmentStatusAction(formData: FormData): Promise<Ac
   revalidatePath("/livraison/suivi");
   revalidatePath("/commandes");
   revalidatePath(`/commandes/${existing.orderId}`);
-  return actionOk({ id: existing.id });
+  const orderNow = await prisma.order.findUnique({ where: { id: existing.orderId }, select: { status: true } });
+  const notice = orderNow ? orderNotFollowedNotice(parsed.data.status, orderNow.status) : null;
+  return actionOk({ id: existing.id, ...(notice ? { notice } : {}) });
+}
+
+/**
+ * Said out loud when a parcel status did NOT carry over to its order
+ * (owner request 2026-10-16: « pourquoi la commande ne change pas ? »):
+ * « Retourné » moves the order to « Retour » only from Expédiée / Livrée and
+ * only when no other parcel of the order is live or delivered; « Livré »
+ * moves it to « Livrée » only from a status that allows it. Null = followed
+ * (or no order change was expected: En transit, Échec, Annulé).
+ */
+function orderNotFollowedNotice(newStatus: string, orderStatus: string): string | null {
+  const label = ORDER_STATUS_LABELS[orderStatus]?.label ?? orderStatus;
+  if (newStatus === "RETOURNE" && orderStatus !== "RETOUR") {
+    return `Colis « Retourné », mais la commande reste « ${label} » : seule une commande expédiée ou livrée passe « Retour », et seulement si aucun autre colis de cette commande n'est encore actif ou livré.`;
+  }
+  if (newStatus === "LIVRE" && orderStatus !== "LIVREE") {
+    return `Colis « Livré », mais la commande reste « ${label} » : elle ne peut pas passer « Livrée » depuis ce statut.`;
+  }
+  return null;
 }
 
 /**
@@ -442,9 +474,14 @@ export async function configureDeliveryProviderApiAction(formData: FormData): Pr
   if (provider.type !== "API") {
     return actionError('Seul un prestataire de type "API" peut recevoir une configuration de connecteur.');
   }
-  const available = listDeliveryProviders().map((p) => p.key);
-  if (!available.includes(parsed.data.providerKey)) {
+  const adapter = listDeliveryProviders().find((p) => p.key === parsed.data.providerKey);
+  if (!adapter) {
     return actionError("Ce connecteur n'est pas disponible sur ce déploiement.");
+  }
+  // A retired connector (e.g. Aramex) stays usable by connections that
+  // already use it, but no connection may newly switch to it.
+  if (adapter.acceptsNewConnections === false && provider.providerKey !== parsed.data.providerKey) {
+    return actionError("Ce connecteur n'est plus proposé pour de nouvelles connexions.");
   }
 
   await prisma.shippingProvider.update({
@@ -756,6 +793,24 @@ export async function createShipmentsBulkAction(
 
   revalidatePath("/livraison");
   return actionOk({ results });
+}
+
+/**
+ * « Étiquette » — a printable label link for one carrier parcel, fetched now
+ * from the carrier (capability FETCH_LABEL, docs/adr/0060). The signed link
+ * is returned to the operator's browser and never stored.
+ */
+export async function getShipmentLabelAction(formData: FormData): Promise<ActionResult<{ url: string }>> {
+  await requirePermissionForAction("delivery.manage");
+  const parsed = shipmentIdSchema.safeParse({ shipmentId: formData.get("shipmentId") });
+  if (!parsed.success) return actionError("Expédition invalide.");
+  const shipment = await prisma.shipment.findUnique({ where: { id: parsed.data.shipmentId } });
+  if (!shipment) return actionError("Expédition introuvable.");
+  try {
+    return actionOk({ url: await fetchShipmentLabelViaProvider(shipment) });
+  } catch (error) {
+    return actionError(friendlyDeliveryError(error));
+  }
 }
 
 export async function cancelShipmentAction(formData: FormData): Promise<ActionResult<IdResult>> {

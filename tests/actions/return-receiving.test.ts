@@ -185,6 +185,24 @@ describe("reception — eligibility, lookup and isolation", () => {
     expect(unknown).toEqual({ ok: false, error: "Aucun colis ne correspond à ce numéro." });
   });
 
+  it("a « Retourné » parcel whose order never shipped is found but NOT eligible, flagged « jamais expédiée » (2026-10-16)", async () => {
+    await loginOperator();
+    const { shipment, order } = await seedParcel();
+    await grantDefaultWarehouse();
+    await prisma.order.update({ where: { id: order.id }, data: { status: "EN_PREPARATION", shippedAt: null } });
+    const found = await lookupReturnParcelAction({ query: String(order.orderNumber) });
+    expect(found.ok).toBe(true);
+    if (found.ok) {
+      expect(found.data.map((p) => p.shipmentId)).toEqual([shipment.id]);
+      expect(found.data[0]).toMatchObject({ eligible: false, neverShipped: true });
+    }
+    // The server keeps refusing it either way.
+    const r = await receiveReturnParcelAction({ shipmentId: shipment.id });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/jamais été expédiée/);
+    expect(await prisma.returnReception.count()).toBe(0);
+  });
+
   it("another tenant's parcel is never found, received or inspected — and nothing of it changes", async () => {
     const TENANT_B = "tenant-b-return-receiving";
     await prismaBase.tenant.create({ data: { id: TENANT_B, name: "Tenant B", slug: TENANT_B } });
@@ -859,5 +877,69 @@ describe("getReceptionForInspection — the inspection page's read is scoped", (
     await grantDefaultWarehouse();
     const view = await getReceptionForInspection(reception.id, (await getCurrentUser())!);
     expect(view?.receptionId).toBe(reception.id);
+  });
+});
+
+describe("legacy order (no fulfilment warehouse) — lines restock where EXPEDIEE took them", () => {
+  /**
+   * Pre-32b order: `fulfillmentWarehouseId` null. The reception records the
+   * FIRST line's resolved warehouse (originalWarehouseId), while the
+   * inspection restocks EACH line to its own resolved warehouse (the one
+   * EXPEDIEE consumed from — resolveOrderStockWarehouseId) and requires
+   * access to every one of them. Documents the existing rule; no change.
+   */
+  async function seedLegacy() {
+    const { shipment, order, itemFor, products } = await seedParcel({ quantities: [2, 2] });
+    const whB = await prisma.warehouse.create({ data: { name: "Dépôt B" } });
+    // Line 2's product is stocked ONLY in Dépôt B → resolves there.
+    await prisma.inventoryItem.delete({ where: { id: products[1].item.id } });
+    const itemB = await prisma.inventoryItem.create({ data: { warehouseId: whB.id, productId: products[1].product.id, quantityOnHand: 5 } });
+    await prisma.order.update({ where: { id: order.id }, data: { fulfillmentWarehouseId: null } });
+    return { shipment, order, itemFor, whB, itemB };
+  }
+
+  it("a user with access to the reception's warehouse only is refused as a whole — nothing restocked anywhere", async () => {
+    await loginOperator();
+    const { shipment, order, itemFor, itemB } = await seedLegacy();
+    await grantDefaultWarehouse();
+    const receptionId = await receive(shipment.id);
+    const [a, b] = order.items;
+    const r = await inspectReturnReceptionAction({
+      receptionId,
+      idempotencyKey: randomUUID(),
+      entries: [
+        { orderItemId: a.id, condition: "SELLABLE", quantity: 2 },
+        { orderItemId: b.id, condition: "SELLABLE", quantity: 2 },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    expect(await onHand(itemFor(a.id).id)).toBe(5);
+    expect(await onHand(itemB.id)).toBe(5);
+    expect(await prisma.orderReturn.count()).toBe(0);
+    expect((await prisma.returnReception.findUniqueOrThrow({ where: { id: receptionId } })).status).toBe("A_INSPECTER");
+  });
+
+  it("a global role: each line goes back to its own warehouse, exactly once", async () => {
+    await loginAsTestUser({ role: "ADMIN" });
+    const { shipment, order, itemFor, whB, itemB } = await seedLegacy();
+    const receptionId = await receive(shipment.id);
+    const reception = await prisma.returnReception.findUniqueOrThrow({ where: { id: receptionId } });
+    expect(reception.warehouseId).toBe(itemFor(order.items[0].id).warehouseId); // first line's warehouse
+    const [a, b] = order.items;
+    const key = randomUUID();
+    const entries = [
+      { orderItemId: a.id, condition: "SELLABLE" as const, quantity: 2 },
+      { orderItemId: b.id, condition: "SELLABLE" as const, quantity: 1 },
+      { orderItemId: b.id, condition: "DAMAGED" as const, quantity: 1 },
+    ];
+    expect((await inspectReturnReceptionAction({ receptionId, idempotencyKey: key, entries })).ok).toBe(true);
+    expect((await inspectReturnReceptionAction({ receptionId, idempotencyKey: key, entries })).ok).toBe(true); // replay
+    expect(await onHand(itemFor(a.id).id)).toBe(7);
+    expect(await onHand(itemB.id)).toBe(6);
+    expect(await damaged(itemB.id)).toBe(1);
+    const lines = await prisma.orderReturnLine.findMany();
+    expect(lines.find((l) => l.orderItemId === b.id)?.warehouseId).toBe(whB.id);
+    expect(await prisma.orderReturn.count()).toBe(1);
+    expect(await prisma.inventoryMovement.count({ where: { orderReturnId: { not: null } } })).toBe(3);
   });
 });

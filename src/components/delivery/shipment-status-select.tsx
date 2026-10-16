@@ -17,7 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { SHIPMENT_FAILED_REASON_MIN, SHIPMENT_STATUS_TRANSITIONS, type ShipmentStatusValue } from "@/lib/validation/delivery";
+import { manualShipmentTransitionProblem, SHIPMENT_FAILED_REASON_MIN, SHIPMENT_STATUS_TRANSITIONS, type ShipmentStatusValue } from "@/lib/validation/delivery";
 import { SHIPMENT_STATUS_LABELS } from "@/lib/status-labels";
 
 /**
@@ -32,17 +32,26 @@ export function ShipmentStatusSelect({
   shipmentId,
   currentStatus,
   carrierParcel = false,
+  orderShipped = true,
+  outcomeUnknown = false,
 }: {
   shipmentId: string;
   currentStatus: ShipmentStatusValue;
   carrierParcel?: boolean;
+  /** order.shippedAt is set — a never-shipped order's parcel can't be « Retourné » by hand. */
+  orderShipped?: boolean;
+  /** Creation « à vérifier » at the carrier — only « Échec » / « Annulé » are offered. */
+  outcomeUnknown?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [value, setValue] = useState(currentStatus);
   const [failureOpen, setFailureOpen] = useState(false);
   const [failedReason, setFailedReason] = useState("");
-  const transitions = SHIPMENT_STATUS_TRANSITIONS[currentStatus].filter((s) => !(carrierParcel && s === "ANNULE"));
+  // « Retourné » is not offered for a parcel still « En attente » (it never left — manualShipmentTransitionProblem).
+  const transitions = SHIPMENT_STATUS_TRANSITIONS[currentStatus].filter(
+    (s) => !(carrierParcel && s === "ANNULE") && !manualShipmentTransitionProblem(currentStatus, s, { orderShipped, outcomeUnknown })
+  );
   const options = [currentStatus, ...transitions];
   const optionHint = (s: ShipmentStatusValue): string =>
     s === currentStatus ? "" : carrierParcel ? " (mise à jour locale)" : s === "ANNULE" ? " (local uniquement)" : "";
@@ -56,7 +65,9 @@ export function ShipmentStatusSelect({
       if (reason) formData.set("failedReason", reason);
       const result = await updateShipmentStatusAction(formData);
       if (result.ok) {
-        toast.success("Statut de livraison mis à jour.");
+        // The parcel changed but its order did not follow: say why, instead of a silent success.
+        if (result.data.notice) toast.warning(result.data.notice, { duration: 10000 });
+        else toast.success("Statut de livraison mis à jour.");
         setFailureOpen(false);
         setFailedReason("");
         router.refresh();

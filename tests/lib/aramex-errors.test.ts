@@ -3,6 +3,7 @@ import {
   DeliveryAuthError,
   DeliveryConfigError,
   DeliveryNotFoundError,
+  DeliveryOutcomeUnknownError,
   DeliveryUnavailableError,
 } from "@/lib/integrations/delivery/errors";
 import { errorForNotifications, errorForStatus } from "@/lib/integrations/delivery/providers/aramex/errors";
@@ -25,9 +26,11 @@ describe("aramex errorForNotifications — code classification (Appendix F)", ()
     expect(errorForNotifications([{ Code: "ERR03", Message: "x" }])).toBeInstanceOf(DeliveryAuthError);
   });
 
-  it("ERR30 → not-found (duplicate reference, shipment already exists)", () => {
+  // Since 2026-10-16: the shipment most likely exists already → outcome unknown
+  // (« à vérifier »), never a definite failure that would allow a second AWB.
+  it("ERR30 → outcome unknown (duplicate reference, shipment probably already exists)", () => {
     expect(errorForNotifications([{ Code: "ERR30", Message: "Duplicate ForeignHAWB" }])).toBeInstanceOf(
-      DeliveryNotFoundError
+      DeliveryOutcomeUnknownError
     );
   });
 

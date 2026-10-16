@@ -356,6 +356,10 @@ export interface AvailableDeliveryConnector {
   /** Typed credential inputs for the "Configurer" form. Empty → the raw
    * JSON credential editor is shown instead. */
   credentialFields: { name: string; label: string; type: "text" | "password"; required: boolean; help?: string }[];
+  /** false = retired for new connections (see DeliveryProviderAdapter.acceptsNewConnections). */
+  acceptsNewConnections: boolean;
+  /** Optional honesty note (see DeliveryProviderAdapter.notice). */
+  notice: string | null;
 }
 
 export function listAvailableDeliveryConnectors(): AvailableDeliveryConnector[] {
@@ -364,5 +368,7 @@ export function listAvailableDeliveryConnectors(): AvailableDeliveryConnector[] 
     displayName: adapter.displayName,
     capabilities: [...adapter.capabilities],
     credentialFields: adapter.credentialFields ? adapter.credentialFields.map((f) => ({ ...f })) : [],
+    acceptsNewConnections: adapter.acceptsNewConnections !== false,
+    notice: adapter.notice ?? null,
   }));
 }

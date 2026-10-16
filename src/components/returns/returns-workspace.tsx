@@ -96,7 +96,14 @@ export function ReturnsScanLot() {
     }
     lotRef.current = [...lotRef.current, { parcel }];
     setLot(lotRef.current);
-    setFeedback({ ok: true, text: `${name} ajouté au lot.` });
+    // Never a green « ajouté » for a parcel that can't be received (2026-10-16 review).
+    setFeedback(
+      parcel.neverShipped
+        ? { ok: false, text: `${name} ajouté au lot — non éligible : la commande n'a jamais été expédiée.` }
+        : !parcel.eligible
+          ? { ok: false, text: `${name} ajouté au lot — non éligible : le transporteur n'indique pas « Retourné ».` }
+          : { ok: true, text: `${name} ajouté au lot.` }
+    );
   }
 
   function lookup(raw: string) {
@@ -201,7 +208,9 @@ export function ReturnsScanLot() {
               {lot.map(({ parcel, result }) => {
                 const outcome = result
                   ? resultText(result)
-                  : !parcel.eligible
+                  : parcel.neverShipped
+                    ? { ok: false, text: "Non éligible : cette commande n'a jamais été expédiée — aucune unité à recevoir." }
+                    : !parcel.eligible
                     ? { ok: false, text: "Non éligible : le transporteur n'indique pas « Retourné »." }
                     : parcel.state !== "A_RECEPTIONNER"
                       ? {

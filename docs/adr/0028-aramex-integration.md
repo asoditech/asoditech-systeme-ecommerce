@@ -1,6 +1,16 @@
 # ADR 0028 — Aramex delivery adapter
 
 ## Status
+> **Retired for new connections 2026-10-15/16 — see
+> `docs/adr/0060-customer-codes-and-carrier-providers.md`.** The adapter
+> stays registered with `acceptsNewConnections: false`: hidden from the
+> connector list unless the company already has an Aramex connection, and
+> refused server-side for any connection not already using it. Existing
+> Aramex connections keep working. Since 2026-10-16 shipment creation makes
+> one attempt (no automatic resend); an uncertain outcome or `ERR30` →
+> « à vérifier ». (Local build, not committed / deployed at the time of
+> this note.)
+
 Accepted (2026-09-09). **Not yet live-verified** — the adapter is
 registered in production for configuration + connection testing only, on
 the same posture ADR 0013 defined for OzonExpress before its live call.
@@ -175,3 +185,29 @@ Owner-provided API reference: `docs/aramex_carrier_integration_doc.md`
   amended with an addendum like ADR 0013's.
 - Adding a third carrier is still just another adapter directory + one
   `register…Provider()` line.
+
+## Addendum 2026-10-16 — host allowlist and creation-outcome classification
+
+Local build, not committed / deployed at the time of this note. Aramex is
+retired for new connections (ADR 0060); this applies to existing ones.
+
+- **Host allowlist.** Every Aramex request body carries `ClientInfo`
+  (user, password, PIN), so the `shippingBaseUrl` / `trackingBaseUrl` /
+  `rateBaseUrl` overrides may only point at `ws.aramex.net` (live) or
+  `ws.dev.aramex.net` (sandbox) (`ARAMEX_API_HOSTS`,
+  `src/lib/integrations/delivery/carrier-hosts.ts`, checked in
+  `aramex/client.ts` before any request): `https:`, no credentials in the
+  URL, default port, exact host. A **legacy connection whose saved override
+  points anywhere else now fails with a `DeliveryConfigError`** (« … n'est
+  pas un hôte officiel du transporteur … ») instead of sending the request;
+  the fix is to clear or correct the override in « Configurer ». Mock hosts
+  are accepted only when `NODE_ENV=test`.
+- `trackingSiteBaseUrl` (the public tracking page opened by the operator)
+  is still only `https:`-checked, not host-restricted — owner decision in
+  `docs/OWNER-DECISIONS-2026-10-16.md`.
+- **Outcome of a sent `CreateShipments`.** Only HTTP 400/401/403/404/422
+  are a definite refusal (`isDefiniteCreateRefusalStatus`). 408, 409 and
+  any other unexpected status join timeout / reset / 5xx / 429 as
+  `DeliveryOutcomeUnknownError` → « à vérifier ». A 2xx that cannot be read
+  as a created shipment, or any untyped error raised while reading it, is
+  also « à vérifier ». Still unverified on a real Aramex account.

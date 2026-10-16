@@ -225,3 +225,17 @@ automatically: that would mean linking shipments to an unconfirmed manifest
 limited: the « Bon de livraison » builder (`manifest-builder.tsx`) has not
 been mounted on any page since commit `4b260a2` (2026-09-05), so the flow is
 not reachable from the UI. Decide the guard before mounting it again.
+
+## Addendum 2026-10-16 — portal host allowlist
+
+Local build, not committed / deployed at the time of this note. The
+« Bon de livraison » PDF links open in the operator's browser, so
+`portalBaseUrl` is now restricted to `https://client.ozoneexpress.ma`
+(`OZONEXPRESS_PORTAL_HOSTS`, `src/lib/integrations/delivery/carrier-hosts.ts`).
+The config schema refuses any other host, and `buildDeliveryNoteDocuments`
+re-checks it (`DeliveryConfigError` « L'URL du portail OzonExpress doit être
+sur client.ozoneexpress.ma (HTTPS). »), so a stored legacy value cannot send
+the operator elsewhere. The three manifest calls keep the once-only rule of
+the 2026-10-14 addendum; a non-2xx answer other than 400/401/403/404/422 to
+one of them is « outcome unknown », never a definite failure
+(`isDefiniteCreateRefusalStatus`).

@@ -1,6 +1,11 @@
 import "server-only";
 
-import { DeliveryConfigError } from "@/lib/integrations/delivery/errors";
+import {
+  DeliveryConfigError,
+  DeliveryMalformedResponseError,
+  DeliveryOutcomeUnknownError,
+  DeliveryProviderError,
+} from "@/lib/integrations/delivery/errors";
 import type {
   CreateShipmentAdapterInput,
   CreateShipmentAdapterResult,
@@ -13,7 +18,7 @@ import type {
   FetchTrackingAdapterResult,
 } from "@/lib/integrations/delivery/types";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
-import { AramexClient } from "./client";
+import { AramexClient, ARAMEX_OUTCOME_UNKNOWN_MESSAGE } from "./client";
 import {
   buildCalculateRatePayload,
   buildCreateShipmentPayload,
@@ -114,6 +119,10 @@ export const aramexAdapter: DeliveryProviderAdapter = {
   key: ARAMEX_PROVIDER_KEY,
   displayName: "Aramex",
   capabilities: ["CREATE_SHIPMENT", "FETCH_STATUS", "FETCH_TRACKING", "FETCH_COST"],
+  // Selected by mistake — the intended carriers are Ameex and Sendit
+  // (docs/adr/0060). Kept registered so existing Aramex connections still
+  // work; no new connection can choose it.
+  acceptsNewConnections: false,
 
   credentialFields: [
     {
@@ -202,8 +211,18 @@ export const aramexAdapter: DeliveryProviderAdapter = {
       accountNumber: creds.accountNumber,
       accountCountryCode: creds.accountCountryCode,
     });
-    const raw = await client.post("shipping", CREATE_ENDPOINT, payload);
-    const parsed = parseCreateShipmentResponse(raw, cfg);
+    // ONE attempt (no automatic resend → no second AWB). A 2xx that can't be
+    // read as a created shipment may still have created one: outcome unknown.
+    const raw = await client.post("shipping", CREATE_ENDPOINT, payload, { once: true });
+    let parsed: ReturnType<typeof parseCreateShipmentResponse>;
+    try {
+      parsed = parseCreateShipmentResponse(raw, cfg);
+    } catch (error) {
+      if (error instanceof DeliveryMalformedResponseError || !(error instanceof DeliveryProviderError)) {
+        throw new DeliveryOutcomeUnknownError(ARAMEX_OUTCOME_UNKNOWN_MESSAGE);
+      }
+      throw error;
+    }
 
     // Aramex's CreateShipments response carries no price. Best-effort a
     // rate via CalculateRate — never fatal to a successful shipment.

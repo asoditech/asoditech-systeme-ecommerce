@@ -45,7 +45,13 @@ export type DeliveryCapability =
   // module (docs/adr/0033) via `fetchTracking` — the existing
   // status-sync path is unchanged and never calls it. Never assumed:
   // a provider without this capability simply shows no timeline.
-  | "FETCH_TRACKING";
+  | "FETCH_TRACKING"
+  // The provider returns a printable parcel label for ONE created parcel as
+  // a short-lived signed https link (docs/adr/0060). Fetched on demand via
+  // `fetchLabel` and opened by the operator; the link is never stored.
+  // Declared only by a provider whose label endpoint is documented AND
+  // implemented (Sendit: POST /deliveries/getlabels).
+  | "FETCH_LABEL";
 
 /**
  * Deliberately not modeled as a capability in this phase: updating an
@@ -253,6 +259,19 @@ export interface DeliveryProviderAdapter {
   /** Optional typed credential schema for the config UI — see
    * DeliveryCredentialField. */
   readonly credentialFields?: readonly DeliveryCredentialField[];
+  /**
+   * `false` = retired for NEW connections: hidden from the connector choice
+   * and refused by configureDeliveryProviderApiAction unless the connection
+   * already uses this key. Existing connections keep working (status sync,
+   * tracking, re-saving their credentials). Default (absent) = offered.
+   */
+  readonly acceptsNewConnections?: boolean;
+  /**
+   * Optional short French warning shown next to the connector in the
+   * « Configurer » dialog (e.g. « pas encore validé sur un compte réel »).
+   * Plain text, never a credential or URL.
+   */
+  readonly notice?: string;
 
   /** Performs one real authenticated, read-only request to confirm the
    * credentials/config actually work. This is the only path allowed to
@@ -323,10 +342,24 @@ export interface DeliveryProviderAdapter {
 
   /** Verifies a raw webhook delivery's signature. Must use a
    * constant-time comparison (see shared/hmac.ts). */
+  fetchLabel?(
+    input: FetchStatusAdapterInput,
+    credentials: DeliveryCredentials,
+    config: DeliveryProviderConfig
+  ): Promise<{ url: string }>;
+
   verifyWebhookSignature?(rawBody: string, headers: Record<string, string>, secret: string): boolean;
 
   /** Parses an already-signature-verified raw webhook body into a
    * normalized event. Returns null for a topic this adapter doesn't act on
    * (acknowledge, don't reject — see docs/adr/0010's webhook handling). */
   mapWebhookPayload?(rawBody: string, headers: Record<string, string>): DeliveryWebhookEvent | null;
+
+  /**
+   * Optional: a reason to drop an already-VERIFIED event given the
+   * connection's own credentials (e.g. Ameex: a sandbox event received on a
+   * live key), or null to process it. Called by handleDeliveryWebhook after
+   * the signature check and before the replay record.
+   */
+  shouldIgnoreWebhookEvent?(event: DeliveryWebhookEvent, credentials: DeliveryCredentials): string | null;
 }

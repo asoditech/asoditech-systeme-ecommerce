@@ -2,6 +2,8 @@ import "server-only";
 
 import { z } from "zod";
 
+import { isAllowedCarrierUrl, OZONEXPRESS_PORTAL_HOSTS } from "@/lib/integrations/delivery/carrier-hosts";
+
 /**
  * OzonExpress adapter — credential / config shapes and response schemas.
  *
@@ -96,6 +98,12 @@ export const ozonExpressConfigSchema = z.object({
     .string()
     .url()
     .refine((u) => new URL(u).protocol === "https:", "L'URL du portail OzonExpress doit utiliser HTTPS.")
+    // Opened by the operator: only OzonExpress's documented portal host
+    // (docs/adr/0015), never an arbitrary site.
+    .refine(
+      (u) => isAllowedCarrierUrl(u, OZONEXPRESS_PORTAL_HOSTS),
+      "L'URL du portail OzonExpress doit être sur client.ozoneexpress.ma."
+    )
     .optional(),
 });
 export type OzonExpressConfig = z.infer<typeof ozonExpressConfigSchema>;

@@ -2,6 +2,7 @@ import "server-only";
 
 import { DeliveryConfigError, DeliveryMalformedResponseError } from "@/lib/integrations/delivery/errors";
 import { matchCityName, normalizeCityName } from "@/lib/integrations/delivery/city-match";
+import { isAllowedCarrierUrl, OZONEXPRESS_PORTAL_HOSTS } from "@/lib/integrations/delivery/carrier-hosts";
 import type { ShipmentStatusValue } from "@/lib/validation/delivery";
 import { parseMoney } from "./client";
 import {
@@ -321,13 +322,17 @@ export function parseDeliveryNoteRef(raw: unknown): string {
  *   - 10×10 cm labels
  * These are opened by the operator in their browser (where they are
  * already signed into the portal); this app never fetches them. The
- * portal base is `config.portalBaseUrl` (already validated `https:` by the
- * config schema) or the production default.
+ * portal base is `config.portalBaseUrl` (validated `https:` on the
+ * documented portal host by the config schema, re-checked here) or the
+ * production default.
  */
 export function buildDeliveryNoteDocuments(
   ref: string,
   config: OzonExpressConfig
 ): DeliveryManifestDocument[] {
+  if (config.portalBaseUrl !== undefined && !isAllowedCarrierUrl(config.portalBaseUrl, OZONEXPRESS_PORTAL_HOSTS)) {
+    throw new DeliveryConfigError("L'URL du portail OzonExpress doit être sur client.ozoneexpress.ma (HTTPS).");
+  }
   const base = (config.portalBaseUrl ?? DEFAULT_PORTAL_BASE_URL).replace(/\/+$/, "");
   const q = `dn-ref=${encodeURIComponent(ref)}`;
   return [

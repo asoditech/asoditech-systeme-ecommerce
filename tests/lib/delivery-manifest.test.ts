@@ -73,9 +73,13 @@ describe("OzonExpress delivery-note mapper", () => {
     for (const d of docs) expect(new URL(d.url).protocol).toBe("https:");
   });
 
-  it("honours a config portalBaseUrl override", () => {
-    const docs = buildDeliveryNoteDocuments("BL9", { portalBaseUrl: "https://portal.example.com/" });
-    expect(docs[0].url).toBe("https://portal.example.com/pdf-delivery-note?dn-ref=BL9");
+  it("honours a config portalBaseUrl override on the documented portal host", () => {
+    const docs = buildDeliveryNoteDocuments("BL9", { portalBaseUrl: "https://client.ozoneexpress.ma/" });
+    expect(docs[0].url).toBe("https://client.ozoneexpress.ma/pdf-delivery-note?dn-ref=BL9");
+  });
+
+  it("refuses a portalBaseUrl override on any other host (links the operator opens)", () => {
+    expect(() => buildDeliveryNoteDocuments("BL9", { portalBaseUrl: "https://portal.example.com/" })).toThrow(DeliveryProviderError);
   });
 });
 

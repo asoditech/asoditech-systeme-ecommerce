@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Counts the WooCommerce « completed » pushes a carrier event triggers (the
+// stock push keeps its real implementation).
+const autoPush = vi.hoisted(() => ({ pushOrderStatusToWooCommerce: vi.fn(async (orderId: string): Promise<void> => void orderId) }));
+vi.mock("@/lib/integrations/shared/auto-push", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/integrations/shared/auto-push")>()),
+  pushOrderStatusToWooCommerce: autoPush.pushOrderStatusToWooCommerce,
+}));
+
 import { prisma } from "@/lib/prisma";
+import { applyShipmentStatusTransition } from "@/lib/delivery";
 import { encryptSecret } from "@/lib/crypto";
 import {
   testProviderConnection,
@@ -390,6 +400,123 @@ describe("delivery integration service (against the reference fixture adapter)",
       const still = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
       expect(Number(still.cost)).toBe(25.5); // frozen
     });
+
+    async function outcomeUnknownShipment(providerData: Record<string, unknown>) {
+      __resetDeliveryProviderRegistryForTests();
+      registerDeliveryProvider({
+        ...referenceDeliveryProvider,
+        createShipment: async () => {
+          throw new DeliveryOutcomeUnknownError("Résultat inconnu (test).");
+        },
+      });
+      const provider = await prisma.shippingProvider.create({
+        data: {
+          name: "Transporteur ref",
+          type: "API",
+          providerKey: REFERENCE_PROVIDER_KEY,
+          credentialsEncrypted: encryptSecret(JSON.stringify({ apiKey: FAKE_API_KEY })),
+          connectionStatus: "CONFIGURE",
+          ...providerData,
+        },
+      });
+      const order = await seedOrderWithAddress();
+      await expect(createShipmentViaProvider({ order, providerId: provider.id, updatedById: testUserId, notes: null })).rejects.toBeInstanceOf(
+        DeliveryOutcomeUnknownError
+      );
+      const pending = await prisma.shipment.findFirstOrThrow({ where: { orderId: order.id } });
+      expect(isShipmentOutcomeUnknown(pending)).toBe(true);
+      return { provider, order, pending };
+    }
+
+    it.each(["ECHEC", "ANNULE"] as const)(
+      "a creation « à vérifier » settled by hand as %s books NO failure fee (never a carrier parcel — ADR 0031/0032)",
+      async (to) => {
+        const { order, pending } = await outcomeUnknownShipment({ failureCost: 15 });
+        const result = await applyShipmentStatusTransition({
+          shipmentId: pending.id,
+          currentStatus: "EN_ATTENTE",
+          orderId: order.id,
+          currentOrderStatus: order.status,
+          newStatus: to,
+          updatedById: testUserId,
+          failedReason: "Aucun colis sur le portail",
+        });
+        expect(result).toMatchObject({ ok: true });
+        expect(result.ok && result.finalizedCost).toBeFalsy();
+        const s = await prisma.shipment.findUniqueOrThrow({ where: { id: pending.id } });
+        expect(s.status).toBe(to);
+        expect(s.cost).toBeNull();
+        expect(s.costSource).toBeNull();
+      }
+    );
+
+    it("after « à vérifier » → ECHEC, the replacement parcel is created normally and the failed attempt (no fee) is cleaned up", async () => {
+      const { provider, order, pending } = await outcomeUnknownShipment({ failureCost: 15 });
+      await applyShipmentStatusTransition({
+        shipmentId: pending.id,
+        currentStatus: "EN_ATTENTE",
+        orderId: order.id,
+        currentOrderStatus: order.status,
+        newStatus: "ECHEC",
+        updatedById: testUserId,
+        failedReason: "Aucun colis sur le portail",
+      });
+      __resetDeliveryProviderRegistryForTests();
+      registerReferenceDeliveryProvider();
+      const replacement = await createShipmentViaProvider({ order, providerId: provider.id, updatedById: testUserId, notes: null });
+      expect(replacement.externalId).toBe("ref-1");
+      const rows = await prisma.shipment.findMany({ where: { orderId: order.id } });
+      expect(rows.map((r) => r.id)).toEqual([replacement.id]);
+      const deletedAudit = await prisma.auditEvent.findFirstOrThrow({ where: { action: "shipment.deleted", entityId: order.id } });
+      expect(deletedAudit.previousValue).toMatchObject({ shipmentId: pending.id, cost: null });
+    });
+
+    it("a carrier-reported ECHEC on a real parcel still books the failure rule", async () => {
+      const { shipment } = await shippedShipment({ failureCost: 7 });
+      carrierState.shipments.get(shipment.externalId!)!.status = "failed";
+      await sync(shipment.id);
+      const s = await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } });
+      expect(Number(s.cost)).toBe(7);
+      expect(s.costSource).toBe("FAILURE_RULE");
+    });
+  });
+
+  describe("one live parcel per order, stock deducted once", () => {
+    it("a carrier ECHEC frees the order for a 2nd parcel; the 1st one moving again is refused while the 2nd is live — no second stock deduction", async () => {
+      const provider = await seedApiProvider();
+      const order = await seedOrderWithAddress();
+      const first = await createShipmentViaProvider({ order, providerId: provider.id, updatedById: testUserId, notes: null });
+      const sync = async (id: string) => {
+        const fresh = await prisma.shipment.findUniqueOrThrow({ where: { id }, include: { order: true } });
+        return syncShipmentStatus({ shipment: fresh, order: fresh.order, updatedById: testUserId });
+      };
+      carrierState.shipments.get(first.externalId!)!.status = "in_transit";
+      await sync(first.id);
+      carrierState.shipments.get(first.externalId!)!.status = "failed";
+      await sync(first.id);
+      expect((await prisma.shipment.findUniqueOrThrow({ where: { id: first.id } })).status).toBe("ECHEC");
+      const outAfterFirst = await prisma.inventoryMovement.count({ where: { orderId: order.id, type: "VENTE" } });
+      expect(outAfterFirst).toBeGreaterThan(0);
+
+      // Current rule (ADR 0006): an ECHEC parcel is not « active » — once staff
+      // put the order « Échec » (re-ship case), a 2nd parcel is allowed.
+      await prisma.order.update({ where: { id: order.id }, data: { status: "ECHEC" } });
+      const fresh = await prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { customer: true } });
+      const second = await createShipmentViaProvider({ order: fresh, providerId: provider.id, updatedById: testUserId, notes: null });
+      expect(second.id).not.toBe(first.id);
+
+      // The carrier then reports the FIRST parcel moving again: refused, never two live parcels.
+      carrierState.shipments.get(first.externalId!)!.status = "in_transit";
+      const result = await sync(first.id);
+      expect(result).toMatchObject({ outcome: "error" });
+      expect((await prisma.shipment.findUniqueOrThrow({ where: { id: first.id } })).status).toBe("ECHEC");
+      expect(await prisma.shipment.count({ where: { orderId: order.id, status: { in: ["EN_ATTENTE", "EN_TRANSIT"] } } })).toBe(1);
+
+      // The 2nd parcel leaving does not deduct the order's stock a second time.
+      carrierState.shipments.get(second.externalId!)!.status = "in_transit";
+      await sync(second.id);
+      expect(await prisma.inventoryMovement.count({ where: { orderId: order.id, type: "VENTE" } })).toBe(outAfterFirst);
+    });
   });
 
   describe("handleDeliveryWebhook", () => {
@@ -468,11 +595,131 @@ describe("delivery integration service (against the reference fixture adapter)",
       const params = { providerId: provider.id, rawBody: raw, headers: { "x-reference-signature": signature }, deliveryIdHeader: "evt-concurrent" };
 
       const [a, b] = await Promise.all([handleDeliveryWebhook(params), handleDeliveryWebhook(params)]);
-      const outcomes = [a.outcome, b.outcome].sort();
-      expect(outcomes).toEqual(["already_processed", "processed"]);
+      // The loser either sees the winner still EN_COURS (→ "in_progress",
+      // the carrier is asked to retry) or already TRAITE. Since 2026-10-16
+      // the row becomes TRAITE only after processing (before, it was written
+      // TRAITE up front and the loser always answered "already_processed").
+      expect([a.outcome, b.outcome].filter((o) => o === "processed")).toHaveLength(1);
+      expect([a.outcome, b.outcome].filter((o) => o === "in_progress" || o === "already_processed")).toHaveLength(1);
 
       const events = await prisma.shipmentWebhookEvent.count({ where: { providerId: provider.id, deliveryId: "evt-concurrent" } });
       expect(events).toBe(1);
+    });
+
+    it("a failed processing stays ECHEC (never TRAITE); the carrier's retry of the same delivery is processed, once", async () => {
+      const provider = await seedApiProvider({ webhookSecret: "whsec_1" });
+      const order = await seedOrderWithAddress();
+      const shipment = await createShipmentViaProvider({ order, providerId: provider.id, updatedById: testUserId, notes: null });
+      const { raw, signature } = signedBody(
+        { delivery_id: "evt-retry", topic: REFERENCE_WEBHOOK_TOPIC, shipment_id: shipment.externalId, status: "in_transit" },
+        "whsec_1"
+      );
+      const params = { providerId: provider.id, rawBody: raw, headers: { "x-reference-signature": signature }, deliveryIdHeader: "evt-retry" };
+      const eventStatus = async () =>
+        (await prisma.shipmentWebhookEvent.findFirstOrThrow({ where: { providerId: provider.id, deliveryId: "evt-retry" } })).status;
+
+      // The authoritative re-fetch fails (carrier answers 404 / down).
+      const record = carrierState.shipments.get(shipment.externalId!)!;
+      carrierState.shipments.delete(shipment.externalId!);
+      const failed = await handleDeliveryWebhook(params);
+      expect(failed.outcome).toBe("failed");
+      expect(await eventStatus()).toBe("ECHEC");
+      expect((await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } })).status).toBe(shipment.status);
+
+      // The carrier retries the SAME delivery once it is reachable again.
+      carrierState.shipments.set(shipment.externalId!, { ...record, status: "in_transit" });
+      const retried = await handleDeliveryWebhook(params);
+      expect(retried.outcome).toBe("processed");
+      expect(await eventStatus()).toBe("TRAITE");
+      expect((await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } })).status).toBe("EN_TRANSIT");
+
+      // A further replay is a no-op.
+      expect(await handleDeliveryWebhook(params)).toEqual({ outcome: "already_processed" });
+      expect(await prisma.shipmentWebhookEvent.count({ where: { providerId: provider.id, deliveryId: "evt-retry" } })).toBe(1);
+    });
+
+    it("an event claimed by a live request answers in_progress; a stale claim (dead request) is taken over", async () => {
+      const provider = await seedApiProvider({ webhookSecret: "whsec_1" });
+      const order = await seedOrderWithAddress();
+      const shipment = await createShipmentViaProvider({ order, providerId: provider.id, updatedById: testUserId, notes: null });
+      const { raw, signature } = signedBody(
+        { delivery_id: "evt-claim", topic: REFERENCE_WEBHOOK_TOPIC, shipment_id: shipment.externalId, status: "in_transit" },
+        "whsec_1"
+      );
+      const params = { providerId: provider.id, rawBody: raw, headers: { "x-reference-signature": signature }, deliveryIdHeader: "evt-claim" };
+      await prisma.shipmentWebhookEvent.create({
+        data: { providerId: provider.id, deliveryId: "evt-claim", topic: REFERENCE_WEBHOOK_TOPIC, resourceId: shipment.externalId, status: "EN_COURS" },
+      });
+      expect(await handleDeliveryWebhook(params)).toEqual({ outcome: "in_progress" });
+
+      await prisma.shipmentWebhookEvent.updateMany({ where: { deliveryId: "evt-claim" }, data: { receivedAt: new Date(Date.now() - 10 * 60 * 1000) } });
+      expect((await handleDeliveryWebhook(params)).outcome).toBe("processed");
+    });
+
+    it("a « returned » event delivered twice moves the order to RETOUR once, restores no stock, leaves payment alone", async () => {
+      const provider = await seedApiProvider({ webhookSecret: "whsec_1" });
+      const order = await seedOrderWithAddress();
+      const shipment = await createShipmentViaProvider({ order, providerId: provider.id, updatedById: testUserId, notes: null });
+      // The parcel went out, then came back.
+      carrierState.shipments.get(shipment.externalId!)!.status = "in_transit";
+      await handleDeliveryWebhook({
+        providerId: provider.id,
+        ...(() => {
+          const s = signedBody({ delivery_id: "evt-transit", topic: REFERENCE_WEBHOOK_TOPIC, shipment_id: shipment.externalId, status: "in_transit" }, "whsec_1");
+          return { rawBody: s.raw, headers: { "x-reference-signature": s.signature } };
+        })(),
+        deliveryIdHeader: "evt-transit",
+      });
+      carrierState.shipments.get(shipment.externalId!)!.status = "returned";
+      const { raw, signature } = signedBody(
+        { delivery_id: "evt-returned", topic: REFERENCE_WEBHOOK_TOPIC, shipment_id: shipment.externalId, status: "returned" },
+        "whsec_1"
+      );
+      const params = { providerId: provider.id, rawBody: raw, headers: { "x-reference-signature": signature }, deliveryIdHeader: "evt-returned" };
+      const movementsBefore = await prisma.inventoryMovement.count({ where: { type: "RETOUR" } });
+
+      expect((await handleDeliveryWebhook(params)).outcome).toBe("processed");
+      expect(await handleDeliveryWebhook(params)).toEqual({ outcome: "already_processed" });
+      // Same status re-delivered under a NEW delivery id: unchanged, still nothing restocked.
+      const again = signedBody({ delivery_id: "evt-returned-2", topic: REFERENCE_WEBHOOK_TOPIC, shipment_id: shipment.externalId, status: "returned" }, "whsec_1");
+      await handleDeliveryWebhook({ providerId: provider.id, rawBody: again.raw, headers: { "x-reference-signature": again.signature }, deliveryIdHeader: "evt-returned-2" });
+
+      expect((await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } })).status).toBe("RETOURNE");
+      const after = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+      expect(after.paymentStatus).toBe(order.paymentStatus);
+      // Restocking only happens at inspection in the returns workspace.
+      expect(await prisma.inventoryMovement.count({ where: { type: "RETOUR" } })).toBe(movementsBefore);
+      const toRetour = await prisma.auditEvent.count({
+        where: { entityType: "Order", entityId: order.id, action: "order.status_changed", newValue: { path: ["status"], equals: "RETOUR" } },
+      });
+      expect(toRetour).toBeLessThanOrEqual(1);
+    });
+
+    it("a « delivered » event duplicated under DIFFERENT delivery ids (and concurrently) applies its effects once: one stock deduction, one Woo push, one audit, no new shipment", async () => {
+      const provider = await seedApiProvider({ webhookSecret: "whsec_1" });
+      const order = await seedOrderWithAddress();
+      const shipment = await createShipmentViaProvider({ order, providerId: provider.id, updatedById: testUserId, notes: null });
+      autoPush.pushOrderStatusToWooCommerce.mockClear();
+      carrierState.shipments.get(shipment.externalId!)!.status = "delivered";
+      const deliver = (id: string) => {
+        const s = signedBody({ delivery_id: id, topic: REFERENCE_WEBHOOK_TOPIC, shipment_id: shipment.externalId, status: "delivered" }, "whsec_1");
+        return handleDeliveryWebhook({ providerId: provider.id, rawBody: s.raw, headers: { "x-reference-signature": s.signature }, deliveryIdHeader: id });
+      };
+
+      await Promise.all([deliver("evt-d1"), deliver("evt-d2")]);
+      await deliver("evt-d3");
+      await deliver("evt-d1"); // exact replay
+
+      expect((await prisma.shipment.findUniqueOrThrow({ where: { id: shipment.id } })).status).toBe("LIVRE");
+      expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("LIVREE");
+      expect(await prisma.shipment.count({ where: { orderId: order.id } })).toBe(1);
+      expect(await prisma.inventoryMovement.count({ where: { orderId: order.id, type: "VENTE" } })).toBe(1);
+      expect((await prisma.inventoryItem.findFirstOrThrow()).quantityOnHand).toBe(9);
+      expect(await prisma.inventoryMovement.count({ where: { type: "RETOUR" } })).toBe(0);
+      expect(autoPush.pushOrderStatusToWooCommerce).toHaveBeenCalledTimes(1);
+      expect(
+        await prisma.auditEvent.count({ where: { entityType: "Shipment", entityId: shipment.id, action: "shipment.status_changed" } })
+      ).toBe(1);
     });
 
     it("acknowledges (ignores, doesn't reject) an unsupported topic", async () => {

@@ -1,9 +1,9 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useActionState, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Settings, Plug } from "lucide-react";
+import { Check, Copy, Settings, Plug } from "lucide-react";
 import { configureDeliveryProviderApiAction, testDeliveryProviderConnectionAction } from "@/actions/delivery";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,8 +11,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Notice } from "@/components/ui/notice";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -43,6 +45,66 @@ export function ProviderConnectionStatus({ status }: { status: IntegrationStatus
 
 const CRED_FIELD_PREFIX = "cred__";
 
+/**
+ * Path of the generic carrier webhook for one connection (docs/adr/0060).
+ * It carries only the ShippingProvider id — never the webhook secret, which
+ * is a write-only credential field and is never sent back to the browser.
+ */
+export function deliveryWebhookPath(providerId: string): string {
+  return `/api/webhooks/delivery/${encodeURIComponent(providerId)}`;
+}
+
+/**
+ * Read-only, fully visible webhook URL (wraps instead of being clipped) with
+ * a « Copier » button. Clipboard API first; when it is unavailable or
+ * refused, the text is selected so the operator can copy it by hand.
+ */
+export function WebhookUrlField({ url }: { url: string }) {
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const [feedback, setFeedback] = useState<"" | "copied" | "manual">("");
+
+  async function copy() {
+    try {
+      if (!navigator.clipboard) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(url);
+      setFeedback("copied");
+    } catch {
+      fieldRef.current?.focus();
+      fieldRef.current?.select();
+      setFeedback("manual");
+    }
+    setTimeout(() => setFeedback(""), 2000);
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor="webhookUrl">URL du webhook à coller chez le transporteur</Label>
+      <div className="flex items-start gap-2">
+        <textarea
+          id="webhookUrl"
+          ref={fieldRef}
+          readOnly
+          rows={2}
+          value={url}
+          onFocus={(e) => e.currentTarget.select()}
+          className="min-w-0 flex-1 resize-none break-all rounded-lg border border-input bg-muted/40 px-2.5 py-1.5 font-mono text-xs leading-relaxed text-ink outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        />
+        <Button type="button" variant="outline" size="sm" onClick={copy} aria-label="Copier l'URL du webhook">
+          {feedback === "copied" ? <Check className="size-4" /> : <Copy className="size-4" />}
+          {feedback === "copied" ? "Copié" : "Copier"}
+        </Button>
+      </div>
+      {/* « Copié » is already on the button; the region announces it, and shows only the manual-copy hint. */}
+      <p aria-live="polite" role="status" className={feedback === "manual" ? "text-xs text-muted-foreground" : "sr-only"}>
+        {feedback === "copied" ? "Copié" : feedback === "manual" ? "Copie automatique impossible : l'URL est sélectionnée, copiez-la avec ⌘C / Ctrl+C." : ""}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Renseignez aussi le même secret webhook ici et chez le transporteur. Le secret n&apos;est jamais réaffiché après l&apos;enregistrement.
+      </p>
+    </div>
+  );
+}
+
 export function ProviderConnectionControls({
   providerId,
   providerKey,
@@ -56,6 +118,8 @@ export function ProviderConnectionControls({
   const [open, setOpen] = useState(false);
   const [isTesting, startTest] = useTransition();
   const [selectedKey, setSelectedKey] = useState<string | null>(providerKey);
+  // Retired connectors stay listed only for the connection already using them.
+  const choices = connectors.filter((c) => c.acceptsNewConnections || c.key === providerKey);
 
   const selectedConnector = connectors.find((c) => c.key === selectedKey) ?? null;
   const typedFields = selectedConnector?.credentialFields ?? [];
@@ -114,7 +178,7 @@ export function ProviderConnectionControls({
   return (
     <div className="flex items-center gap-2">
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger render={<Button type="button" variant="outline" size="sm" disabled={connectors.length === 0} />}>
+        <DialogTrigger render={<Button type="button" variant="outline" size="sm" disabled={choices.length === 0} />}>
           <Settings className="size-4" />
           Configurer
         </DialogTrigger>
@@ -122,7 +186,7 @@ export function ProviderConnectionControls({
           <DialogHeader>
             <DialogTitle>Configurer le connecteur</DialogTitle>
           </DialogHeader>
-          {connectors.length === 0 ? (
+          {choices.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Aucun connecteur de transporteur n&apos;est disponible sur ce déploiement pour le moment.
             </p>
@@ -143,7 +207,7 @@ export function ProviderConnectionControls({
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {connectors.map((c) => (
+                    {choices.map((c) => (
                       <SelectItem key={c.key} value={c.key}>
                         {c.displayName}
                       </SelectItem>
@@ -151,6 +215,21 @@ export function ProviderConnectionControls({
                   </SelectContent>
                 </Select>
               </div>
+
+              {selectedConnector?.notice && (
+                <Notice tone="warning" className="block">
+                  {selectedConnector.notice}
+                </Notice>
+              )}
+
+              {/* The URL to paste in the carrier's account (generic route, docs/adr/0060):
+                  one per connection, so the tenant and secret come from the connection. */}
+              {selectedConnector?.capabilities.includes("WEBHOOKS") && (
+                <WebhookUrlField
+                  // Dialog content only renders client-side once opened: window is available.
+                  url={`${typeof window === "undefined" ? "" : window.location.origin}${deliveryWebhookPath(providerId)}`}
+                />
+              )}
 
               {useTypedFields ? (
                 <div className="space-y-3">
@@ -188,6 +267,8 @@ export function ProviderConnectionControls({
               </div>
               {state && !state.ok && <p className="text-sm text-destructive">{state.error}</p>}
               <DialogFooter>
+                {/* Closes without saving: nothing is submitted, the form state is discarded. */}
+                <DialogClose render={<Button type="button" variant="outline" disabled={isPending} />}>Annuler</DialogClose>
                 <Button type="submit" disabled={isPending}>
                   {isPending ? "Enregistrement..." : "Enregistrer"}
                 </Button>

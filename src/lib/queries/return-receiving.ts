@@ -50,7 +50,10 @@ export interface ReturnParcelView {
   trackingNumber: string | null;
   providerName: string;
   carrierStatus: ShipmentStatus;
+  /** « Retourné » AND the order really left (shippedAt) — the only receivable parcels. */
   eligible: boolean;
+  /** The order was never shipped (no stock went out): nothing physical to receive. */
+  neverShipped: boolean;
   orderId: string;
   orderLabel: string;
   recipientName: string;
@@ -80,6 +83,7 @@ const parcelInclude = {
       shippingPhone: true,
       shippingCity: true,
       fulfillmentWarehouseId: true,
+      shippedAt: true,
       fulfillmentWarehouse: { select: { name: true } },
       customer: { select: { fullName: true, phone: true } },
       items: { select: { id: true, quantity: true } },
@@ -138,7 +142,8 @@ function toView(row: ParcelRow, prefix: string): ReturnParcelView {
     trackingNumber: row.trackingNumber,
     providerName: row.provider.name,
     carrierStatus: row.status,
-    eligible: row.status === RETURN_ELIGIBLE_SHIPMENT_STATUS,
+    eligible: row.status === RETURN_ELIGIBLE_SHIPMENT_STATUS && row.order.shippedAt !== null,
+    neverShipped: row.order.shippedAt === null,
     orderId: row.order.id,
     orderLabel: displayOrderNumber(row.order, prefix),
     recipientName: row.order.shippingName?.trim() || row.order.customer.fullName,

@@ -42,6 +42,9 @@ import {
 } from "@/lib/validation/delivery";
 import { SHIPMENT_STATUS_LABELS } from "@/lib/status-labels";
 import { recordAuditEvent } from "@/lib/audit";
+import { notifyShipmentFailed } from "@/lib/notifications";
+import { shipmentNotificationContext } from "@/lib/shipment-notification-context";
+import { pushOrderStatusToWooCommerce } from "@/lib/integrations/shared/auto-push";
 
 export class DeliveryNotConfiguredError extends Error {}
 export class OrderAddressIncompleteError extends Error {}
@@ -662,7 +665,8 @@ export type SyncShipmentStatusOutcome =
   | { outcome: "updated"; newStatus: ShipmentStatusValue }
   | { outcome: "unchanged" }
   | { outcome: "unknown_status"; rawStatus: string }
-  | { outcome: "error"; error: string };
+  /** `retryable: false` = a later retry of the same event can't succeed (invalid transition, another live parcel) — a webhook acknowledges it instead of failing forever. */
+  | { outcome: "error"; error: string; retryable?: boolean };
 
 /**
  * Manual, per-shipment "Synchroniser le statut" action — the polling half
@@ -742,6 +746,8 @@ export async function syncShipmentStatus(params: {
     await prisma.shipment.update({ where: { id: params.shipment.id }, data: extraData });
     return {
       outcome: "error",
+      // Only a blocked order (e.g. packing) or a concurrent change can resolve on a retry.
+      retryable: result.reason === "order_blocked" || result.reason === "conflict",
       error:
         result.reason === "order_blocked"
           ? `Le transporteur signale « ${fetched.rawStatus} », mais la commande ne peut pas passer « Expédiée » : ${result.message}`
@@ -885,11 +891,93 @@ export async function generateManifestViaProvider(params: {
   });
 }
 
+/**
+ * A printable label link for one carrier parcel (capability FETCH_LABEL,
+ * docs/adr/0060). Fetched on demand, returned to the operator, never stored:
+ * carriers sign these links for a short time. Only an https link is
+ * accepted from the adapter.
+ */
+export async function fetchShipmentLabelViaProvider(shipment: Shipment): Promise<string> {
+  if (!shipment.externalId) {
+    throw new DeliveryConfigError("Cette expédition n'a pas été créée via un connecteur API.");
+  }
+  const { adapter, credentials, config } = await loadApiProvider(shipment.providerId);
+  assertCapability(adapter, "FETCH_LABEL");
+  const { url } = await adapter.fetchLabel!({ externalId: shipment.externalId }, credentials, config);
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new DeliveryConfigError("Le transporteur a renvoyé un lien d'étiquette invalide.");
+  }
+  if (parsed.protocol !== "https:") {
+    throw new DeliveryConfigError("Le transporteur a renvoyé un lien d'étiquette non sécurisé.");
+  }
+  return parsed.toString();
+}
+
 export type DeliveryWebhookOutcome =
   | { outcome: "processed"; result: SyncShipmentStatusOutcome }
   | { outcome: "already_processed" }
+  /** Another delivery of the same event is being processed right now — ask the carrier to retry later. */
+  | { outcome: "in_progress" }
+  /** Processing failed; the event stays ECHEC and a retry of the same delivery is processed again. */
+  | { outcome: "failed"; reason: string }
   | { outcome: "ignored"; reason: string }
   | { outcome: "rejected"; reason: string };
+
+/**
+ * Lifecycle of a carrier webhook event (`shipment_webhook_events.status`,
+ * a plain string column — no migration):
+ *   EN_COURS (claimed by one request) → TRAITE | IGNORE | ECHEC.
+ * Only TRAITE / IGNORE are final. A delivery whose processing failed (the
+ * authoritative re-fetch errored, or anything threw) is ECHEC and the SAME
+ * delivery id, retried by the carrier, claims it again (atomic
+ * ECHEC → EN_COURS). A claim older than WEBHOOK_CLAIM_STALE_MS (the request
+ * died mid-way) can be taken over. Side effects stay exactly-once through
+ * the shared pipeline they already go through (conditional shipment / order
+ * updates, ledger-guarded stock), not through this row.
+ * Not an infinite loop: the carrier's own retry policy bounds retries; an
+ * event left ECHEC is visible for review and the parcel is still reconciled
+ * by polling (« Synchroniser le statut », Suivi refresh).
+ */
+export const WEBHOOK_CLAIM_STALE_MS = 5 * 60 * 1000;
+
+type WebhookEventClaim = "claimed" | "already_processed" | "in_progress";
+
+async function claimShipmentWebhookEvent(data: {
+  providerId: string;
+  deliveryId: string;
+  topic: string;
+  resourceId: string | null;
+}): Promise<WebhookEventClaim> {
+  try {
+    await prisma.shipmentWebhookEvent.create({ data: { ...data, status: "EN_COURS" } });
+    return "claimed";
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error;
+  }
+  // The same delivery id was seen before: retake it only if it failed, or
+  // if its claim is stale. Conditional updates — two retries can't both win.
+  const retaken = await prisma.shipmentWebhookEvent.updateMany({
+    where: {
+      providerId: data.providerId,
+      deliveryId: data.deliveryId,
+      OR: [{ status: "ECHEC" }, { status: "EN_COURS", receivedAt: { lt: new Date(Date.now() - WEBHOOK_CLAIM_STALE_MS) } }],
+    },
+    data: { status: "EN_COURS", receivedAt: new Date(), topic: data.topic, resourceId: data.resourceId },
+  });
+  if (retaken.count === 1) return "claimed";
+  const existing = await prisma.shipmentWebhookEvent.findUnique({
+    where: { providerId_deliveryId: { providerId: data.providerId, deliveryId: data.deliveryId } },
+    select: { status: true },
+  });
+  return existing?.status === "EN_COURS" ? "in_progress" : "already_processed";
+}
+
+async function finishShipmentWebhookEvent(providerId: string, deliveryId: string, status: "TRAITE" | "IGNORE" | "ECHEC"): Promise<void> {
+  await prisma.shipmentWebhookEvent.updateMany({ where: { providerId, deliveryId, status: "EN_COURS" }, data: { status } });
+}
 
 /**
  * Verifies and processes one inbound provider webhook delivery. Not wired
@@ -908,6 +996,8 @@ export async function handleDeliveryWebhook(params: {
   rawBody: string;
   headers: Record<string, string>;
   deliveryIdHeader: string | null;
+  /** The connection's company is suspended: verify the signature, then ignore (never processed, never recorded). */
+  tenantSuspended?: boolean;
 }): Promise<DeliveryWebhookOutcome> {
   const row = await prisma.shippingProvider.findUnique({ where: { id: params.providerId } });
   if (!row || row.type !== "API" || !row.providerKey) {
@@ -939,39 +1029,94 @@ export async function handleDeliveryWebhook(params: {
   if (!verified) {
     return { outcome: "rejected", reason: "Signature invalide." };
   }
+  // Verify-then-ignore (shared webhook policy): an unsigned request to a
+  // suspended company's connection gets the same 401 as anyone else.
+  if (params.tenantSuspended) {
+    return { outcome: "ignored", reason: "Société suspendue : évènement accepté mais non traité." };
+  }
 
   const event = adapter.mapWebhookPayload!(params.rawBody, params.headers);
   if (!event) {
     return { outcome: "ignored", reason: "Type d'évènement non pris en charge." };
   }
+  const ignoreReason = adapter.shouldIgnoreWebhookEvent?.(event, credentials) ?? null;
+  if (ignoreReason) {
+    return { outcome: "ignored", reason: ignoreReason };
+  }
 
   const deliveryId = params.deliveryIdHeader ?? event.deliveryId;
+  // Register the event BEFORE processing, but as EN_COURS — never TRAITE
+  // until the processing really succeeded (lifecycle above).
+  const claim = await claimShipmentWebhookEvent({ providerId: row.id, deliveryId, topic: event.topic, resourceId: event.externalId });
+  if (claim === "already_processed") return { outcome: "already_processed" };
+  if (claim === "in_progress") return { outcome: "in_progress" };
+
   try {
-    await prisma.shipmentWebhookEvent.create({
-      data: { providerId: row.id, deliveryId, topic: event.topic, resourceId: event.externalId, status: "TRAITE" },
-    });
-  } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      // A concurrent delivery of the same event, or a true replay of an
-      // already-processed one — see shared/webhook-event.ts's identical
-      // reasoning (docs/adr/0011's Phase 21 addendum).
-      return { outcome: "already_processed" };
+    if (!event.externalId) {
+      await finishShipmentWebhookEvent(row.id, deliveryId, "IGNORE");
+      return { outcome: "ignored", reason: "Évènement sans identifiant d'expédition." };
     }
+
+    const shipment = await prisma.shipment.findFirst({
+      where: { providerId: row.id, externalId: event.externalId },
+      include: { order: true },
+    });
+    if (!shipment) {
+      await finishShipmentWebhookEvent(row.id, deliveryId, "IGNORE");
+      return { outcome: "ignored", reason: "Expédition locale correspondante introuvable." };
+    }
+
+    const result = await syncShipmentStatus({ shipment, order: shipment.order, updatedById: null });
+    if (result.outcome === "error" && result.retryable !== false) {
+      // The authoritative re-fetch failed (carrier down, timeout…) or the
+      // order is momentarily blocked: nothing was applied — keep it retryable.
+      await finishShipmentWebhookEvent(row.id, deliveryId, "ECHEC");
+      return { outcome: "failed", reason: result.error };
+    }
+    if (result.outcome === "updated") {
+      await applyWebhookTransitionEffects(shipment, result.newStatus, deliveryId);
+    }
+    // updated / unchanged / unknown_status / a non-retryable error: the event
+    // was fully handled (an unknown carrier status is a mapping gap, an
+    // invalid transition stays invalid — retrying fixes neither).
+    await finishShipmentWebhookEvent(row.id, deliveryId, "TRAITE");
+    return { outcome: "processed", result };
+  } catch (error) {
+    await finishShipmentWebhookEvent(row.id, deliveryId, "ECHEC");
     throw error;
   }
+}
 
-  if (!event.externalId) {
-    return { outcome: "ignored", reason: "Évènement sans identifiant d'expédition." };
+/**
+ * The follow-ups the manual and bulk syncs already perform after a carrier
+ * status change (src/actions/delivery.ts syncShipmentStatusAction), now also
+ * for a webhook (2026-10-16 review): the audit entry, the « livraison en
+ * échec » alert, and the WooCommerce « completed » push on delivery.
+ * Best-effort: the status change itself is already committed, so a failing
+ * follow-up is logged and never turns the event into a retry.
+ */
+async function applyWebhookTransitionEffects(
+  shipment: { id: string; orderId: string; status: string; failedReason: string | null },
+  newStatus: ShipmentStatusValue,
+  deliveryId: string
+): Promise<void> {
+  try {
+    const fresh = await prisma.shipment.findUnique({ where: { id: shipment.id }, select: { failedReason: true } });
+    await recordAuditEvent({
+      actorType: "INTEGRATION",
+      action: "shipment.status_changed",
+      entityType: "Shipment",
+      entityId: shipment.id,
+      previousValue: { status: shipment.status, failedReason: shipment.failedReason },
+      newValue: { status: newStatus, failedReason: fresh?.failedReason ?? null },
+      metadata: { source: "provider_webhook", deliveryId },
+    });
+    if (newStatus === "ECHEC" && shipment.status !== "ECHEC") {
+      const ctx = await shipmentNotificationContext(shipment.id);
+      if (ctx) await notifyShipmentFailed(ctx, null);
+    }
+    if (newStatus === "LIVRE") await pushOrderStatusToWooCommerce(shipment.orderId);
+  } catch (error) {
+    console.error(`[webhook] delivery follow-up failed (non-fatal): ${error instanceof Error ? error.name : "unknown"}`);
   }
-
-  const shipment = await prisma.shipment.findFirst({
-    where: { providerId: row.id, externalId: event.externalId },
-    include: { order: true },
-  });
-  if (!shipment) {
-    return { outcome: "ignored", reason: "Expédition locale correspondante introuvable." };
-  }
-
-  const result = await syncShipmentStatus({ shipment, order: shipment.order, updatedById: null });
-  return { outcome: "processed", result };
 }

@@ -1,3 +1,5 @@
+import { ScopeBlockedNotice } from "@/components/analytics/scope-blocked-notice";
+import { isBlocked } from "@/lib/analytics/scope";
 import { PageHeader } from "@/components/page-header";
 import { CHART_BAR_CLASSES, CHART_COLORS } from "@/lib/design/chart";
 import { KpiCard } from "@/components/kpi-card";
@@ -27,6 +29,17 @@ export const metadata = { title: "Analyses — Livraison — ASODITECH Gestion E
 export default async function DeliveryAnalyticsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const ctx = await analyticsContext(await searchParams, "delivery");
   const { period, filters } = ctx;
+  // A store / location filter can't narrow this online-only page (docs: src/lib/analytics/scope.ts):
+  // say so instead of showing global figures under it (2026-10-16 review).
+  if (isBlocked("online", filters)) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Analyses — Livraison" description={period.label} />
+        <AnalyticsNav access={ctx.access} active="delivery" query={ctx.periodQuery} />
+        <ScopeBlockedNotice block="online" title="Livraison" basePath="/analyses/livraison" period={period} filters={filters} />
+      </div>
+    );
+  }
   const [d, options] = await Promise.all([getDeliveryAnalytics(period, filters), getOnlineFilterOptions()]);
   const o = d.overall;
 

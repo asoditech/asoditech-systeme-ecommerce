@@ -14,6 +14,7 @@ import { createOrderAction, updateOrderStatusAction } from "@/actions/orders";
 import { confirmPhysicalReturnAction } from "@/actions/returns";
 import { getCurrentUser } from "@/lib/auth/session";
 import { hasGlobalLocationAccess } from "@/lib/auth/location-access";
+import { MANUAL_RETURN_FROM_PENDING_MESSAGE, MANUAL_RETURN_NEVER_SHIPPED_MESSAGE } from "@/lib/validation/delivery";
 import { resetDb } from "../helpers/db";
 import { grantLocationAccess, loginAsTestUser } from "../helpers/auth";
 import { mockCookieStore } from "../mocks/cookie-store";
@@ -516,8 +517,43 @@ describe("C1 — a parcel « Retourné » moves its order to « Retour » (docs/
     expect((await setStatus(shipmentId, "EN_TRANSIT")).ok).toBe(true);
     expect((await updateOrderStatusAction(fd({ id: orderId, status: "ECHEC" }))).ok).toBe(true);
     expect((await updateOrderStatusAction(fd({ id: orderId, status: "ANNULEE" }))).ok).toBe(true);
-    expect((await setStatus(shipmentId, "RETOURNE")).ok).toBe(true);
+    const r = await setStatus(shipmentId, "RETOURNE");
+    expect(r.ok).toBe(true);
     expect(await orderStatus(orderId)).toBe("ANNULEE");
     expect(await returnAudits(orderId)).toHaveLength(0);
+    // Since 2026-10-16 the person is TOLD why the order did not follow (no silent success).
+    expect(r.ok && r.data.notice).toMatch(/la commande reste « Annulée »/);
+  });
+
+  it("a parcel still « En attente » can't be set « Retourné » by hand (it never left); order and stock untouched", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { orderId, productId } = await seedOrder(1);
+    const shipmentId = await manualShipment(orderId);
+    const r = await setStatus(shipmentId, "RETOURNE");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe(MANUAL_RETURN_FROM_PENDING_MESSAGE);
+    expect((await prisma.shipment.findUniqueOrThrow({ where: { id: shipmentId } })).status).toBe("EN_ATTENTE");
+    expect(await orderStatus(orderId)).toBe("CONFIRMEE");
+    expect(await stock(productId)).toEqual({ onHand: 10, reserved: 1 });
+    // The normal path still works: En transit, then Retourné → order « Retour », no notice.
+    expect((await setStatus(shipmentId, "EN_TRANSIT")).ok).toBe(true);
+    const back = await setStatus(shipmentId, "RETOURNE");
+    expect(back.ok && back.data.notice).toBeFalsy();
+    expect(await orderStatus(orderId)).toBe("RETOUR");
+  });
+
+  it("« Échec » → « Retourné » by hand is refused while the order was never shipped; the order is not blocked by it", async () => {
+    await loginAsTestUser({ role: "MANAGER" });
+    const { orderId } = await seedOrder(1);
+    const shipmentId = await manualShipment(orderId);
+    expect((await setStatus(shipmentId, "ECHEC", "Client injoignable au téléphone")).ok).toBe(true);
+    const r = await setStatus(shipmentId, "RETOURNE");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe(MANUAL_RETURN_NEVER_SHIPPED_MESSAGE);
+    expect((await prisma.shipment.findUniqueOrThrow({ where: { id: shipmentId } })).status).toBe("ECHEC");
+    // A carrier-reported « Retourné » on a never-shipped order must not block a real re-shipment.
+    await prisma.shipment.update({ where: { id: shipmentId }, data: { status: "RETOURNE" } });
+    const again = await manualShipment(orderId);
+    expect(again).toBeTruthy();
   });
 });

@@ -38,6 +38,41 @@ export const SHIPMENT_STATUS_TRANSITIONS: Record<ShipmentStatusValue, ShipmentSt
   ANNULE: [],
 };
 
+export const MANUAL_RETURN_FROM_PENDING_MESSAGE =
+  "Un colis encore « En attente » n'est jamais parti : il ne peut pas être « Retourné ». Passez-le d'abord « En transit » s'il est parti, ou annulez-le s'il n'est pas parti.";
+
+export const MANUAL_RETURN_NEVER_SHIPPED_MESSAGE =
+  "Cette commande n'a jamais été expédiée : aucun colis n'a pu revenir, il ne peut donc pas être « Retourné ». Passez d'abord le colis « En transit » s'il est réellement parti, ou annulez-le.";
+
+export const MANUAL_OUTCOME_UNKNOWN_MESSAGE =
+  "Création à vérifier chez le transporteur : vérifiez son portail, puis marquez ce colis « Échec » (aucun colis chez lui) ou « Annulé » (colis existant, à lier ensuite avec « Lier un colis existant »).";
+
+/**
+ * Extra rules for a status chosen BY HAND (owner decisions 2026-10-16). A
+ * carrier's own report (sync / webhook) is NOT restricted: the carrier is
+ * authoritative (see the table's comment above).
+ *  - « Retourné » needs a parcel that left: never from « En attente », and
+ *    never while the ORDER was never shipped (`orderShipped` = order.shippedAt
+ *    set) — whatever the parcel's previous status (« Échec » included). That
+ *    skipped the shipping step, left the order « En préparation » with no
+ *    stock out, and showed a parcel the returns workspace then refused.
+ *  - A creation « à vérifier » (outcome unknown at the carrier) is settled
+ *    only as « Échec » or « Annulé » — never « En transit » / « Livré » by
+ *    hand, which would ship the order and deduct stock on a parcel that may
+ *    not exist.
+ */
+export function manualShipmentTransitionProblem(
+  from: ShipmentStatusValue,
+  to: ShipmentStatusValue,
+  context: { orderShipped?: boolean; outcomeUnknown?: boolean } = {}
+): string | null {
+  if (context.outcomeUnknown && to !== "ECHEC" && to !== "ANNULE") return MANUAL_OUTCOME_UNKNOWN_MESSAGE;
+  if (to !== "RETOURNE") return null;
+  if (from === "EN_ATTENTE") return MANUAL_RETURN_FROM_PENDING_MESSAGE;
+  if (context.orderShipped === false) return MANUAL_RETURN_NEVER_SHIPPED_MESSAGE;
+  return null;
+}
+
 /**
  * « Création à vérifier » — a carrier parcel-creation request was sent but
  * its outcome is unknown (timeout, 5xx, 429, lost connection; see

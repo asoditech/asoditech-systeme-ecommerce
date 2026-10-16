@@ -33,6 +33,22 @@ export class DeliveryMalformedResponseError extends DeliveryProviderError {}
 export class DeliveryOutcomeUnknownError extends DeliveryProviderError {}
 
 /**
+ * HTTP statuses that, on a parcel-creation request that WAS sent, count as a
+ * definite refusal (nothing created): the request was rejected as
+ * malformed / unauthenticated / forbidden / unknown endpoint / invalid data.
+ * Any other non-2xx answer to a creation — 408, 409, 410, 5xx, 429, an
+ * unexpected status — does not prove the carrier did not act, so it is
+ * DeliveryOutcomeUnknownError (« à vérifier »), never ECHEC (2026-10-16
+ * review). A carrier with its own documented refusal codes (Sendit
+ * 250/251/252) passes them as `extra`.
+ */
+const DEFINITE_CREATE_REFUSAL_STATUSES: readonly number[] = [400, 401, 403, 404, 422];
+
+export function isDefiniteCreateRefusalStatus(status: number, extra: readonly number[] = []): boolean {
+  return DEFINITE_CREATE_REFUSAL_STATUSES.includes(status) || extra.includes(status);
+}
+
+/**
  * Thrown by assertCapability() — the typed "not supported" result Step 1
  * of the phase brief calls for, instead of silently pretending an
  * unimplemented operation succeeded.

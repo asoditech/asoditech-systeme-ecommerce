@@ -4,7 +4,7 @@ import { Notice } from "@/components/ui/notice";
 /**
  * The Livraison → « Documentation » tab. Plain-French, non-technical
  * guides — one overview of how orders / boutique / carrier connect, then
- * one collapsible section per delivery company (OzonExpress, Aramex; add
+ * one collapsible section per delivery company (OzonExpress, Sendit, Ameex; add
  * another `<CarrierGuide>` block as more are onboarded). Native
  * <details>, no JS, works in an RSC.
  */
@@ -13,7 +13,8 @@ export function DeliveryDocs() {
     <div className="space-y-4">
       <FlowOverview />
       <OzonExpressGuide />
-      <AramexGuide />
+      <SenditGuide />
+      <AmeexGuide />
     </div>
   );
 }
@@ -30,7 +31,7 @@ function FlowOverview() {
         <p>
           Trois systèmes travaillent ensemble : votre <span className="text-foreground">boutique</span> (WooCommerce ou
           Shopify), <span className="text-foreground">ce projet</span> (ASODITECH), et la{" "}
-          <span className="text-foreground">société de livraison</span> (aujourd&apos;hui : OzonExpress ou Aramex).
+          <span className="text-foreground">société de livraison</span> (aujourd&apos;hui : OzonExpress, Sendit ou Ameex).
         </p>
 
         <div className="space-y-2">
@@ -181,113 +182,207 @@ function OzonExpressGuide() {
   );
 }
 
-function AramexGuide() {
+function SenditGuide() {
   return (
     <details className="rounded-card bg-card p-5 text-sm shadow-card [&_summary]:cursor-pointer">
       <summary className="flex items-center gap-2 font-medium">
         <HelpCircle className="size-4" />
-        Guide : Aramex
+        Guide : Sendit
       </summary>
 
       <div className="mt-3 space-y-4 text-muted-foreground">
         <Notice tone="warning" className="block">
-          Connecteur Aramex disponible mais pas encore validé sur un compte réel. Les points de terminaison proviennent
-          de la documentation officielle Aramex ; testez d&apos;abord avec une commande réelle avant de l&apos;utiliser en
-          production.
+          Connecteur Sendit disponible mais pas encore validé sur un compte réel. Il a été construit à partir de la
+          documentation officielle de l&apos;API Sendit ; testez d&apos;abord avec une vraie commande avant de
+          l&apos;utiliser en production.
         </Notice>
 
         <section className="space-y-1">
-          <p className="font-medium text-foreground">1. Obtenir vos accès API</p>
+          <p className="font-medium text-foreground">1. Obtenir vos clés API</p>
           <p>
-            Aramex n&apos;active pas l&apos;API par défaut. Depuis votre compte marchand Aramex, faites une demande
-            «&nbsp;Aramex API tools&nbsp;» (ou contactez votre agence). Aramex vous fournit six valeurs :{" "}
-            <span className="text-foreground">nom d&apos;utilisateur</span> (e-mail),{" "}
-            <span className="text-foreground">mot de passe API</span>,{" "}
-            <span className="text-foreground">numéro de compte</span>,{" "}
-            <span className="text-foreground">code PIN</span>,{" "}
-            <span className="text-foreground">entité</span> (code à 3 lettres de l&apos;agence d&apos;origine, ex.{" "}
-            <span className="text-foreground">CMN</span> pour Casablanca) et{" "}
-            <span className="text-foreground">code pays</span> (ex. <span className="text-foreground">MA</span>).
+            Dans votre compte Sendit, ouvrez la rubrique API / Intégrations (ou demandez l&apos;accès API à votre
+            interlocuteur Sendit). Vous obtenez deux valeurs : une <span className="text-foreground">clé publique</span>{" "}
+            (public_key) et une <span className="text-foreground">clé secrète</span> (secret_key). Gardez la clé secrète
+            pour vous : elle n&apos;est jamais réaffichée ici après l&apos;enregistrement.
           </p>
         </section>
 
         <section className="space-y-1">
-          <p className="font-medium text-foreground">2. Connecter Aramex à ce projet</p>
+          <p className="font-medium text-foreground">2. Connecter Sendit à ce projet</p>
           <p>
-            Onglet « Prestataires » → créez un prestataire de type « API », choisissez le connecteur « Aramex », collez
-            les six valeurs, puis cliquez sur <span className="text-foreground">« Tester la connexion »</span>. Le test
-            interroge le suivi Aramex avec un numéro fictif — il ne crée aucun envoi — et confirme uniquement que les
-            identifiants sont acceptés.
+            Onglet « Prestataires » → créez un prestataire de type « API », choisissez le connecteur « Sendit (Maroc) »,
+            collez la clé publique et la clé secrète, puis cliquez sur{" "}
+            <span className="text-foreground">« Tester la connexion »</span>. Le test se contente de se connecter à
+            Sendit avec vos clés — il ne crée aucun colis. Le statut passe à « Connecté » uniquement si le test réussit.
           </p>
         </section>
 
         <section className="space-y-1">
-          <p className="font-medium text-foreground">3. Renseigner l&apos;adresse d&apos;expédition</p>
-          <p>
-            Aramex exige une adresse d&apos;origine complète sur chaque envoi. Dans le champ{" "}
-            <span className="text-foreground">Configuration (JSON)</span> du prestataire, indiquez au minimum :
-          </p>
-          <pre className="overflow-x-auto rounded-xl bg-pill-neutral p-3 text-xs text-ink">
-{`{
-  "shipperName": "Votre société",
-  "shipperPhone": "0522000000",
-  "shipperLine1": "12 Rue de l'Industrie",
-  "shipperCity": "Casablanca",
-  "shipperCountryCode": "MA",
-  "productGroup": "DOM",
-  "productType": "OND",
-  "paymentType": "P",
-  "defaultWeightKg": 0.5,
-  "defaultGoodsDescription": "Vêtements",
-  "sandbox": true
-}`}
-          </pre>
-          <p>
-            <span className="text-foreground">productType « OND »</span> est le type domestique avec paiement à la
-            livraison (COD). Le montant à encaisser est repris automatiquement depuis la commande.
-          </p>
-          <p>
-            Gardez <span className="text-foreground">&quot;sandbox&quot;: true</span> pour tester tout le flux sur
-            l&apos;environnement d&apos;essai d&apos;Aramex (<span className="font-mono">ws.dev.aramex.net</span>), puis
-            passez à <span className="text-foreground">false</span> (ou retirez la ligne) une fois vos identifiants de
-            production Aramex Maroc obtenus.
-          </p>
-        </section>
-
-        <section className="space-y-1">
-          <p className="font-medium text-foreground">4. Créer les envois</p>
+          <p className="font-medium text-foreground">3. Créer les colis</p>
           <ul className="ml-4 list-disc space-y-1">
             <li>
-              <span className="text-foreground">Création par ce projet (par défaut)</span> : dans l&apos;onglet « À
-              expédier », choisissez Aramex pour une commande — le projet crée l&apos;envoi (AWB) chez Aramex, récupère
-              le numéro de suivi et le lien de suivi, et estime le coût via le calculateur de tarifs Aramex.
+              Dans l&apos;onglet « À expédier », choisissez Sendit pour une commande : le projet crée le colis chez
+              Sendit et récupère son code (qui sert de numéro de suivi) et les frais de livraison indiqués par Sendit.
             </li>
             <li>
-              <span className="text-foreground">Création par la boutique</span> : si votre site crée déjà l&apos;AWB
-              Aramex à la commande, activez «&nbsp;<span className="text-foreground">parcelsCreatedByStore</span>: true&nbsp;»
-              dans la configuration. Vous utilisez alors « Créer une expédition » et saisissez le numéro AWB fourni par
-              Aramex.
+              Pour l&apos;instant, seules les commandes en{" "}
+              <span className="text-foreground">paiement à la livraison</span> sont envoyées : la documentation Sendit
+              ne précise pas le montant à déclarer pour un colis déjà payé.
+            </li>
+            <li>
+              Si Sendit ne répond pas clairement pendant la création, l&apos;expédition est marquée « à vérifier » et
+              aucune nouvelle tentative n&apos;est faite automatiquement : vérifiez sur le portail Sendit avant de
+              réessayer, pour ne pas créer le colis deux fois.
             </li>
           </ul>
         </section>
 
         <section className="space-y-1">
-          <p className="font-medium text-foreground">5. Villes &amp; adresses</p>
+          <p className="font-medium text-foreground">4. Correspondance des villes</p>
           <p>
-            Contrairement à OzonExpress, Aramex n&apos;utilise pas d&apos;identifiant de ville : la ville de la commande
-            et le code pays sont envoyés tels quels. Aucune « correspondance de villes » n&apos;est nécessaire.
+            Sendit identifie chaque destination (ville ou quartier) par un numéro. Le projet fait la correspondance à
+            partir de la liste des villes Sendit. Si une ville de commande n&apos;est pas reconnue, ajoutez une
+            correspondance précise depuis « Correspondances de villes » — sinon aucun colis n&apos;est envoyé.
           </p>
         </section>
 
         <section className="space-y-1">
-          <p className="font-medium text-foreground">6. Suivi &amp; statuts</p>
+          <p className="font-medium text-foreground">5. Étiquettes</p>
           <p>
-            Le numéro AWB et son lien de suivi apparaissent dans la colonne « Suivi » de l&apos;onglet « Expéditions ».
-            «&nbsp;Rafraîchir le statut&nbsp;» interroge le suivi Aramex ; quand Aramex marque l&apos;envoi{" "}
-            <span className="text-foreground">livré</span>, la commande passe à « Livrée » ici (via « Expédiée » si
-            elle ne l&apos;était pas encore). Le
-            vocabulaire de statuts Aramex est encore indicatif tant qu&apos;un envoi réel n&apos;a pas été suivi de bout
-            en bout.
+            Le bouton « Étiquette » d&apos;une expédition Sendit demande l&apos;étiquette à Sendit au moment du clic et
+            l&apos;ouvre dans votre navigateur. Le lien fourni par Sendit est temporaire : il n&apos;est pas conservé ici.
+          </p>
+        </section>
+
+        <section className="space-y-1">
+          <p className="font-medium text-foreground">6. Suivi &amp; statuts (provisoires)</p>
+          <p>
+            Sendit n&apos;envoie pas les changements de statut tout seul : utilisez « Rafraîchir le statut » sur une
+            expédition, « Rafraîchir les statuts » ou l&apos;onglet Suivi. La traduction des statuts Sendit (« Ramassé »,
+            « En transit », « Livré », « Refusé »…) vers les statuts de ce projet est{" "}
+            <span className="text-foreground">provisoire</span> tant qu&apos;elle n&apos;a pas été vérifiée sur de vrais
+            colis ; le statut d&apos;origine envoyé par Sendit est toujours conservé.
+          </p>
+        </section>
+
+        <section className="space-y-1">
+          <p className="font-medium text-foreground">7. Ce qui n&apos;est pas encore disponible</p>
+          <p>
+            L&apos;annulation d&apos;un colis depuis ce projet, la modification d&apos;un colis déjà créé et les
+            bordereaux de remise ne sont pas proposés pour Sendit : faites-les depuis le portail Sendit.
+          </p>
+        </section>
+      </div>
+    </details>
+  );
+}
+
+function AmeexGuide() {
+  return (
+    <details className="rounded-card bg-card p-5 text-sm shadow-card [&_summary]:cursor-pointer">
+      <summary className="flex items-center gap-2 font-medium">
+        <HelpCircle className="size-4" />
+        Guide : Ameex
+      </summary>
+
+      <div className="mt-3 space-y-4 text-muted-foreground">
+        <Notice tone="warning" className="block">
+          Connecteur Ameex validé sur le <span className="font-medium">bac à sable</span> Ameex uniquement (colis
+          fictifs, octobre 2026) — pas encore sur un compte de production. Faites un premier essai avec une vraie
+          commande et vérifiez-la sur le portail Ameex avant de l&apos;utiliser au quotidien.
+        </Notice>
+
+        <section className="space-y-1">
+          <p className="font-medium text-foreground">1. Obtenir vos identifiants API</p>
+          <p>
+            Dans votre espace Ameex, ouvrez la rubrique <span className="text-foreground">« Développeur / API »</span>.
+            Vous y trouvez deux valeurs : l&apos;<span className="text-foreground">API Id</span> et la{" "}
+            <span className="text-foreground">clé API</span>. Une clé qui commence par « test_ » est une clé de{" "}
+            <span className="text-foreground">bac à sable</span> : les colis créés avec elle sont fictifs (code « SBX-… »)
+            et ne sont jamais livrés. Toute autre clé est une clé de production. La clé n&apos;est jamais réaffichée ici
+            après l&apos;enregistrement.
+          </p>
+        </section>
+
+        <section className="space-y-1">
+          <p className="font-medium text-foreground">2. Connecter Ameex à ce projet</p>
+          <p>
+            Onglet « Prestataires » → créez un prestataire de type « API », choisissez le connecteur « Ameex (Maroc) »,
+            collez l&apos;API Id et la clé API, puis cliquez sur{" "}
+            <span className="text-foreground">« Tester la connexion »</span>. Le test lit seulement la liste des statuts
+            Ameex — il ne crée aucun colis. Le statut passe à « Connecté » uniquement si le test réussit.
+          </p>
+        </section>
+
+        <section className="space-y-1">
+          <p className="font-medium text-foreground">3. Mises à jour automatiques (webhook)</p>
+          <ul className="ml-4 list-disc space-y-1">
+            <li>
+              Choisissez un <span className="text-foreground">secret de signature</span> (une longue phrase aléatoire),
+              saisissez-le chez Ameex dans la configuration du webhook, et le même dans le champ « Secret de signature
+              des webhooks Ameex » de ce prestataire.
+            </li>
+            <li>
+              Adresse à coller chez Ameex :{" "}
+              <span className="font-mono text-foreground">
+                https://&lt;votre domaine&gt;/api/webhooks/delivery/&lt;identifiant de la connexion&gt;
+              </span>{" "}
+              — une adresse par connexion, affichée toute prête dans « Configurer » de ce prestataire (champ « URL du
+              webhook à coller chez le transporteur »).
+            </li>
+            <li>
+              Sans secret, Ameex envoie des webhooks non signés : ils sont toujours refusés. Un webhook ne fait que
+              déclencher une relecture du statut chez Ameex ; rien n&apos;est appliqué sur la seule foi de son contenu.
+            </li>
+          </ul>
+        </section>
+
+        <section className="space-y-1">
+          <p className="font-medium text-foreground">4. Créer les colis</p>
+          <ul className="ml-4 list-disc space-y-1">
+            <li>
+              Dans l&apos;onglet « À expédier », choisissez Ameex pour une commande : le projet crée le colis chez Ameex
+              (destinataire, téléphone, ville, adresse, montant à encaisser, articles, note, n° de commande) et récupère
+              son code, qui sert de numéro de suivi.
+            </li>
+            <li>
+              Une commande déjà payée est envoyée avec un montant à encaisser de 0 — ce cas n&apos;a pas encore été
+              vérifié chez Ameex.
+            </li>
+            <li>
+              Si Ameex ne répond pas clairement pendant la création, l&apos;expédition est marquée « à vérifier » et
+              aucune nouvelle tentative n&apos;est faite automatiquement : vérifiez sur le portail Ameex avant de
+              réessayer, pour ne pas créer le colis deux fois.
+            </li>
+          </ul>
+        </section>
+
+        <section className="space-y-1">
+          <p className="font-medium text-foreground">5. Correspondance des villes</p>
+          <p>
+            Ameex identifie chaque ville par un numéro. Le projet fait la correspondance à partir de la liste des villes
+            Ameex. Si une ville de commande n&apos;est pas reconnue, ajoutez une correspondance précise depuis
+            « Correspondances de villes » — sinon aucun colis n&apos;est envoyé.
+          </p>
+        </section>
+
+        <section className="space-y-1">
+          <p className="font-medium text-foreground">6. Suivi &amp; statuts (provisoires)</p>
+          <p>
+            Les statuts arrivent par le webhook, ou à la demande avec « Rafraîchir le statut », « Rafraîchir les
+            statuts » ou l&apos;onglet Suivi (historique complet). La traduction des statuts Ameex (« Ramassé », « En
+            Voyage », « Livré », « Refusé », « Retourné »…) vers les statuts de ce projet est{" "}
+            <span className="text-foreground">provisoire</span> tant qu&apos;elle n&apos;a pas été vérifiée sur de vrais
+            colis. « Remboursé » n&apos;est volontairement pas traduit. Le statut d&apos;origine envoyé par Ameex est
+            toujours conservé.
+          </p>
+        </section>
+
+        <section className="space-y-1">
+          <p className="font-medium text-foreground">7. Ce qui n&apos;est pas encore disponible</p>
+          <p>
+            L&apos;annulation d&apos;un colis, les étiquettes, les bordereaux et les frais de livraison ne sont pas
+            proposés pour Ameex (non documentés par Ameex) : faites-les depuis le portail Ameex.
           </p>
         </section>
       </div>

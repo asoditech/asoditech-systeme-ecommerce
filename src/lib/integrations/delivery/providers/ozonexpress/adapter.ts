@@ -4,6 +4,7 @@ import {
   DeliveryConfigError,
   DeliveryMalformedResponseError,
   DeliveryOutcomeUnknownError,
+  DeliveryProviderError,
 } from "@/lib/integrations/delivery/errors";
 import type {
   CreateShipmentAdapterInput,
@@ -230,7 +231,10 @@ export const ozonExpressAdapter: DeliveryProviderAdapter = {
     } catch (error) {
       // OzonExpress accepted the request (no RESULT:ERROR) but the body
       // carries no usable parcel: it may still have been created.
-      if (error instanceof DeliveryMalformedResponseError) throw new DeliveryOutcomeUnknownError(OUTCOME_UNKNOWN_MESSAGE);
+      // Same for anything unexpected while reading an accepted answer.
+      if (error instanceof DeliveryMalformedResponseError || !(error instanceof DeliveryProviderError)) {
+        throw new DeliveryOutcomeUnknownError(OUTCOME_UNKNOWN_MESSAGE);
+      }
       throw error;
     }
 

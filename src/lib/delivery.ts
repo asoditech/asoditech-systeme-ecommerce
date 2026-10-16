@@ -7,6 +7,7 @@ import { canTransitionOrderStatus, unshippedFailedOrderProblem } from "@/lib/val
 import { canTransitionShipmentStatus, type ShipmentStatusValue } from "@/lib/validation/delivery";
 import { reconcileOrderCommission } from "@/lib/commissions";
 import { recordAuditEvent } from "@/lib/audit";
+import { applyDeliveredPayment } from "@/lib/orders/delivered-payment";
 import { fulfillStockForOrder, InsufficientStockError } from "@/lib/inventory";
 import { checkAndNotifyLowStock, notifyOrderReturned } from "@/lib/notifications";
 import { pushStockAfterLocalChange } from "@/lib/integrations/shared/auto-push";
@@ -36,7 +37,10 @@ export async function orderGoodsCameBack(db: typeof prisma | PrismaTransactionCl
     db.orderReturnLine.count({
       where: { orderReturn: { orderId }, OR: [{ quantitySellable: { gt: 0 } }, { quantityDamaged: { gt: 0 } }] },
     }),
-    db.shipment.count({ where: { orderId, status: "RETOURNE" } }),
+    // A « Retourné » parcel only counts when the order really left: a
+    // carrier-reported return on a never-shipped order (no stock went out)
+    // must not block shipping it for real.
+    db.shipment.count({ where: { orderId, status: "RETOURNE", order: { shippedAt: { not: null } } } }),
   ]);
   return returnedLines + returnedParcels > 0;
 }
@@ -303,10 +307,20 @@ export async function applyShipmentStatusTransition(params: {
             cost: true,
             costSource: true,
             costFinalizedAt: true,
+            externalId: true,
             provider: { select: { type: true, returnCost: true, failureCost: true } },
           },
         });
-        if (current && current.costFinalizedAt === null) {
+        // An API shipment with no carrier id never became a parcel at the
+        // carrier — e.g. a creation « à vérifier » settled by hand as
+        // « Échec » (no parcel in the carrier's portal) or « Annulé » (the
+        // existing parcel is then linked as its own shipment). ADR 0031
+        // calls such a row a failed creation *attempt*, « not a shipment »,
+        // and ADR 0032 excludes those attempts from delivery costs: no
+        // failure/return rule is booked on it (it would also vanish with
+        // the self-heal cleanup when the order is re-shipped).
+        const neverReachedCarrier = current !== null && current.provider.type === "API" && current.externalId === null;
+        if (current && current.costFinalizedAt === null && !neverReachedCarrier) {
           const carrierCost = params.carrierCost ?? current.cost;
           const resolved = resolveFinalShipmentCost(params.newStatus, carrierCost, {
             returnCost: current.provider.returnCost,
@@ -402,6 +416,8 @@ export async function applyShipmentStatusTransition(params: {
           tx
         );
         orderDelivered = true;
+        // The company's opt-in rule "delivered = paid" (default OFF).
+        await applyDeliveredPayment(tx, { orderId: params.orderId, via: "shipment", ...actor, metadata: { shipmentId: params.shipmentId } });
       }
 
       // A parcel the carrier (or staff) marks « Retourné » is the real-world

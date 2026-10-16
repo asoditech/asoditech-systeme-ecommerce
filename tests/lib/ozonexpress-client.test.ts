@@ -79,8 +79,9 @@ describe("OzonExpressClient", () => {
 
   describe("SSRF", () => {
     it("rejects a base URL resolving to a private/reserved address before any request", async () => {
-      const c = new OzonExpressClient(creds, "https://169.254.169.254");
-      await expect(c.post("tracking", {})).rejects.toBeInstanceOf(DeliveryConfigError);
+      // Refused at construction now (not an official OzonExpress host —
+      // 2026-10-16 allowlist); assertPublicHost still runs per request.
+      expect(() => new OzonExpressClient(creds, "https://169.254.169.254")).toThrow(DeliveryConfigError);
     });
 
     it("rejects a non-HTTPS base URL at construction", () => {
@@ -259,8 +260,7 @@ describe("OzonExpressClient", () => {
     });
 
     it("re-checks SSRF — a private-IP host is rejected", async () => {
-      const c = new OzonExpressClient(creds, "https://10.0.0.1", { timeoutMs: 1000 });
-      await expect(c.get("cities")).rejects.toBeInstanceOf(DeliveryConfigError);
+      expect(() => new OzonExpressClient(creds, "https://10.0.0.1", { timeoutMs: 1000 })).toThrow(DeliveryConfigError);
     });
   });
 });

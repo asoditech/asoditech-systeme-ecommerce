@@ -4,6 +4,7 @@ import {
   DeliveryAuthError,
   DeliveryConfigError,
   DeliveryNotFoundError,
+  DeliveryOutcomeUnknownError,
   DeliveryProviderError,
   DeliveryRateLimitError,
   DeliveryUnavailableError,
@@ -53,9 +54,12 @@ function classifyByCode(code: string): DeliveryProviderError | null {
       `Compte Aramex non utilisable (${c}) — le compte est invalide ou bloqué. Contactez votre représentant Aramex.`
     );
   }
+  // The shipment most likely exists already (a previous request reached
+  // Aramex): outcome unknown → « à vérifier », never a definite failure that
+  // would free the order for a second AWB.
   if (c === "ERR30") {
-    return new DeliveryNotFoundError(
-      "Aramex a déjà un envoi avec cette référence (ERR30). L'expédition a probablement déjà été créée — vérifiez l'onglet « Expéditions »."
+    return new DeliveryOutcomeUnknownError(
+      "Aramex a déjà un envoi avec cette référence (ERR30) : l'envoi a probablement déjà été créé. Vérifiez sur le portail Aramex, puis liez-le avec « Lier un colis existant »."
     );
   }
   if (c === "ERR52") {

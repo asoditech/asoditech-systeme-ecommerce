@@ -7,7 +7,9 @@ import {
   DeliveryOutcomeUnknownError,
   DeliveryTimeoutError,
   DeliveryUnavailableError,
+  isDefiniteCreateRefusalStatus,
 } from "@/lib/integrations/delivery/errors";
+import { assertAllowedCarrierBaseUrl, OZONEXPRESS_API_HOSTS } from "@/lib/integrations/delivery/carrier-hosts";
 import { errorForApiMessage, errorForStatus } from "./errors";
 import { ozonExpressErrorEnvelopeSchema, type OzonExpressCredentials } from "./types";
 
@@ -91,6 +93,9 @@ export class OzonExpressClient {
     if (parsed.protocol !== "https:") {
       throw new DeliveryConfigError("L'URL de base OzonExpress doit utiliser HTTPS.");
     }
+    // The URL path carries the customer id + API key: only OzonExpress's own
+    // API host may receive it (config `baseUrl` is tenant-editable).
+    assertAllowedCarrierBaseUrl(parsed.toString(), OZONEXPRESS_API_HOSTS, "OzonExpress");
     this.baseHost = `${parsed.protocol}//${parsed.host}`;
     // encodeURIComponent so a credential containing a slash / space can
     // never break out of its path segment.
@@ -196,7 +201,9 @@ export class OzonExpressClient {
       // 5xx / 429 on a one-shot request: the server may have acted before
       // failing (429: see the doc comment above — no evidence it is a
       // pre-execution refusal).
-      if (once && (response.status >= 500 || response.status === 429)) {
+      // Same for any non-2xx that is not an unambiguous refusal (408, 409,
+      // an unexpected status…): nothing proves OzonExpress did not act.
+      if (once && !response.ok && !isDefiniteCreateRefusalStatus(response.status)) {
         throw new DeliveryOutcomeUnknownError(OUTCOME_UNKNOWN_MESSAGE);
       }
       if (response.status === 429 || response.status >= 500) {
